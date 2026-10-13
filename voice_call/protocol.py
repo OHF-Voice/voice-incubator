@@ -1,0 +1,60 @@
+"""Wire protocol spoken with the ESPHome voice_call component.
+
+Frames are ``uint8 type | uint16 big-endian length | payload``. Audio payloads
+are raw 16 kHz, 16-bit, mono PCM; control payloads are JSON.
+"""
+
+from __future__ import annotations
+
+import json
+import struct
+from enum import IntEnum
+
+HEADER = struct.Struct(">BH")
+MAX_PAYLOAD = 4096
+
+SAMPLE_RATE = 16000
+BYTES_PER_SAMPLE = 2
+BYTE_RATE = SAMPLE_RATE * BYTES_PER_SAMPLE
+
+
+class Message(IntEnum):
+    """Device to app."""
+
+    HELLO = 0x01
+    CALL_START = 0x02
+    AUDIO_IN = 0x03
+    CALL_END = 0x04
+    STATUS = 0x05
+    PLAYBACK_DRAINED = 0x06
+    MODEL_RESULT = 0x07
+    AUDIO_IN_AEC = 0x08
+
+    """App to device."""
+    AUDIO_OUT = 0x10
+    AUDIO_OUT_END = 0x11
+    EVENT = 0x12
+    HANGUP = 0x13
+    MODEL_START = 0x20
+    MODEL_DATA = 0x21
+    MODEL_END = 0x22
+    MODEL_CLEAR = 0x23
+
+
+def encode(msg_type: Message, payload: bytes = b"") -> bytes:
+    if len(payload) > MAX_PAYLOAD:
+        raise ValueError(f"payload {len(payload)} exceeds {MAX_PAYLOAD}")
+    return HEADER.pack(msg_type, len(payload)) + payload
+
+
+def encode_json(msg_type: Message, obj: dict) -> bytes:
+    return encode(msg_type, json.dumps(obj).encode())
+
+
+def ms_to_bytes(ms: float) -> int:
+    """Byte offset of a timestamp, rounded down to a whole sample."""
+    return int(ms * BYTE_RATE / 1000) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
+
+
+def bytes_to_ms(n: int) -> float:
+    return n * 1000 / BYTE_RATE

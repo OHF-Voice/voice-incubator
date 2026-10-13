@@ -1,0 +1,10 @@
+pysilero-vad>=3,<4
+piper-tts>=1.8,<2
+zeroconf<1
+numpy>=2,<3
+soundfile>=0.12
+soxr>=0.5
+PyYAML>=6.0
+wyoming>=1.5.4
+websockets>=13
+tflite>=2.18,<3

@@ -1,0 +1,116 @@
+# Ground truth for the mic_tap "mike-merged" corpus.
+#
+# recorded prompt <TAB> kind <TAB> accepted recognition(s), '|' separated
+#
+# kind:
+#   grammar   a sentence trigger covers it; speech-to-phrase must return one of
+#             the accepted forms
+#   wildcard  the trigger captures free text, so the grammar must reject and the
+#             transcript must match the trigger with hassil
+#   oov       nothing covers it; the grammar must reject it
+#
+# Accepted forms are what the grammar can emit, so numbers are spelled out and
+# variants the speaker might have used are listed where the prompt is ambiguous
+# ("100 percent" could be "a hundred" or "one hundred").
+add 1 hour to the pizza timer	grammar	add one hour to the pizza timer|add an hour to the pizza timer
+add bananas to the shopping list	oov
+are all the doors locked	grammar	are all the doors locked
+are all the fans off in the kitchen	grammar	are all the fans off in the kitchen
+blah blah	oov
+cancel all timers	grammar	cancel all timers
+cancel the 30 minute timer	grammar	cancel the thirty minute timer
+change the bedroom lamp to 14 percent	grammar	change the bedroom lamp to fourteen percent
+change the bedroom lamp to 40 percent	grammar	change the bedroom lamp to forty percent
+close the curtains to 15 percent	grammar	close the curtains to fifteen percent
+decrease the kitchen timer by 5 minutes	grammar	decrease the kitchen timer by five minutes
+go back	grammar	go back
+go back to the previous song	grammar	go back to the previous song
+how long is left on my 5 minute timer	grammar	how long is left on my five minute timer
+how warm is it in here	grammar	how warm is it in here
+is the garage door open	grammar	is the garage door open
+is the kitchen light on	grammar	is the kitchen light on
+make it cozy in the living room	oov
+make the kitchen lights warmer	grammar	make the kitchen lights warmer
+mute	grammar	mute
+mute the tv	grammar	mute the tv
+never mind	grammar	never mind
+next song	grammar	next song
+open the curtains to 50 percent	grammar	open the curtains to fifty percent
+pause	grammar	pause
+pause my timer	grammar	pause my timer
+pause the music	grammar	pause the music
+play party playlist	wildcard	play party playlist
+play some classical music in the bedroom	grammar	play some classical music in the bedroom
+play some jazz in the kitchen	grammar	play some jazz in the kitchen
+play some music by Radiohead	wildcard	play some music by radiohead
+play the office on the tv in the kitchen	wildcard	play the office on the tv in the kitchen
+please turn on the lights	grammar	please turn on the lights
+put clean the garage on my todo list	oov
+remind me in 3 hours to pick up the kids	oov
+resume	grammar	resume
+resume the music	grammar	resume the music
+set a timer for 1 hour 5 minutes and 30 seconds	grammar	set a timer for one hour five minutes and thirty seconds
+set a timer for 1 hour and 30 seconds	grammar	set a timer for one hour and thirty seconds
+set a timer for 13 minutes	grammar	set a timer for thirteen minutes
+set a timer for 15 seconds	grammar	set a timer for fifteen seconds
+set a timer for 30 minutes	grammar	set a timer for thirty minutes
+set a timer for 50 seconds	grammar	set a timer for fifty seconds
+set a timer for 90 seconds	grammar	set a timer for ninety seconds
+set a timer for a minute and a half	grammar	set a timer for a minute and a half
+set a timer for an hour and a half	grammar	set a timer for an hour and a half
+set a timer for half an hour	grammar	set a timer for half an hour
+set an alarm for 7	oov
+set kitchen brightness to 100 percent	grammar	set kitchen brightness to a hundred percent|set kitchen brightness to one hundred percent
+set kitchen brightness to 13 percent	grammar	set kitchen brightness to thirteen percent
+set kitchen brightness to 150 percent	oov
+set kitchen brightness to 15 percent	grammar	set kitchen brightness to fifteen percent
+set kitchen brightness to 19 percent	grammar	set kitchen brightness to nineteen percent
+set kitchen brightness to 30 percent	grammar	set kitchen brightness to thirty percent
+set kitchen brightness to 50 percent	grammar	set kitchen brightness to fifty percent
+set kitchen brightness to 90 percent	grammar	set kitchen brightness to ninety percent
+set the bedroom lamp color temperature to 2700 kelvin	grammar	set the bedroom lamp color temperature to twenty seven hundred kelvin|set the bedroom lamp color temperature to two thousand seven hundred kelvin
+set the fan speed to 50 percent	grammar	set the fan speed to fifty percent
+set the kitchen lights to 16 percent	grammar	set the kitchen lights to sixteen percent
+set the kitchen lights to 60 percent	grammar	set the kitchen lights to sixty percent
+set the temperature to 20.5 degrees	grammar	set the temperature to twenty point five degrees|set the temperature to twenty and a half degrees
+set the thermostat to 72 and a half degrees	grammar	set the thermostat to seventy two and a half degrees
+set the thermostat to 72.5 degrees	grammar	set the thermostat to seventy two point five degrees
+set the volume to 19 percent	grammar	set the volume to nineteen percent
+set the volume to 90 percent	grammar	set the volume to ninety percent
+skip the track	grammar	skip the track
+stop playing	grammar	stop playing
+switch off the lights	grammar	switch off the lights
+switch on the lights	grammar	switch on the lights
+tell me a joke	oov
+tell me the date	grammar	tell me the date
+the lights are on in the kitchen	oov
+turn down the lights	grammar	turn down the lights
+turn it off	grammar	turn it off
+turn off the light on the stairs	grammar	turn off the light on the stairs
+turn off the lights	grammar	turn off the lights
+turn on the bedroom and kitchen lights	grammar	turn on the bedroom and kitchen lights
+turn on the ceiling light	grammar	turn on the ceiling light
+turn on the den lights	grammar	turn on the den lights
+turn on the ecobee	grammar	turn on the ecobee
+turn on the garage lights	grammar	turn on the garage lights
+turn on the kitchen lights and set brightness to 50	grammar	turn on the kitchen lights and set brightness to fifty
+turn on the lights	grammar	turn on the lights
+turn on the lights in the den	grammar	turn on the lights in the den
+turn on the lights in the kitchen and the bedroom	grammar	turn on the lights in the kitchen and the bedroom
+turn on the lights thanks	grammar	turn on the lights thanks
+turn on the oven	grammar	turn on the oven
+turn on the tv	grammar	turn on the tv
+turn the kitchen lights on	grammar	turn the kitchen lights on
+turn the volume down	grammar	turn the volume down
+turn the volume up	grammar	turn the volume up
+turn up the music	grammar	turn up the music
+turn up the volume by 20 percent	grammar	turn up the volume by twenty percent
+um could you turn on the kitchen lights for me please	grammar	um could you turn on the kitchen lights for me please
+unmute	grammar	unmute
+unmute the tv	grammar	unmute the tv
+unpause the movie	grammar	unpause the movie
+what is the temperature in the living room	grammar	what is the temperature in the living room
+what time is it	grammar	what time is it
+what time is it right now	grammar	what time is it right now
+whats the weather like in london	oov
+whats the weather tomorrow	oov

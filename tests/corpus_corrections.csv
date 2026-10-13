@@ -1,0 +1,105 @@
+session,index,verdict,corrected
+jenn,120,ok,
+mike,40,ok,
+mike,49,fix,"okay nabu, set the kitchen brightness to 100 percent"
+mike,60,ok,
+mike,62,fix,"okay nabu, whats the temperature in the living room"
+mike,75,ok,
+mike,89,ok,
+mike,115,ok,
+mike,127,ok,
+mike,143,fix,"okay nabu, set the kitchen brightness to 90 percent"
+mike,165,fix,"okay nabu, set the kitchen brightness to 30 percent"
+mike,192,ok,
+mike,201,fix,"okay nabu, turn up the volume"
+natalie,26,segment,
+natalie,35,fix,"okay nabu, could you turn on the lights for me please"
+natalie,36,fix,"okay nabu, turned off the lights on the stairs"
+natalie,37,fix,"okay nabu, turn on the bedroom and the kitchen lights"
+natalie,39,ok,
+natalie,41,fix,"okay nabu, turn off the lights"
+natalie,46,fix,"okay nabu, set the kitchen brightness to 90 percent"
+natalie,50,fix,"okay nabu, tell me about the date"
+natalie,58,segment,
+natalie,59,segment,
+natalie,66,ok,
+natalie,72,fix,"okay nabu, set the kitchen brightness to 100 percent"
+natalie,87,ok,
+natalie,88,ok,
+natalie,103,ok,
+natalie,104,fix,"okay nabu, turn off the lights on the stairs"
+natalie,124,ok,
+natalie,128,fix,"okay nabu, set the timer for an hour and a half"
+natalie,132,ok,
+natalie,141,ok,
+natalie,144,ok,
+natalie,145,ok,
+natalie,163,fix,"okay nabu, tell me about the date"
+natalie,181,segment,
+natalie,188,fix,"okay nabu, set the timer for half an hour"
+natalie,190,fix,"okay nabu, set the kitchen brightness to 15 percent"
+natalie,193,ok,
+natalie,196,ok,
+natalie,204,ok,
+oliver,4,fix,"okay nabu, mute tv"
+oliver,7,fix,"okay nabu, put the clean garbage onto my todo list"
+oliver,9,fix,"okay nabu, set the timer for 50 seconds"
+oliver,12,fix,"okay nabu, set the kitchen brightness to 90 percent"
+oliver,13,fix,"okay nabu, turn on the gar garage lights"
+oliver,15,fix,"okay nabu, turn on the lights and set brightness to 50 percent"
+oliver,16,ok,
+oliver,18,ok,
+oliver,19,fix,"okay nabu, tell me what time it is right now"
+oliver,20,fix,"okay nabu, the kitchen brightness at 100 percent"
+oliver,22,fix,"okay nabu, close the curtains to 50 percent"
+oliver,25,ok,
+oliver,27,fix,"okay nabu, turn on the kitchen lights"
+oliver,36,fix,"okay nabu, turn down the volume"
+oliver,37,fix,"okay nabu, set a timer for 1 hour and 5 minutes and 30 seconds"
+oliver,38,fix,"okay nabu, the kitchen brightness to 30 percent"
+oliver,45,fix,"okay nabu, turn off the lights on the stairs"
+oliver,46,fix,"okay nabu, set the bedroom lamp to color temperature to 2700 kelvin"
+oliver,48,fix,"okay nabu, change the bedroom lamp to 40 percent"
+oliver,51,ok,
+oliver,54,fix,"okay nabu, turn on the lights in the kitchen and in the bedroom"
+oliver,56,ok,
+oliver,57,ok,
+oliver,60,fix,"okay nabu, set the kitchen lights to 60 percent"
+oliver,62,fix,"okay nabu, how long is is left on my 5 minute timer"
+oliver,65,fix,"okay nabu, all the doors are locked"
+oliver,66,fix,"okay nabu, at the timer for an hour and a half"
+oliver,73,ok,
+oliver,74,ok,
+oliver,76,fix,"okay nabu, set the kitchen brightness to 19 percent"
+oliver,82,fix,"okay nabu, the kitchen light is on"
+oliver,85,fix,"okay nabu, the kitchen brightness to 15 percent"
+oliver,90,fix,"okay nabu, cancel all my timers"
+oliver,92,fix,"okay nabu, whats the temperature in the living room"
+oliver,95,ok,
+oliver,96,ok,
+oliver,98,ok,
+oliver,102,ok,
+oliver,114,ok,
+oliver,115,ok,
+oliver,116,ok,
+oliver,121,segment,
+oliver,123,fix,"okay nabu, set the kitchen brightness of 15 percent"
+oliver,124,fix,"okay nabu, set a timer for 1 hour and 5 minutes and 30 seconds"
+oliver,131,fix,"okay nabu, see the lights to 16 percent"
+oliver,132,fix,"okay nabu, set the kitchen brightness at 13 percent"
+oliver,133,fix,"okay nabu, the kitchen brightness is 90 percent"
+oliver,136,fix,"okay nabu, turn off the den lights"
+oliver,149,ok,
+oliver,151,fix,"okay nabu, the kitchen brightness is 150 percent"
+oliver,152,ok,
+oliver,153,ok,
+oliver,156,ok,
+oliver,157,fix,"okay nabu, set the kitchen brightness to 50 percent"
+oliver,166,ok,
+oliver,168,fix,"okay nabu, turn on the the kitchen lights and set the brightness to 50"
+oliver,169,fix,"okay nabu, put clean the garage onto my todo list"
+oliver,175,fix,"okay nabu, turn on the garbage lights"
+oliver,176,ok,
+oliver,186,fix,"okay nabu, turn the volume up by 20 percent"
+oliver,187,fix,"okay nabu, set the kitchen brightness to 100 percent"
+oliver,193,fix,"okay nabu, turn on the lights in the kitchen and in the bedroom"

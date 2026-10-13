@@ -1,0 +1,162 @@
+[
+ {
+  "channel": "capture1-vpe.aec",
+  "hours": 1.489,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture1-vpe.aec",
+  "hours": 1.489,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture1-vpe.agc",
+  "hours": 1.489,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture1-vpe.agc",
+  "hours": 1.489,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture2-vpe.aec",
+  "hours": 1.489,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture2-vpe.aec",
+  "hours": 1.489,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture2-vpe.agc",
+  "hours": 1.489,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture2-vpe.agc",
+  "hours": 1.489,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture3-vpe.aec",
+  "hours": 1.486,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture3-vpe.aec",
+  "hours": 1.486,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture3-vpe.agc",
+  "hours": 1.486,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "capture3-vpe.agc",
+  "hours": 1.486,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "pc-vpe.aec",
+  "hours": 1.489,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "pc-vpe.aec",
+  "hours": 1.489,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "pc-vpe.agc",
+  "hours": 1.489,
+  "cutoff": 0.85,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ },
+ {
+  "channel": "pc-vpe.agc",
+  "hours": 1.489,
+  "cutoff": 0.5,
+  "stage1": 0,
+  "accepted": {
+   "wake": 0,
+   "wake-nono": 0
+  }
+ }
+]
