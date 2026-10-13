@@ -53,9 +53,10 @@ async def main() -> None:
         "--wake-cutoff",
         type=float,
         metavar="P",
-        help="override every wake word model's probability cutoff; the stock "
-        "0.85 expects a voice at the device, a loudspeaker across a room "
-        "needs roughly 0.5",
+        help="override the wake word models' probability cutoff (default 0.2; "
+        "the VAD gate keeps its own). The manifests ship 0.85, which expects a "
+        "voice at the device; the verifier is what refuses what a lower cutoff "
+        "lets through",
     )
     parser.add_argument(
         "--wake-ratio",
@@ -65,6 +66,41 @@ async def main() -> None:
         "Kaldi verifier rejected on its phrase or last-word test (default "
         "1.2; negative disables it, and a confusable rejection always "
         "stands)",
+    )
+    parser.add_argument(
+        "--no-speaker-id",
+        action="store_true",
+        help="do not identify speakers (no speaker in the processing event)",
+    )
+    parser.add_argument(
+        "--speaker-profiles",
+        metavar="PATH",
+        help="speaker profiles file (default var/speakers.json)",
+    )
+    parser.add_argument(
+        "--speaker-threshold",
+        type=float,
+        default=0.45,
+        help="cosine score to accept a speaker (default 0.45: in benchmarking on "
+        "VPE audio, ~0.5%% of an un-enrolled speaker's commands get through)",
+    )
+    parser.add_argument(
+        "--speaker-channel",
+        choices=("aec", "agc"),
+        default="aec",
+        help="capture to identify from (default aec; it needs the firmware's "
+        "aec_microphone gain_factor, see voice-call-vpe.yaml)",
+    )
+    parser.add_argument(
+        "--no-speaker-learn",
+        action="store_true",
+        help="keep profiles fixed instead of learning from confident calls",
+    )
+    parser.add_argument(
+        "--enroll-commands",
+        type=int,
+        default=5,
+        help="commands collected after 'learn a new voice for <name>' (default 5)",
     )
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -92,6 +128,12 @@ async def main() -> None:
             wake_models=tuple(args.wake_model) if args.wake_model else ("okay_nabu", "vad"),
             wake_probability_cutoff=args.wake_cutoff,
             wake_ratio=args.wake_ratio,
+            speaker_id=not args.no_speaker_id,
+            speaker_profiles=Path(args.speaker_profiles) if args.speaker_profiles else None,
+            speaker_threshold=args.speaker_threshold,
+            speaker_channel=args.speaker_channel,
+            speaker_learn=not args.no_speaker_learn,
+            enroll_commands=args.enroll_commands,
         )
     )
     await app.start()

@@ -14,6 +14,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from pathlib import Path
 
+import numpy as np
+
 from .endpoint import Endpointer
 from .fst_hybrid import FstHybrid
 from .discover import Device, Discovery
@@ -31,6 +33,7 @@ from .protocol import (
     ms_to_bytes,
 )
 from .recognize import CommandRecognizer
+from .speaker import ENROLL_SENTENCES, Enrollment, Identification, SpeakerId, enroll_name
 from .tdt import TdtTranscriber
 from .tts import Speech
 from .wake import WakeVerifier
@@ -46,6 +49,11 @@ STABLE_CONNECTION_SECONDS = 30.0
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _rgb(color: tuple[int, int, int] | None) -> dict[str, int]:
+    """Event fields for an LED color; empty for none, so the device keeps its own."""
+    return dict(zip("rgb", color)) if color else {}
+
+
 def _device_id(hello: dict) -> str:
     """A filesystem-safe identity for the device that sent this HELLO.
 
@@ -55,6 +63,11 @@ def _device_id(hello: dict) -> str:
     name = _UNSAFE.sub("-", str(hello.get("name") or "device")).strip("-")
     mac = _UNSAFE.sub("", str(hello.get("mac") or ""))
     return f"{name}-{mac[-6:]}" if mac else name
+
+
+# Shipped lower than the models' own manifests. See Options below, and the
+# "Two stages" section of the README for the measurements behind it.
+DEFAULT_WAKE_CUTOFF = 0.2
 
 
 @dataclass
@@ -84,9 +97,26 @@ class Options:
     wake_ratio: float | None = None
     """Per-frame threshold for the second opinion on a rejected wake word.
     Negative disables it."""
-    wake_probability_cutoff: float | None = None
-    """Overrides every model's manifest cutoff. The stock 0.85 wants a voice at
-    the device; a loudspeaker across a room peaks far lower."""
+    wake_probability_cutoff: float | None = DEFAULT_WAKE_CUTOFF
+    """Overrides the wake word models' manifest cutoff, never the VAD gate's.
+
+    The manifests ship 0.85, which assumes a voice at the device. Across a room
+    that costs most of the recall, and the detections it refuses are ones the
+    verifier would have accepted: at 0.20 a child's commands reaching
+    recognition go from 27.6% to 42.8% while verification holds at 90-93%.
+    What it buys the other way is nothing measurable -- on 1.5 h per channel of
+    speech and music, the extra first-stage firings were all refused by the
+    verifier."""
+    speaker_id: bool = True
+    """Identify the speaker of each command and send it in the processing event."""
+    speaker_profiles: Path | None = None
+    """Default: var/speakers.json."""
+    speaker_threshold: float = 0.45
+    speaker_channel: str = "aec"
+    """Which capture to identify from. AEC benchmarked at half the EER of AGC,
+    provided the firmware streams it with gain (see voice-call-vpe.yaml)."""
+    speaker_learn: bool = True
+    enroll_commands: int = 5
 
 
 @dataclass
@@ -99,7 +129,10 @@ class Call:
     audio: bytearray = field(default_factory=bytearray)
     """The AGC capture. The command is split out of this one."""
     aec: bytearray = field(default_factory=bytearray)
-    """The same call tapped earlier in the XMOS pipeline, recorded only."""
+    """The same call tapped earlier in the XMOS pipeline: recorded, and what the
+    speaker is identified from."""
+    aec_preroll_bytes: int = 0
+    """Where the detection falls in ``aec``; its pre-roll can differ from AGC's."""
     command: bytearray = field(default_factory=bytearray)
     verified: bool = False
     finished: bool = False
@@ -124,6 +157,9 @@ class Session:
     call: Call | None = None
     drained: asyncio.Event = field(default_factory=asyncio.Event)
     device_id: str = "unknown-device"
+    enrollment: Enrollment | None = None
+    """A voice being learned from this satellite's next few commands."""
+    warned_quiet_aec: bool = False
 
     def __str__(self) -> str:
         return self.device_id
@@ -168,6 +204,19 @@ class VoiceCallApp:
             root / "models/piper/en_GB-jenny_dioco-medium.onnx",
             root / "sounds/acknowledge.mp3",
         )
+        speaker_model = root / "models/speaker/redimnet_b2_vox2.onnx"
+        self.speakers: SpeakerId | None = None
+        if options.speaker_id and speaker_model.exists():
+            self.speakers = SpeakerId(
+                speaker_model,
+                options.speaker_profiles or root / "var/speakers.json",
+                channel=options.speaker_channel,
+                threshold=options.speaker_threshold,
+                learn=options.speaker_learn,
+                enroll_commands=options.enroll_commands,
+            )
+        elif options.speaker_id:
+            _LOGGER.warning("Speaker model %s not found; speaker ID disabled", speaker_model)
         self._wake_models: list[WakeModel] = []
         self._sentences: list[str] = []
         self._has_grammar = False
@@ -200,11 +249,13 @@ class VoiceCallApp:
         # rather than another model.
         if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
             await asyncio.to_thread(self.wake_ratio.train, self.recognizer.model)
-        self.wildcards.train(sentences.wildcard)
-        await self._train_grammars(sentences.wildcard)
+        self.wildcards.train(self._wildcard_sentences(sentences))
+        await self._train_grammars(self._wildcard_sentences(sentences))
         await self.speech.start()
         if self.tdt is not None:
             await self.tdt.start()
+        if self.speakers is not None:
+            await self.speakers.start()
 
         self._watcher = asyncio.ensure_future(
             self.hass.watch_automations(self._on_automations_changed)
@@ -316,9 +367,16 @@ class VoiceCallApp:
                 _LOGGER.error("Retraining failed, keeping previous grammar: %s", err)
                 return
             self._has_grammar = bool(sentences.plain)
-            self.wildcards.train(sentences.wildcard)
-            await self._train_grammars(sentences.wildcard)
+            self.wildcards.train(self._wildcard_sentences(sentences))
+            await self._train_grammars(self._wildcard_sentences(sentences))
         self._sentences = updated
+
+    def _wildcard_sentences(self, sentences) -> list[str]:
+        """Home Assistant's wildcard triggers plus the app's own commands, which
+        are recognized the same way but handled here rather than sent to HA."""
+        if self.speakers is None:
+            return list(sentences.wildcard)
+        return list(sentences.wildcard) + ENROLL_SENTENCES
 
     def _spawn(self, coro) -> None:
         """Run beside the read loop, which must stay free to deliver frames."""
@@ -515,6 +573,7 @@ class VoiceCallApp:
         session.call = Call(
             preroll_bytes=int(info.get("preroll_bytes", 0)),
             wake_word=info.get("wake_word", ""),
+            aec_preroll_bytes=int(info.get("aec_preroll_bytes", 0)),
         )
         session.drained.clear()
         _LOGGER.info(
@@ -648,13 +707,31 @@ class VoiceCallApp:
             "[%s] Command audio: %.2fs", session, len(call.command) / BYTE_RATE
         )
 
+        # Speaker ID runs beside recognition -- its own lock and threads -- and
+        # sends the processing event the moment it knows, so the ring takes the
+        # speaker's color while the command is still being recognized.
+        if self.speakers is not None:
+            speaker_task = asyncio.ensure_future(self._identify(session, call))
+        else:
+            speaker_task = None
+            await self._event(session, "processing", speaker="unknown")
         command_text, heard = await self._recognize(bytes(call.command))
+        ident = await speaker_task if speaker_task is not None else None
+
+        new_speaker = enroll_name(command_text)
+        if new_speaker is not None:
+            await self._start_enrollment(session, new_speaker)
+            return
+        notice = self._after_identify(session, ident)
+
         # The recognizer logs its own scores without knowing which satellite
         # asked, so attribute the outcome here: with two devices the lines
         # interleave and the score line alone cannot be traced back.
         if command_text is None:
             _LOGGER.info("[%s] Not recognized; heard %r", session, heard)
             await self._event(session, "not_recognized", heard=heard)
+            if notice:
+                await self._announce_enrolled(session, notice)
             await self._hang_up(session, "not_recognized")
             return
 
@@ -664,10 +741,152 @@ class VoiceCallApp:
         response = await self._render(response)
         await self._event(session, "responding", text=response)
 
-        async with self._model_lock:
-            audio = await self.speech.say(response)
-        await self._play(session, audio)
+        await self._say(session, response)
+        if notice:
+            await self._announce_enrolled(session, notice)
         await self._hang_up(session, "done")
+
+    async def _say(self, session: Session, text: str) -> None:
+        async with self._model_lock:
+            audio = await self.speech.say(text)
+        await self._play(session, audio)
+
+    # ------------------------------------------------------------ speaker ID
+
+    def _speaker_audio(self, session: Session, call: Call) -> bytes:
+        """The wake word and the command, from the configured capture.
+
+        Starts 1.2 s before the wake word ends: "okay nabu" plus the command is
+        what was benchmarked. Not the whole pre-roll -- whatever was said before
+        the wake word (a TV, someone else) would be scored too.
+        """
+        lead = ms_to_bytes(1200)
+        assert self.speakers is not None
+        if self.speakers.channel == "aec" and call.aec:
+            # The two captures carry their own pre-rolls; line them up on the
+            # detection, which ends both.
+            split = call.split_bytes - call.preroll_bytes + (
+                call.aec_preroll_bytes or call.preroll_bytes
+            )
+            return bytes(call.aec[max(0, split - lead) :])
+        if self.speakers.channel == "aec":
+            _LOGGER.debug("[%s] No AEC capture; identifying from AGC", session)
+        return bytes(call.audio[max(0, call.split_bytes - lead) :])
+
+    async def _identify(self, session: Session, call: Call) -> Identification | None:
+        assert self.speakers is not None
+        pcm = self._speaker_audio(session, call)
+        try:
+            ident = await self.speakers.identify(pcm)
+        except Exception:  # never let speaker ID take the call down with it
+            _LOGGER.exception("[%s] Speaker identification failed", session)
+            ident = None
+
+        if (
+            ident is not None
+            and ident.utterance is not None
+            and self.speakers.channel == "aec"
+            and call.aec
+            and not session.warned_quiet_aec
+        ):
+            peak = int(np.abs(np.frombuffer(pcm, dtype="<i2").astype(np.int32)).max()) if pcm else 0
+            if peak < 200:  # about -44 dBFS: unity gain on the AEC tap
+                session.warned_quiet_aec = True
+                _LOGGER.warning(
+                    "[%s] The AEC capture peaks at %d/32768 -- too quiet to identify "
+                    "speakers reliably. Give aec_microphone a gain_factor (16 in "
+                    "voice-call-vpe.yaml) or run with --speaker-channel agc.",
+                    session,
+                    peak,
+                )
+
+        fields: dict[str, Any] = {"speaker": "unknown"}
+        if ident is not None and ident.name is not None:
+            fields = {"speaker": ident.name, "score": round(ident.score, 3)}
+            fields.update(_rgb(self.speakers.profiles.color(ident.name)))
+        enrolling = session.enrollment
+        if enrolling is not None and not enrolling.expired:
+            # While a voice is being learned the ring shows the color it will get.
+            fields = {
+                "speaker": enrolling.name,
+                "enrolling": True,
+                "collected": len(enrolling.utterances),
+                "needed": enrolling.needed,
+                **_rgb(enrolling.color),
+            }
+        if ident is None or ident.utterance is None:
+            _LOGGER.info("[%s] Speaker: too little speech to identify", session)
+        else:
+            _LOGGER.info(
+                "[%s] Speaker: %s (best %s %.3f, margin %.3f, %.1fs) %s",
+                session,
+                ident.name or "unknown",
+                ident.best,
+                ident.score,
+                ident.margin,
+                ident.utterance.speech_s,
+                ident.scores,
+            )
+        await self._event(session, "processing", **fields)
+        return ident
+
+    def _after_identify(self, session: Session, ident: Identification | None) -> str | None:
+        """Feed an active enrollment, or learn from a confident call. Returns
+        what to tell the user if an enrollment just completed."""
+        if self.speakers is None or ident is None:
+            return None
+        enrolling = session.enrollment
+        if enrolling is not None:
+            if enrolling.expired:
+                _LOGGER.info(
+                    "[%s] Enrollment of %s expired with %d/%d utterances",
+                    session,
+                    enrolling.name,
+                    len(enrolling.utterances),
+                    enrolling.needed,
+                )
+                session.enrollment = None
+            else:
+                if self.speakers.add_to_enrollment(enrolling, ident) is None:
+                    return None
+                session.enrollment = None
+                return enrolling.name
+        if self.speakers.maybe_learn(ident):
+            _LOGGER.info("[%s] Learned this call into %s's profile", session, ident.name)
+        return None
+
+    async def _start_enrollment(self, session: Session, name: str) -> None:
+        if self.speakers is None:
+            await self._say(session, "Speaker identification is turned off.")
+            await self._hang_up(session, "done")
+            return
+        session.enrollment = self.speakers.begin_enrollment(name)
+        enrollment = session.enrollment
+        _LOGGER.info(
+            "[%s] Enrolling %s from the next %d command(s), color %s",
+            session,
+            enrollment.name,
+            enrollment.needed,
+            enrollment.color,
+        )
+        await self._event(
+            session, "enrolling", speaker=enrollment.name, needed=enrollment.needed,
+            **_rgb(enrollment.color),
+        )
+        await self._say(
+            session,
+            f"OK. {enrollment.name}, use me as usual for your next "
+            f"{enrollment.needed} commands, and I'll learn your voice.",
+        )
+        await self._hang_up(session, "enrolling")
+
+    async def _announce_enrolled(self, session: Session, name: str) -> None:
+        assert self.speakers is not None
+        await self._event(
+            session, "speaker_enrolled", speaker=name,
+            **_rgb(self.speakers.profiles.color(name)),
+        )
+        await self._say(session, f"I've learned {name}'s voice.")
 
     async def _train_grammars(self, sentences: list[str]) -> None:
         """Compile a free-loop grammar per wildcard sentence (cached on disk)."""

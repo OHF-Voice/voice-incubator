@@ -63,7 +63,9 @@ exponentially and says so -- that is usually a second app holding the device,
 not the network.
 
 Useful flags: `--host`, `--hass-url`, `--hass-token-file`, `--silence`,
-`--max-command`, `--max-score`, `--wake-model`, `--wake-cutoff`, `--debug`.
+`--max-command`, `--max-score`, `--wake-model`, `--wake-cutoff`, `--debug`,
+and for speaker identification `--speaker-threshold`, `--speaker-channel`,
+`--no-speaker-learn`, `--enroll-commands`, `--no-speaker-id`.
 
 ## Live re-training
 
@@ -96,6 +98,7 @@ never goes deaf.
 | `voice_call/hass.py` | sentence triggers in, conversation response out |
 | `voice_call/tts.py` | Piper, and the acknowledgement fallback |
 | `voice_call/server.py` | the call state machine |
+| `voice_call/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_call.speaker` |
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
@@ -107,7 +110,9 @@ never goes deaf.
 | `scripts/check_corpus.py` | proves the ground truth and the sentence triggers agree |
 | `scripts/bench_corpus.py` | runs the whole chain over a mic_tap corpus |
 | `scripts/report_corpus.py` | per channel, per prompt, per failure |
-| `models/` | everything needed to run offline (~750 MB) |
+| `models/` | everything needed to run offline (~770 MB) |
+| `models/speaker/` | `redimnet_b2_vox2.onnx` from `OpenVoiceOS/redimnet-b2-vox2-onnx` |
+| `var/speakers.json` | speaker profiles and LED colors |
 
 ## Multi-microphone corpus
 
@@ -213,17 +218,33 @@ what `--wake-cutoff 0.5` is for.
 
 The XMOS exposes exactly two taps into its pipeline, so every call is recorded
 twice: `call-*.wav` from the AGC channel and `call-aec-*.wav` from the AEC
-channel. The command is still split out of AGC; AEC is recorded only.
+channel. The command is still split out of AGC; the speaker is identified from
+AEC.
 
 | channel | stage | used for |
 |---|---|---|
 | 0 | AGC | streamed to the app, command split, `call-*.wav` |
-| 1 | AEC | wake word detection (gain 4) and `call-aec-*.wav` (gain 1) |
+| 1 | AEC | wake word detection (gain 4), speaker ID and `call-aec-*.wav` (gain 16) |
 
 Channel 1 carries two microphone sources because the two jobs want different
-levels: the wake models want gain 4, which would clip a recording meant for
-comparison. Leave `aec_microphone` out of the config and only the AGC capture
-is kept.
+levels. Leave `aec_microphone` out of the config and only the AGC capture is
+kept (speaker ID then falls back to AGC).
+
+The AEC recording used to run at gain 1, and that wasted it: the tap sits ~45 dB
+below full scale, so its top 16 bits held about 7 bits of speech. Gain is applied
+to a 25-bit copy *before* the 16-bit truncation, so raising it restores real
+resolution rather than amplifying quantization noise. Simulated on recorded VPE
+AEC audio (undo the export gain, apply the firmware gain, keep the top 16 bits):
+
+| AEC gain | speech peak | speaker EER (pc-vpe / capture2) |
+|---|---|---|
+| 32-bit reference | -9 / -11 dBFS | 0.83% / 0.49% |
+| 1 | -50 / -55 dBFS | 2.40% / 3.75% |
+| 4 | -38 / -43 dBFS | 0.86% / 0.65% |
+| **16** | -26 / -31 dBFS | **0.81% / 0.45%** |
+
+16 matches a 32-bit capture and leaves ~25 dB of headroom, so there is no need
+to change the protocol to 32-bit samples.
 
 **The captures are offset by a constant 56.5 ms**, AEC leading, measured at
 +904 samples in every pairing with a correlation of 0.77-0.90. That is the
@@ -246,6 +267,61 @@ Measure this with the talker at a realistic level. An earlier pass had AEC at
 1/4 and NS far ahead, which was an artifact of playing test audio normalized to
 a peak of 1226 out of 32767: everything was marginal and the ordering was
 noise. `scripts/make_cloud.py --gain 20` renders at a usable level.
+
+## Speaker identification
+
+Every command is attributed to an enrolled household member, or to `unknown`,
+and the satellite's LED ring takes that person's color while the command is
+processed. [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
+inside the graph) embeds the AEC capture from 1.2 s before the end of the wake
+word to the end of the command -- "okay nabu" plus the command -- and the
+closest profile wins if its cosine clears `--speaker-threshold` (0.45).
+
+It runs beside recognition, on its own lock and two threads, and sends the
+event the moment it knows, so the color is up while the command is still being
+decoded: ~0.1 s on a Pi 5, ~0.2-0.35 s on a Pi 4.
+
+| event | data |
+|---|---|
+| `processing` | `speaker` (name or `unknown`), `score`, and the color as `r`, `g`, `b` |
+| `enrolling` | `speaker`, `needed`, color -- after "learn a new voice for ..." |
+| `speaker_enrolled` | `speaker`, color -- once enough of their voice is in |
+
+Benchmarked on recorded VPE audio of four speakers (whosaidit): ~1% EER on AGC,
+~0.5% on AEC; at 0.45, about 98% of household commands are accepted while 0.5%
+of an un-enrolled speaker's in the same room get through.
+
+**Enrolling.** Say *"okay nabu, learn a new voice for Natalie"*. The app handles
+that itself (it never reaches Home Assistant), replies, and learns Natalie's
+voice from the next five commands on that satellite -- which run normally.
+Meanwhile the ring shows the color she is getting. Commands that do not sound
+like the rest (someone else stepping in) are left out, as is anyone already
+enrolled and recognized with confidence, so it waits for five consistent ones;
+after ten minutes an unfinished enrollment lapses. Saying it for an existing
+name re-enrolls them and keeps their color. Colors come from a fixed list of
+hues that stay distinct on the ring, skipping red (error) and the default cyan
+(nobody recognized).
+
+**Learning.** A command that clears the threshold by 0.05, beats the
+runner-up by 0.1 and has 2 s of speech is folded into that person's profile,
+which then follows slow changes in voice and room. In benchmarking, a profile
+recorded five hours earlier went from 81-92% accepted to 94-99% this way.
+`--no-speaker-learn` keeps profiles fixed.
+
+Profiles live in `var/speakers.json`, shared by all satellites (enrolling on
+one VPE and identifying on another cost almost nothing in benchmarking):
+
+```bash
+.venv/bin/python -m voice_call.speaker list
+.venv/bin/python -m voice_call.speaker enroll Mike /tmp/calls/*/call-aec-*.wav
+.venv/bin/python -m voice_call.speaker color Mike violet     # or "#rrggbb", auto
+.venv/bin/python -m voice_call.speaker rename Jenifer Jennifer
+.venv/bin/python -m voice_call.speaker forget Mike
+```
+
+Profiles remember which capture they were built from; identifying from the
+other one scores lower, and the app warns at startup. It also warns if the AEC
+capture is too quiet to use -- firmware still streaming it at gain 1.
 
 ## Wildcard sentence triggers
 

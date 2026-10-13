@@ -1,0 +1,13 @@
+# Runtime and local data -- not source.
+/.venv/
+/models/
+/var/
+/calls/
+/_save_dir/
+/save_dir/
+/vpe_close/
+/vpe_far/
+/false negatives/
+/false positives/
+# Benchmark result dumps (several MB each); scripts/bench_corpus.py regenerates them.
+/tests/bench_*.jsonl
