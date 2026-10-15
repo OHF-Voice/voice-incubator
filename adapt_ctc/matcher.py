@@ -23,6 +23,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
+from typing import Any
 
 import numpy as np
 
@@ -390,38 +391,44 @@ class Recognizer:
         result.timings = {"acoustic": forward, **result.timings}
         return self.match_examples(result, audio)
 
-    def match_examples(self, recognition: Recognition, audio: np.ndarray) -> Recognition:
+    def match_examples(
+        self, recognition: Recognition, audio: np.ndarray, transcriber: Any = None
+    ) -> Recognition:
         """When neither the keyword intents nor the example sentences matched
         in the CTC evidence, transcribe ``audio`` (the same command) with the
         TDT head and look the transcript up among the examples; then compare
         the transcripts with the examples by embedding. ``recognize`` does
-        this itself; callers of ``recognize_log_probs`` pass the audio here."""
+        this itself; callers of ``recognize_log_probs`` pass the audio here.
+        ``transcriber`` stands in for the TDT head for this call (voice_call:
+        a Home Assistant STT entity); its ``source`` names it."""
+        transcriber = transcriber or self.transcriber
+        source = getattr(transcriber, "source", "TDT")
         with_examples = [
             r for r in recognition.rejected if self.config.intents[r.intent].examples
         ]
         if recognition.matches or not with_examples:
             return recognition
-        if self.transcriber is None and (
+        if transcriber is None and (
             self.embedder is None or not self.config.settings.embedding_accept
         ):
             for result in with_examples:
                 result.reasons.append("examples not tried: no TDT or embedding model loaded")
             return recognition
 
-        if self.transcriber is not None:
+        if transcriber is not None:
             started = time.perf_counter()
-            transcript = self.transcriber.transcribe(audio)
-            recognition.timings["tdt"] = time.perf_counter() - started
+            transcript = transcriber.transcribe(audio)
+            recognition.timings["tdt" if source == "TDT" else "stt"] = time.perf_counter() - started
             recognition.tdt_transcript = transcript
             found = self._find_example(transcript, skip_first=recognition.lead_in is not None)
             if found is not None:
                 self._accept(
                     recognition,
-                    IntentResult(found[0], True, cost=0.0, example=found[1], example_source="TDT"),
+                    IntentResult(found[0], True, cost=0.0, example=found[1], example_source=source),
                 )
                 return recognition
             for result in with_examples:
-                result.reasons.append(f"TDT heard '{transcript}', none of its examples")
+                result.reasons.append(f"{source} heard '{transcript}', none of its examples")
         if self.embedder is not None and self.config.settings.embedding_accept:
             self._match_embedding(recognition, with_examples)
         return recognition

@@ -30,6 +30,7 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 OPERATIONS = ("start", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status")
@@ -240,6 +241,31 @@ def _status(timer: dict[str, Any]) -> str:
     if timer.get("status") == "paused":
         return f"{_describe(timer)} is paused with {left} left"
     return f"{left} left on {_describe(timer)}"
+
+
+def progress(running: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
+    """What the satellite's LED ring shows (the ``timer_progress`` event): the
+    active timer that finishes soonest -- its time left of how long it runs --
+    or ``shown: 0``. Paused timers are not shown, as in the stock firmware."""
+    now = now or datetime.now(UTC)
+    best: tuple[float, dict[str, Any]] | None = None
+    for timer in running:
+        if timer.get("status") != "active":
+            continue
+        left = float(timer.get("remaining") or 0)
+        if timer.get("finishes_at"):
+            try:
+                left = (datetime.fromisoformat(str(timer["finishes_at"])) - now).total_seconds()
+            except ValueError:
+                pass
+        left = max(0.0, left)
+        if best is None or left < best[0]:
+            best = (left, timer)
+    if best is None:
+        return {"shown": 0}
+    left, timer = best
+    total = float(timer.get("total_duration") or timer.get("created_duration") or left or 1)
+    return {"shown": 1, "remaining": round(left, 2), "total": round(max(total, left), 2), "paused": 0}
 
 
 def stops_ringing(operation: str | None, slots: dict[str, Any]) -> bool:

@@ -29,6 +29,8 @@ class Message(IntEnum):
     PLAYBACK_DRAINED = 0x06
     MODEL_RESULT = 0x07
     AUDIO_IN_AEC = 0x08
+    DEVICE_EVENT = 0x09
+    """Something happened on the device: {"type": "announcing" | "announced"}."""
 
     """App to device."""
     AUDIO_OUT = 0x10

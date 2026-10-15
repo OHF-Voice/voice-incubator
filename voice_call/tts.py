@@ -27,18 +27,28 @@ def _to_device_pcm(samples: np.ndarray, rate: int) -> bytes:
     return (clipped * 32767.0).astype("<i2").tobytes()
 
 
+ALARM_PAUSE = 0.5
+"""Silence between repeats of the timer alarm, as the stock VPE firmware has."""
+
+
 class Speech:
-    def __init__(self, voice_path: Path, acknowledge_path: Path) -> None:
+    def __init__(self, voice_path: Path, acknowledge_path: Path, alarm_path: Path | None = None) -> None:
         self.voice_path = Path(voice_path)
         self.acknowledge_path = Path(acknowledge_path)
+        self.alarm_path = Path(alarm_path) if alarm_path is not None else None
         self._voice: PiperVoice | None = None
         self._acknowledge: bytes | None = None
+        self.alarm = b""
+        """One repeat of the timer alarm, pause included."""
 
     async def start(self) -> None:
         self._voice = await asyncio.to_thread(PiperVoice.load, self.voice_path)
         self._acknowledge = await asyncio.to_thread(
             self._load_file, self.acknowledge_path
         )
+        if self.alarm_path is not None:
+            sound = await asyncio.to_thread(self._load_file, self.alarm_path)
+            self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
         _LOGGER.info("Speech ready (%s)", self.voice_path.name)
 
     @staticmethod
@@ -66,20 +76,4 @@ class Speech:
         pcm = await asyncio.to_thread(self._synthesize, text)
         _LOGGER.info("Synthesized %r (%.2fs)", text, len(pcm) / (SAMPLE_RATE * 2))
         return pcm
-
-
-def alarm_pcm(rate: int = SAMPLE_RATE) -> bytes:
-    """One cycle of the timer alarm: three rising tones, then a pause. Made
-    here rather than shipped: a few lines of numpy, no licensing questions."""
-    pieces = []
-    for frequency in (880.0, 1108.7, 1318.5):  # A5, C#6, E6
-        t = np.arange(int(0.16 * rate)) / rate
-        tone = 0.45 * np.sin(2 * np.pi * frequency * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 2 * frequency * t))
-        edge = int(0.01 * rate)
-        envelope = np.ones_like(tone)
-        envelope[:edge] = np.linspace(0, 1, edge)
-        envelope[-edge:] = np.linspace(1, 0, edge)
-        pieces += [tone * envelope, np.zeros(int(0.06 * rate))]
-    pieces.append(np.zeros(int(0.8 * rate)))
-    return _to_device_pcm(np.concatenate(pieces).astype(np.float32), rate)
 

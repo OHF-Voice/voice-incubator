@@ -32,6 +32,24 @@ that is the area of its device in Home Assistant, and can be changed in either
 place). The area is what "the lights" means there, and what commands scoped to
 an area follow. The floor comes from the area.
 
+### Listening and speaking
+
+The app listens and speaks with models of its own, or with Home Assistant's
+**speech-to-text** and **text-to-speech** entities: chosen for every satellite
+at the top of the Satellites page, and per satellite below it.
+
+- **Speech-to-text.** Commands are always matched on the satellite's audio
+  first. The STT entity writes what the built-in TDT model would otherwise:
+  example sentences said word for word, free text ("play …", timer names),
+  and hints. It is only asked when one of those is needed, so "turn on the
+  lights" never waits for it. Should it fail, the built-in model stands in.
+- **Text-to-speech.** Responses are spoken with the TTS entity (and the voice
+  you pick) on the satellite's own media player -- Home Assistant sends it the
+  audio's address and it plays it -- or, per satellite, on **another media
+  player**. On its own player, the satellite finishes speaking before the
+  call ends, and music turns down meanwhile. A command with nothing
+  to say still plays its short sound on the satellite itself.
+
 ## Commands
 
 Start from the **Library** (adding one copies it into your commands; one you
@@ -131,9 +149,12 @@ also see `timer` (the timer it was about) and `timers`:
 | `missing_duration` | starting a timer or adding time with no length heard |
 | `failed` | Home Assistant refused, or the integration isn't set up |
 
-A finished timer says which it was ("The pizza timer is done.") and then
-**rings** until someone says **"stop"** -- the satellite listens for it while
-ringing -- or "Okay Nabu" anything, or five minutes pass. Timers are held in
+Between calls the satellite's light ring shows the time left on the timer that
+finishes soonest, and it flashes while one rings. A finished timer says which
+it was ("The pizza timer is done.") and then **rings** until someone says
+**"stop"** -- the satellite listens for it while
+ringing -- or "Okay Nabu" anything, or presses the center button, or five
+minutes pass. Timers are held in
 memory by Home Assistant, so a restart loses them.
 
 Automations can follow timers with the `voice_call.timer_created`,

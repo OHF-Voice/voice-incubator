@@ -23,9 +23,10 @@ from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
 from .endpoint import Endpointer
 from .engine import LEARN_VOICE, Decision, Engine, Satellite
-from .hass import HomeAssistant
+from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
+from .voices import Voices, choose
 from .mixednet import WakeModel, load as load_wake_model
 from .protocol import (
     BYTE_RATE,
@@ -40,7 +41,7 @@ from .protocol import (
 )
 from .speaker import Enrollment, Identification, SpeakerId
 from .store import Compiled, Store
-from .tts import Speech, alarm_pcm
+from .tts import Speech
 from .wake import WakeVerifier
 from .wake_ratio import WakeRatio
 
@@ -59,6 +60,16 @@ TIMER_LIST_DEBOUNCE = 0.3
 
 # The microWakeWord model the satellite listens with while a timer rings.
 STOP_MODEL = "stop"
+
+# Outside a call, how far audio may run ahead of the device playing it: enough
+# to ride out network jitter, little enough that a call cutting in is heard at
+# once.
+PLAY_LEAD = 0.3
+
+# Home Assistant TTS on the satellite: how long until its media player starts
+# the announcement (synthesis, then fetching the URL), and plays it out.
+ANNOUNCE_START_TIMEOUT = 10.0
+ANNOUNCE_TIMEOUT = 120.0
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -84,6 +95,10 @@ def _satellite_key(hello: dict, fallback: str) -> str:
     and reflashing; else whatever discovery keyed the session on."""
     mac = re.sub(r"[^0-9a-fA-F]", "", str(hello.get("mac") or "")).lower()
     return mac or fallback
+
+
+def _stt_json(transcriber) -> dict | None:
+    return transcriber.to_json() if hasattr(transcriber, "to_json") else None
 
 
 def _pcm_to_float(pcm: bytes) -> np.ndarray:
@@ -240,6 +255,14 @@ class Session:
     ringing: asyncio.Task | None = None
     """A finished timer ringing on this satellite."""
     ringing_timers: list[dict] = field(default_factory=list)
+    ring_stopped_by: str = ""
+    """What cut the ring off, when it was cut off: "stop" (said), "button"."""
+    timer_progress: dict | None = None
+    """The last timer_progress event sent (what its LED ring shows)."""
+    timer_progress_at: float = 0.0
+    announcing: asyncio.Event = field(default_factory=asyncio.Event)
+    announced: asyncio.Event = field(default_factory=asyncio.Event)
+    """Its media player started and finished an announcement (Home Assistant TTS)."""
 
     def __str__(self) -> str:
         return self.device_id
@@ -277,6 +300,7 @@ class VoiceCallApp:
         self.speech = Speech(
             root / "models/piper/en_GB-jenny_dioco-medium.onnx",
             root / "sounds/acknowledge.mp3",
+            root / "sounds/timer_finished.flac",
         )
         speaker_model = root / "models/speaker/redimnet_b2_vox2.onnx"
         self.speakers: SpeakerId | None = None
@@ -294,8 +318,9 @@ class VoiceCallApp:
         self.calls = CallLog(self.store.calls_dir, self.store.settings)
         self.integration = Integration(self.hass, self._timer_finished, self._timers_changed)
         self.music = Music(self.hass)
+        self.voices = Voices(self.hass)
+        self.hass.on_catalog_change(self.voices.forget)
         self._stop_model: WakeModel | None = None
-        self._alarm = alarm_pcm()
         self._timer_rebuild: asyncio.Task | None = None
         self.store_error: str | None = None
         self._wake_models: list[WakeModel] = []
@@ -409,13 +434,16 @@ class VoiceCallApp:
             or (link.media_player if link is not None else None)
             or self.hass.catalog.music_player_for(key, node)
         )
+        extra = {
+            "media_player": media_player,
+            "voice": choose(self.store.settings, stored),
+            "device_media_player": self.hass.catalog.device_media_player(key) if key else None,
+        }
         if link is not None and link.device_id:
             area = self.hass.catalog.device_areas.get(link.device_id)
             info = self.hass.catalog.area_info(area)
-            return Satellite(
-                key, name, **info, device_id=link.device_id, timer_list=link.timer_list, media_player=media_player
-            )
-        return Satellite(key, name, **self.hass.catalog.area_info(stored.get("area")), media_player=media_player)
+            return Satellite(key, name, **info, device_id=link.device_id, timer_list=link.timer_list, **extra)
+        return Satellite(key, name, **self.hass.catalog.area_info(stored.get("area")), **extra)
 
     def _remember_satellite(self, session: Session) -> None:
         entry = self.store.satellites.setdefault(session.satellite, {})
@@ -664,6 +692,7 @@ class VoiceCallApp:
             self._remember_satellite(session)
             _LOGGER.info("[%s] Device: %s", session, info)
             self._spawn(self._push_wake_models(session))
+            self._spawn(self._send_timer_progress(session, force=True))
         elif msg_type == Message.MODEL_RESULT:
             if info.get("ok"):
                 _LOGGER.info(
@@ -689,6 +718,18 @@ class VoiceCallApp:
             session.call = None
         elif msg_type == Message.PLAYBACK_DRAINED:
             session.drained.set()
+        elif msg_type == Message.DEVICE_EVENT:
+            kind = info.get("type")
+            _LOGGER.debug("[%s] Device event: %s", session, kind)
+            if kind == "announcing":
+                session.announcing.set()
+            elif kind == "announced":
+                session.announced.set()
+            elif kind == "stop_timer" and session.ringing is not None and not session.ringing.done():
+                # The center button.
+                _LOGGER.info("[%s] Timer stopped by the button", session)
+                session.ring_stopped_by = "button"
+                session.ringing.cancel()
         elif msg_type == Message.STATUS:
             _LOGGER.debug("[%s] status: %s", session, info)
         else:
@@ -977,6 +1018,7 @@ class VoiceCallApp:
             await self._event(session, "processing", speaker="unknown")
 
         satellite = self.satellite(session.satellite)
+        transcriber = await self._transcriber(satellite)
         async with self._model_lock:
             assert self.engine is not None
             decision, split = await asyncio.to_thread(
@@ -985,6 +1027,7 @@ class VoiceCallApp:
                 call.wake_start,
                 call.split_bytes / BYTE_RATE,
                 satellite,
+                transcriber,
             )
         if record is not None:
             record.stage("split", **split.to_json())
@@ -992,7 +1035,7 @@ class VoiceCallApp:
             if split.wake_end is not None:
                 record.marks["wake_start"] = split.wake_start
                 record.marks["wake_end"] = split.wake_end
-            record.stage("recognition", **decision.to_json())
+            record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         ident = await speaker_task if speaker_task is not None else None
 
         if decision.internal == LEARN_VOICE:
@@ -1058,12 +1101,62 @@ class VoiceCallApp:
         state = "error" if outcome.error else ("dry run" if dry_run else "done")
         return outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
 
-    async def _say(self, session: Session, text: str, record: CallRecord | None = None) -> None:
+    async def _say(
+        self, session: Session, text: str, record: CallRecord | None = None, paced: bool = False
+    ) -> None:
+        satellite = self.satellite(session.satellite)
+        voice = satellite.voice
+        if text.strip() and voice.tts:
+            target = voice.speak_on or satellite.device_media_player
+            if target is None:
+                _LOGGER.warning("[%s] No media player of its own in Home Assistant; speaking with Piper", session)
+            else:
+                try:
+                    await self._speak(session, satellite, target, text, record)
+                    return
+                except (HassError, ConnectionError, OSError, TimeoutError) as err:
+                    _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, voice.tts, err)
+                    if record is not None:
+                        record.stage("speech_failed", tts=voice.tts, on=target, error=str(err))
+        # Piper, or -- with nothing to say -- the acknowledgement sound, which
+        # stays on the satellite even when its responses are spoken elsewhere.
         async with self._model_lock:
             audio = await self.speech.say(text)
         if record is not None:
             record.stage("speech", text=text, seconds=round(len(audio) / BYTE_RATE, 3))
-        await self._play(session, audio)
+        await self._play(session, audio, paced)
+
+    async def _speak(
+        self, session: Session, satellite: Satellite, target: str, text: str, record: CallRecord | None
+    ) -> None:
+        """Speak with Home Assistant's TTS entity on ``target``. On the
+        satellite's own media player, wait until it has said it: the device
+        tells when the announcement starts and ends."""
+        voice = satellite.voice
+        assert voice.tts is not None
+        data: dict = {"media_player_entity_id": target, "message": text, "cache": True}
+        language = await self.voices.tts_language(voice.tts)
+        if language:
+            data["language"] = language
+        if voice.tts_voice:
+            data["options"] = {"voice": voice.tts_voice}
+        own = target == satellite.device_media_player
+        session.announcing.clear()
+        session.announced.clear()
+        started = time.perf_counter()
+        await self.hass.call_service("tts", "speak", data, {"entity_id": voice.tts})
+        heard: dict = {"started": None, "ended": None}
+        if own:
+            try:
+                await asyncio.wait_for(session.announcing.wait(), ANNOUNCE_START_TIMEOUT)
+                heard["started"] = round(time.perf_counter() - started, 3)
+                await asyncio.wait_for(session.announced.wait(), ANNOUNCE_TIMEOUT)
+                heard["ended"] = round(time.perf_counter() - started, 3)
+            except TimeoutError:
+                _LOGGER.warning("[%s] %s: the announcement did not %s in time", session, target,
+                                "start" if heard["started"] is None else "end")
+        if record is not None:
+            record.stage("speech", text=text, tts=voice.tts, on=target, voice=voice.tts_voice, **heard)
 
     # ------------------------------------------------- try, replay (web UI)
 
@@ -1074,13 +1167,14 @@ class VoiceCallApp:
         record = self.calls.begin("try", satellite.as_dict())
         record.dry_run = not run_actions
         record.stage("typed", text=text)
+        transcriber = await self._transcriber(satellite)
         async with self._model_lock:
             pcm = await self.speech.say(text) if text.strip() else b""
             assert self.engine is not None
             decision = await asyncio.to_thread(
-                self.engine.recognize_command, _pcm_to_float(pcm), satellite
+                self.engine.recognize_command, _pcm_to_float(pcm), satellite, transcriber
             )
-        record.stage("recognition", **decision.to_json())
+        record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         speech, outcome, summary = await self._carry_out(
             decision, satellite, {"name": None, "score": None}, not run_actions, record
         )
@@ -1111,6 +1205,7 @@ class VoiceCallApp:
             self.calls.finish(record, "wake rejected", "wake word rejected", {"call": pcm})
             return record
         self._place_split(call, verdict)
+        transcriber = await self._transcriber(satellite)
         async with self._model_lock:
             assert self.engine is not None
             decision, split = await asyncio.to_thread(
@@ -1119,13 +1214,14 @@ class VoiceCallApp:
                 call.wake_start,
                 call.split_bytes / BYTE_RATE,
                 satellite,
+                transcriber,
             )
         record.stage("split", **split.to_json())
         record.marks["cut"] = split.cut
         if split.wake_end is not None:
             record.marks["wake_start"] = split.wake_start
             record.marks["wake_end"] = split.wake_end
-        record.stage("recognition", **decision.to_json())
+        record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         speaker = next(
             (
                 {k: s.get(k) for k in ("name", "score")}
@@ -1144,7 +1240,10 @@ class VoiceCallApp:
     # ---------------------------------------------------------------- timers
 
     def _timers_changed(self) -> None:
-        """Running timers changed somewhere: recognize their names from now on."""
+        """Running timers changed somewhere: show them on the satellites' rings,
+        and recognize their names from now on."""
+        for session in list(self.sessions.values()):
+            self._spawn(self._send_timer_progress(session))
         assert self.engine is not None
         names = self.integration.running_names()
         if names == self.engine.dynamic.get("running_timers"):
@@ -1160,6 +1259,26 @@ class VoiceCallApp:
                 await self.apply(self.engine.compiled)
             except (ConfigError, ValueError) as err:
                 _LOGGER.error("Could not rebuild with the running timers: %s", err)
+
+    async def _send_timer_progress(self, session: Session, force: bool = False) -> None:
+        """The timer that finishes soonest, for the satellite's LED ring; only
+        when that changed (the device counts down by itself)."""
+        if session.writer is None or not session.satellite:
+            return
+        shown = timers.progress(self.integration.running(session.satellite))
+        last = session.timer_progress
+        if last is not None and not force:
+            # The device counts what it was sent down: compare where that is now.
+            counted = float(last.get("remaining") or 0) - (time.monotonic() - session.timer_progress_at)
+            if (
+                last.get("shown") == shown.get("shown")
+                and last.get("total") == shown.get("total")
+                and abs(max(counted, 0.0) - float(shown.get("remaining") or 0)) < 1.0
+            ):
+                return
+        session.timer_progress = dict(shown)
+        session.timer_progress_at = time.monotonic()
+        await self._event(session, "timer_progress", **shown)
 
     def _timer_finished(self, key: str, timer: dict) -> None:
         """Ring the satellite the timer was set on."""
@@ -1177,6 +1296,7 @@ class VoiceCallApp:
         record = self.calls.begin("timer", self.satellite(session.satellite).as_dict())
         deadline = time.monotonic() + self.options.timer_ring_seconds
         stopped_by = "timeout"
+        session.ring_stopped_by = ""
         try:
             # Not over someone's command.
             while session.call is not None and time.monotonic() < deadline:
@@ -1187,15 +1307,15 @@ class VoiceCallApp:
             record.stage("timer_ringing", timers=session.ringing_timers)
             await self._event(session, "timer_ringing", timers=len(names), name=names[-1] or "")
             described = [timers._describe(t, capital=True) for t in session.ringing_timers]  # pylint: disable=protected-access
-            await self._say(session, " ".join(f"{d} is done." for d in described))
+            await self._say(session, " ".join(f"{d} is done." for d in described), paced=True)
             while time.monotonic() < deadline and session.writer is not None:
-                await self._play(session, self._alarm)
+                await self._play(session, self.speech.alarm, paced=True)
         except asyncio.CancelledError:
-            stopped_by = "stop"
+            stopped_by = session.ring_stopped_by or "stop"
             raise
         finally:
             record.stage("timer_stopped", by=stopped_by)
-            self.calls.finish(record, "timer stopped" if stopped_by == "stop" else "timer rang out", ", ".join(
+            self.calls.finish(record, "timer rang out" if stopped_by == "timeout" else "timer stopped", ", ".join(
                 str(t.get("name") or timers._spoken_duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers  # pylint: disable=protected-access
             ))
             session.ringing_timers = []
@@ -1357,11 +1477,27 @@ class VoiceCallApp:
 
     # ---------------------------------------------------------------- output
 
-    async def _play(self, session: Session, pcm: bytes) -> None:
+    async def _play(self, session: Session, pcm: bytes, paced: bool = False) -> None:
+        """Stream audio and wait until the device has played it out.
+
+        ``paced``: stay at most PLAY_LEAD ahead of the device's clock, for
+        audio outside a call (a ringing timer). The device's buffer only
+        pushes back once full, and its TCP window holds seconds more; a call
+        that starts meanwhile (the "stop" word) would otherwise only hear
+        the app's hang-up after every queued second has played."""
+        # The previous playback's "drained" must not answer for this one.
+        session.drained.clear()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        sent = 0
         for offset in range(0, len(pcm), MAX_PAYLOAD):
-            await self._send(
-                session, Message.AUDIO_OUT, pcm[offset : offset + MAX_PAYLOAD]
-            )
+            chunk = pcm[offset : offset + MAX_PAYLOAD]
+            if paced:
+                ahead = sent / BYTE_RATE - (loop.time() - started)
+                if ahead > PLAY_LEAD:
+                    await asyncio.sleep(ahead - PLAY_LEAD)
+            await self._send(session, Message.AUDIO_OUT, chunk)
+            sent += len(chunk)
         await self._send(session, Message.AUDIO_OUT_END)
         try:
             await asyncio.wait_for(
@@ -1369,6 +1505,12 @@ class VoiceCallApp:
             )
         except TimeoutError:
             _LOGGER.warning("[%s] Timed out waiting for playback to drain", session)
+
+    async def _transcriber(self, satellite: Satellite):
+        """The satellite's STT entity for this command, or None: the TDT head."""
+        if satellite.voice.stt is None or self.engine is None:
+            return None
+        return await self.voices.transcriber(satellite.voice.stt, self.engine.transcriber)
 
     async def _hang_up(self, session: Session, reason: str) -> None:
         _LOGGER.info("[%s] Hanging up: %s", session, reason)

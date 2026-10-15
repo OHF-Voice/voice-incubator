@@ -22,7 +22,7 @@ from adapt_ctc.config import ConfigError
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .commands import DYNAMIC_LISTS, NUMBER_PRESETS, parse_command
-from .hass import VOICE_DOMAINS
+from .hass import VOICE_DOMAINS, HassError
 from .store import NAME_KINDS, compile_store, dump, plain
 
 if TYPE_CHECKING:
@@ -90,6 +90,8 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/satellites/{key}", api.put_satellite),
             web.post("/api/satellites/{key}/debug", api.debug_session),
             web.get("/api/settings", api.get_settings),
+            web.get("/api/voices", api.voices),
+            web.get("/api/voices/{entity_id}", api.tts_voices),
             web.put("/api/settings", api.put_settings),
             web.get("/api/calls", api.calls),
             web.get("/api/calls/{id}", api.call),
@@ -382,6 +384,10 @@ class Api:
                     "timer_list": satellite.timer_list,
                     "timers": app.integration.running(key),
                     "media_player": satellite.media_player,
+                    # As stored (absent: as every satellite) and as it comes out.
+                    "voice": {k: stored.get(k) for k in ("stt", "tts", "tts_voice", "speak_on") if k in stored},
+                    "voice_used": satellite.voice.__dict__,
+                    "device_media_player": satellite.device_media_player,
                     # Picked here, or else found: its Sendspin client's player.
                     "media_player_picked": bool(stored.get("media_player")),
                     "music_players": [
@@ -416,6 +422,17 @@ class Api:
                 entry["area"] = area
             else:
                 entry.pop("area", None)
+        # STT and TTS of its own: an entity, "builtin", or empty for what every
+        # satellite uses. speak_on: a media player for its responses.
+        for key, domain in (("stt", "stt."), ("tts", "tts."), ("tts_voice", ""), ("speak_on", "media_player.")):
+            if key in body:
+                value = str(body[key] or "")
+                if value and value != "builtin" and not value.startswith(domain):
+                    raise ConfigError(f"{key}: expected a {domain.rstrip('.')} entity")
+                if value:
+                    entry[key] = value
+                else:
+                    entry.pop(key, None)
         if "media_player" in body:
             # Empty: the player found for its Sendspin client.
             if body["media_player"]:
@@ -434,6 +451,34 @@ class Api:
         self.app.calls.stop_session(key)
         return web.json_response({"ok": True, "session": None})
 
+    async def voices(self, request: web.Request) -> web.Response:
+        """Home Assistant's STT and TTS entities that work in English, and the
+        media players responses can be spoken on."""
+        out: dict[str, Any] = {"stt": [], "tts": [], "error": None}
+        try:
+            out.update(await self.app.voices.engines())
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            out["error"] = str(err)
+        out["media_players"] = sorted(
+            (
+                {"entity_id": e.entity_id, "name": e.name, "area": e.area_id}
+                for e in self.app.hass.catalog.entities.values()
+                if e.domain == "media_player"
+            ),
+            key=lambda m: m["name"].lower(),
+        )
+        return web.json_response(out)
+
+    async def tts_voices(self, request: web.Request) -> web.Response:
+        entity_id = request.match_info["entity_id"]
+        if not entity_id.startswith("tts."):
+            raise ConfigError("Expected a tts entity")
+        try:
+            voices = await self.app.voices.voices(entity_id)
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            return web.json_response({"voices": [], "error": str(err)})
+        return web.json_response({"voices": [{"id": v.get("voice_id"), "name": v.get("name")} for v in voices]})
+
     async def get_settings(self, request: web.Request) -> web.Response:
         return web.json_response(self.app.store.settings)
 
@@ -444,6 +489,19 @@ class Api:
             settings["keep_audio"] = bool(body["keep_audio"])
         if "max_saved_calls" in body:
             settings["max_saved_calls"] = max(1, int(body["max_saved_calls"]))
+        # Home Assistant STT and TTS for every satellite: an entity, or none
+        # for the built-in models.
+        for key, domain in (("stt", "stt."), ("tts", "tts."), ("tts_voice", "")):
+            if key in body:
+                value = str(body[key] or "")
+                if value and not value.startswith(domain):
+                    raise ConfigError(f"{key}: expected a {domain.rstrip('.')} entity")
+                if value:
+                    settings[key] = value
+                else:
+                    settings.pop(key, None)
+        if "tts" in body and not settings.get("tts"):
+            settings.pop("tts_voice", None)
         self.app.store.save_settings()
         return web.json_response(settings)
 

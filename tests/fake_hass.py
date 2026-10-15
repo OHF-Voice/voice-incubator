@@ -65,6 +65,11 @@ MUSIC_PLAYERS = {
 }
 SENDSPIN_PLAYERS = {"aabbccddeeff": "media_player.fake_vpe"}
 """Satellite -> its Sendspin player, as the Voice Call integration finds it."""
+# The fake satellite's ESPHome device and its media player (where TTS speaks).
+ESPHOME_DEVICE = {"id": "esphome-fake-vpe", "mac": "aa:bb:cc:dd:ee:ff", "media_player": "media_player.fake_vpe_media_player"}
+STT_ENGINES = [{"engine_id": "stt.fake_whisper", "supported_languages": ["en-US", "en-GB"]}]
+TTS_ENGINES = [{"engine_id": "tts.fake_cloud", "supported_languages": ["en-US"]}]
+TTS_VOICES = {"tts.fake_cloud": [{"voice_id": "JennyNeural", "name": "Jenny"}, {"voice_id": "GuyNeural", "name": "Guy"}]}
 MUSIC_LIBRARY = {
     "artists": [{"media_type": "artist", "uri": "library://artist/1", "name": "Miles Davis"}],
     "albums": [
@@ -98,6 +103,11 @@ class FakeHass:
         self.states: dict[str, tuple[str, dict[str, Any]]] = dict(STATES)
         for entity_id, (_, name, _, _) in MUSIC_PLAYERS.items():
             self.states[entity_id] = ("idle", {"friendly_name": name, "volume_level": 0.5, "is_volume_muted": False})
+        self.stt_text = "what time is it"
+        """What the STT entity hears (over REST, see serve_rest)."""
+        self.stt_requests: list[dict[str, Any]] = []
+        self.on_speak: Any = None
+        """Called with tts.speak's data: a test makes the satellite announce."""
         self.broken_search = False
         """music_assistant.search fails as Home Assistant's does when Music
         Assistant leaves an album's ``favorite`` empty."""
@@ -149,8 +159,17 @@ class FakeHass:
         elif kind == "config/device_registry/list":
             await result(
                 [
-                    {"id": f"device-{e}", "area_id": None, "manufacturer": m[0], "model": m[1]}
+                    {"id": f"device-{e}", "area_id": None, "manufacturer": m[0], "model": m[1], "connections": []}
                     for e, (_, _, _, m) in MUSIC_PLAYERS.items()
+                ]
+                + [
+                    {
+                        "id": ESPHOME_DEVICE["id"],
+                        "area_id": None,
+                        "manufacturer": "Espressif",
+                        "model": "esp32-s3-devkitc-1",
+                        "connections": [["mac", ESPHOME_DEVICE["mac"]]],
+                    }
                 ]
             )
         elif kind == "config/entity_registry/list":
@@ -162,6 +181,17 @@ class FakeHass:
                 + [
                     {"entity_id": e, "name": None, "original_name": n, "area_id": a, "device_id": f"device-{e}", "platform": "music_assistant", "unique_id": u}
                     for e, (u, n, a, _) in MUSIC_PLAYERS.items()
+                ]
+                + [
+                    {
+                        "entity_id": ESPHOME_DEVICE["media_player"],
+                        "name": None,
+                        "original_name": "Media Player",
+                        "area_id": None,
+                        "device_id": ESPHOME_DEVICE["id"],
+                        "platform": "esphome",
+                        "unique_id": "aabbccddeeff-media_player",
+                    }
                 ]
             )
         elif kind == "config/entity_registry/get_entries":
@@ -240,6 +270,12 @@ class FakeHass:
             await self._push(entity_id, {"type": "timers", "timers": list(self.timers.get(entity_id, {}).values())})
         elif kind == "voice_timer_list/item/list":
             await result({"timers": list(self.timers.get(message["entity_id"], {}).values())})
+        elif kind == "stt/engine/list":
+            await result({"providers": STT_ENGINES})
+        elif kind == "tts/engine/list":
+            await result({"providers": TTS_ENGINES})
+        elif kind == "tts/engine/voices":
+            await result({"voices": TTS_VOICES.get(message["engine_id"], [])})
         elif kind == "call_service":
             self.services.append(message)
             if self.broken_search and message["domain"] == "music_assistant" and message["service"] == "search":
@@ -259,6 +295,10 @@ class FakeHass:
                 self._timer_subscribers[entity_id].remove((socket, msg_id))
 
     async def _call_service(self, message: dict[str, Any]) -> Any:
+        if message["domain"] == "tts" and message["service"] == "speak":
+            if self.on_speak is not None:
+                self.on_speak(message.get("service_data") or {})
+            return None
         if message["domain"] in ("music_assistant", "media_player"):
             return self._music(message)
         if message["domain"] != "voice_timer_list":
@@ -373,6 +413,29 @@ async def serve(host: str = "127.0.0.1", port: int = 0) -> tuple[FakeHass, Any]:
     fake = FakeHass()
     server = await websockets.serve(fake.handle, host, port)
     return fake, server
+
+
+async def serve_rest(fake: FakeHass, host: str = "127.0.0.1", port: int = 0):
+    """The REST API beside the websocket one: ``/api/stt/<entity>``. Returns
+    the runner and its port."""
+    from aiohttp import web  # pylint: disable=import-outside-toplevel
+
+    async def stt(request: web.Request) -> web.Response:
+        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return web.Response(status=401)
+        audio = await request.read()
+        fake.stt_requests.append(
+            {"entity_id": request.match_info["entity_id"], "header": request.headers.get("X-Speech-Content"), "bytes": len(audio)}
+        )
+        return web.json_response({"text": fake.stt_text, "result": "success"})
+
+    application = web.Application()
+    application.add_routes([web.post("/api/stt/{entity_id}", stt)])
+    runner = web.AppRunner(application)
+    await runner.setup()
+    site = web.TCPSite(runner, host, port)
+    await site.start()
+    return runner, runner.addresses[0][1]
 
 
 def main() -> None:

@@ -114,6 +114,22 @@ class Catalog:
     """Device id -> area id, for every device (satellites' included)."""
     device_models: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
     """Device id -> (manufacturer, model)."""
+    device_macs: dict[str, list[str]] = field(default_factory=dict)
+    """MAC (aa:bb:..) -> the devices with it (an ESPHome device, ...)."""
+
+    def device_media_player(self, mac: str) -> str | None:
+        """The ESPHome media player of the device with this MAC: where Home
+        Assistant's TTS speaks on a satellite."""
+        wanted = ":".join(mac.replace(":", "").lower()[i : i + 2] for i in range(0, 12, 2))
+        devices = set(self.device_macs.get(wanted, []))
+        return next(
+            (
+                e.entity_id
+                for e in self.entities.values()
+                if e.domain == "media_player" and e.platform == "esphome" and e.device_id in devices
+            ),
+            None,
+        )
 
     def music_players(self) -> list[Entity]:
         """Music Assistant's players (its media_player entities)."""
@@ -438,6 +454,47 @@ class HomeAssistant:
     async def fire_event(self, event_type: str, data: dict) -> None:
         await self.call({"type": "fire_event", "event_type": event_type, "event_data": data})
 
+    # --------------------------------------------------------- speech, text
+
+    async def speech_to_text(
+        self, entity_id: str, pcm: bytes, language: str, rate: int = 16000, timeout: float = 30.0
+    ) -> str:
+        """Transcribe 16-bit mono PCM with an STT entity (``/api/stt``: there
+        is no websocket command outside a pipeline). Raises HassError."""
+        import aiohttp  # pylint: disable=import-outside-toplevel
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "X-Speech-Content": (
+                f"format=wav; codec=pcm; sample_rate={rate}; bit_rate=16; channel=1; language={language}"
+            ),
+        }
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as http:
+                async with http.post(f"{self.url}/api/stt/{entity_id}", data=pcm, headers=headers) as response:
+                    if response.status != 200:
+                        raise HassError(f"{entity_id}: {response.status} {(await response.text())[:200]}")
+                    result = await response.json()
+        except aiohttp.ClientError as err:
+            raise HassError(f"{entity_id}: {err}") from err
+        if result.get("result") != "success":
+            raise HassError(f"{entity_id} could not transcribe the audio")
+        return str(result.get("text") or "")
+
+    async def stt_engines(self, language: str) -> list[dict]:
+        """STT entities and the languages they support that match ``language``
+        (best first)."""
+        result = await self.call({"type": "stt/engine/list", "language": language})
+        return [p for p in (result or {}).get("providers", []) if str(p.get("engine_id", "")).startswith("stt.")]
+
+    async def tts_engines(self, language: str) -> list[dict]:
+        result = await self.call({"type": "tts/engine/list", "language": language})
+        return [p for p in (result or {}).get("providers", []) if str(p.get("engine_id", "")).startswith("tts.")]
+
+    async def tts_voices(self, engine_id: str, language: str) -> list[dict]:
+        result = await self.call({"type": "tts/engine/voices", "engine_id": engine_id, "language": language})
+        return list((result or {}).get("voices") or [])
+
     # -------------------------------------------------------------- catalog
 
     def _schedule_refresh(self, delay: float = 1.0) -> None:
@@ -465,11 +522,16 @@ class HomeAssistant:
         device_area = {d["id"]: d.get("area_id") for d in devices or []}
         catalog_device_areas = dict(device_area)
         device_models = {d["id"]: (d.get("manufacturer"), d.get("model")) for d in devices or []}
+        device_macs: dict[str, list[str]] = {}
+        for device in devices or []:
+            for kind, value in device.get("connections") or []:
+                if kind == "mac":
+                    device_macs.setdefault(str(value).lower(), []).append(device["id"])
         friendly = {
             s["entity_id"]: s.get("attributes", {}).get("friendly_name") or s["entity_id"]
             for s in states or []
         }
-        catalog = Catalog(device_areas=catalog_device_areas, device_models=device_models)
+        catalog = Catalog(device_areas=catalog_device_areas, device_models=device_models, device_macs=device_macs)
         for floor in floors or []:
             catalog.floors[floor["floor_id"]] = Floor(
                 floor["floor_id"], floor["name"], list(floor.get("aliases") or []), floor.get("level")

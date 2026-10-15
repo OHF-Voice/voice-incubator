@@ -104,6 +104,13 @@ class FakeSatellite:
             _LOGGER.info("hang up: %s", reason)
             self._hangup.set()
 
+    async def device_event(self, kind: str) -> None:
+        """Something happened here (the media player's announcement started or
+        ended): tell the app."""
+        assert self._writer is not None
+        self._writer.write(encode_json(Message.DEVICE_EVENT, {"type": kind}))
+        await self._writer.drain()
+
     async def detect(self, wake_word: str, timeout: float = 10.0) -> str:
         """A wake word model fired with nothing to say after it (\"stop\")."""
         return await self.call(bytes(CHUNK * 4), timeout=timeout, wake_word=wake_word)

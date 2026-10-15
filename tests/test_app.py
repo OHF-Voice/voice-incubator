@@ -209,14 +209,38 @@ async def _scenario(tmp_path: Path) -> None:
         assert create["service_data"] == {"duration": 15}
         [timer_id] = hass.timers[timer_list]
         await wait_for(lambda: app.integration.running(MAC))
+        # The ring shows it counting down.
+        await wait_for(lambda: any(
+            e["type"] == "timer_progress" and e["data"].get("shown") == 1 and e["data"]["total"] == 15
+            for e in satellite.events
+        ))
         played = satellite.played
         await hass.finish_timer(timer_list, timer_id)
         await wait_for(lambda: "stop" in satellite.models and satellite.played > played + 32000)
         assert any(e["type"] == "timer_ringing" for e in satellite.events)
+        assert [e for e in satellite.events if e["type"] == "timer_progress"][-1]["data"] == {"shown": 0}
         assert await satellite.detect("Stop") == "timer_stopped"
         await wait_for(lambda: satellite.clears == 1 and satellite.models == ["okay_nabu", "vad"])
         outcomes = [r.outcome for r in app.calls.recent]
         assert outcomes[-2:] == ["timer stopped", "timer stopped"] or outcomes[-1] == "timer stopped"
+
+        # The center button stops one too.
+        await hass._call_service(
+            {
+                "domain": "voice_timer_list",
+                "service": "create_timer",
+                "target": {"entity_id": timer_list},
+                "service_data": {"duration": 30},
+            }
+        )
+        [second] = [t for t in hass.timers[timer_list] if t != timer_id]
+        await hass.finish_timer(timer_list, second)
+        session = app.sessions[MAC]
+        await wait_for(lambda: session.ringing is not None and not session.ringing.done() and "stop" in satellite.models)
+        await satellite.device_event("stop_timer")
+        await wait_for(lambda: session.ringing.done() and satellite.models == ["okay_nabu", "vad"])
+        stopped = next(s for s in app.calls.recent[-1].stages if s["stage"] == "timer_stopped")
+        assert stopped["by"] == "button" and app.calls.recent[-1].outcome == "timer stopped"
 
         # Home Assistant refuses the action: the satellite is told, the call
         # is an error.
@@ -228,5 +252,106 @@ async def _scenario(tmp_path: Path) -> None:
     finally:
         runner.cancel()
         await app.stop()
+        satellite_server.close()
+        hass_server.close()
+
+
+VOICE_COMMANDS = """\
+commands:
+  lights_on:
+    description: turn on the lights
+    require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
+    optional: [[all], [in]]
+    action: {action: light.turn_on, target: "{{ target }}"}
+    response: Turned on the lights.
+  play_music:
+    description: play music
+    require: [[play]]
+    wildcard: {slot: query, after: [play], to_end: true, required: true, max_words: 8}
+    music: play
+"""
+
+
+def test_home_assistant_stt_and_tts(tmp_path):
+    asyncio.run(_voices(tmp_path))
+
+
+async def _voices(tmp_path: Path) -> None:
+    """An STT entity writes what TDT would (and only when it is needed); a TTS
+    entity speaks on the satellite's own media player -- the call lasts until
+    the satellite says the announcement ended -- or on another one, while the
+    acknowledgement sound stays on the satellite."""
+    hass, hass_server = await fake_hass.serve()
+    rest, rest_port = await fake_hass.serve_rest(hass)
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite_server = await serve(satellite)
+    satellite_port = satellite_server.sockets[0].getsockname()[1]
+
+    spoken: list[dict] = []
+
+    def on_speak(data: dict) -> None:
+        spoken.append(data)
+        if data["media_player_entity_id"] == fake_hass.ESPHOME_DEVICE["media_player"]:
+
+            async def announce() -> None:
+                await asyncio.sleep(0.2)
+                await satellite.device_event("announcing")
+                await asyncio.sleep(0.5)
+                await satellite.device_event("announced")
+
+            asyncio.ensure_future(announce())
+
+    hass.on_speak = on_speak
+    (tmp_path / "commands.yaml").write_text(VOICE_COMMANDS)
+    (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\n")
+    app = VoiceCallApp(
+        Options(
+            host="127.0.0.1",
+            port=satellite_port,
+            hass_url=f"http://127.0.0.1:{rest_port}",
+            hass_websocket_url=f"ws://127.0.0.1:{hass_port}/api/websocket",
+            hass_token=fake_hass.TOKEN,
+            data_dir=tmp_path,
+            http_port=free_port(),
+            speaker_profiles=tmp_path / "speakers.json",
+            threads=4,
+        )
+    )
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+
+        # Keywords decide "turn on the lights": no text needed, no STT asked.
+        played = satellite.played
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        assert hass.stt_requests == []
+        assert spoken[-1]["message"] == "Turned on the lights."
+        assert spoken[-1]["media_player_entity_id"] == "media_player.fake_vpe_media_player"
+        assert spoken[-1]["options"] == {"voice": "JennyNeural"} and spoken[-1]["language"] == "en-US"
+        speech = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech")
+        assert speech["started"] is not None and speech["ended"] >= speech["started"]
+        assert satellite.played == played  # nothing streamed: the satellite fetched it
+
+        # Free text comes from the STT entity.
+        hass.stt_text = "Please play the album Kind of Blue."
+        # (Piper's "play" at the very start is often heard as "they".)
+        record = await app.try_text("please play kind of blue", MAC)
+        recognition = next(s for s in record.stages if s["stage"] == "recognition")
+        assert recognition["command"] == "play_music", recognition["recognition"].get("transcript")
+        assert recognition["slots"]["query"] == "the album Kind of Blue"
+        assert recognition["text_source"] == "stt.fake_whisper"
+        assert recognition["stt"]["asked"] and hass.stt_requests[-1]["entity_id"] == "stt.fake_whisper"
+
+        # Responses on another player; the satellite doesn't wait for it.
+        stored = app.store.satellites.setdefault(MAC, {})
+        stored["speak_on"] = "media_player.kitchen_speaker"
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        assert spoken[-1]["media_player_entity_id"] == "media_player.kitchen_speaker"
+    finally:
+        runner.cancel()
+        await app.stop()
+        await rest.cleanup()
         satellite_server.close()
         hass_server.close()

@@ -46,6 +46,7 @@ from adapt_ctc.config import ConfigError, _phrase
 
 from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, match_slots
 from .store import Compiled
+from .voices import VoiceChoice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,6 +101,10 @@ class Satellite:
     """Its voice_timer_list entity."""
     media_player: str | None = None
     """Its Music Assistant player (its Sendspin client's)."""
+    voice: VoiceChoice = field(default_factory=VoiceChoice)
+    """Home Assistant STT and TTS entities, when not the built-in models."""
+    device_media_player: str | None = None
+    """Its own media player in Home Assistant (ESPHome's), where TTS speaks."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -140,8 +145,11 @@ class Decision:
     """One of the app's own commands (INTERNAL_INTENTS) matched."""
 
     text_from_tdt: dict[str, str] = field(default_factory=dict)
-    """Free-text slots re-read from the TDT transcript: slot -> as the CTC
-    head heard it."""
+    """Free-text slots re-read from the TDT transcript (or the STT entity's):
+    slot -> as the CTC head heard it."""
+
+    text_source: str = "TDT"
+    """What wrote the transcript: the TDT head, or an STT entity."""
 
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -160,6 +168,7 @@ class Decision:
             "hint": self.hint,
             "message": self.message,
             "text_from_tdt": self.text_from_tdt,
+            "text_source": self.text_source,
             "recognition": self.recognition,
             "timings": {k: round(v, 4) for k, v in self.timings.items()},
         }
@@ -341,23 +350,29 @@ class Engine:
         return log_probs[end + 1 :], frame_seconds, split
 
     def recognize_call(
-        self, audio: np.ndarray, wake_start: float | None, kaldi_split: float, satellite: Satellite
+        self,
+        audio: np.ndarray,
+        wake_start: float | None,
+        kaldi_split: float,
+        satellite: Satellite,
+        transcriber: Any = None,
     ) -> tuple[Decision, Split]:
         """A whole call, from the start of its pre-roll, after Kaldi accepted
-        the wake word."""
+        the wake word. ``transcriber`` stands in for the TDT head (an STT
+        entity, see voice_call/speech.py)."""
         started = time.perf_counter()
         log_probs, frame_seconds, split = self.place_command(audio, wake_start, kaldi_split)
         placed = time.perf_counter() - started
         command_audio = audio[int(split.cut * SAMPLE_RATE) :]
-        decision = self.decide(log_probs, frame_seconds, command_audio, satellite)
+        decision = self.decide(log_probs, frame_seconds, command_audio, satellite, transcriber)
         decision.timings = {"acoustic+placement": placed, **decision.timings}
         return decision, split
 
-    def recognize_command(self, audio: np.ndarray, satellite: Satellite) -> Decision:
+    def recognize_command(self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None) -> Decision:
         """Audio that is only the command (typed and synthesized, or uploaded)."""
         started = time.perf_counter()
         log_probs, frame_seconds = self.model.log_probs(audio)
-        decision = self.decide(log_probs, frame_seconds, audio, satellite)
+        decision = self.decide(log_probs, frame_seconds, audio, satellite, transcriber)
         decision.timings = {"acoustic": time.perf_counter() - started, **decision.timings}
         return decision
 
@@ -367,7 +382,12 @@ class Engine:
         frame_seconds: float,
         command_audio: np.ndarray,
         satellite: Satellite,
+        transcriber: Any = None,
     ) -> Decision:
+        """What the command comes to. The CTC matcher always runs; text --
+        examples not found in the CTC evidence, free text, hints -- comes from
+        ``transcriber`` when given, else the TDT head, and only when needed."""
+        transcriber = transcriber or self.transcriber
         with self._lock:
             compiled, recognizer = self.compiled, self.recognizer
         if recognizer is None or compiled is None:
@@ -377,8 +397,8 @@ class Engine:
             return decision
 
         recognition = recognizer.recognize_log_probs(log_probs, frame_seconds)
-        recognition = recognizer.match_examples(recognition, command_audio)
-        decision = Decision(recognition={})
+        recognition = recognizer.match_examples(recognition, command_audio, transcriber)
+        decision = Decision(recognition={}, text_source=getattr(transcriber, "source", "TDT"))
 
         for result in recognition.matches:
             if result.intent in self.internal:
@@ -388,7 +408,7 @@ class Engine:
                 spec = self.internal[result.intent]
                 if spec.get("wildcard"):
                     self._reread_text(
-                        decision, recognition, command_audio, frame_seconds, spec["wildcard"]["slot"]
+                        decision, recognition, command_audio, frame_seconds, spec["wildcard"], transcriber
                     )
                 break
             command = compiled.commands.get(result.intent)
@@ -410,15 +430,15 @@ class Engine:
             if command.intent.get("wildcard"):
                 self._reread_text(
                     decision, recognition, command_audio, frame_seconds,
-                    command.intent["wildcard"]["slot"],
+                    command.intent["wildcard"], transcriber,
                 )
             break
 
         if decision.command is None and decision.internal is None:
-            if self.transcriber is not None and recognition.tdt_transcript is None:
+            if transcriber is not None and recognition.tdt_transcript is None:
                 started = time.perf_counter()
-                recognition.tdt_transcript = self.transcriber.transcribe(command_audio)
-                recognition.timings["tdt"] = time.perf_counter() - started
+                recognition.tdt_transcript = transcriber.transcribe(command_audio)
+                recognition.timings[_timing(transcriber)] = time.perf_counter() - started
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
             if not compiled.commands:
                 # Only the app's own commands are listened for.
@@ -445,24 +465,31 @@ class Engine:
         recognition: Recognition,
         command_audio: np.ndarray,
         frame_seconds: float,
-        slot: str,
+        wildcard: dict[str, Any],
+        transcriber: Any,
     ) -> None:
-        """Replace free text as the CTC head spelled it with the TDT
-        transcript's words over the same stretch of audio."""
-        if self.transcriber is None or decision.intent is None:
+        """Replace free text as the CTC head spelled it with the transcript's
+        words over the same stretch of audio -- the TDT head's, timed -- or,
+        from a transcriber without word times (an STT entity), the words its
+        keywords bound in the transcript."""
+        slot = wildcard["slot"]
+        if transcriber is None or decision.intent is None:
             return
         uses = [use for use in decision.intent.spans if use.role == "wildcard"]
         if not uses:
             return
         started = time.perf_counter()
-        transcript, words = self.transcriber.transcribe_words(command_audio)
-        recognition.timings["tdt"] = time.perf_counter() - started
+        transcript, words = transcriber.transcribe_words(command_audio)
+        recognition.timings[_timing(transcriber)] = time.perf_counter() - started
         recognition.tdt_transcript = transcript
-        use = uses[0]
-        start = use.hit.start * frame_seconds - frame_seconds
-        end = (use.hit.end + 1) * frame_seconds + frame_seconds
-        inside = [w for w, s, e in words if s >= start and (s + e) / 2 <= end]
-        text = " ".join(_strip(w) for w in inside).strip()
+        if words is None:
+            text = free_text(transcript, wildcard, str(decision.slots.get(slot) or "")) or ""
+        else:
+            use = uses[0]
+            start = use.hit.start * frame_seconds - frame_seconds
+            end = (use.hit.end + 1) * frame_seconds + frame_seconds
+            inside = [w for w, s, e in words if s >= start and (s + e) / 2 <= end]
+            text = " ".join(_strip(w) for w in inside).strip()
         if text and slot in decision.slots and text.lower() != str(decision.slots[slot]).lower():
             decision.text_from_tdt[slot] = str(decision.slots[slot])
             decision.slots[slot] = text
@@ -627,3 +654,49 @@ def _missing_text(command: Command, missing: list[dict[str, Any]]) -> str:
 
 def _strip(word: str) -> str:
     return re.sub(r"^[^\w']+|[^\w']+$", "", word)
+
+
+def _timing(transcriber: Any) -> str:
+    return "tdt" if getattr(transcriber, "source", "TDT") == "TDT" else "stt"
+
+
+def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str | None:
+    """A wildcard's text in a transcript without word times, found as the
+    recognizer found it: after one of its ``after`` keywords (to the end, or
+    up to a ``before`` keyword), or before one of its ``before`` keywords. As
+    many words as the CTC head heard there, when only one edge bounds it."""
+    words = [_strip(w) for w in transcript.split()]
+    words = [w for w in words if w]
+    lower = [w.lower() for w in words]
+
+    def find(phrases: list[str], start: int = 0) -> list[tuple[int, int]]:
+        found = []
+        for phrase in phrases:
+            parts = [p for p in str(phrase).lower().split() if p != "..."]
+            for i in range(start, len(lower) - len(parts) + 1):
+                if parts and lower[i : i + len(parts)] == parts:
+                    found.append((i, i + len(parts)))
+        return sorted(found)
+
+    count = max(1, len(heard.split())) if heard else int(wildcard.get("max_words") or 3)
+    count = min(count, int(wildcard.get("max_words") or count))
+    afters = find(wildcard.get("after") or [])
+    befores = find(wildcard.get("before") or [])
+    if afters:
+        start = afters[0][1]
+        if wildcard.get("to_end"):
+            text = words[start:]
+        else:
+            ends = [b for b, _ in befores if b > start]
+            if ends:
+                text = words[start : ends[0]]
+            elif wildcard.get("bounded"):
+                return None
+            else:
+                text = words[start : start + count]
+    elif befores and not wildcard.get("bounded") and not wildcard.get("to_end"):
+        end = befores[0][0]
+        text = words[max(0, end - count) : end]
+    else:
+        return None
+    return " ".join(text).strip() or None

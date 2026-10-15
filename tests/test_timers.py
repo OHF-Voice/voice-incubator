@@ -188,3 +188,17 @@ def test_dynamic_list_names_are_reserved():
 
     with pytest.raises(ConfigError, match="kept by the app"):
         compile_store({"lists": {"running_timers": ["a"]}, "commands": copy.deepcopy(COMMANDS)})
+
+
+def test_the_ring_shows_the_timer_that_finishes_soonest():
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime(2026, 10, 15, 20, 0, tzinfo=UTC)
+    soon = {"status": "active", "total_duration": 600, "finishes_at": (now + timedelta(seconds=90)).isoformat()}
+    later = {"status": "active", "total_duration": 300, "finishes_at": (now + timedelta(seconds=200)).isoformat()}
+    paused = {"status": "paused", "total_duration": 60, "remaining": 5}
+    assert timers.progress([later, soon, paused], now) == {"shown": 1, "remaining": 90.0, "total": 600.0, "paused": 0}
+    assert timers.progress([paused], now) == {"shown": 0}
+    assert timers.progress([], now) == {"shown": 0}
+    # Without an end time (a fake), what was left when it was reported.
+    assert timers.progress([{"status": "active", "created_duration": 15, "remaining": 15}], now)["remaining"] == 15.0

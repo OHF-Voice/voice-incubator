@@ -917,18 +917,80 @@ async function pageNames() {
 
 // -------------------------------------------------------------- satellites
 
+// Home Assistant STT and TTS entities: a select of them, with the built-in
+// model and (for one satellite) "as every satellite" first.
+function voiceSelect(kind, entities, value, inherit) {
+  const builtin = kind === "stt" ? "Built-in (Parakeet TDT)" : "Built-in (Piper)";
+  const options = [];
+  if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite (${inherit})`));
+  options.push(h("option", { value: "builtin", selected: inherit === undefined ? !value : value === "builtin" }, builtin));
+  for (const e of entities) options.push(h("option", { value: e.entity_id, selected: value === e.entity_id }, e.entity_id));
+  if (value && value !== "builtin" && !entities.some((e) => e.entity_id === value)) options.push(h("option", { value, selected: true }, `${value} (not found)`));
+  return h("select", {}, ...options);
+}
+
+function voiceSelectValue(select, inheritable) {
+  return select.value === "builtin" && !inheritable ? null : select.value || null;
+}
+
+// A TTS entity's voices, loaded when it is picked.
+function voicePicker(ttsSelect, value, inherit) {
+  const select = h("select", {});
+  async function load() {
+    const tts = ttsSelect.value;
+    const options = [];
+    if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite${inherit ? ` (${inherit})` : ""}`));
+    options.push(h("option", { value: "default", selected: inherit === undefined ? !value : value === "default" }, "Its default voice"));
+    if (tts && tts.startsWith("tts.")) {
+      try {
+        const data = await api("GET", `voices/${encodeURIComponent(tts)}`);
+        for (const v of data.voices) options.push(h("option", { value: v.id, selected: value === v.id }, v.name || v.id));
+      } catch (_) { /* no voices to offer */ }
+    }
+    fill(select, options);
+  }
+  ttsSelect.addEventListener("change", () => { value = undefined; load(); });
+  load();
+  return select;
+}
+
 async function pageSatellites() {
-  const sats = await loadSatellites();
+  const [sats, voices] = await Promise.all([loadSatellites(), api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] }))]);
   const areas = await areaLabels();
+  const settings = (state.status && state.status.settings) || {};
+  const globalStt = voiceSelect("stt", voices.stt, settings.stt);
+  const globalTts = voiceSelect("tts", voices.tts, settings.tts);
+  const globalVoice = voicePicker(globalTts, settings.tts_voice);
+  const label = (value, kind) => value || (kind === "stt" ? "built-in" : "built-in");
   fill($main, 
     h("h1", {}, "Satellites"),
     h("p", { class: "muted" }, "Each satellite's area is what “the lights” means there, and what commands scoped to an area follow. With the Voice Call integration it is the area of the satellite's own device in Home Assistant."),
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
+    h("div", { class: "panel" },
+      h("h2", {}, "Listening and speaking"),
+      h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own below). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
+      voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
+      h("div", { class: "row" },
+        field("Speech-to-text", globalStt), field("Text-to-speech", globalTts), field("Voice", globalVoice),
+        h("button", { class: "primary", onclick: async () => {
+          try {
+            await api("PUT", "settings", { stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null });
+            await refreshStatus(); toast("Saved"); pageSatellites();
+          } catch (err) { toast(err.message); }
+        } }, "Save"))),
     sats.length ? null : h("div", { class: "panel muted" }, "No satellite has connected yet."),
     ...sats.map((s) => {
       const name = h("input", { type: "text", value: s.name });
       const area = h("select", {}, h("option", { value: "" }, "No area"), ...Object.entries(areas).map(([id, label]) => h("option", { value: id, selected: s.area === id }, label)));
       const dry = h("input", { type: "checkbox", checked: s.debug ? s.debug.dry_run : true });
+      const own = s.voice || {};
+      const used = s.voice_used || {};
+      const stt = voiceSelect("stt", voices.stt, own.stt, label(settings.stt));
+      const tts = voiceSelect("tts", voices.tts, own.tts, label(settings.tts));
+      const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "");
+      const speakOn = h("select", {},
+        h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
+        ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
       const found = s.media_player_picked ? null : s.media_player;
       const player = h("select", {},
         h("option", { value: "" }, found ? `Its Sendspin player (${found})` : "Its Sendspin player (not found)"),
@@ -943,14 +1005,26 @@ async function pageSatellites() {
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it")),
+          h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
+          h("div", {}, "Listens with"), h("div", {}, used.stt ? h("code", {}, used.stt) : "the built-in TDT model", " after the built-in matcher"),
+          h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice ? ` (${used.tts_voice})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in")),
         s.timers && s.timers.length ? h("div", { class: "small" }, h("b", {}, "Timers: "),
           s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · ")) : null,
         s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
         h("div", { class: "row" },
-          field("Name", name), field("Area", area), field("Music player", player),
+          field("Name", name), field("Area", area), field("Music player", player)),
+        h("div", { class: "row" },
+          field("Speech-to-text", stt), field("Text-to-speech", tts), field("Voice", voice),
+          field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
+        h("div", { class: "row" },
           h("button", { class: "primary", onclick: async () => {
-            try { await api("PUT", `satellites/${s.key}`, { name: name.value, area: area.value || null, media_player: player.value || null }); toast("Saved"); pageSatellites(); }
+            try {
+              await api("PUT", `satellites/${s.key}`, {
+                name: name.value, area: area.value || null, media_player: player.value || null,
+                stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
+              });
+              toast("Saved"); pageSatellites();
+            }
             catch (err) { toast(err.message); }
           } }, "Save")),
         h("h3", {}, "Debugging"),
@@ -1178,7 +1252,7 @@ function renderStage(stage) {
     body = h("div", { class: "small" }, (data.timers || []).map((t) => t.name || `${Math.round(t.created_duration)} s`).join(", "));
   } else if (name === "timer_stopped") {
     head = "Timer stopped";
-    body = h("div", { class: "small" }, data.by === "stop" ? "by “stop” or a call" : data.by === "timeout" ? "rang out" : data.by, data.heard ? ` · heard ${data.heard}` : "");
+    body = h("div", { class: "small" }, data.by === "stop" ? "by “stop” or a call" : data.by === "button" ? "by the center button" : data.by === "timeout" ? "rang out" : data.by, data.heard ? ` · heard ${data.heard}` : "");
   } else if (name === "speech") {
     head = "Said";
     body = h("div", {}, data.text || h("span", { class: "muted" }, "(a short sound)"));

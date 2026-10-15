@@ -135,6 +135,7 @@ them into the vocabulary unless someone adds it.
 | `voice_call/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_call.speaker` |
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
+| `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
 | `custom_components/voice_call/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_call.timer_*` triggers |
 | `hass_tests/` | the integration's tests, run with a Home Assistant core checkout's fixtures (see its conftest) |
@@ -569,12 +570,67 @@ each, and the rest say `timers.plan`'s own sentence.
 When one finishes it pushes microWakeWord's `stop` model to the satellite (the
 device holds up to four; `scripts/check_mixednet.py` shows it decodes
 identically to the upstream harness over 1,162 steps), says which timer it was,
-and plays a chime until a call starts -- the "stop" model firing, or the wake
-word -- or five minutes pass. The firmware already plays audio outside a call,
-and clears its playback buffer when a call starts, so "stop" silences it at
-once. Afterwards the models are cleared and the wake word pushed again. The
-`timer_ringing` and `timer_stopped` events reach the device's YAML for an LED
-display, which the firmware does not have yet.
+and plays the stock VPE's `sounds/timer_finished.flac` (CC BY 4.0, see
+`sounds/LICENSE.md`) with half a second between repeats until a call starts --
+the "stop" model firing, or the wake word -- the center button is pressed (the
+firmware sends a `stop_timer` device event, and quiets the ring and any
+announcement itself), or five minutes pass. The firmware
+plays audio outside a call, and clears its playback buffer when a call starts.
+Outside a call the app streams at most `PLAY_LEAD` (0.3 s) ahead of the
+device: the device's buffer only pushes back once full, and with Sendspin's
+512 KB TCP window seconds of alarm could otherwise queue in front of the
+app's hang-up, so "stop" would start a call nothing answers until it timed
+out. Each playback also waits for its own `PLAYBACK_DRAINED` (a stale one from
+the last response used to let the alarm repeats through back to back).
+Afterwards the models are cleared and the wake word pushed again. The
+`timer_ringing` and `timer_stopped` events reach the device's YAML, which turns
+music down and flashes the LED ring while one rings.
+
+**The LED ring.** Between calls the ring shows the time left on the satellite's
+active timer that finishes soonest, as the stock firmware does: a share of the
+ring, fading out clockwise. The app sends a `timer_progress` event (`shown`,
+`remaining`, `total`, `paused`) when that changes -- a timer set, paused,
+lengthened, cancelled or finished, and on connecting -- and the device counts
+down by itself in between (`timers.progress`).
+
+## Home Assistant STT and TTS
+
+`voice_call/voices.py`. Each satellite listens and speaks with the built-in
+models (TDT, Piper) or with Home Assistant's entities: `stt`, `tts`,
+`tts_voice` in `settings.yaml` for every satellite, the same keys in
+`satellites.yaml` per satellite (`builtin` for the app's own model, no key for
+"as every satellite"), plus `speak_on`, a media player for its responses.
+
+**STT replaces TDT, not the matcher.** The CTC matcher always decides. The
+engine asks a transcriber only for text: examples not found in the CTC
+evidence (`match_examples`, which takes a per-call transcriber now), free text
+(`_reread_text`), hints. `HassTranscriber` is that transcriber for an STT
+entity: called from the engine's thread, it posts the command audio to
+`/api/stt/<entity>` on the event loop (there is no websocket STT outside a
+pipeline) once, and only when asked -- keyword commands never wait for it --
+and falls back to TDT on failure. STT text has no word times, so free text is
+found by the wildcard's own keywords in the transcript (`engine.free_text`:
+after an `after` keyword to the end or to a `before` keyword, or as many
+words before a `before` keyword as the CTC head heard there). The language is
+the entity's best match for English (`stt/engine/list`).
+
+**TTS on the satellite.** `tts.speak` on the satellite's ESPHome media player
+(found by its MAC in the device registry): the firmware's `speaker_source`
+has an announcement pipeline with an `audio_http` source on a third mixer
+input, so Home Assistant sends the URL and the device fetches it (converted
+by Home Assistant to what the device accepts). Home Assistant's state for
+that player cannot say when the announcement ends -- with Sendspin music on
+the media pipeline it is "playing" throughout -- so the device says so
+itself: a new device-to-app message, `DEVICE_EVENT` (0x09, `{"type":
+"announcing" | "announced"}`), sent by a `voice_call.send_event` action from
+the media player's `on_announcement` and `on_state`. The app keeps the call
+open until `announced`, as it does until `PLAYBACK_DRAINED` for Piper, so the
+ring, the LED and hang-up keep their timing. A new call stops an
+announcement, and music is turned down while one plays.
+
+**TTS elsewhere.** With `speak_on`, `tts.speak` targets that player and the
+call ends at once. The acknowledgement sound (a command with nothing to say)
+is still streamed to the satellite.
 
 ## Music (Music Assistant and Sendspin)
 
