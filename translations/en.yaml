@@ -1,0 +1,21 @@
+---
+configuration:
+  wake_cutoff:
+    name: Wake word cutoff
+    description: >-
+      Probability at which the satellite's own detector fires. Lower is more
+      generous; the app verifies every detection with a second, stricter
+      stage, so 0.2 is the tested default.
+  speaker_threshold:
+    name: Speaker threshold
+    description: >-
+      How closely a voice must match an enrolled one to be identified
+      (cosine score).
+  silence_seconds:
+    name: End-of-command silence
+    description: >-
+      Seconds of silence after speech that end a command.
+  debug_logging:
+    name: Debug logging
+    description: >-
+      Enable debug logging.

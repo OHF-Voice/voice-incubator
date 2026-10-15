@@ -66,3 +66,20 @@ class Speech:
         pcm = await asyncio.to_thread(self._synthesize, text)
         _LOGGER.info("Synthesized %r (%.2fs)", text, len(pcm) / (SAMPLE_RATE * 2))
         return pcm
+
+
+def alarm_pcm(rate: int = SAMPLE_RATE) -> bytes:
+    """One cycle of the timer alarm: three rising tones, then a pause. Made
+    here rather than shipped: a few lines of numpy, no licensing questions."""
+    pieces = []
+    for frequency in (880.0, 1108.7, 1318.5):  # A5, C#6, E6
+        t = np.arange(int(0.16 * rate)) / rate
+        tone = 0.45 * np.sin(2 * np.pi * frequency * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 2 * frequency * t))
+        edge = int(0.01 * rate)
+        envelope = np.ones_like(tone)
+        envelope[:edge] = np.linspace(0, 1, edge)
+        envelope[-edge:] = np.linspace(1, 0, edge)
+        pieces += [tone * envelope, np.zeros(int(0.06 * rate))]
+    pieces.append(np.zeros(int(0.8 * rate)))
+    return _to_device_pcm(np.concatenate(pieces).astype(np.float32), rate)
+

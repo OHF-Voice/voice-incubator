@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Summarize a bench_corpus.py run: per channel, per prompt, per failure."""
+"""Summarize a bench_corpus.py run: per channel, per prompt, per failure.
+
+Rows are prompts that expect a command (kind ``command``; ``grammar`` and
+``wildcard`` in runs of the old sentence-trigger chain) or must be refused
+(``oov``). "chain" scores recognition on its own; "app" what the app would do,
+where a call the wake verifier rejects is hung up before the command is heard.
+"""
 
 from __future__ import annotations
 
@@ -41,7 +47,7 @@ def main() -> int:
         for channel, items in by_channel.items():
             woke = [r for r in items if r["wake_detected"]]
             verified = [r for r in woke if r.get("verified")]
-            vocab = [r for r in items if r["kind"] in ("grammar", "wildcard")]
+            vocab = [r for r in items if r["kind"] in ("command", "grammar", "wildcard")]
             oov = [r for r in items if r["kind"] == "oov"]
             correct = [r for r in vocab if r.get("outcome") == "correct"]
             wrong = [r for r in vocab if r.get("outcome") in ("wrong", "wildcard_other")]
@@ -131,7 +137,9 @@ def main() -> int:
             good = [r for r in items if r.get("outcome") == "correct"]
         scored.append((len(good) / len(items), kind, phrase, items))
     for rate, kind, phrase, items in sorted(scored)[: args.top]:
-        failures = [r for r in items if r.get("outcome") not in ("correct", "rejected")]
+        # A refusal is a success only for a prompt that must be refused.
+        ok = ("correct", "rejected") if kind == "oov" else ("correct",)
+        failures = [r for r in items if r.get("outcome") not in ok]
         missed = sum(1 for r in failures if not r["wake_detected"])
         heard = Counter(
             r.get("text") or r.get("greedy") or "?"
@@ -143,7 +151,7 @@ def main() -> int:
             top = f"no wake x{missed}" + (f", {top}" if top else "")
         print(f"{rate:6.1%} [{kind:8s}] {phrase:52s} {top or '-'}")
 
-    print("\n=== what the grammar accepted for an out-of-vocabulary prompt ===")
+    print("\n=== what was accepted for a prompt that must be refused ===")
     bad = Counter(
         (r["phrase"], r["text"])
         for r in matched
@@ -153,6 +161,12 @@ def main() -> int:
         print(f"{count:4d}  {phrase!r}\n      -> {text!r}")
     if not bad:
         print("none")
+
+    print("\n=== verdicts, where the wake word was detected ===")
+    for mode in modes:
+        subset = [r for r in rows if r["mode"] == mode and r["wake_detected"]]
+        verdicts = Counter(r.get("verdict", r.get("outcome")) for r in subset)
+        print(f"{mode:8s} " + "  ".join(f"{k} {pct(n, len(subset))}" for k, n in verdicts.most_common()))
 
     print("\n=== wake word ===")
     for mode in modes:

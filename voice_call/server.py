@@ -1,4 +1,4 @@
-"""Connects to an ESPHome voice_call device and runs one call at a time."""
+"""Connects to ESPHome voice_call devices and runs one call at a time on each."""
 
 from __future__ import annotations
 
@@ -11,15 +11,21 @@ import socket
 import time
 import wave
 from dataclasses import dataclass, field, replace
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-from .endpoint import Endpointer
-from .fst_hybrid import FstHybrid
+from adapt_ctc.config import ConfigError
+
+from . import actions, timers
+from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
+from .endpoint import Endpointer
+from .engine import LEARN_VOICE, Decision, Engine, Satellite
 from .hass import HomeAssistant
+from .integration import Integration
+from .music import Music
 from .mixednet import WakeModel, load as load_wake_model
 from .protocol import (
     BYTE_RATE,
@@ -32,19 +38,27 @@ from .protocol import (
     encode_json,
     ms_to_bytes,
 )
-from .recognize import CommandRecognizer
-from .speaker import ENROLL_SENTENCES, Enrollment, Identification, SpeakerId, enroll_name
-from .tdt import TdtTranscriber
-from .tts import Speech
+from .speaker import Enrollment, Identification, SpeakerId
+from .store import Compiled, Store
+from .tts import Speech, alarm_pcm
 from .wake import WakeVerifier
 from .wake_ratio import WakeRatio
-from .wildcards import WildcardMatcher
 
 _LOGGER = logging.getLogger(__name__)
 
 # A connection that survives this long is treated as healthy, which resets the
 # reconnect backoff.
 STABLE_CONNECTION_SECONDS = 30.0
+
+# How often a hand edit of commands.yaml is looked for.
+STORE_POLL_SECONDS = 2.0
+
+# Running timers' names are recognized from a list rebuilt when they change;
+# a burst of changes makes one rebuild.
+TIMER_LIST_DEBOUNCE = 0.3
+
+# The microWakeWord model the satellite listens with while a timer rings.
+STOP_MODEL = "stop"
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -65,9 +79,25 @@ def _device_id(hello: dict) -> str:
     return f"{name}-{mac[-6:]}" if mac else name
 
 
+def _satellite_key(hello: dict, fallback: str) -> str:
+    """What scopes and settings are keyed on: the MAC, which survives renames
+    and reflashing; else whatever discovery keyed the session on."""
+    mac = re.sub(r"[^0-9a-fA-F]", "", str(hello.get("mac") or "")).lower()
+    return mac or fallback
+
+
+def _pcm_to_float(pcm: bytes) -> np.ndarray:
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+
+
 # Shipped lower than the models' own manifests. See Options below, and the
 # "Two stages" section of the README for the measurements behind it.
 DEFAULT_WAKE_CUTOFF = 0.2
+
+# How much audio from after the detection to add when the wake word ran into
+# the end of the pre-roll, and how close to that end counts as running into it.
+DEFAULT_WAKE_TAIL = 0.3
+TAIL_EDGE_SECONDS = 0.03
 
 
 @dataclass
@@ -77,16 +107,28 @@ class Options:
     port: int = 6055
     hass_url: str = "http://localhost:8123"
     hass_token: str = ""
+    hass_websocket_url: str | None = None
+    """None derives it from ``hass_url``; the Supervisor's proxy differs."""
+    data_dir: Path | None = None
+    """Commands, satellites, settings and saved calls. Default: var/."""
+    http_host: str = "127.0.0.1"
+    http_port: int = 8099
+    http_allow: tuple[str, ...] = ()
+    """Client addresses the web UI answers; empty for any. As an app, only
+    the Supervisor's ingress proxy."""
     language: str = "en"
     silence_seconds: float = 1.0
     max_command_seconds: float = 15.0
     drain_timeout: float = 30.0
-    max_score: float | None = None
     save_dir: Path | None = None
-    second_pass: bool = True
-    """Re-transcribe with Parakeet's TDT head when the grammar decode fails.
-    Costs ~450 ms and ~590 MB on a Pi 4; disable there if memory is tight."""
-    tdt_threads: int = 2
+    """Also write each call's audio here, per device (the bench layout)."""
+    tdt: bool = True
+    """Load Parakeet's TDT head: example sentences the CTC search missed,
+    free text that spells properly, and what was said when nothing matched."""
+    embedding_dir: Path | None = None
+    """EmbeddingGemma 2 (onnx-community/embeddinggemma-2-ONNX), to name the
+    closest command by meaning when nothing matched. Never accepts one."""
+    threads: int = 2
     reconnect_seconds: float = 5.0
     max_reconnect_seconds: float = 60.0
     """Ceiling for the backoff after short-lived connections."""
@@ -94,6 +136,17 @@ class Options:
     """Wake word models pushed to the device when it connects, by file stem in
     models/wake. Nothing is compiled into the firmware, so an empty list leaves
     the device unable to detect anything. A model named ``vad`` gates the rest."""
+    wake_tail: float = DEFAULT_WAKE_TAIL
+    """Seconds of audio from after the detection to add before verifying again,
+    when the first attempt put the end of the wake phrase at the end of the
+    pre-roll -- which means the word had not finished inside it.
+
+    Only the calls that need it pay for it. A fixed tail helps the speaker
+    whose wake word is being truncated and costs the ones whose is not, because
+    for them it only adds command audio the verifier has to explain: measured
+    across four speakers, always-on was +7.7 points for one and -1.4 and -2.8
+    for two others, where retrying only on a pinned split was +3.8, +0.7 and
+    nobody worse. Zero disables the retry."""
     wake_ratio: float | None = None
     """Per-frame threshold for the second opinion on a rejected wake word.
     Negative disables it."""
@@ -110,13 +163,15 @@ class Options:
     speaker_id: bool = True
     """Identify the speaker of each command and send it in the processing event."""
     speaker_profiles: Path | None = None
-    """Default: var/speakers.json."""
+    """Default: speakers.json in the data directory."""
     speaker_threshold: float = 0.45
     speaker_channel: str = "aec"
     """Which capture to identify from. AEC benchmarked at half the EER of AGC,
     provided the firmware streams it with gain (see voice-call-vpe.yaml)."""
     speaker_learn: bool = True
     enroll_commands: int = 5
+    timer_ring_seconds: float = 300.0
+    """How long a finished timer rings if nobody stops it."""
 
 
 @dataclass
@@ -138,6 +193,24 @@ class Call:
     finished: bool = False
     endpointer: Endpointer | None = None
     split_bytes: int = 0
+    interrupted_ring: bool = False
+    """The call stopped a ringing timer: if it says nothing else, it was that."""
+    wake_start: float | None = None
+    """Seconds from the start of the call to the start of the wake word, as
+    Kaldi placed it."""
+    record: CallRecord | None = None
+
+
+@dataclass
+class WakeVerdict:
+    accepted: bool
+    result: Any
+    offset: int = 0
+    """Bytes into the call where the verified window started (the retry)."""
+    window: bytes = b""
+    ratio: float | None = None
+    overturned: bool = False
+    retried: bool = False
 
 
 @dataclass
@@ -157,9 +230,16 @@ class Session:
     call: Call | None = None
     drained: asyncio.Event = field(default_factory=asyncio.Event)
     device_id: str = "unknown-device"
+    satellite: str = ""
+    """The satellite's key (its MAC) once it has said HELLO."""
+    hello: dict = field(default_factory=dict)
+    connected_at: float | None = None
     enrollment: Enrollment | None = None
     """A voice being learned from this satellite's next few commands."""
     warned_quiet_aec: bool = False
+    ringing: asyncio.Task | None = None
+    """A finished timer ringing on this satellite."""
+    ringing_timers: list[dict] = field(default_factory=list)
 
     def __str__(self) -> str:
         return self.device_id
@@ -170,35 +250,29 @@ class VoiceCallApp:
         self.options = options
         root = Path(__file__).resolve().parent.parent
         self.root = root
-        self.hass = HomeAssistant(options.hass_url, options.hass_token)
+        self.store = Store(options.data_dir or root / "var")
+        self.hass = HomeAssistant(
+            options.hass_url, options.hass_token, options.hass_websocket_url
+        )
         self.wake = WakeVerifier(root / "wake.yaml")
         # The fp32 encoder is 862 MB resident, which is most of a 2 GB Pi.
         # Prefer the int8 build when it has been produced.
-        s2p_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
-        if not (s2p_dir / "model.onnx").exists():
-            s2p_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
-        self.recognizer = CommandRecognizer(
-            s2p_dir,
-            language=options.language,
-            max_score=options.max_score,
-        )
-        self.wildcards = WildcardMatcher(language=options.language)
+        ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
+        if not (ctc_dir / "model.onnx").exists():
+            ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
+        # Prefer the int8 encoder: 172 MB vs 456 MB, same transcripts, faster.
+        tdt_dir = root / "models/parakeet-tdt-int8"
+        if not (tdt_dir / "encoder.onnx").exists():
+            tdt_dir = root / "models/parakeet-tdt"
+        self._ctc_dir = ctc_dir
+        self._tdt_dir = tdt_dir if options.tdt else None
+        self.engine: Engine | None = None
         # A second opinion on the two Kaldi tests that are about "is this the
         # wake word or just speech". Its `confusable` test is left alone.
         self.wake_ratio = (
             WakeRatio(threshold=options.wake_ratio)
             if options.wake_ratio is not None
             else WakeRatio()
-        )
-        self.grammars = FstHybrid(root / "var/grammars")
-        # Prefer the int8 encoder: 172 MB vs 456 MB, same transcripts, faster.
-        tdt_dir = root / "models/parakeet-tdt-int8"
-        if not (tdt_dir / "encoder.onnx").exists():
-            tdt_dir = root / "models/parakeet-tdt"
-        self.tdt = (
-            TdtTranscriber(tdt_dir, options.tdt_threads)
-            if options.second_pass
-            else None
         )
         self.speech = Speech(
             root / "models/piper/en_GB-jenny_dioco-medium.onnx",
@@ -209,7 +283,7 @@ class VoiceCallApp:
         if options.speaker_id and speaker_model.exists():
             self.speakers = SpeakerId(
                 speaker_model,
-                options.speaker_profiles or root / "var/speakers.json",
+                options.speaker_profiles or self.store.data_dir / "speakers.json",
                 channel=options.speaker_channel,
                 threshold=options.speaker_threshold,
                 learn=options.speaker_learn,
@@ -217,56 +291,69 @@ class VoiceCallApp:
             )
         elif options.speaker_id:
             _LOGGER.warning("Speaker model %s not found; speaker ID disabled", speaker_model)
+        self.calls = CallLog(self.store.calls_dir, self.store.settings)
+        self.integration = Integration(self.hass, self._timer_finished, self._timers_changed)
+        self.music = Music(self.hass)
+        self._stop_model: WakeModel | None = None
+        self._alarm = alarm_pcm()
+        self._timer_rebuild: asyncio.Task | None = None
+        self.store_error: str | None = None
         self._wake_models: list[WakeModel] = []
-        self._sentences: list[str] = []
-        self._has_grammar = False
-        self._watcher: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
         self._sessions: dict[str, asyncio.Task] = {}
+        self.sessions: dict[str, Session] = {}
+        """Connected satellites, by satellite key."""
         self._discovery: Discovery | None = None
-        # The recognizer and the Kaldi decoders guard themselves; the FST
-        # grammars, the TDT pass and Piper do not. Two satellites waking at
-        # once is rare, so one lock over the rest is enough and keeps a
-        # retrain from swapping grammars out mid-decode.
+        self._web = None
+        self._store_watcher: asyncio.Task | None = None
+        # Recognition, Piper and the wake verifier's retry share the CPU; two
+        # satellites waking at once is rare, so one lock over them is enough.
         self._model_lock = asyncio.Lock()
+        self._build_lock = asyncio.Lock()
+
+    # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
-        sentences = await self.hass.sentence_triggers()
-        if not sentences.templates:
-            raise RuntimeError(
-                "No conversation sentence triggers found in Home Assistant; "
-                "the app has nothing to recognize"
-            )
-        self._log_sentences(sentences)
-        self._sentences = sorted(sentences.templates)
+        self.store.load_extras()
+        self.calls.settings = self.store.settings
+        for key, entry in self.store.satellites.items():
+            self.integration.want(key, entry.get("name") or key)
+        await self.hass.start()
 
         self._load_wake_models()
-
         await self.wake.start()
-        await self.recognizer.start(sentences.plain)
-        self._has_grammar = bool(sentences.plain)
-        # Shares the recognizer's loaded net, so this costs two small grammars
-        # rather than another model.
+        self.engine = await asyncio.to_thread(
+            Engine,
+            self._ctc_dir,
+            self._tdt_dir,
+            self.options.embedding_dir,
+            self.options.threads,
+            (LEARN_VOICE,) if self.speakers is not None else (),
+        )
+        await self.reload_commands()
         if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
-            await asyncio.to_thread(self.wake_ratio.train, self.recognizer.model)
-        self.wildcards.train(self._wildcard_sentences(sentences))
-        await self._train_grammars(self._wildcard_sentences(sentences))
+            try:
+                # Shares the recognizer's loaded net.
+                await asyncio.to_thread(self.wake_ratio.train, self.engine.model)
+            except Exception:  # noqa: BLE001 - a missing second opinion is not fatal
+                _LOGGER.exception("Wake word second opinion unavailable")
         await self.speech.start()
-        if self.tdt is not None:
-            await self.tdt.start()
         if self.speakers is not None:
             await self.speakers.start()
 
-        self._watcher = asyncio.ensure_future(
-            self.hass.watch_automations(self._on_automations_changed)
-        )
+        self._store_watcher = asyncio.ensure_future(self._watch_store())
+        from .web import start_web  # pylint: disable=import-outside-toplevel
+
+        self._web = await start_web(self)
 
     async def stop(self) -> None:
-        if self._watcher is not None:
-            self._watcher.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._watcher
-            self._watcher = None
+        for task in (self._store_watcher,):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        if self._web is not None:
+            await self._web.cleanup()
         for task in list(self._sessions.values()):
             task.cancel()
         self._sessions.clear()
@@ -274,6 +361,80 @@ class VoiceCallApp:
             await self._discovery.stop()
             self._discovery = None
         await self.wake.stop()
+        await self.hass.stop()
+
+    # ------------------------------------------------------------- commands
+
+    async def reload_commands(self) -> Compiled | None:
+        """Load commands.yaml and recognize its commands. A file that does not
+        parse keeps the previous commands (and says why in the UI)."""
+        try:
+            compiled = self.store.load()
+        except (ConfigError, ValueError, OSError) as err:
+            self.store_error = str(err)
+            _LOGGER.error("commands.yaml: %s; keeping the previous commands", err)
+            return None
+        await self.apply(compiled)
+        return compiled
+
+    async def apply(self, compiled: Compiled) -> None:
+        """Recognize these commands from now on. Raises ConfigError when
+        adapt-ctc cannot build them."""
+        assert self.engine is not None
+        async with self._build_lock:
+            await asyncio.to_thread(self.engine.build, compiled)
+        self.store_error = None
+
+    async def _watch_store(self) -> None:
+        while True:
+            await asyncio.sleep(STORE_POLL_SECONDS)
+            if self.store.changed_on_disk():
+                _LOGGER.info("commands.yaml changed on disk; reloading")
+                await self.reload_commands()
+
+    # ----------------------------------------------------------- satellites
+
+    def satellite(self, key: str) -> Satellite:
+        """A satellite as commands see it. Its area is its Home Assistant
+        device's when the Voice Call integration knows it, else the app's own.
+        Its music player is the one picked for it, else its Sendspin client's
+        in Music Assistant (found by MAC by the integration, else guessed)."""
+        stored = self.store.satellite(key)
+        session = self.sessions.get(key)
+        name = stored.get("name") or (session.hello.get("name") if session else None) or key
+        link = self.integration.links.get(key)
+        node = (session.hello.get("name") if session else None) or stored.get("node")
+        media_player = (
+            stored.get("media_player")
+            or (link.media_player if link is not None else None)
+            or self.hass.catalog.music_player_for(key, node)
+        )
+        if link is not None and link.device_id:
+            area = self.hass.catalog.device_areas.get(link.device_id)
+            info = self.hass.catalog.area_info(area)
+            return Satellite(
+                key, name, **info, device_id=link.device_id, timer_list=link.timer_list, media_player=media_player
+            )
+        return Satellite(key, name, **self.hass.catalog.area_info(stored.get("area")), media_player=media_player)
+
+    def _remember_satellite(self, session: Session) -> None:
+        entry = self.store.satellites.setdefault(session.satellite, {})
+        changed = False
+        if not entry.get("name"):
+            entry["name"] = str(session.hello.get("name") or session.device_id)
+            changed = True
+        if entry.get("device_id") != session.device_id:
+            entry["device_id"] = session.device_id
+            changed = True
+        node = session.hello.get("name")
+        if node and entry.get("node") != node:
+            entry["node"] = str(node)  # its ESPHome name, for finding its music player
+            changed = True
+        if changed:
+            self.store.save_satellites()
+        self.integration.want(session.satellite, entry["name"])
+
+    # ---------------------------------------------------------- wake models
 
     def _load_wake_models(self) -> None:
         """Lower each configured .tflite into the blob the device executes.
@@ -306,10 +467,18 @@ class VoiceCallApp:
             )
         if not any(not m.is_vad for m in self._wake_models):
             _LOGGER.warning("No wake word model loaded; the device cannot wake")
+        stop = self.root / "models/wake" / f"{STOP_MODEL}.tflite"
+        if stop.exists():
+            self._stop_model = load_wake_model(stop)
+        else:
+            _LOGGER.warning("No %s model: a ringing timer can only be stopped by a call", stop)
 
     async def _push_wake_models(self, session: Session) -> None:
         """Send every model to the device. It keeps none across a reboot."""
-        for slot, model in enumerate(self._wake_models):
+        await self._push_models(session, self._wake_models)
+
+    async def _push_models(self, session: Session, models: list[WakeModel], first_slot: int = 0) -> None:
+        for slot, model in enumerate(models, start=first_slot):
             await self._send_json(session, Message.MODEL_START, model.header(slot))
             for offset in range(0, len(model.blob), MAX_PAYLOAD):
                 await self._send(
@@ -319,70 +488,13 @@ class VoiceCallApp:
                 )
             await self._send_json(session, Message.MODEL_END, {"id": model.model_id})
 
-    @staticmethod
-    def _log_sentences(sentences) -> None:
-        for kind, templates in (("grammar", sentences.plain), ("wildcard", sentences.wildcard)):
-            for template in templates:
-                _LOGGER.info(
-                    "  [%s] %r (%s)",
-                    kind,
-                    template,
-                    sentences.source.get(template.lower()),
-                )
-
-    async def _on_automations_changed(self) -> None:
-        """Re-read sentence triggers and retrain if the vocabulary moved."""
-        try:
-            sentences = await self.hass.sentence_triggers()
-        except OSError as err:
-            _LOGGER.warning("Could not re-read sentence triggers: %s", err)
-            return
-
-        updated = sorted(sentences.templates)
-        if updated == self._sentences:
-            _LOGGER.debug("Automations reloaded; sentence triggers unchanged")
-            return
-
-        if not updated:
-            # Keep decoding the old vocabulary rather than leaving the app deaf.
-            _LOGGER.warning(
-                "Automations reloaded with no sentence triggers left; "
-                "keeping the previous %d",
-                len(self._sentences),
-            )
-            return
-
-        _LOGGER.info(
-            "Sentence triggers changed (%d -> %d); retraining",
-            len(self._sentences),
-            len(updated),
-        )
-        self._log_sentences(sentences)
-        # Held across the whole retrain: swapping grammars under an in-flight
-        # select would be a race no amount of retrying recovers from.
-        async with self._model_lock:
-            try:
-                await self.recognizer.train(sentences.plain)
-            except (RuntimeError, ValueError) as err:
-                _LOGGER.error("Retraining failed, keeping previous grammar: %s", err)
-                return
-            self._has_grammar = bool(sentences.plain)
-            self.wildcards.train(self._wildcard_sentences(sentences))
-            await self._train_grammars(self._wildcard_sentences(sentences))
-        self._sentences = updated
-
-    def _wildcard_sentences(self, sentences) -> list[str]:
-        """Home Assistant's wildcard triggers plus the app's own commands, which
-        are recognized the same way but handled here rather than sent to HA."""
-        if self.speakers is None:
-            return list(sentences.wildcard)
-        return list(sentences.wildcard) + ENROLL_SENTENCES
-
     def _spawn(self, coro) -> None:
         """Run beside the read loop, which must stay free to deliver frames."""
         task = asyncio.ensure_future(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    # ------------------------------------------------------------ discovery
 
     async def run_forever(self) -> None:
         """Serve every satellite on the network, as they come and go."""
@@ -430,51 +542,56 @@ class VoiceCallApp:
 
     async def _run_session(self, session: Session) -> None:
         backoff = self.options.reconnect_seconds
-        while True:
-            try:
-                _LOGGER.info("Connecting to %s:%d", session.host, session.port)
-                reader, writer = await asyncio.open_connection(
-                    session.host, session.port
-                )
-            except OSError as err:
-                _LOGGER.warning("Connect failed (%s); retrying in %.0fs", err, backoff)
+        try:
+            while True:
+                try:
+                    _LOGGER.info("Connecting to %s:%d", session.host, session.port)
+                    reader, writer = await asyncio.open_connection(
+                        session.host, session.port
+                    )
+                except OSError as err:
+                    _LOGGER.warning("Connect failed (%s); retrying in %.0fs", err, backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, self.options.max_reconnect_seconds)
+                    continue
+
+                self._enable_keepalive(writer)
+                session.writer = writer
+                started = time.monotonic()
+                try:
+                    await self._read_loop(session, reader)
+                except (asyncio.IncompleteReadError, ConnectionError, OSError) as err:
+                    # OSError covers the keepalive firing on a rebooted device,
+                    # which surfaces as ETIMEDOUT rather than a ConnectionError.
+                    _LOGGER.warning("[%s] Connection lost: %s", session, err)
+                finally:
+                    session.call = None
+                    session.writer = None
+                    session.connected_at = None
+                    writer.close()
+                    with contextlib.suppress(Exception):
+                        await writer.wait_closed()
+
+                # A connection that barely lived means something is wrong that
+                # retrying fast will not fix -- most often a second app holding the
+                # device. Backing off turns a busy loop into a slow one, and the
+                # growing delay in the log is the clue that it is not the network.
+                if time.monotonic() - started >= STABLE_CONNECTION_SECONDS:
+                    backoff = self.options.reconnect_seconds
+                else:
+                    _LOGGER.warning(
+                        "[%s] Connection lasted under %.0fs; retrying in %.0fs. If "
+                        "this repeats, check whether another app is connected to "
+                        "the device -- it accepts one client at a time.",
+                        session,
+                        STABLE_CONNECTION_SECONDS,
+                        backoff,
+                    )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, self.options.max_reconnect_seconds)
-                continue
-
-            self._enable_keepalive(writer)
-            session.writer = writer
-            started = time.monotonic()
-            try:
-                await self._read_loop(session, reader)
-            except (asyncio.IncompleteReadError, ConnectionError, OSError) as err:
-                # OSError covers the keepalive firing on a rebooted device,
-                # which surfaces as ETIMEDOUT rather than a ConnectionError.
-                _LOGGER.warning("[%s] Connection lost: %s", session, err)
-            finally:
-                session.call = None
-                session.writer = None
-                writer.close()
-                with contextlib.suppress(Exception):
-                    await writer.wait_closed()
-
-            # A connection that barely lived means something is wrong that
-            # retrying fast will not fix -- most often a second app holding the
-            # device. Backing off turns a busy loop into a slow one, and the
-            # growing delay in the log is the clue that it is not the network.
-            if time.monotonic() - started >= STABLE_CONNECTION_SECONDS:
-                backoff = self.options.reconnect_seconds
-            else:
-                _LOGGER.warning(
-                    "[%s] Connection lasted under %.0fs; retrying in %.0fs. If "
-                    "this repeats, check whether another app is connected to "
-                    "the device -- it accepts one client at a time.",
-                    session,
-                    STABLE_CONNECTION_SECONDS,
-                    backoff,
-                )
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, self.options.max_reconnect_seconds)
+        finally:
+            if session.satellite and self.sessions.get(session.satellite) is session:
+                del self.sessions[session.satellite]
 
     @staticmethod
     def _enable_keepalive(writer: asyncio.StreamWriter) -> None:
@@ -540,6 +657,11 @@ class VoiceCallApp:
 
         if msg_type == Message.HELLO:
             session.device_id = _device_id(info)
+            session.hello = info
+            session.satellite = _satellite_key(info, session.key)
+            session.connected_at = time.time()
+            self.sessions[session.satellite] = session
+            self._remember_satellite(session)
             _LOGGER.info("[%s] Device: %s", session, info)
             self._spawn(self._push_wake_models(session))
         elif msg_type == Message.MODEL_RESULT:
@@ -561,6 +683,9 @@ class VoiceCallApp:
             self._on_call_start(session, info)
         elif msg_type == Message.CALL_END:
             _LOGGER.info("[%s] Device ended call: %s", session, info.get("reason"))
+            call = session.call
+            if call is not None and call.record is not None and call.record.finished is None:
+                self.calls.finish(call.record, "ended by device", str(info.get("reason") or ""))
             session.call = None
         elif msg_type == Message.PLAYBACK_DRAINED:
             session.drained.set()
@@ -569,6 +694,8 @@ class VoiceCallApp:
         else:
             _LOGGER.warning("Unhandled message 0x%02X: %s", msg_type, info)
 
+    # ----------------------------------------------------------------- calls
+
     def _on_call_start(self, session: Session, info: dict) -> None:
         session.call = Call(
             preroll_bytes=int(info.get("preroll_bytes", 0)),
@@ -576,6 +703,27 @@ class VoiceCallApp:
             aec_preroll_bytes=int(info.get("aec_preroll_bytes", 0)),
         )
         session.drained.clear()
+        if session.ringing is not None and not session.ringing.done():
+            # The device already cut the alarm off when the call started.
+            session.ringing.cancel()
+            session.call.interrupted_ring = True
+            if session.call.wake_word.strip().lower() == STOP_MODEL:
+                record = self.calls.begin("call", self.satellite(session.satellite).as_dict())
+                record.stage("timer_stopped", by="stop", timers=[t.get("name") for t in session.ringing_timers])
+                self.calls.finish(record, "timer stopped", "stopped the timer")
+                session.call.finished = True
+                session.call.verified = True
+                self._spawn(self._hang_up(session, "timer_stopped"))
+                return
+        record = self.calls.begin("call", self.satellite(session.satellite).as_dict())
+        session.call.record = record
+        record.marks["detection"] = session.call.preroll_bytes / BYTE_RATE
+        record.stage(
+            "call_start",
+            wake_word=session.call.wake_word,
+            preroll=round(session.call.preroll_bytes / BYTE_RATE, 3),
+            aec_preroll=round(session.call.aec_preroll_bytes / BYTE_RATE, 3),
+        )
         _LOGGER.info(
             "[%s] Call started: wake_word=%r pre-roll=%dms%s",
             session,
@@ -599,6 +747,8 @@ class VoiceCallApp:
                 self.options.max_command_seconds,
             )
             call.finished = True
+            if call.record is not None:
+                self.calls.finish(call.record, "timeout", "", self._call_audio(call))
             self._spawn(self._hang_up(session, "timeout"))
 
     async def _on_audio(self, session: Session, chunk: bytes) -> None:
@@ -629,44 +779,69 @@ class VoiceCallApp:
             call.finished = True
             self._spawn(self._respond(session, call))
 
-    async def _wake_rejected(
-        self, session: Session, call: Call, result: Any, score: float | None
-    ) -> None:
-        """Hang up on a wake word neither stage would accept.
+    def _ran_into_edge(self, result: Any, call: Call) -> bool:
+        """Did the wake phrase end at the end of the pre-roll?
 
-        Keep the audio: a rejected wake word is otherwise invisible, and the
-        rejections are what need examining when the rate looks wrong.
+        The pre-roll ends *at* the detection, so a detector that fires before
+        the speaker has finished leaves the last phoneme outside the window.
+        The aligner then has nowhere to put the end of the word but the edge,
+        and the thresholds are applied to a truncated phrase.
         """
-        if result.split:
-            call.command += bytes(call.audio[ms_to_bytes(result.split * 1000) :])
-        self._save(session, call, prefix="rejected-")
-        if score is not None:
-            _LOGGER.info(
-                "[%s] Ratio agreed with the %s rejection (%.2f)",
-                session,
-                result.rejected_by,
-                score,
-            )
-        await self._event(
-            session, "wake_rejected", reason=result.rejected_by or "unknown"
-        )
-        call.finished = True
-        await self._hang_up(session, "wake_rejected")
+        if self.options.wake_tail <= 0 or result.split is None:
+            return False
+        return result.split >= (call.preroll_bytes / BYTE_RATE) - TAIL_EDGE_SECONDS
 
-    async def _verify(self, session: Session, call: Call) -> None:
-        window = bytes(call.audio[: call.preroll_bytes])
+    async def _audio_through(self, call: Call, want: int, timeout: float) -> bool:
+        """Wait for the call to have ``want`` bytes. False if it never does."""
+        deadline = time.monotonic() + timeout
+        while len(call.audio) < want and not call.finished:
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.02)
+        return len(call.audio) >= want
+
+    async def _verify_at(
+        self, label: str, call: Call, offset: int
+    ) -> tuple[Any, bytes]:
+        """Verify the pre-roll-sized window that starts ``offset`` bytes in."""
+        window = bytes(call.audio[offset : offset + call.preroll_bytes])
         result = await self.wake.verify(window)
         _LOGGER.info(
-            "[%s] Wake verification: accepted=%s rejected_by=%s split=%s "
+            "[%s] Wake verification%s: accepted=%s rejected_by=%s split=%s "
             "decode=%.0fms",
-            session,
+            label,
+            f" (+{offset * 1000 // BYTE_RATE}ms)" if offset else "",
             result.accepted,
             result.rejected_by,
             result.split,
             result.decode_ms,
         )
+        if call.record is not None:
+            call.record.stage(
+                "wake_kaldi", offset=round(offset / BYTE_RATE, 3), **result.to_dict()
+            )
+        return result, window
 
-        if not result.accepted:
+    async def _verify_wake(self, label: str, call: Call) -> WakeVerdict:
+        """Kaldi on the pre-roll, retried with a tail when the wake word ran
+        off its end, and the second opinion on a `last`/`prefix` rejection."""
+        offset = 0
+        result, window = await self._verify_at(label, call, offset)
+        verdict = WakeVerdict(result.accepted, result, 0, window)
+
+        if not result.accepted and self._ran_into_edge(result, call):
+            tail = ms_to_bytes(self.options.wake_tail * 1000)
+            # The retry needs audio the device has not sent yet: the call opens
+            # at the detection, so this is a real wait rather than a slice.
+            if await self._audio_through(
+                call, call.preroll_bytes + tail, self.options.wake_tail + 0.5
+            ):
+                verdict.retried = True
+                retry, retry_window = await self._verify_at(label, call, tail)
+                if retry.accepted or retry.split is not None:
+                    verdict = WakeVerdict(retry.accepted, retry, tail, retry_window, retried=True)
+
+        if not verdict.accepted:
             # The thresholds Kaldi applies to the phrase and to its last word
             # were calibrated on adult speech, and they refuse a lot of real
             # wake words from other voices. Ask the recognizer, which is
@@ -674,26 +849,38 @@ class VoiceCallApp:
             # but never about `confusable`, which is the one decision it gets
             # wrong far more often than Kaldi does.
             overturned, score = self.wake_ratio.would_accept(
-                result.rejected_by, window
+                verdict.result.rejected_by, verdict.window
             )
-            if overturned:
-                _LOGGER.info(
-                    "[%s] Wake %s rejection overturned on the ratio (%.2f)",
-                    session,
-                    result.rejected_by,
-                    score if score is not None else float("nan"),
+            verdict.ratio = score
+            verdict.overturned = overturned
+            verdict.accepted = overturned
+            if call.record is not None:
+                call.record.stage(
+                    "wake_ratio",
+                    rejected_by=verdict.result.rejected_by,
+                    score=None if score is None else round(float(score), 4),
+                    overturned=overturned,
                 )
-                await self._event(
-                    session, "wake_overturned", reason=result.rejected_by or "unknown"
-                )
-            else:
-                return await self._wake_rejected(session, call, result, score)
+        return verdict
 
-        # Everything after the wake phrase is command audio, including what
-        # arrived while the decode was running.
-        call.split_bytes = (
-            ms_to_bytes(result.split * 1000) if result.split else call.preroll_bytes
-        )
+    async def _verify(self, session: Session, call: Call) -> None:
+        verdict = await self._verify_wake(str(session), call)
+        result, offset = verdict.result, verdict.offset
+
+        if not verdict.accepted:
+            return await self._wake_rejected(session, call, verdict)
+        if verdict.overturned:
+            _LOGGER.info(
+                "[%s] Wake %s rejection overturned on the ratio (%.2f)",
+                session,
+                result.rejected_by,
+                verdict.ratio if verdict.ratio is not None else float("nan"),
+            )
+            await self._event(
+                session, "wake_overturned", reason=result.rejected_by or "unknown"
+            )
+
+        self._place_split(call, verdict)
         call.endpointer = Endpointer(silence_seconds=self.options.silence_seconds)
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
@@ -701,11 +888,84 @@ class VoiceCallApp:
             call.finished = True
             self._spawn(self._respond(session, call))
 
+    @staticmethod
+    def _place_split(call: Call, verdict: WakeVerdict) -> None:
+        # Everything after the wake phrase is command audio, including what
+        # arrived while the decode was running. The split is measured from the
+        # start of the window that was decoded, which the retry moves. This cut
+        # is for endpointing; recognition finds the wake phrase again.
+        result, offset = verdict.result, verdict.offset
+        call.split_bytes = (
+            offset + ms_to_bytes(result.split * 1000)
+            if result.split
+            else call.preroll_bytes
+        )
+        if result.wake_start is not None:
+            call.wake_start = offset / BYTE_RATE + result.wake_start
+        if call.record is not None:
+            marks = call.record.marks
+            marks["kaldi_split"] = call.split_bytes / BYTE_RATE
+            if call.wake_start is not None:
+                marks["kaldi_wake_start"] = call.wake_start
+
+    async def _wake_rejected(self, session: Session, call: Call, verdict: WakeVerdict) -> None:
+        """Hang up on a wake word neither stage would accept.
+
+        Keep the audio: a rejected wake word is otherwise invisible, and the
+        rejections are what need examining when the rate looks wrong.
+        """
+        result = verdict.result
+        if result.split:
+            call.command += bytes(call.audio[ms_to_bytes(result.split * 1000) :])
+        self._save(session, call, prefix="rejected-")
+        if verdict.ratio is not None:
+            _LOGGER.info(
+                "[%s] Ratio agreed with the %s rejection (%.2f)",
+                session,
+                result.rejected_by,
+                verdict.ratio,
+            )
+        await self._event(
+            session, "wake_rejected", reason=result.rejected_by or "unknown"
+        )
+        call.finished = True
+        if call.record is not None:
+            self.calls.finish(
+                call.record,
+                "wake rejected",
+                f"wake word rejected ({result.rejected_by or 'unknown'})",
+                self._call_audio(call),
+            )
+        await self._hang_up(session, "wake_rejected")
+
+    @staticmethod
+    def _call_audio(call: Call) -> dict[str, bytes]:
+        return {"call": bytes(call.audio), "call-aec": bytes(call.aec), "command": bytes(call.command)}
+
     async def _respond(self, session: Session, call: Call) -> None:
+        """Recognize the command and do it. Whatever goes wrong, the call is
+        answered and hung up rather than left open on the satellite."""
+        try:
+            await self._respond_unguarded(session, call)
+        except Exception as err:  # noqa: BLE001 - the satellite must hear back
+            _LOGGER.exception("[%s] Call failed", session)
+            if call.record is not None and call.record.finished is None:
+                call.record.stage("error", error=repr(err))
+                self.calls.finish(call.record, "error", repr(err), self._call_audio(call))
+            with contextlib.suppress(Exception):
+                await self._say(session, "Sorry, something went wrong.")
+            with contextlib.suppress(Exception):
+                await self._hang_up(session, "error")
+
+    async def _respond_unguarded(self, session: Session, call: Call) -> None:
         self._save(session, call)
+        record = call.record
         _LOGGER.info(
             "[%s] Command audio: %.2fs", session, len(call.command) / BYTE_RATE
         )
+        if record is not None:
+            record.stage("endpoint", command_seconds=round(len(call.command) / BYTE_RATE, 3))
+            record.marks["end"] = len(call.audio) / BYTE_RATE
 
         # Speaker ID runs beside recognition -- its own lock and threads -- and
         # sends the processing event the moment it knows, so the ring takes the
@@ -715,41 +975,240 @@ class VoiceCallApp:
         else:
             speaker_task = None
             await self._event(session, "processing", speaker="unknown")
-        command_text, heard = await self._recognize(bytes(call.command))
+
+        satellite = self.satellite(session.satellite)
+        async with self._model_lock:
+            assert self.engine is not None
+            decision, split = await asyncio.to_thread(
+                self.engine.recognize_call,
+                _pcm_to_float(bytes(call.audio)),
+                call.wake_start,
+                call.split_bytes / BYTE_RATE,
+                satellite,
+            )
+        if record is not None:
+            record.stage("split", **split.to_json())
+            record.marks["cut"] = split.cut
+            if split.wake_end is not None:
+                record.marks["wake_start"] = split.wake_start
+                record.marks["wake_end"] = split.wake_end
+            record.stage("recognition", **decision.to_json())
         ident = await speaker_task if speaker_task is not None else None
 
-        new_speaker = enroll_name(command_text)
-        if new_speaker is not None:
-            await self._start_enrollment(session, new_speaker)
-            return
+        if decision.internal == LEARN_VOICE:
+            name = _speaker_name(decision.slots.get("speaker"))
+            if name:
+                if record is not None:
+                    self.calls.finish(record, "enrolling", f"learning {name}'s voice", self._call_audio(call))
+                await self._start_enrollment(session, name)
+                return
         notice = self._after_identify(session, ident)
+        speaker = _speaker_json(ident)
+        dry_run = bool(record is not None and record.debug_session and record.dry_run)
 
-        # The recognizer logs its own scores without knowing which satellite
-        # asked, so attribute the outcome here: with two devices the lines
-        # interleave and the score line alone cannot be traced back.
-        if command_text is None:
-            _LOGGER.info("[%s] Not recognized; heard %r", session, heard)
-            await self._event(session, "not_recognized", heard=heard)
-            if notice:
-                await self._announce_enrolled(session, notice)
-            await self._hang_up(session, "not_recognized")
+        if call.interrupted_ring and (
+            decision.command is None
+            or timers.stops_ringing(decision.behavior.timer if decision.behavior else None, decision.slots)
+        ):
+            # "Okay Nabu, stop" (or anything) said over the alarm stopped it.
+            if record is not None:
+                record.stage("timer_stopped", by="call", heard=decision.transcript)
+                self.calls.finish(record, "timer stopped", "stopped the timer", self._call_audio(call))
+            await self._hang_up(session, "timer_stopped")
             return
-
-        _LOGGER.info("[%s] Matched %r", session, command_text)
-        await self._event(session, "recognized", text=command_text)
-        response = await self.hass.converse(command_text, self.options.language)
-        response = await self._render(response)
-        await self._event(session, "responding", text=response)
-
-        await self._say(session, response)
+        speech, outcome, summary = await self._carry_out(decision, satellite, speaker, dry_run, record)
+        if decision.command is None:
+            _LOGGER.info("[%s] Not recognized; heard %r", session, decision.transcript)
+            await self._event(session, "not_recognized", heard=decision.transcript)
+        else:
+            await self._event(session, "recognized", text=decision.transcript, command=decision.command.id)
+        await self._event(session, "responding", text=speech)
+        await self._say(session, speech, record)
         if notice:
             await self._announce_enrolled(session, notice)
-        await self._hang_up(session, "done")
+        if record is not None:
+            self.calls.finish(record, outcome, summary, self._call_audio(call))
+        await self._hang_up(session, "done" if decision.command else "not_recognized")
 
-    async def _say(self, session: Session, text: str) -> None:
+    async def _carry_out(
+        self,
+        decision: Decision,
+        satellite: Satellite,
+        speaker: dict[str, Any],
+        dry_run: bool,
+        record: CallRecord | None,
+    ) -> tuple[str, str, str]:
+        """Run (or show) the decided command. Returns what to say, the
+        outcome, and a one-line summary."""
+        if decision.command is None:
+            message = decision.message or "Sorry, I didn't understand that."
+            return message, "not recognized", f"{decision.transcript!r}: {message}"
+        _LOGGER.info(
+            "Matched %s (%s) slots=%s%s",
+            decision.command.id,
+            decision.decided_by,
+            decision.slots,
+            " [dry run]" if dry_run else "",
+        )
+        outcome = await actions.run(
+            self.hass, decision, satellite, speaker, dry_run, self.integration, self.music
+        )
+        if record is not None:
+            record.stage("action", **outcome.to_json())
+        state = "error" if outcome.error else ("dry run" if dry_run else "done")
+        return outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
+
+    async def _say(self, session: Session, text: str, record: CallRecord | None = None) -> None:
         async with self._model_lock:
             audio = await self.speech.say(text)
+        if record is not None:
+            record.stage("speech", text=text, seconds=round(len(audio) / BYTE_RATE, 3))
         await self._play(session, audio)
+
+    # ------------------------------------------------- try, replay (web UI)
+
+    async def try_text(self, text: str, satellite_key: str | None, run_actions: bool = False) -> CallRecord:
+        """Synthesize ``text`` with Piper and recognize it as a command said on
+        this satellite: the whole pipeline after the wake word."""
+        satellite = self.satellite(satellite_key) if satellite_key else Satellite("", "web")
+        record = self.calls.begin("try", satellite.as_dict())
+        record.dry_run = not run_actions
+        record.stage("typed", text=text)
+        async with self._model_lock:
+            pcm = await self.speech.say(text) if text.strip() else b""
+            assert self.engine is not None
+            decision = await asyncio.to_thread(
+                self.engine.recognize_command, _pcm_to_float(pcm), satellite
+            )
+        record.stage("recognition", **decision.to_json())
+        speech, outcome, summary = await self._carry_out(
+            decision, satellite, {"name": None, "score": None}, not run_actions, record
+        )
+        record.stage("speech", text=speech)
+        self.calls.finish(record, outcome, summary, {"command": pcm})
+        return record
+
+    async def replay(self, call_id: str, run_actions: bool = False) -> CallRecord:
+        """Run a saved call through today's commands, from its pre-roll."""
+        old = self.calls.get(call_id)
+        path = self.calls.audio_path(call_id, "call")
+        if old is None or path is None:
+            raise FileNotFoundError(f"No saved audio for call {call_id}")
+        with wave.open(str(path), "rb") as wav:
+            pcm = wav.readframes(wav.getnframes())
+        preroll = next(
+            (s.get("preroll") for s in old.stages if s.get("stage") == "call_start"), 1.5
+        )
+        satellite = self.satellite(str(old.satellite.get("id") or ""))
+        record = self.calls.begin("replay", satellite.as_dict())
+        record.dry_run = not run_actions
+        record.stage("replay_of", call=call_id)
+        call = Call(preroll_bytes=ms_to_bytes(preroll * 1000), wake_word="", record=record)
+        call.audio = bytearray(pcm)
+        record.marks["detection"] = preroll
+        verdict = await self._verify_wake(f"replay {call_id}", call)
+        if not verdict.accepted:
+            self.calls.finish(record, "wake rejected", "wake word rejected", {"call": pcm})
+            return record
+        self._place_split(call, verdict)
+        async with self._model_lock:
+            assert self.engine is not None
+            decision, split = await asyncio.to_thread(
+                self.engine.recognize_call,
+                _pcm_to_float(pcm),
+                call.wake_start,
+                call.split_bytes / BYTE_RATE,
+                satellite,
+            )
+        record.stage("split", **split.to_json())
+        record.marks["cut"] = split.cut
+        if split.wake_end is not None:
+            record.marks["wake_start"] = split.wake_start
+            record.marks["wake_end"] = split.wake_end
+        record.stage("recognition", **decision.to_json())
+        speaker = next(
+            (
+                {k: s.get(k) for k in ("name", "score")}
+                for s in old.stages
+                if s.get("stage") == "speaker"
+            ),
+            {"name": None, "score": None},
+        )
+        speech, outcome, summary = await self._carry_out(
+            decision, satellite, speaker, not run_actions, record
+        )
+        record.stage("speech", text=speech)
+        self.calls.finish(record, outcome, summary, {"call": pcm})
+        return record
+
+    # ---------------------------------------------------------------- timers
+
+    def _timers_changed(self) -> None:
+        """Running timers changed somewhere: recognize their names from now on."""
+        assert self.engine is not None
+        names = self.integration.running_names()
+        if names == self.engine.dynamic.get("running_timers"):
+            return
+        self.engine.dynamic["running_timers"] = names
+        if self._timer_rebuild is None or self._timer_rebuild.done():
+            self._timer_rebuild = asyncio.ensure_future(self._rebuild_for_timers())
+
+    async def _rebuild_for_timers(self) -> None:
+        await asyncio.sleep(TIMER_LIST_DEBOUNCE)
+        if self.engine is not None and self.engine.compiled is not None:
+            try:
+                await self.apply(self.engine.compiled)
+            except (ConfigError, ValueError) as err:
+                _LOGGER.error("Could not rebuild with the running timers: %s", err)
+
+    def _timer_finished(self, key: str, timer: dict) -> None:
+        """Ring the satellite the timer was set on."""
+        session = self.sessions.get(key)
+        if session is None or session.writer is None:
+            _LOGGER.warning("Timer %r finished on %s, which is not connected", timer.get("name"), key)
+            return
+        session.ringing_timers.append(timer)
+        if session.ringing is None or session.ringing.done():
+            session.ringing = asyncio.ensure_future(self._ring(session))
+
+    async def _ring(self, session: Session) -> None:
+        """Say which timer finished, then sound the alarm until someone says
+        "stop" (or wakes the satellite), or it times out."""
+        record = self.calls.begin("timer", self.satellite(session.satellite).as_dict())
+        deadline = time.monotonic() + self.options.timer_ring_seconds
+        stopped_by = "timeout"
+        try:
+            # Not over someone's command.
+            while session.call is not None and time.monotonic() < deadline:
+                await asyncio.sleep(0.2)
+            if self._stop_model is not None:
+                await self._push_models(session, [self._stop_model], first_slot=len(self._wake_models))
+            names = [t.get("name") for t in session.ringing_timers]
+            record.stage("timer_ringing", timers=session.ringing_timers)
+            await self._event(session, "timer_ringing", timers=len(names), name=names[-1] or "")
+            described = [timers._describe(t, capital=True) for t in session.ringing_timers]  # pylint: disable=protected-access
+            await self._say(session, " ".join(f"{d} is done." for d in described))
+            while time.monotonic() < deadline and session.writer is not None:
+                await self._play(session, self._alarm)
+        except asyncio.CancelledError:
+            stopped_by = "stop"
+            raise
+        finally:
+            record.stage("timer_stopped", by=stopped_by)
+            self.calls.finish(record, "timer stopped" if stopped_by == "stop" else "timer rang out", ", ".join(
+                str(t.get("name") or timers._spoken_duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers  # pylint: disable=protected-access
+            ))
+            session.ringing_timers = []
+            self._spawn(self._after_ring(session))
+
+    async def _after_ring(self, session: Session) -> None:
+        """Back to the wake word alone."""
+        if session.writer is None:
+            return
+        await self._event(session, "timer_stopped")
+        if self._stop_model is not None:
+            await self._send(session, Message.MODEL_CLEAR)
+            await self._push_wake_models(session)
 
     # ------------------------------------------------------------ speaker ID
 
@@ -827,6 +1286,14 @@ class VoiceCallApp:
                 ident.utterance.speech_s,
                 ident.scores,
             )
+        if call.record is not None:
+            call.record.stage(
+                "speaker",
+                name=ident.name if ident else None,
+                score=round(float(ident.score), 4) if ident and ident.utterance else None,
+                best=ident.best if ident else None,
+                margin=round(float(ident.margin), 4) if ident and ident.utterance else None,
+            )
         await self._event(session, "processing", **fields)
         return ident
 
@@ -888,99 +1355,7 @@ class VoiceCallApp:
         )
         await self._say(session, f"I've learned {name}'s voice.")
 
-    async def _train_grammars(self, sentences: list[str]) -> None:
-        """Compile a free-loop grammar per wildcard sentence (cached on disk)."""
-        try:
-            await asyncio.to_thread(
-                self.grammars.train,
-                sentences,
-                self.recognizer.tokenizer,
-                self.recognizer.tokenizer.num_tokens,
-            )
-        except (RuntimeError, ValueError, OSError) as err:
-            _LOGGER.error("Wildcard grammars unavailable, falling back: %s", err)
-
-    async def _recognize(self, pcm: bytes) -> tuple[str | None, str]:
-        """Serialize recognition across satellites, then resolve."""
-        async with self._model_lock:
-            return await self._recognize_locked(pcm)
-
-    async def _recognize_locked(self, pcm: bytes) -> tuple[str | None, str]:
-        """Resolve command audio to a sentence Home Assistant will match.
-
-        The constrained grammar is tried first. Wildcard triggers cannot be in
-        that grammar, so a rejection falls back to the unconstrained transcript
-        matched with hassil -- the same way Home Assistant matches them.
-        """
-        heard = ""
-        if self._has_grammar:
-            recognition = await self.recognizer.recognize(pcm)
-            if recognition.accepted:
-                return recognition.text, recognition.greedy_text
-            heard = recognition.greedy_text
-        else:
-            heard = await self.recognizer.greedy_transcribe(pcm)
-
-        if not self.wildcards.sentences:
-            return None, heard
-
-        # Decode each wildcard sentence as its own grammar -- literals pinned,
-        # slots a free loop -- and take the cheapest. This settles *which*
-        # sentence was said from acoustics, which matching a transcript cannot
-        # do when the words that differ are the ones the decoder gets wrong
-        # ("play the artist X" vs "play the album X").
-        if self.grammars.available:
-            log_probs = await self.recognizer.log_probs(pcm)
-            chosen = await asyncio.to_thread(self.grammars.select, log_probs)
-            if chosen is not None and chosen.canonical:
-                _LOGGER.info(
-                    "Grammar match %r (cost %.2f) -> %s %s",
-                    chosen.text,
-                    chosen.cost,
-                    chosen.sentence,
-                    chosen.slots,
-                )
-                return chosen.canonical, chosen.text or heard
-
-        # Second pass. The CTC head decoded greedily at 80 ms frames mixes
-        # subword paths ("Pplayay"); the transducer head is the decoder
-        # Parakeet's published accuracy refers to. Sequential on purpose:
-        # on a 4-core Pi one ONNX pass already saturates the cores, so running
-        # this beside the CTC pass measured slower than after it.
-        if self.tdt is not None and self.tdt.available:
-            second = await self.tdt.transcribe(pcm)
-            if second:
-                _LOGGER.info("Second pass (TDT): %r", second)
-                heard = second
-
-        match = self.wildcards.match(heard)
-        if match is None:
-            _LOGGER.info("No wildcard trigger matches %r", heard)
-            return None, heard
-
-        # Home Assistant re-matches with plain hassil, so send the repaired
-        # text (trigger's literals, heard slot values) rather than the raw
-        # transcript -- otherwise anchoring rescues the match here and HA
-        # loses it again.
-        command = match.text or heard
-        _LOGGER.info("Wildcard match %r -> %s -> %r", heard, match.sentence, command)
-        return command, heard
-
-    async def _render(self, response: str) -> str:
-        """Render a response that still carries template syntax.
-
-        Home Assistant renders set_conversation_response itself, so this is a
-        safety net for a response that arrives unrendered by some other path.
-        """
-        if "{{" not in response and "{%" not in response:
-            return response
-        try:
-            rendered = await self.hass.render_template(response)
-        except (OSError, RuntimeError) as err:
-            _LOGGER.warning("Could not render response template: %s", err)
-            return response
-        _LOGGER.info("Rendered response %r -> %r", response, rendered)
-        return rendered
+    # ---------------------------------------------------------------- output
 
     async def _play(self, session: Session, pcm: bytes) -> None:
         for offset in range(0, len(pcm), MAX_PAYLOAD):
@@ -1025,3 +1400,14 @@ class VoiceCallApp:
         _LOGGER.info(
             "Saved %s/{call,call-aec,command}-%d.wav", out_dir, stamp
         )
+
+
+def _speaker_name(text: Any) -> str | None:
+    name = re.sub(r"[^\w' -]+", "", str(text or "")).strip()
+    return " ".join(word.capitalize() for word in name.split()) or None
+
+
+def _speaker_json(ident: Identification | None) -> dict[str, Any]:
+    if ident is None or ident.name is None:
+        return {"name": None, "score": None}
+    return {"name": ident.name, "score": round(float(ident.score), 4)}

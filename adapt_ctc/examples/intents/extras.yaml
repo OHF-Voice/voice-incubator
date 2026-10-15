@@ -1,0 +1,52 @@
+# Opt-in intents, for commands less common than core.yaml's. Include after it:
+#
+#   include: [intents/core.yaml, intents/extras.yaml]
+#
+# An intent here with a core intent's name replaces it.
+intents:
+  # "turn on the bedroom and kitchen lights". Without this, core's
+  # TurnOnLights takes one area and pays for the other as an unused word.
+  TurnOnLightsAreas:
+    # "and" is often reduced to "n" and heard as "in"; two areas are the requirement.
+    require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
+    optional: [[in], [and]]
+    names: {area: 2}
+
+  TurnOffLightsAreas:
+    require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
+    optional: [[in], [and]]
+    names: {area: 2}
+
+  # Relative colour temperature: "make the kitchen lights warmer".
+  Warmer:
+    require: [[warmer]]
+    optional: [[make, set], [light, lights]]
+    names:
+      entity: {count: 1, optional: true, domains: [light]}
+      area: {count: 1, optional: true}
+
+  Cooler:
+    require: [[cooler]]
+    optional: [[make, set], [light, lights]]
+    names:
+      entity: {count: 1, optional: true, domains: [light]}
+      area: {count: 1, optional: true}
+
+  # Compound durations, largest unit first: "one hour five minutes and thirty
+  # seconds". Replaces core's StartTimer; each part has the same range and
+  # prior.
+  StartTimer:
+    require: [[timer, time], [minutes, minute, seconds, second, hours, hour]]
+    optional: [[set, start, create], [for], [named, called, name], [and]]
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number:
+      min: 0.5
+      max: 100
+      step: 0.5
+      units: [second, minute, hour]
+      parts: 3
+      prior:
+        - {when: [seconds, second], multiple_of: 5, cost: 0}
+        - {when: [seconds, second], cost: 2.5}
+        - {multiple_of: 1, cost: 0}
+        - {cost: 1.0}

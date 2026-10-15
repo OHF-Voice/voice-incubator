@@ -1,0 +1,500 @@
+# Core intents: the commands most people use, one verb per intent. A config
+# includes this and adds its home's names (see ../home.yaml):
+#
+#   include: [intents/core.yaml]
+#
+# Intents are split by what is being done, not by Home Assistant's intents:
+# "turn on", "open" and "lock" compete for the audio on their verbs, and each
+# acts only on the kinds of device that verb fits (`domains`), so "lock the TV"
+# is rejected rather than turned on. Mapping these to Home Assistant's intents
+# is the caller's job.
+#
+# Names are optional wherever Home Assistant would fall back on the voice
+# satellite's area: "turn on the lights" acts on the room it was said in.
+# Only "in" introduces a place: an optional "on" ("on the first floor") would
+# explain the "on" of "turn on" in a compound command, of "unmute" heard as
+# "on mute", and of "turn on the oven" heard as "turn ... up".
+# More complex commands (two areas, compound durations) are opt-in, in
+# extras.yaml.
+language: en
+
+# Words that explain audio without meaning anything.
+filler: [the, a, an, please, my, can you, could you, would you, it, of]
+
+# Words a name follows. The word right after one is where a name goes: when
+# nothing recognized it ("turn on the garage lights") or only as a name the
+# intent cannot take ("lock the kitchen"), an intent that leaves it
+# unexplained is rejected rather than acting on everything. "a timer named
+# popcorn" is rejected, not started without its name.
+name_cues: [the, my, named, called]
+
+# Numbers listened for regardless of intent, so an unexpected one is reported.
+# Up to 200 so "one hundred fifty" is heard as one number, out of range,
+# rather than as "fifty" after an unexplained "one hundred".
+numbers:
+  detect: {min: 0, max: 200}
+
+intents:
+  # -- On and off ------------------------------------------------------------
+
+  # Split by what is acted on, so each has more that must be heard: a named
+  # entity, or a kind of device ("the lights") in the satellite's area or a
+  # named one. "turn on the oven" heard as "turn on the o" matches none of
+  # them. "turn ... on" is "turn", then "on" later: "turn the kitchen lights
+  # on". The words between still have to be explained or paid for.
+  TurnOnEntity:
+    require: [[turn on, switch on, turn ... on, switch ... on]]
+    optional: [[in]]
+    names:
+      entity: &switchable {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  TurnOffEntity:
+    require: [[turn off, switch off, turn ... off, switch ... off]]
+    optional: [[in]]
+    names:
+      entity: *switchable
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  # Not "lamp": "the bedroom lamp" would be the bedroom's lights as much as
+  # the Bedroom Lamp.
+  TurnOnLights:
+    require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
+    optional: [[all], [in]]
+    names: &place
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  TurnOffLights:
+    require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
+    optional: [[all], [in], [house, everywhere]]
+    names: *place
+
+  TurnOnFans:
+    require: [[turn on, switch on, turn ... on, switch ... on], [fan, fans]]
+    optional: [[all], [in]]
+    names: *place
+
+  TurnOffFans:
+    require: [[turn off, switch off, turn ... off, switch ... off], [fan, fans]]
+    optional: [[all], [in], [house, everywhere]]
+    names: *place
+
+  # Follow-ups: "turn it off", "turn them back on", "open it". What "it" is
+  # comes from the conversation, which the caller keeps.
+  TurnItOn:
+    require: [[turn it on, turn them on, turn it back on, turn them back on,
+               switch it on, switch them on, switch it back on, switch them back on]]
+
+  TurnItOff:
+    require: [[turn it off, turn them off, turn it back off, turn them back off,
+               switch it off, switch them off, switch it back off, switch them back off]]
+
+  OpenIt:
+    require: [[open it, open them]]
+
+  CloseIt:
+    require: [[close it, close them, shut it, shut them]]
+
+  # A statement ("the garage door is open", "the front door is locked") says
+  # "is" where a command has none.
+  Open:
+    require: [[open]]
+    optional: [[in]]
+    exclude: &statement [is, are]
+    names:
+      entity: {count: 1, domains: [cover, valve]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  Close:
+    require: [[close, shut]]
+    optional: [[in]]
+    exclude: *statement
+    names:
+      entity: {count: 1, domains: [cover, valve]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  Lock:
+    require: [[lock]]
+    exclude: *statement
+    names:
+      entity: {count: 1, domains: [lock]}
+
+  Unlock:
+    require: [[unlock, un lock]]
+    exclude: *statement
+    names:
+      entity: {count: 1, domains: [lock]}
+
+  SetPosition:
+    require: [[open, close, set]]
+    optional: [[to], [percent], [position]]
+    names:
+      entity: {count: 1, domains: [cover, valve]}
+      area: {count: 1, optional: true}
+    number: {min: 0, max: 100}
+
+  # -- Lights ----------------------------------------------------------------
+
+  # Either word says what is being set: "set kitchen brightness to 90 percent",
+  # "set the kitchen lights to 60 percent", "change the bedroom lamp to 40
+  # percent". The verb is optional where the rest says enough: across a room,
+  # "okay nabu set" runs together and the cut after the wake word takes "set"
+  # too. "set the volume to 19 percent" also fits, but leaves "volume" to an
+  # intent that explains it.
+  SetBrightness:
+    require: [[brightness, percent]]
+    optional: [[set, change, make], [light, lights], [to], [in], [brightness], [percent]]
+    names:
+      entity: {count: 1, optional: true, domains: [light]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    number:
+      min: 0
+      max: 100
+      prior:
+        - {multiple_of: 10, cost: 0}
+        - {multiple_of: 5, cost: 0.5}
+        - {cost: 1.5}
+
+  SetColorTemperature:
+    require: [[kelvin, color temperature]]
+    optional: [[set, change], [to], [color temperature], [kelvin], [light, lights], [in]]
+    names:
+      entity: {count: 1, optional: true, domains: [light]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    number: {min: 1500, max: 6500, step: 100}
+
+  # Relative brightness, of the lights in an area or of a named light. These
+  # also matter as competitors: a phrase only loses to one that explains the
+  # same audio better if that phrase is listened for. Without Dim, "turn down
+  # the lights" is heard as "turn on".
+  Dim:
+    require: [[dim, turn down, turn ... down], [light, lights]]
+    optional: [[in]]
+    names:
+      area: {count: 1, optional: true}
+
+  DimEntity:
+    require: [[dim, turn down, turn ... down]]
+    names:
+      entity: {count: 1, domains: [light]}
+
+  Brighten:
+    require: [[brighten, brighter, turn up, turn ... up], [light, lights]]
+    optional: [[make], [in]]
+    names:
+      area: {count: 1, optional: true}
+
+  BrightenEntity:
+    require: [[brighten, brighter, turn up, turn ... up]]
+    optional: [[make]]
+    names:
+      entity: {count: 1, domains: [light]}
+
+  # -- Climate ---------------------------------------------------------------
+
+  # Any of these says it: across a room "set" is often lost after the wake word.
+  SetTemperature:
+    require: [[set, temperature, degrees]]
+    optional: [[set], [temperature], [to, at], [degrees], [in]]
+    names:
+      entity: {count: 1, optional: true, domains: [climate]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    number:
+      min: 10           # Celsius and Fahrenheit
+      max: 90
+      step: 0.5
+      # A bare "set ... seventy" is weaker evidence than "seventy degrees":
+      # "set an alarm for seven" is heard as "set ... forty seven".
+      prior:
+        - {when: [degrees, temperature], multiple_of: 1, cost: 0}
+        - {when: [degrees, temperature], cost: 1.0}
+        - {multiple_of: 1, cost: 1.0}
+        - {cost: 2.0}
+
+  # "what is ... temperature" rather than "what is" and "temperature" apart, so
+  # "what's the weather tomorrow" is not a temperature question.
+  GetTemperature:
+    require: [[what is ... temperature, what's ... temperature, whats ... temperature,
+               how hot, how cold, how warm]]
+    optional: [[is], [inside, in here, here], [in, of]]
+    names:
+      entity: {count: 1, optional: true, domains: [climate]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  # -- State questions -------------------------------------------------------
+
+  # One intent per state, and per what is asked about: a named entity, or a
+  # kind of device in the satellite's area or a named one. A question puts the
+  # verb first: "is the kitchen light on". Requiring "the" between the verb
+  # and the state keeps the statement "the lights are on in the kitchen" out.
+  IsEntityOn:
+    require: [&is_on [is ... the ... on, are ... the ... on]]
+    names: &on_off_entity
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  IsEntityOff:
+    require: [&is_off [is ... the ... off, are ... the ... off]]
+    names: *on_off_entity
+
+  AreLightsOn:
+    require: [*is_on, [light, lights]]
+    optional: &where [[all], [in]]
+    names: &state_place
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  AreLightsOff:
+    require: [*is_off, [light, lights]]
+    optional: *where
+    names: *state_place
+
+  AreFansOn:
+    require: [*is_on, [fan, fans]]
+    optional: *where
+    names: *state_place
+
+  AreFansOff:
+    require: [*is_off, [fan, fans]]
+    optional: *where
+    names: *state_place
+
+  IsEntityOpen:
+    require: [&is_open [is ... the ... open, are ... the ... open]]
+    names: &open_entity
+      entity: {count: 1, domains: [cover, valve, binary_sensor]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  IsEntityClosed:
+    require: [&is_closed [is ... the ... closed, are ... the ... closed, is ... the ... shut,
+                          are ... the ... shut]]
+    names: *open_entity
+
+  # Not "curtains" or "garage door": a home is likely to have entities so named.
+  AreCoversOpen:
+    require: [*is_open, &cover_words [door, doors, window, windows, blinds, shades]]
+    optional: *where
+    names: *state_place
+
+  AreCoversClosed:
+    require: [*is_closed, *cover_words]
+    optional: *where
+    names: *state_place
+
+  IsEntityLocked:
+    require: [&is_locked [is ... the ... locked, are ... the ... locked]]
+    names: &lock_entity
+      entity: {count: 1, domains: [lock]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+
+  IsEntityUnlocked:
+    require: [&is_unlocked [is ... the ... unlocked, are ... the ... unlocked]]
+    names: *lock_entity
+
+  AreDoorsLocked:
+    require: [*is_locked, &lock_words [door, doors, lock, locks]]
+    optional: *where
+    names: *state_place
+
+  AreDoorsUnlocked:
+    require: [*is_unlocked, *lock_words]
+    optional: *where
+    names: *state_place
+
+  # -- Fans ------------------------------------------------------------------
+
+  SetFanSpeed:
+    require: [[speed, fan, fans]]
+    optional: [[set], [fan, fans], [speed], [to], [percent]]
+    names:
+      entity: {count: 1, optional: true, domains: [fan]}
+      area: {count: 1, optional: true}
+    number: {min: 0, max: 100}
+
+  # -- Timers ----------------------------------------------------------------
+
+  # One unit, or "and a half": "ten minutes", "an hour and a half", "half a
+  # minute". Durations are reported by unit: {minutes: 10}. extras.yaml adds
+  # "one hour five minutes and thirty seconds".
+  #
+  # A timer's name is free text, up to three words: right before "timer"
+  # ("the pizza timer") or right after "named"/"called" ("a timer named
+  # chicken nuggets"), reported as heard: {timer: "pizza"}. A timer can also be
+  # named by its area ("the kitchen timer"). Said quickly, "timer" loses its
+  # "r": "set a time for ninety seconds". The unit keeps "what time is it" out.
+  StartTimer:
+    require: [[timer, time], [minutes, minute, seconds, second, hours, hour]]
+    optional: [[set, start, create], [for], [named, called, name]]
+    wildcard: &timer_name {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: &duration
+      min: 0.5
+      max: 100
+      step: 0.5
+      units: [second, minute, hour]
+      prior:
+        - {when: [seconds, second], multiple_of: 5, cost: 0}
+        - {when: [seconds, second], cost: 2.5}
+        - {multiple_of: 1, cost: 0}
+        - {cost: 1.0}
+
+  CancelAllTimers:
+    require: [[cancel, stop, delete], [all], [timers, timer]]
+    optional: [[in]]
+    names:
+      area: {count: 1, optional: true}
+
+  # A timer is picked out by its name, its area or its duration ("the 30
+  # minute timer"), or is the only one.
+  CancelTimer:
+    require: [[cancel, stop, delete], [timer, time]]
+    optional: &which_timer [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    wildcard: *timer_name
+    names: &timer_area
+      area: {count: 1, optional: true}
+    number: &timer_duration {min: 0.5, max: 100, step: 0.5, units: [second, minute, hour], optional: true}
+
+  PauseTimer:
+    require: [[pause, hold], [timer, timers, time]]
+    optional: *which_timer
+    wildcard: *timer_name
+    names: *timer_area
+    number: *timer_duration
+
+  ResumeTimer:
+    require: [[resume, unpause, un pause, continue], [timer, timers, time]]
+    optional: *which_timer
+    wildcard: *timer_name
+    names: *timer_area
+    number: *timer_duration
+
+  TimerStatus:
+    require: [[how long, how much time], [left, remaining]]
+    optional: [[is], [on], [timer, time], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    wildcard: *timer_name
+    names: *timer_area
+    number: *timer_duration
+
+  IncreaseTimer:
+    require: [[add], [timer, time]]
+    optional: [[to], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    wildcard: *timer_name
+    names: *timer_area
+    number: *duration
+
+  DecreaseTimer:
+    require: [[decrease, reduce, subtract, remove, take off], [timer, time]]
+    optional: [[by, from], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    wildcard: *timer_name
+    names: *timer_area
+    number: *duration
+
+  # -- Media -----------------------------------------------------------------
+
+  # What to play comes from the home's `media` list: the library a
+  # closed-vocabulary recognizer would be given. "play music" plays whatever.
+  Play:
+    require: [[play]]
+    optional: [[music], [some], [by], [on], [in]]
+    names:
+      media: {count: 1, optional: true}
+      entity: {count: 1, optional: true, domains: [media_player]}
+      area: {count: 1, optional: true}
+
+  Pause:
+    require: [[pause, stop playing]]
+    optional: &media_words [[music, movie, song], [in]]
+    names: &player
+      entity: {count: 1, optional: true, domains: [media_player]}
+      area: {count: 1, optional: true}
+
+  # Parakeet may write "unpause" as one word or two.
+  Resume:
+    require: [[resume, unpause, un pause]]
+    optional: *media_words
+    names: *player
+
+  NextTrack:
+    require: [[next, skip]]
+    optional: [[song, track], [in]]
+    names: *player
+
+  PreviousTrack:
+    require: [[go back, previous]]
+    optional: [[to], [previous], [song, track], [in]]
+    names: *player
+
+  Mute:
+    require: [[mute]]
+    optional: [[in]]
+    names: *player
+
+  Unmute:
+    require: [[unmute, un mute]]
+    optional: [[in]]
+    names: *player
+
+  SetVolume:
+    require: [[volume]]
+    optional: [[set, change], [to], [percent], [in]]
+    names: *player
+    number: {min: 0, max: 100}
+
+  # Without these, "turn up the music" is heard as "turn off". "turn up"
+  # needs what is turned up; "louder" says it alone.
+  VolumeUp:
+    require: [[turn up, turn ... up, increase, raise], [volume, music, sound]]
+    optional: [[in]]
+    names: *player
+
+  VolumeDown:
+    require: [[turn down, turn ... down, decrease, lower], [volume, music, sound]]
+    optional: [[in]]
+    names: *player
+
+  Louder:
+    require: [[louder, volume up, turn it up]]
+    optional: [[in]]
+    names: *player
+
+  Quieter:
+    require: [[quieter, softer, volume down, turn it down]]
+    optional: [[in]]
+    names: *player
+
+  # A step, not a level: "turn up the volume by 20 percent".
+  VolumeUpBy:
+    require: [[turn up, turn ... up, increase, raise], [volume], [by]]
+    optional: [[percent]]
+    names: *player
+    number: {min: 1, max: 100}
+
+  VolumeDownBy:
+    require: [[turn down, turn ... down, decrease, lower], [volume], [by]]
+    optional: [[percent]]
+    names: *player
+    number: {min: 1, max: 100}
+
+  # -- Other -----------------------------------------------------------------
+
+  GetTime:
+    require: [[what time]]
+    optional: [[is it, it is], [right now, now], [tell me]]
+
+  GetDate:
+    require: [[date, what day]]
+    optional: [[tell me], [what is, whats, what's], [today], [about]]
+
+  Nevermind:
+    require: [[never mind, nevermind]]

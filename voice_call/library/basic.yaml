@@ -1,0 +1,214 @@
+# Example commands, offered in the web UI's library. Adding one copies it into
+# commands.yaml, where it can be changed like any other command.
+#
+# Each entry is a command (see voice_call/commands.py) plus:
+#   title:  what the library calls it
+#   needs:  what to set after adding it, shown in the UI
+#
+# Keywords follow adapt-ctc's core intents (adapt_ctc/examples/intents/core.yaml),
+# which were tuned on the office-multicap corpus.
+title: Basics
+icon: mdi:home-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: tell the time
+    examples: [what time is it]
+    require: [[what time]]
+    optional: [[is it, it is], [right now, now], [tell me]]
+    response: "It's {{ now().strftime('%-I:%M %p') }}."
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: tell the date
+    examples: [what's the date, what day is it]
+    require: [[date, what day]]
+    optional: [[tell me], [what is, whats, what's], [today]]
+    response: "Today is {{ now().strftime('%A, %B %-d') }}."
+
+  lights_on:
+    title: Turn on the lights
+    icon: mdi:lightbulb-on-outline
+    description: turn on the lights
+    require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
+    optional: [[all], [in]]
+    names:
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    action:
+      action: light.turn_on
+      target: "{{ target }}"
+    needs:
+      - Lights in the satellite's area are used unless an area or floor is named.
+        Add names for areas and floors to say them.
+
+  lights_off:
+    title: Turn off the lights
+    icon: mdi:lightbulb-off-outline
+    description: turn off the lights
+    require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
+    optional: [[all], [in], [house, everywhere]]
+    names:
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    action:
+      action: light.turn_off
+      target: "{{ target }}"
+
+  device_on:
+    title: Turn on a device
+    icon: mdi:toggle-switch-outline
+    description: turn on a device
+    require: [[turn on, switch on, turn ... on, switch ... on]]
+    optional: [[in]]
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+    action:
+      action: homeassistant.turn_on
+      target: "{{ target }}"
+    needs:
+      - Add names for the devices it may turn on (Names page).
+
+  device_off:
+    title: Turn off a device
+    icon: mdi:toggle-switch-off-outline
+    description: turn off a device
+    require: [[turn off, switch off, turn ... off, switch ... off]]
+    optional: [[in]]
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+    action:
+      action: homeassistant.turn_off
+      target: "{{ target }}"
+    needs:
+      - Add names for the devices it may turn off (Names page).
+
+  set_brightness:
+    title: Set the brightness
+    icon: mdi:brightness-6
+    description: set the brightness of the lights
+    require: [[brightness, percent]]
+    optional: [[set, change, make], [light, lights], [to], [in], [brightness], [percent]]
+    names:
+      entity: {count: 1, optional: true, domains: [light]}
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    number: percentage
+    action:
+      action: light.turn_on
+      target: "{{ target }}"
+      data:
+        brightness_pct: "{{ slots.percentage }}"
+
+  light_color:
+    title: Set the light color
+    icon: mdi:format-color-fill
+    description: change the color of the lights
+    require: [[set, make, turn], [light, lights]]
+    optional: [[color], [to], [in]]
+    names:
+      area: {count: 1, optional: true}
+    lists:
+      color:
+        values: [red, orange, yellow, green, blue, purple, pink, white]
+    action:
+      action: light.turn_on
+      target: "{{ target }}"
+      data:
+        color_name: "{{ slots.color }}"
+
+  set_temperature:
+    title: Set the temperature
+    icon: mdi:thermometer
+    description: set the temperature
+    require: [[set, temperature, degrees]]
+    optional: [[set], [temperature], [to, at], [degrees], [in]]
+    names:
+      entity: {count: 1, optional: true, domains: [climate]}
+      area: {count: 1, optional: true}
+    number: temperature
+    action:
+      action: climate.set_temperature
+      target: "{{ target }}"
+      data:
+        temperature: "{{ slots.temperature }}"
+
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: tell the weather
+    examples: [what's the weather like today, is it going to rain]
+    require: [[weather, forecast]]
+    slots:
+      entity: [weather.home]
+    response: >-
+      It's {{ states(slots.entity[0]) | replace('-', ' ') }} and
+      {{ state_attr(slots.entity[0], 'temperature') | round }} degrees.
+    needs:
+      - Set the fixed slot entity to your weather entity (weather.home here).
+
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: add something to the shopping list
+    require: [[add, put], [shopping list, list]]
+    optional: [[to, on]]
+    wildcard:
+      slot: item
+      after: [add, put]
+      before: [to, on]
+      bounded: true
+      required: true
+      max_words: 5
+    action:
+      action: todo.add_item
+      target:
+        entity_id: todo.shopping_list
+      data:
+        item: "{{ slots.item }}"
+    response: "Added {{ slots.item }} to the shopping list."
+
+  remind_me:
+    title: Remember something
+    icon: mdi:note-edit-outline
+    description: add a reminder
+    require: [[remind me]]
+    optional: [[to]]
+    wildcard:
+      slot: reminder
+      after: [to]
+      to_end: true
+      required: true
+      max_words: 10
+    action:
+      action: todo.add_item
+      target:
+        entity_id: todo.reminders
+      data:
+        item: "{{ slots.reminder }}"
+    response: "I'll remind you to {{ slots.reminder }}."
+    needs:
+      - Point it at a to-do list (todo.reminders here).
+
+  scene:
+    title: Activate a scene
+    icon: mdi:palette
+    description: start movie time
+    examples: [movie time, start movie time]
+    scene: scene.movie_time
+    needs:
+      - Pick the scene, and change the examples to what you want to say.
+
+  script:
+    title: Run a script
+    icon: mdi:script-text-outline
+    description: say good night
+    examples: [good night]
+    script: script.good_night
+    response: "{{ result.speech if result and result.speech else 'Good night.' }}"
+    needs:
+      - Pick the script. It gets slots, satellite, speaker and target as variables,
+        and anything it returns (stop with response_variable) as result.

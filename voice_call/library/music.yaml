@@ -1,0 +1,187 @@
+# Music, on Music Assistant's players. A satellite's own player is its
+# Sendspin client's (Music Assistant finds the satellite on the network; the
+# app finds its player by MAC), or one picked on the Satellites page.
+#
+# Pause, skip, "what's playing" and the volume act on whichever player plays
+# in the satellite's area when its own does not. "Play …" searches Music
+# Assistant for what was heard (free text to the end of the sentence, spelled
+# from the TDT transcript) and plays the closest match; "the album …",
+# "songs by …", "my … playlist", "… by …" narrow it.
+title: Music
+icon: mdi:music
+
+commands:
+  play_music:
+    title: Play music
+    icon: mdi:music
+    description: play music
+    require: [[play, put on, listen to]]
+    exclude: [next, previous]
+    wildcard: {slot: query, after: [play, put on, listen to], to_end: true, required: true, max_words: 8}
+    music: play
+
+  add_to_queue:
+    title: Add to the queue
+    icon: mdi:playlist-plus
+    description: add music to the queue
+    require: [[add], [queue]]
+    optional: [[to]]
+    wildcard: {slot: query, after: [add], before: [to], bounded: true, required: true, max_words: 6}
+    music: add
+
+  play_similar:
+    title: Play music like it
+    icon: mdi:radio
+    description: play music like this
+    examples: [play more like this, more like this, play something similar]
+    require: [[like, similar]]
+    optional: [[play], [more, music, songs, something, stuff]]
+    wildcard: {slot: query, after: [like], to_end: true, max_words: 6}
+    music: radio
+
+  pause_music:
+    title: Pause the music
+    icon: mdi:pause
+    description: pause the music
+    examples: [pause, pause the music]
+    require: [[pause]]
+    optional: [[music, song, it, playback]]
+    exclude: [timer, timers]
+    music: pause
+
+  resume_music:
+    title: Resume the music
+    icon: mdi:play
+    description: resume the music
+    examples: [resume, resume the music, unpause, play music, keep playing]
+    require: [[resume, unpause, continue, keep playing]]
+    optional: [[music, it, playing, playback]]
+    exclude: [timer, timers]
+    music: resume
+
+  stop_music:
+    title: Stop the music
+    icon: mdi:stop
+    description: stop the music
+    require: [[stop], [music, song, playing, playback]]
+    exclude: [timer, timers]
+    music: stop
+
+  next_track:
+    title: Next track
+    icon: mdi:skip-next
+    description: skip to the next song
+    examples: [next, next song, skip, skip this song]
+    require: [[next, skip]]
+    optional: [[song, track, this, it, one]]
+    music: next
+
+  previous_track:
+    title: Previous track
+    icon: mdi:skip-previous
+    description: go back to the previous song
+    examples: [previous song, go back, last song]
+    require: [[previous, go back, last song, last track]]
+    optional: [[song, track]]
+    music: previous
+
+  volume_up:
+    title: Turn it up
+    icon: mdi:volume-plus
+    description: turn up the volume
+    examples: [louder, turn it up, volume up]
+    require: [[louder, volume up, turn it up, turn up, turn ... up, increase the volume, raise the volume]]
+    optional: [[volume, music, sound, a bit, a little]]
+    exclude: [light, lights, brightness, heat, temperature]
+    music: volume_up
+
+  volume_down:
+    title: Turn it down
+    icon: mdi:volume-minus
+    description: turn down the volume
+    examples: [quieter, turn it down, volume down]
+    require: [[quieter, softer, volume down, turn it down, turn down, turn ... down, decrease the volume, lower the volume]]
+    optional: [[volume, music, sound, a bit, a little]]
+    exclude: [light, lights, brightness, heat, temperature]
+    music: volume_down
+
+  set_volume:
+    title: Set the volume
+    icon: mdi:volume-equal
+    description: set the volume
+    require: [[volume]]
+    optional: [[set, change, make], [to], [percent]]
+    number: percentage
+    music: volume_set
+
+  mute_music:
+    title: Mute
+    icon: mdi:volume-off
+    description: mute the music
+    examples: [mute, mute the music]
+    require: [[mute]]
+    optional: [[music, it, sound]]
+    music: mute
+
+  unmute_music:
+    title: Unmute
+    icon: mdi:volume-high
+    description: unmute the music
+    examples: [unmute, unmute the music]
+    require: [[unmute]]
+    optional: [[music, it, sound]]
+    music: unmute
+
+  shuffle_on:
+    title: Shuffle
+    icon: mdi:shuffle-variant
+    description: shuffle the music
+    examples: [shuffle, shuffle the music, turn on shuffle]
+    require: [[shuffle]]
+    optional: [[music, songs, playlist, turn on, on]]
+    exclude: [off, stop, don't]
+    music: shuffle_on
+
+  shuffle_off:
+    title: Stop shuffling
+    icon: mdi:shuffle-disabled
+    description: stop shuffling
+    examples: [stop shuffling, turn off shuffle, shuffle off]
+    require: [[shuffle, shuffling], [off, stop, don't]]
+    music: shuffle_off
+
+  repeat_one:
+    title: Repeat this song
+    icon: mdi:repeat-once
+    description: repeat this song
+    examples: [repeat this song, play this song again]
+    require: [[repeat, again], [this song, this track, this one]]
+    optional: [[play]]
+    music: repeat_one
+
+  repeat_all:
+    title: Repeat
+    icon: mdi:repeat
+    description: repeat the music
+    examples: [repeat, turn on repeat, repeat all]
+    require: [[repeat]]
+    optional: [[all, turn on, on, music, playlist, album]]
+    exclude: [off, stop, song, track, this]
+    music: repeat_all
+
+  repeat_off:
+    title: Stop repeating
+    icon: mdi:repeat-off
+    description: stop repeating
+    examples: [stop repeating, turn off repeat, repeat off]
+    require: [[repeat, repeating], [off, stop, don't]]
+    music: repeat_off
+
+  whats_playing:
+    title: What's playing
+    icon: mdi:playlist-music
+    description: say what's playing
+    examples: [what's playing, what song is this, who is this, who sings this]
+    require: [[what's playing, what is playing, what song, which song, who sings, who is singing, who is this, what is this song]]
+    optional: [[this, song, now]]
+    music: status

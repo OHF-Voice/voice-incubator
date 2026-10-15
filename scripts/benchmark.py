@@ -40,6 +40,7 @@ async def main() -> None:
         help="seconds of pre-roll handed to the verifier (0 = whole file)",
     )
     parser.add_argument("--skip-recognize", action="store_true")
+    parser.add_argument("--threads", type=int, default=2, help="ONNX threads per model, as the app")
     parser.add_argument("--text", default="Turned on the light.")
     args = parser.parse_args()
 
@@ -57,16 +58,25 @@ async def main() -> None:
     await wake.start()
     print(f"  {'wake verifier load':<24} {(time.monotonic() - started) * 1000:7.0f} ms")
 
-    recognizer = None
+    engine = None
     if not args.skip_recognize:
-        from voice_call.recognize import CommandRecognizer
+        from voice_call.engine import Engine
+        from voice_call.store import compile_store
+        from voice_call.web import load_library
 
         started = time.monotonic()
-        recognizer = CommandRecognizer(
-            ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
-        )
-        await recognizer.start(["turn on the lights"])
-        print(f"  {'recognizer load+train':<24} {(time.monotonic() - started) * 1000:7.0f} ms")
+        ctc_dir = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
+        if not (ctc_dir / "model.onnx").exists():
+            ctc_dir = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
+        engine = Engine(ctc_dir, ROOT / "models/parakeet-tdt-int8", None, threads=args.threads)
+        print(f"  {'models load':<24} {(time.monotonic() - started) * 1000:7.0f} ms")
+        # The library's commands: a realistic graph, not a single sentence.
+        started = time.monotonic()
+        commands = {
+            e["id"]: {k: v for k, v in e["spec"].items() if k != "needs"} for e in load_library()
+        }
+        engine.build(compile_store({"commands": commands}))
+        print(f"  {'commands build':<24} {(time.monotonic() - started) * 1000:7.0f} ms")
 
     from voice_call.tts import Speech
 
@@ -101,14 +111,27 @@ async def main() -> None:
         timings.append((time.monotonic() - started) * 1000)
     _report("vad endpointing", timings, command_seconds)
 
-    if recognizer is not None:
+    if engine is not None:
+        import numpy as np
+
+        from voice_call.engine import Satellite
+
+        # As the app does it: the whole call, the wake phrase placed again in
+        # the CTC output, the commands recognized after it.
+        call = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+        kaldi_split = result.split or len(window) / BYTE_RATE
         timings = []
         for _ in range(args.runs):
             started = time.monotonic()
-            recognition = await recognizer.recognize(command)
+            decision, split = engine.recognize_call(
+                call, result.wake_start, kaldi_split, Satellite("bench", "bench")
+            )
             timings.append((time.monotonic() - started) * 1000)
-        _report("recognize", timings, command_seconds)
-        print(f"  {'':<24} text={recognition.text!r} score={recognition.score:.2f}")
+        _report("recognize", timings, len(call) / 16000 - split.cut)
+        print(
+            f"  {'':<24} command={decision.command.id if decision.command else None} "
+            f"slots={decision.slots} cut={split.cut:.2f}s (Kaldi {split.kaldi_split:.2f}s)"
+        )
 
     timings = []
     for _ in range(args.runs):

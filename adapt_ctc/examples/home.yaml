@@ -1,0 +1,83 @@
+# An example home for adapt-ctc: its names, settings and wake word, with the
+# core intents. Run with:
+#   adapt-ctc examples/home.yaml command.wav
+#
+# Opt in to the less common commands (two areas, compound durations) with
+#   include: [intents/core.yaml, intents/extras.yaml]
+# as examples/home-extras.yaml does.
+include: [intents/core.yaml]
+
+language: en
+
+# Every setting is optional; these are the defaults.
+settings:
+  span_gate: 2.5
+  contest_margin: 2.0
+  unexplained_important_cost: 4.0
+  unexplained_other_cost: 1.5
+  max_unexplained_important: 1
+  max_unexplained_other: 2
+  max_cost: 10.0
+  ambiguity_margin: 1.0
+  example_max_cost: 10.0  # example sentences, found in the CTC evidence
+  example_margin: 2.0
+  embedding_margin: 0.08  # examples said in other words, by embedding
+  embedding_distractor_cutoff: 0.85
+  search: live          # or full: slower, but quotes how close far-off phrases came
+
+# Second-stage wake word check for `adapt-ctc --call` and `adapt-ctc-wake`.
+# Phrases are every way Parakeet writes the wake word: it has no word "Nabu",
+# so it writes "Naboo", "Nabu" or, about a quarter of the time, "now". That
+# makes a real "okay now" an accepted wake word -- record some to measure it.
+# Confusables are wyoming-wake-kaldi's list for okay_nabu, minus the nonsense
+# near-homophones ("okay napu"), which Parakeet cannot tell from "Nabu" by
+# spelling. Calibrated on 109 genuine calls and 7 false wakes (one speaker);
+# wyoming-wake-kaldi separates these more cleanly -- see the README.
+wake:
+  phrases: [okay nabu, okay naboo, ok nabu, ok naboo, okay now]
+  confusables: [
+    okay about, okay bamboo, okay boo, okay knobby, okay maybe, okay nabil,
+    okay nadia, okay nadine, okay name, okay nancy, okay naomi, okay napkin,
+    okay naruto, okay natalie, okay natasha, okay nathan, okay nature,
+    okay near, okay nebula, okay need, okay neighbor, okay neil, okay nemo,
+    okay never, okay new, okay next, okay nice, okay night, okay nina,
+    okay no, okay noah, okay noble, okay nobody, okay noel, okay nolan,
+    okay noodle, okay nora, okay north, okay nothing, okay nova, okay nozzle,
+    okay nugget, okay number, okay taboo
+  ]
+  window: 1.5               # the pre-roll: audio up to the device's detection
+  scoring: sum              # evidence over every alignment and spelling
+  min_margin: -0.5          # nats the strongest confusable may lead by
+
+# Shared names, in gazetteer-matcher's home format: id -> name and aliases.
+# Entity ids carry their domain (light.ceiling), which is what intents filter
+# on: `domains: [lock]` for Lock.
+names:
+  areas:
+    living_room: {name: Living Room, aliases: [Den, Lounge]}
+    kitchen: Kitchen
+    bedroom: {name: Bedroom, aliases: [Master Bedroom]}
+    office: Office
+  floors:
+    upstairs: {name: Upstairs, aliases: [First Floor]}
+    downstairs: {name: Downstairs, aliases: [Ground Floor]}
+  entities:
+    # Spelling variants (Eco-Bee, Ecobee, "e co bee") need no alias: names may
+    # break into words anywhere and match in any case. Homophones do: Parakeet
+    # writes this brand as "Echo Bee", which is a different spelling.
+    climate.ecobee: {name: EcoBee, aliases: [Echo Bee, Thermostat]}
+    light.ceiling: {name: Ceiling Light}
+    light.bedroom_lamp: {name: Bedroom Lamp}
+    media_player.tv: {name: TV}
+    cover.curtains: {name: Curtains, aliases: [Curtain]}
+    cover.garage_door: {name: Garage Door}
+    lock.front_door: {name: Front Door}
+    fan.ceiling_fan: {name: Ceiling Fan}
+  # The media library, for Play: what a closed-vocabulary recognizer would be
+  # given from the music service.
+  media:
+    artist.radiohead: Radiohead
+    playlist.party: {name: Party Playlist}
+    show.the_office: {name: The Office}
+    genre.jazz: Jazz
+    genre.classical: {name: Classical, aliases: [Classical Music]}

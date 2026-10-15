@@ -1,0 +1,108 @@
+# Everyday requests to a voice assistant, for matching example sentences by
+# embedding: they compete as "none of the examples", so a transcript must be
+# closer to an example than to any of these. Ones close to an example of the
+# config are dropped (`embedding_distractor_cutoff`). One per line.
+turn on the lights
+turn off the lights in the hallway
+switch on the porch light
+dim the lights
+make the lights brighter
+set the lights to warm white
+turn the lights purple
+are the lights off downstairs
+turn on the fan
+set the fan speed to medium
+turn on the heater
+set the temperature to 70
+what temperature is it inside
+make it cooler
+turn off the air conditioner
+is the humidity high
+open the blinds
+close the curtains in the living room
+open the garage
+lock the back door
+unlock the front door
+is the window open
+is the back door locked
+arm the alarm system
+disarm the security system
+show me the front door camera
+who is at the door
+start the vacuum
+is the dishwasher done
+turn on the coffee maker
+preheat the oven to 350
+turn off the TV
+turn on the TV in the bedroom
+play some music
+play jazz in the kitchen
+play the next song
+go back to the previous track
+pause the music
+resume playback
+stop the music
+volume down
+set the volume to 30 percent
+mute the TV
+unmute the speaker
+what song is this
+play the news
+play my playlist
+shuffle my music
+set a timer for five minutes
+start a timer for half an hour
+cancel the timer
+how much time is left
+pause the timer
+set an alarm for 6 am
+cancel my alarm
+snooze
+what time is it
+what's the date today
+what day is it tomorrow
+what's the weather
+will it be sunny tomorrow
+how windy is it outside
+what's the forecast
+remind me to buy milk
+what are my reminders for tomorrow
+add an event to my calendar
+what's on my calendar today
+when is my next meeting
+add eggs to the shopping list
+what's on the to do list
+remove milk from my shopping list
+call mom
+send a message to John
+read my messages
+what's the news today
+tell me a joke
+how are you
+thank you
+never mind
+stop
+cancel that
+help
+what can you do
+good morning
+I'm home
+I'm going to sleep
+what's the capital of France
+how tall is Mount Everest
+who is the president
+how far is the moon
+what's 7 times 8
+convert 10 miles to kilometers
+how do you say hello in Spanish
+define serendipity
+how old is the universe
+what's the population of Canada
+find my phone
+where is my car
+how much battery is left on my phone
+is anyone home
+turn on night mode
+start the movie
+run the good night scene
+activate away mode

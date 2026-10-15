@@ -1,0 +1,2 @@
+# examples/home.yaml with the opt-in intents of intents/extras.yaml.
+include: [home.yaml, intents/extras.yaml]

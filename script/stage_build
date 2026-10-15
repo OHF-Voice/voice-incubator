@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Copy what the image needs but git does not carry into local/, for the
+# Dockerfile: the models (int8 Parakeet CTC and TDT, Piper, speaker ID, wake
+# words, the Kaldi verifier's model and tools) and wyoming-wake-kaldi, which
+# is not published. The Kaldi tools and its daemon are native binaries: stage
+# them on (or for) the architecture you build for.
+#
+#   script/stage_build [--embedding]      # --embedding: also EmbeddingGemma 2 (hints by meaning)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+KALDI_SRC="${WYOMING_WAKE_KALDI:-$HOME/opt/wyoming-wake-kaldi}"
+
+rm -rf local
+mkdir -p local/models/speech-to-phrase
+cp -a models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8 local/models/speech-to-phrase/
+cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
+      models/wake-kaldi-models models/wake-kaldi-tools models/wake-kaldi-decoderd local/models/
+
+mkdir -p local/wyoming-wake-kaldi
+cp -a "$KALDI_SRC/pyproject.toml" "$KALDI_SRC/wyoming_wake_kaldi" local/wyoming-wake-kaldi/
+find local -name __pycache__ -prune -exec rm -rf {} +
+
+if [[ "${1:-}" == "--embedding" ]]; then
+    snapshot="$(ls -d "$HOME"/.cache/huggingface/hub/models--onnx-community--embeddinggemma-2-ONNX/snapshots/* | tail -1)"
+    mkdir -p local/models/embeddinggemma-2/onnx
+    cp -L "$snapshot/tokenizer.json" local/models/embeddinggemma-2/
+    cp -L "$snapshot"/onnx/model_q4.onnx* local/models/embeddinggemma-2/onnx/
+fi
+du -sh local/models local/wyoming-wake-kaldi

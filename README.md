@@ -1,36 +1,57 @@
 # voice_call (app)
 
-Experimental voice app for the ESPHome `voice_call` component. It connects
-straight to the device over TCP (no Home Assistant integration yet) and runs
+Experimental voice app for the ESPHome `voice_call` component, packaged as a
+Home Assistant app with a web UI (ingress). It connects straight to the device
+over TCP (there is no Home Assistant integration for the satellites) and runs
 one call at a time:
 
 0. **wake word model push** — on connect the app lowers each `.tflite` in
    `models/wake` and sends it to the device, which has none compiled in
    (below);
-1. the device's wake word model fires and opens a call, replaying 1.5 s of
-   pre-roll audio that ends at the detection;
-2. **wake verification** — the pre-roll is re-decoded with
+1. **detection, on the satellite** — micro_wake_word runs on the ESP32 itself
+   (as mixednet-executor, below), fires, and opens a call, replaying 1.5 s of
+   pre-roll audio that ends at the detection. This is the only stage that runs
+   on the device, and it is deliberately the generous one;
+2. **verification, on the host** — the pre-roll is re-decoded with
    [wyoming-wake-kaldi](https://github.com/OHF-Voice/wyoming-wake-kaldi). A
-   rejection ends the call. An acceptance also yields the **split point**:
-   where the wake phrase ends and the command begins;
+   rejection ends the call, unless the second opinion overturns it (below). An
+   acceptance also yields the **split point**: where the wake phrase ends and
+   the command begins;
 3. **endpointing** — `pysilero-vad` watches the command audio for trailing
    silence;
-4. **recognition** — speech-to-phrase decodes the command against a grammar
-   built from Home Assistant's `conversation` sentence triggers. Triggers that
-   capture free text are handled separately (below). A command that matches
-   neither ends the call, carrying the unconstrained Parakeet transcript so you
-   can see what was actually said;
-5. **action** — the recognized text goes to `conversation.process`, which
-   fires the sentence trigger, runs the automation, and returns its
-   `set_conversation_response`;
-6. **speech** — the response is spoken with Piper (`en_GB-jenny_dioco`). An
-   automation that sets no response plays `sounds/acknowledge.mp3` instead.
+4. **recognition** — the app's own commands (made in its web UI, kept in
+   `commands.yaml`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
+   Parakeet's CTC output, after the wake phrase as that same output places it
+   (below). A command that matches nothing is answered with what it looks like
+   it was trying to do: "…set the brightness, but I didn't hear the
+   percentage";
+5. **action** — the command's script, scene or action runs in Home Assistant
+   through `execute_script`, with the slots, the satellite and the speaker as
+   variables;
+6. **speech** — its response template for how it went (`done`, `failed`, a
+   timer operation's or a script's own outcome), rendered by Home Assistant,
+   is spoken with Piper (`en_GB-jenny_dioco`); without one, the built-in
+   sentence. A command with nothing to say plays `sounds/acknowledge.mp3`.
+
+Commands, names, satellites and debugging are described for users in
+[DOCS.md](DOCS.md).
 
 ## Run
 
 ```bash
-.venv/bin/python -m voice_call --save-dir /tmp/calls
+.venv/bin/python -m voice_call --save-dir /tmp/calls    # web UI on http://127.0.0.1:8099/
 ```
+
+Commands, satellites, settings and saved calls live in `var/` (`--data-dir`;
+`/data` as an app). The web UI listens on localhost unless `--http-host` says
+otherwise: it can run actions in Home Assistant with an admin token. As an app
+(`SUPERVISOR_TOKEN` set) it talks to Home Assistant through the Supervisor,
+answers only the ingress proxy, and reads `/data/options.json`.
+
+For work on the UI without a satellite or a real Home Assistant,
+`scripts/dev_ui.sh` runs the app against `tests/fake_hass.py`;
+`scripts/dev_ui.sh --replay calls/call-15788.wav ... --` adds a fake satellite
+(`tests/fake_satellite.py`) that places those recorded calls in a loop.
 
 With no `--host` it browses `_voice-call._tcp` and serves **every** satellite it
 finds, connecting as they appear and dropping them as they go. `--host` pins it
@@ -62,28 +83,33 @@ loop. If a connection keeps dropping within 30 s, the app backs off
 exponentially and says so -- that is usually a second app holding the device,
 not the network.
 
-Useful flags: `--host`, `--hass-url`, `--hass-token-file`, `--silence`,
-`--max-command`, `--max-score`, `--wake-model`, `--wake-cutoff`, `--debug`,
-and for speaker identification `--speaker-threshold`, `--speaker-channel`,
+Useful flags: `--host`, `--hass-url`, `--hass-token-file`, `--data-dir`,
+`--http-host`, `--http-port`, `--silence`, `--max-command`, `--wake-model`,
+`--wake-cutoff`, `--no-tdt`, `--embedding-model`, `--debug`, and for speaker
+identification `--speaker-threshold`, `--speaker-channel`,
 `--no-speaker-learn`, `--enroll-commands`, `--no-speaker-id`.
 
-## Live re-training
+## Commands
 
-The app holds a websocket to Home Assistant and rebuilds the recognizer's
-grammar whenever the sentence triggers change -- no restart. It watches two
-events, because one is not enough:
+The app no longer reads Home Assistant's sentence triggers. Its commands are
+its own, in `commands.yaml`, which the web UI writes round-trip (comments and
+order survive) and which may be edited by hand: a change on disk is picked up
+within two seconds. A save from the UI is validated first -- by the command
+schema (`voice_call/commands.py`) and by adapt-ctc's own config checks -- so a
+broken command is refused rather than saved, and a file broken by hand keeps
+the previous commands in use and says why in the UI.
 
-| event | fires on |
-|---|---|
-| `automation_reloaded` | creating or editing an automation (the config API reloads after every write) |
-| `entity_registry_updated` | deleting one -- HA skips the reload and only drops the entity |
+A command is one adapt-ctc intent (examples, keywords, names, a number, value
+lists, free text) plus where it is available and what it does. All of them
+compile into one graph: rebuilding after an edit takes 50-150 ms, plus the
+first embedding of any new example or description when EmbeddingGemma is
+loaded. Scope is applied after recognition, best match first, so a command
+unavailable on this satellite is passed over (and named, if nothing else
+matched) rather than changing what the others compete with.
 
-Events are debounced for a second, the trigger list is re-read, and the grammar
-is rebuilt only if the vocabulary actually changed. Retraining takes a few
-milliseconds and holds a lock against decoding, so a call in flight waits
-rather than racing a half-built grammar. If a reload leaves no sentence
-triggers at all, or re-training fails, the previous grammar is kept so the app
-never goes deaf.
+Home Assistant's registries are watched only to offer suggestions -- names,
+aliases, areas -- and to know each satellite's floor. Nothing is taken from
+them into the vocabulary unless someone adds it.
 
 ## Layout
 
@@ -94,20 +120,40 @@ never goes deaf.
 | `voice_call/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
 | `voice_call/wake.py` | Kaldi wake verification and split point |
 | `voice_call/endpoint.py` | silero VAD endpointing |
-| `voice_call/recognize.py` | speech-to-phrase, trained on HA sentences |
-| `voice_call/hass.py` | sentence triggers in, conversation response out |
+| `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
+| `voice_call/engine.py` | where the command starts, recognition, scope, free text from TDT, hints |
+| `voice_call/commands.py` | the command schema: scope, overrides, presets, what happens |
+| `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
+| `voice_call/actions.py` | variables, `execute_script`, the response, the `voice_call_command` event |
+| `voice_call/calls.py` | per-call traces, saved audio, debug sessions |
+| `voice_call/web.py`, `voice_call/web/` | the web UI and its API |
+| `voice_call/library/` | example commands offered in the UI |
+| `voice_call/web/icons.js` | the Material Design Icons the UI shows (Apache-2.0), from `scripts/make_icons.py` |
+| `voice_call/hass.py` | Home Assistant over one websocket: registries, scripts, templates, events |
 | `voice_call/tts.py` | Piper, and the acknowledgement fallback |
 | `voice_call/server.py` | the call state machine |
 | `voice_call/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_call.speaker` |
+| `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
+| `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
+| `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
+| `custom_components/voice_call/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_call.timer_*` triggers |
+| `hass_tests/` | the integration's tests, run with a Home Assistant core checkout's fixtures (see its conftest) |
+| `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
+| `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
+| `config.yaml`, `Dockerfile`, `rootfs/`, `script/stage_build` | the Home Assistant app; `stage_build` copies the models and wyoming-wake-kaldi into `local/` for the image |
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
-| `scripts/compare_recognizers.py` | A/B two recognizer model directories over saved calls |
 | `scripts/fetch_music_library.py` | enumerate Music Assistant artists/albums for a closed-vocabulary recognizer |
+| `voice_call/wake_ratio.py` | the second opinion on a rejected wake word |
+| `scripts/align_sessions.py` | where the wake word is in every prompt of a session |
+| `scripts/false_accepts.py` | how often the chain fires on audio with no wake word in it |
+| `tests/alignments/` | wake word spans and word boundaries, one JSONL per session |
+| `tests/corpus_corrections.csv` | what was actually said, where it differs from the prompt list |
 | `corpus/positives/` | 32 VPE captures of in-vocabulary commands, for threshold work |
 | `tests/commands.txt` | the spoken test corpus, one utterance per line |
-| `tests/corpus_expected.tsv` | what each prompt must come back as, or that it must be refused |
-| `scripts/check_corpus.py` | proves the ground truth and the sentence triggers agree |
+| `tests/corpus_expected.yaml` | the command and slots each prompt must come back as, or that it must be refused |
+| `tests/corpus_expected.tsv` | the sentence each prompt was meant to be, for the take audits (`scripts/audit_*.py`) |
 | `scripts/bench_corpus.py` | runs the whole chain over a mic_tap corpus |
 | `scripts/report_corpus.py` | per channel, per prompt, per failure |
 | `models/` | everything needed to run offline (~770 MB) |
@@ -126,15 +172,22 @@ devices and channels rather than of recordings.
 `scripts/bench_corpus.py` runs each file through what the satellite and the app
 actually do: the micro_wake_word frontend, mixednet-executor and
 `determine_detected`; a 1.5 s pre-roll into Kaldi wake verification for the
-verdict and the split point; speech-to-phrase against the grammar built from
-Home Assistant's sentence triggers; and hassil for the triggers that capture
-free text. `tests/corpus_expected.tsv` says what each prompt must come back as,
-or that it must be refused -- `scripts/check_corpus.py` proves that file and the
-triggers agree before any audio is read, because a bench run on a mismatched
-pair measures the files.
+verdict and the split point (with the tail retry and the second opinion); then
+the app's engine, from the call decoded half a second before the wake word to
+the command recognized after the wake phrase. The commands are a
+`commands.yaml` or an adapt-ctc config (`--commands`; by default adapt-ctc's
+`home-extras.yaml`), and `tests/corpus_expected.yaml` says which command and
+slots each prompt must come back as, or that it must be refused. An expected
+command the commands lack is an error before any audio is read, because a
+bench run on a mismatched pair measures the files. Rows carry adapt-ctc's
+verdicts (correct, missed, wrong intent, wrong slots, false accept), the CTC
+cut beside Kaldi's, and both transcripts.
+
+(Before the commands were the app's own, this bench ran speech-to-phrase on the
+sentence triggers instead; the `tests/bench_*.jsonl` results and
+`tests/bench_corpus_report.txt` are from that chain.)
 
 ```bash
-scripts/check_corpus.py
 scripts/bench_corpus.py ~/opt/mic_tap/sessions/mike-merged --workers 8 \
     --wake-binary /path/to/run_okay_nabu
 scripts/report_corpus.py tests/bench_corpus.jsonl
@@ -170,6 +223,114 @@ recognition on its own; `app` scores what the app would do, where a call the
 wake verifier rejects is hung up before the command is ever decoded. One capture
 here detects the wake word more often than any other and is last by `app`,
 because the verifier refuses 87% of those detections.
+
+## Two stages, and which one to make generous
+
+Detection runs on the satellite and verification runs here, and the split is
+the design rather than an accident of where the code fits. The device's model
+is 46 kB and has to decide in a few hundred microseconds; the verifier has a
+full acoustic model, a lexicon and as long as a call can afford. So **stage one
+should be generous and stage two strict**, and tuning stage one for precision
+duplicates stage two's job while costing recall that stage two can never get
+back.
+
+Measured on 1.49 hours per channel of speech and music with no wake word in it:
+
+| channel | cutoff | stage 1 fires/h | reaches the command/h |
+|---|---|---|---|
+| every VPE tap | 0.85 → 0.20 | 0.00 | 0.00 |
+| `mark2-sj201.ch1` | 0.50 | 1.34 | **0.00** |
+| `mark2-sj201.ch1` | 0.30 | 2.01 | **0.00** |
+| `mark2-sj201.ch1` | 0.20 | 5.37 | **0.00** |
+| `pc-brio.mic` | 0.20 | 1.34 | **0.00** |
+
+The second stage caught every one, including with the second opinion enabled.
+That is the design working: a first stage that fires five times an hour on
+television costs nothing as long as the second stage is doing its job, and it
+buys back a great deal of recall.
+
+### The probability cutoff
+
+The stock 0.85 assumes a voice at the device. Across a room it costs most of
+the recall, and the false accepts it buys are ones the verifier would have
+refused anyway:
+
+| cutoff | mike | jenn | natalie | **oliver** |
+|---|---|---|---|---|
+| 0.50 | 83.0% | 88.4% | 51.8% | **27.6%** |
+| 0.40 | 85.9% | — | 55.9% | 31.9% |
+| 0.30 | — | — | 60.3% | 36.6% |
+| 0.20 | — | — | 66.7% | **42.8%** |
+| 0.15 | — | — | 69.8% | 47.4% |
+
+(commands reaching recognition, VPE AGC channels, both verifier fixes in)
+
+**0.2 to 0.3 is the useful range**, and the lower end is worth it for the
+speakers the detector struggles with: it is most of a doubling for a child, and
+verification holds at 90-93% all the way down, so the extra detections are real
+wake words rather than marginal noise. Below 0.15 the stage-1 rate on a loud
+microphone climbs faster than the recall does.
+
+## When the prompt list is wrong
+
+A prompt list says what the speaker was *asked* to say. On a corpus recorded
+from a script it is not what they said: a listener went through four sessions
+and corrected **57 of 816** prompts, with 5 more unusable because the recorded
+window was wrong. For one child it was 40 of 204 — one prompt in five.
+
+That is not a detail, because the error is silent in both directions. Three
+corrections flip between two *trained* sentences — `turn on the lights` where
+`turn off the lights` was said, 14 percent where 40 was — so a correct
+recognition was being scored as a failure. The other 54 put the recording
+outside the grammar, and a constrained decoder always returns a trained
+sentence, so a forced match was being scored as a success.
+
+`tests/corpus_corrections.csv` is `session,index,verdict,corrected`, and
+`bench_corpus.py --corrections` applies it: `fix` re-labels the prompt and
+re-derives whether it is still in vocabulary, `segment` drops it (a
+mis-segmented window has nothing in it to score), `ok` changes nothing.
+
+| speaker | end-to-end, as labelled | corrected |
+|---|---|---|
+| jenn | 71.1% | 71.2% |
+| mike | 70.5% | 69.6% |
+| natalie | 32.5% | **37.2%** |
+| oliver | 31.7% | **43.2%** |
+
+The children gain most, because the pipeline was being blamed for them saying
+something else. What it costs is the out-of-vocabulary numbers: 647 of those
+recordings now get a forced match. 83% of them land on a sentence meaning the
+same thing — `set the kitchen brightness` for `set kitchen brightness` — which
+is arguably right. The other 17% change the meaning, and 17 of those are
+`turn down the volume` answered with `turn the volume up`.
+
+**Collect this while recording, not afterwards.** The `session` task in
+[intent-examples](https://github.com/synesthesiam/intent-examples) produces
+exactly this file, and the next session gets it for free.
+
+### Where the wake word is
+
+`scripts/align_sessions.py` writes a span per prompt into `tests/alignments/`,
+with per-word boundaries:
+
+```json
+{"prompt": 1, "wake": {"start": 29759, "end": 37440},
+ "words": [{"word": "okay", "start": 29759, "end": 35040},
+           {"word": "nabu", "start": 35040, "end": 37440}],
+ "lr": 0.5672, "accepted": false, "rejected_by": "confusable"}
+```
+
+It slides the Kaldi verifier across the recording and keeps the position it
+scores best, which is **not** the on-device detector — localising with the
+model you are trying to fix only finds the utterances it already handles. On a
+child's session that is the difference between 33% and 100%: all 204 of his
+prompts have a span.
+
+1,019 spans across five sessions, every one inside its recording; 829 also pass
+the verifier's thresholds. The span is what lets a clip be cut or a review
+screen open in the right place — an earlier pass over the same audio computed
+these alignments and kept only summary statistics, which is why it had to be
+done twice.
 
 ## Wake word models
 
@@ -323,6 +484,162 @@ Profiles remember which capture they were built from; identifying from the
 other one scores lower, and the app warns at startup. It also warns if the AEC
 capture is too quiet to use -- firmware still streaming it at gain 1.
 
+## Recognition (adapt-ctc)
+
+Commands are recognized by adapt-ctc ([adapt_ctc/README.md](adapt_ctc/README.md)
+has how, and how well on the office-multicap corpus), with four additions made
+for this app:
+
+- **Where the command starts.** The call is decoded from half a second before
+  the wake word (as Kaldi placed it) and the wake phrase is found again in the
+  CTC output; the command is the frames after it. Kaldi's own end lands a
+  median 0.3-0.4 s late and eats the first word of the command: on the
+  office-multicap corpus, cutting there was 76.2% correct against 89.6%. A call
+  trace shows both: on `calls/call-15788.wav` the CTC places the end of the
+  wake phrase at 1.16 s and Kaldi at 1.44 s. Kaldi still decides whether it was
+  the wake word, and its end still starts endpointing.
+- **Examples first.** A command's example sentences are searched for in the
+  CTC evidence on every call, not only when no keyword intent matched, and one
+  said word for word wins over keyword matches (`settings.examples_first`).
+  The sentences are a graph of their own (about 16 ms for 51 sentences on
+  x86). The TDT transcript, word for word, is still the fallback when nothing
+  matched.
+- **Value lists** (`lists:`) report which alternative of a group was heard, as
+  a value: `{color: red}` for "crimson".
+- **Bounded free text.** A wildcard may need both edges (`bounded`: after
+  "add", before "to"), or run from a keyword to the end (`to_end`), and may be
+  `required`; fillers may then sit inside it ("a bag of rice") but not at its
+  edges. Its text is re-read from the TDT transcript over the same frames,
+  which spells better than the CTC head.
+
+When nothing matched, the closest command is named. From the keyword evidence
+first: a command whose keywords, names and numbers cover at least half the
+words that are not fillers, with what it lacked (`IntentResult.missing`). Or
+else by meaning, with EmbeddingGemma 2 against the commands' descriptions and
+examples, when the closest is at least 0.6 similar and 0.02 ahead of the next
+command or everyday request. The embedding never accepts a command
+(`settings.embedding_accept: false`), and is loaded only when present
+(`--embedding-model`).
+
+Synthesized commands (Piper, `en_GB-jenny_dioco`) against the library, on x86:
+
+| said | answered |
+|---|---|
+| "set the brightness" | It looks like you're trying to set the brightness of the lights, but I didn't hear the percentage. |
+| "turn on the garage lights" (no such area) | ... turn on the lights, but I don't know "garage". |
+| "add to the shopping list" | ... add something to the shopping list, but I didn't hear the item. |
+| "what is the time" | ... tell the time, but I didn't understand all of it. (by meaning: 0.92 against 0.85) |
+| "set a timer for five minutes" (no timer command) | Sorry, I didn't understand that. |
+| "blah blah blah" | Sorry, I didn't understand that. |
+
+Recognizing a command, acoustic pass included, took 40-210 ms there (4
+threads). The TDT pass is paid only for free text and for calls that matched
+nothing.
+
+## Timers and the Voice Call integration
+
+Timers live in Home Assistant, on a `voice_timer_list` entity per satellite,
+provided by the Voice Call integration (`custom_components/voice_call`). That
+entity platform is the `timer_list` integration from the
+`claude/timer-list-entity-local-d25403` branch -- not yet merged -- with its
+domain renamed so the two cannot clash, and with `InMemoryTimerListEntity`
+restored from before `b205e2d11ea`. When `timer_list` is merged, the timer
+lists should move to it and this copy go.
+
+**Devices.** The integration was meant to put the timer list on the
+satellite's ESPHome device, so one area served both. Home Assistant can no
+longer do that: since the child-device work (`ad96b06be6a`, August 2026) a
+device belongs to one config entry, a lookup by MAC only finds the registering
+entry's devices, and a child device's parent must share its config entry. So
+each satellite is a device of its own; on creation it takes the ESPHome
+device's area, and keeps its own from then on. The app registers satellites
+(`voice_call/satellites/sync`) as they connect, and reads each one's area from
+its device.
+
+**Matching.** Timer commands carry an operation (`timer: cancel`); which timer
+is decided by the app against that satellite's running timers
+(`voice_timer_list/item/list`), from `timer_name` (a running timer's name, from
+the `running_timers` value list the engine rebuilds when the names change),
+free text matched loosely, the length it was set for, or being the only one.
+Every plan has an outcome (`done`, `no_timers`, `not_found`, `ambiguous`,
+`already`, `missing_duration`); a command's `response` may give a template for
+each, and the rest say `timers.plan`'s own sentence.
+
+**Ringing.** The app follows each timer list (`voice_timer_list/item/subscribe`).
+When one finishes it pushes microWakeWord's `stop` model to the satellite (the
+device holds up to four; `scripts/check_mixednet.py` shows it decodes
+identically to the upstream harness over 1,162 steps), says which timer it was,
+and plays a chime until a call starts -- the "stop" model firing, or the wake
+word -- or five minutes pass. The firmware already plays audio outside a call,
+and clears its playback buffer when a call starts, so "stop" silences it at
+once. Afterwards the models are cleared and the wake word pushed again. The
+`timer_ringing` and `timer_stopped` events reach the device's YAML for an LED
+display, which the firmware does not have yet.
+
+## Music (Music Assistant and Sendspin)
+
+The firmware (`voice-call-vpe.yaml`) runs a Sendspin client, wired as in the
+stock VPE firmware: the Sendspin media source plays through a `speaker_source`
+media pipeline into the mixer's second input. Music Assistant finds it on its
+own (`_sendspin._tcp`, port 8928), connects, and makes it a player; Home
+Assistant's Music Assistant integration then gives that player an entity. No
+player has to be added by hand -- those are Music Assistant's wrappers of Home
+Assistant's own media players.
+
+**The satellite's player.** The Sendspin client identifies itself by MAC
+(`D8:3B:DA:A3:D5:F4`), but Music Assistant's player id is its own
+(`up54cb3d39`; an older player was `up` + its MAC), and Home Assistant's
+device for it has no MAC and no area, so nothing in Home Assistant's
+registries ties it to the satellite. Music Assistant's own player data does:
+the Voice Call integration reads the players from the Music Assistant
+integration's client (`entry.runtime_data.mass.players`), finds the one whose
+device has the satellite's MAC -- or wraps the Sendspin protocol player that
+has it -- and returns its entity with the satellite
+(`custom_components/voice_call/music.py`). The app re-registers satellites
+when Home Assistant's registries change, so a player added later is found.
+Without the integration the app guesses: `up` + the MAC, else the only Music
+Assistant player whose device is ESPHome's model named like the satellite
+(several satellites flashed from one YAML share that name, so then none). The
+Satellites page can always pick one.
+
+**Commands.** A `music:` operation is carried out by the app (like `timer:`):
+the player is one the command names, else the satellite's own, else -- to
+pause, skip, change the volume or ask what's playing -- whichever of Music
+Assistant's players plays in the satellite's area (Home Assistant's own media
+intents choose the same way); "resume" picks what voice paused there.
+Everything goes through Home Assistant: player state by template,
+`media_player.*` for controls, and for "play …" `music_assistant.search` on
+every reading of what was heard ("so what by miles davis" is a title, and a
+title by an artist; "the album …", "my … playlist" pick a type), the result
+closest to what was heard (`difflib`, a small type prior), then
+`music_assistant.play_media` with its URI, so the response names what was
+found and a miss is `not_found` rather than a random track. When
+`music_assistant.search` fails -- Home Assistant 2026.11 rejects its own
+response when Music Assistant leaves an album's `favorite` empty
+(`music_assistant/schemas.py`: `probatio.Optional(ATTR_FAVORITE): bool`) --
+the app searches through the player (`media_player.search_media`, "Artist -
+Name" titles, the type from the URI) from then on. Controls say
+nothing when done (the acknowledgement sound). Pause and next act on the
+player's queue: a grouped player pauses its whole group.
+
+**On the device.** Music is never paused for voice: the mixer's media input
+drops 20 dB at `on_call_start` and while a timer rings (the `timer_ringing`
+event), and comes back over 1 s when neither holds. The center button pauses
+the Sendspin group when it plays and resumes it on the next press, through the
+Sendspin controller role (`media_player: platform: sendspin`), without Home
+Assistant.
+
+## History: the sentence-trigger chain
+
+Until the commands became the app's own, a command was decoded by
+speech-to-phrase against a grammar built from Home Assistant's `conversation`
+sentence triggers, sent to `conversation.process`, and answered with the
+automation's `set_conversation_response`. The sections from here through
+"Anchored matching", and "Closed-vocabulary backends" and "Rejection
+confidence" below, record what was measured on that chain. Its code
+(`voice_call/recognize.py`, `wildcards.py`, `fst_hybrid.py`, `tdt.py`) and the
+scripts that measured it are in git history before the commands moved in.
+
 ## Wildcard sentence triggers
 
 A trigger like `play {song} in the {room}` cannot go in the speech-to-phrase
@@ -466,17 +783,272 @@ Measured over 12 synthesized commands:
 | TDT int8 + exact hassil | 11/12 |
 | TDT int8 + anchored | **12/12** |
 
+## A second opinion on a rejected wake word
+
+The Kaldi verifier makes three separate decisions, and they do not fail
+together. Measured on the Voice PE taps (AGC and AEC on four devices, as
+captured and level-matched, detector cutoff 0.2, adaptive tail), its
+thresholds refuse most of a child's real wake words:
+
+| | verified by Kaldi |
+|---|---|
+| mike (adult male) | 80.4% |
+| mike, an earlier session | 61.6% |
+| jenn (adult female) | 78.4% |
+| oliver (boy) | 71.1% |
+| **natalie (girl)** | **32.1%** |
+
+Two of its tests — `prefix` and `last` — ask *is this the wake word or just
+speech*. The third, `confusable`, asks *is this "nabu" or "now"*, and that one
+needs a pronunciation lexicon.
+
+The command model is already loaded and is good at the first question and bad
+at the second: asked whether a true wake word is "okay nabu" or one of eight
+rivals, it prefers **"okay now"** on 83-92% of them for three of four speakers.
+It has no pronunciation for `nabu` and an overwhelming prior for a common word,
+which is exactly what the lexicon entry in `wake.yaml` exists to supply.
+
+So the second opinion is an accept path for `prefix` and `last` rejections
+**only** (`voice_call/wake_ratio.py`). A `confusable` rejection stands: that is
+Kaldi being right about the thing it is for.
+
+That does not keep confusables away from it. Kaldi applies `prefix` and `last`
+first, so a confusable that fails them is never tested as one: of 557 TTS
+"okay now" clips the detector fired on, 183 were rejected on `last` or
+`prefix`. The score itself has to refuse "okay now".
+
+**The score.** The pre-roll goes through the command model once, and the
+log-probabilities are explained two ways: as "okay nabu" with blank before and
+after it, and as a free loop over the words spelled by the first 255 pieces of
+the vocabulary — the commonest fragments, since SentencePiece numbers its
+pieces in merge order. The score is the per-frame log-probability the first
+gives up against the second, both measured from the all-blank path. Low means
+"okay nabu" explains the window nearly as well as ordinary speech does. The
+graph is adapt-ctc's, built from the model's vocabulary and searched with its
+Viterbi; nothing else is loaded.
+
+Three choices carry the separation, and all three were measured rather than
+assumed: rejected wake words recovered (all five sessions, 3,923 of them) at a
+fixed rate of false accepts on each kind of negative, and how many "okay now"
+clips pass at the speech/music threshold:
+
+| "okay nabu" spelled | filler | 0.5% speech/music | 0.5% commands | 5% TTS confusables | "okay now" passed |
+|---|---|---|---|---|---|
+| speech-to-phrase ratio (before) | 63-piece loop | 87.5% | 81.7% | 22.1% | 4.4% |
+| any case, breaks anywhere | greedy path | 56.4% | 78.0% | 56.3% | 0.5% |
+| any case, breaks anywhere | 255-piece words | 74.1% | 87.3% | 51.7% | 0.5% |
+| any case, whole words | 255-piece words | 85.5% | 93.3% | 51.1% | 2.7% |
+| lowercase, breaks anywhere | 255-piece words | 86.4% | 97.4% | 68.0% | 1.6% |
+| lowercase, whole words | 63-piece words | 90.2% | 97.1% | 52.5% | 4.4% |
+| **lowercase, whole words** | **255-piece words** | **91.4%** | **98.5%** | **66.2%** | **3.3%** |
+| lowercase, whole words | 1023-piece words | 88.6% | 97.7% | 62.0% | 1.6% |
+| lowercase, whole words, + "okay now" | 255-piece words | 92.9% | 99.0% | 1.7% | 97.8% |
+
+- **Lowercase pieces, whole words.** With capitalised pieces allowed, "okay"
+  can be the single piece `▁Okay`, which the model writes for every "okay …"
+  alike. Spelled in lowercase pieces, each word starting a word and not
+  breaking inside it, recovery goes up at each of these rates. Why it
+  helps this much is not established; it is what the speech-to-phrase grammar
+  happened to do, and the table is the evidence.
+- **A filler that cannot spell the wake word as cheaply as the greedy path.**
+  Against the greedy path, a window the model reads as "Okay now" — as it reads
+  many real wake words — is a poor fit for "okay nabu" however clearly it was
+  said. The words of the first 255 pieces stand in for speech without that
+  advantage; 63 and 1023 both separate less well.
+- **"okay now" is not a spelling.** Adding it recovers the most wake words and
+  passes 98% of the "okay now" clips Kaldi rejected on `last`.
+
+Mechanically it is the speech-to-phrase ratio's shape — grammar against free
+loop, per frame — with the free loop widened and both sides on adapt-ctc's
+lattices, so the numbers are on a similar scale but the thresholds are not
+interchangeable.
+
+**Calibration.** `--wake-ratio` sets the threshold, and a negative value
+disables it. Measured on the rejections it exists to overturn — every wake word
+Kaldi refused on `last` or `prefix`, 3,923 across five sessions — and on 1.5 s
+windows that should stay refused: 14,288 of the speech-and-music recording,
+12,446 of the command right after each wake word (those Kaldi rejected on
+`last`/`prefix`), and 1,603 TTS confusables the detector fired on and Kaldi
+rejected on `last`/`prefix`, 183 of them "okay now". The earlier session of
+mike was not used to choose the score.
+
+| threshold | jenn | mike | natalie | oliver | mike, earlier | speech/music | commands | TTS confusables | TTS "okay now" |
+|---|---|---|---|---|---|---|---|---|---|
+| 1.10 | 68.7% | 78.8% | 86.1% | 86.0% | 72.8% | 0.06% | 0.16% | 8.4% | 1.1% |
+| 1.20 | 81.3% | 89.2% | 90.7% | 92.9% | 83.3% | 0.17% | 0.19% | 14.8% | 3.3% |
+| 1.25 | 85.6% | 92.9% | 92.1% | 94.6% | 87.5% | 0.35% | 0.21% | 20.1% | 3.3% |
+| **1.30** | **89.8%** | **94.6%** | **93.5%** | **97.1%** | **90.3%** | **0.69%** | **0.23%** | **27.5%** | **4.4%** |
+| 1.35 | 93.8% | 96.1% | 94.8% | 98.9% | 92.9% | 1.21% | 0.27% | 34.7% | 5.5% |
+| 1.40 | 95.8% | 96.5% | 95.9% | 99.1% | 94.9% | 2.06% | 0.29% | 43.4% | 8.2% |
+| 1.50 | 99.6% | 99.0% | 97.6% | 99.4% | 97.8% | 4.88% | 0.45% | 56.5% | 13.7% |
+| speech-to-phrase, 1.20 | 82.0% | 92.5% | 94.2% | 96.6% | 87.5% | 0.83% | 1.20% | 54.0% | 4.9% |
+
+The default of 1.3 takes fewer false accepts than the speech-to-phrase ratio
+did on every kind of negative, and recovers as many wake words or more for
+every speaker but Natalie (93.5% of her rejections against 94.2%). 1.35 recovers
+more than the old ratio for everybody, at 1.21% of speech/music windows. The
+quiet-room recording (9,216 windows) is at 0.00% up to 1.35.
+
+At the same false-accept rate, on identical windows:
+
+| negatives | false accepts | speech-to-phrase | this |
+|---|---|---|---|
+| speech/music | 0.5% | 86.4% | 91.4% |
+| speech/music | 1% | 91.1% | 93.8% |
+| commands | 0.5% | 81.7% | 98.5% |
+| commands | 1% | 89.5% | 99.1% |
+| TTS confusables | 1% | 10.0% | 40.5% |
+| TTS confusables | 5% | 21.0% | 66.2% |
+
+Against the command said right after the wake word, the gap between the 90th
+percentile of wake words (every detection) and the 10th of commands is 1.6 to
+3 times as wide:
+
+| speaker | wake p90 | command p10 | separation | speech-to-phrase |
+|---|---|---|---|---|
+| jenn | 1.290 | 2.147 | +0.857 | +0.395 |
+| mike | 1.117 | 2.220 | +1.103 | +0.417 |
+| mike, earlier | 1.213 | 2.204 | +0.991 | +0.324 |
+| natalie | 1.126 | 1.961 | +0.835 | +0.526 |
+| oliver | 1.134 | 2.053 | +0.919 | +0.367 |
+
+What reaches the command, of every detection:
+
+| | Kaldi | + speech-to-phrase ratio | + this ratio |
+|---|---|---|---|
+| jenn | 78.4% | 89.7% | **90.8%** |
+| mike | 80.4% | 94.6% | **94.9%** |
+| mike, earlier | 61.6% | 91.5% | **92.4%** |
+| natalie | 32.1% | **91.6%** | 91.1% |
+| oliver | 71.1% | 93.4% | **93.5%** |
+
+The spread across speakers goes from 48 points to 4.
+
+The on-device detector fired 22 times at cutoff 0.2 across every channel of the
+speech-and-music and quiet-room recordings (88 channel-hours). Kaldi refused all
+22, 21 of them on `last` or `prefix`, and neither ratio overturned any.
+
+**What still gets through** is the TTS confusables closest to the wake word.
+Of clips the detector fired on and Kaldi rejected on `last`/`prefix`, it
+overturns 112 of 244 English "okay maybe" (the old ratio 201), 98 of 195
+"naboo naboo" (135) and 69 of 104 German-accented "okay natalie" (103). These
+are clean synthetic voices at the microphone, not room captures, but they are
+the class to watch: none of it is the `confusable` test's to catch, because
+Kaldi never gets that far.
+
+It costs one forward pass over the 1.5 s pre-roll on the model the commands
+already use: 15 ms on 4 threads on x86 (32 ms on one), of which the graph
+search is 0.1 ms. To reproduce every table here:
+
+```bash
+scripts/calibrate_wake_ratio.py --wake-binary ~/opt/mixednet-executor/run_okay_nabu \
+    --out /tmp/wake_ratio.jsonl --workers 8      # about 26 minutes
+scripts/calibrate_wake_ratio.py --report /tmp/wake_ratio.jsonl
+```
+
+### When the wake word runs off the end of the pre-roll
+
+The pre-roll ends **at** the detection, so a detector that fires before the
+speaker has finished leaves the last phoneme outside the window the verifier
+sees. The aligner then has nowhere to put the end of the phrase but the edge,
+and `theta_last` is applied to a truncated word.
+
+How often that happens is a property of the speaker, not of the setting. At
+cutoff 0.2 the split lands on the pre-roll edge for 68.8% of one adult's
+detections and 8.2% of another speaker's.
+
+Adding a fixed tail of audio from after the detection fixes it for the first
+and costs the others, because for them it only adds command audio the verifier
+has to explain:
+
+| | +0 ms | +100 | +200 | +300 | +500 | pinned at +0 |
+|---|---|---|---|---|---|---|
+| jenn | 86.5% | 90.9% | 93.6% | **94.2%** | 94.9% | **68.8%** |
+| mike | 94.6% | 93.2% | 93.9% | 93.2% | 92.0% | 26.1% |
+| natalie | 90.3% | 91.4% | 91.2% | 91.2% | 91.2% | 8.2% |
+| oliver | 92.9% | 92.6% | 89.4% | 90.1% | 87.3% | 13.1% |
+
+But the verifier says which case a call is: that is what the split landing on
+the edge means. So the window is extended and re-decoded **only then**
+(`--wake-tail`, default 0.3 s, 0 to disable), and only those calls pay for it:
+
+| | +0 ms | +300 always | adaptive | retried |
+|---|---|---|---|---|
+| jenn | 86.5% | **94.2%** | 90.3% | 68.8% |
+| mike | 94.6% | 93.0% | **94.4%** | 26.1% |
+| natalie | 90.3% | 91.2% | **90.3%** | 8.2% |
+| oliver | 92.9% | 90.1% | **93.6%** | 13.1% |
+
+Always-on gives the truncated speaker twice as much and takes 1.6 and 2.8
+points from two others. Retrying on a pinned split gives her +3.8 with nobody
+worse — and after it the pinned rate falls from 68.8% to 0.3%, which is the
+whole mechanism.
+
+It costs latency, not accuracy: a second Kaldi decode, plus the wait for audio
+the device has not sent yet, on the calls that trigger it. The retry is skipped
+rather than blocking if that audio never arrives.
+
+The split is measured from the start of whatever window was decoded, so the
+retry moves it; `call.split_bytes` carries the offset.
+
+### What is left
+
+Nearly all of it is `confusable`, which is the one class deliberately left
+alone — for Jenn, `okay now`. That is a real precision/recall trade rather than
+a bug. The lever would be a per-confusable margin (a higher bar for `now` than
+for `naruto`), which is a change in wyoming-wake-kaldi: `theta_competitor` is
+global today.
+
 ## Thresholds
 
 Both gates are deliberately strict and both are calibrated for a **real voice
 at the device**:
 
-- `wake.yaml` `theta_competitor: 0.06` rejects near-homophones ("okay natalie")
-- `--max-score` defaults to speech-to-phrase's calibrated 5.0 per-token penalty
+- `wake.yaml` `theta_competitor: 0.10` rejects near-homophones ("okay natalie")
+- adapt-ctc's `span_gate` (2.5 nats per token) and `max_cost` (10), tuned on
+  Voice PE recordings and the office-multicap corpus; override them under
+  `settings:` in `commands.yaml`. (`--max-score`, speech-to-phrase's per-token
+  gate, is gone with it.)
 
 Playing a recording through loudspeakers across a room degrades the audio
 enough that both gates reject it even when the text decodes correctly. That is
 the gates working, not a bug; raise them only for bench testing.
+
+Being calibrated for one kind of voice is also how they came to refuse most of
+a child's real wake words, which is what the second opinion above is for. Do
+not raise `theta_last` to fix that: it is the test doing its job on audio the
+thresholds were never fitted to, and loosening it loosens it for everyone.
+
+### Pruning a confusable
+
+A confusable earns its place only if the **satellite** fires on it. The
+detector is the first filter, so an entry it already blocks can do nothing but
+cost recall. Fed straight to micro_wake_word with no room in between and the
+level swept:
+
+| phrase | peak | |
+|---|---|---|
+| okay nabu | 0.95 | the control |
+| **okay now** | **0.59** | clears the 0.50 cutoff — keep it |
+| okay natalie | 0.30 | |
+| okay naruto | 0.15 | |
+| **okay no** | **0.08** | below the 0.13 the detector reaches on television |
+| turn on the lights | 0.01 | |
+
+`okay no` was removed on that basis. It was the only rival beating "okay nabu"
+for the adult woman in the corpus — all 17 of her confusable rejections on one
+VPE channel were this one entry — and dropping it is worth 8 points of
+verification to her and nothing to anybody else.
+
+`okay now` is the opposite case and stays. It is the one rival that genuinely
+reaches the verifier, and it is also what the recognizer mistakes the wake word
+for 83-92% of the time, which is why the second opinion is not allowed to
+overturn a `confusable` rejection.
+
+Test an entry before removing it. Two minutes with a TTS voice and the detector
+settles it, and the recordings in `false positives/` ("okay natalie", "okay
+naruto", "okay neighbor") are real false wakes that show the family is not
+hypothetical.
 
 ## Memory
 
@@ -489,7 +1061,11 @@ Almost all of it is one file. Measured per startup stage on the Pi:
 | **speech-to-phrase (Parakeet CTC)** | **+862 MB** |
 | hassil, FST grammars, Piper | +1 MB (the 129 MB of grammars are mapped, not resident) |
 
-`--no-second-pass` only drops the TDT transducer, so it barely moves the total.
+(Measured with speech-to-phrase. adapt-ctc loads the same int8 CTC model once,
+and the grammars are gone; EmbeddingGemma 2, when loaded for hints, is
+another model on top. These have not been re-measured on the Pi.)
+
+`--no-tdt` only drops the TDT transducer, so it barely moves the total.
 The encoder that always loads is the one to shrink:
 
 ```bash
@@ -505,7 +1081,8 @@ choosing the same sentence and slots.
 Dynamic int8 picks different kernels per architecture, so verify on the machine
 you will run on: the same models on x86 agreed on 11 of 12, degrading
 `play a moon shaped pool by radiohead` to `...by radiohe`, which the Pi did not
-reproduce. `scripts/compare_recognizers.py` is for exactly this check.
+reproduce. (`scripts/compare_recognizers.py` did exactly this check; adapt-ctc's
+`python -m adapt_ctc.score --model DIR` does it now.)
 
 ## Closed-vocabulary backends (Kaldi, Coqui)
 
@@ -619,17 +1196,18 @@ Three dependencies are native and must match the architecture; everything else
 |---|---|
 | Kaldi + OpenFST binaries | not portable. wyoming-wake-kaldi ships prebuilt `local/tools` per arch; point `models/wake-kaldi-tools` at the aarch64 copy |
 | `verify_decoderd` | build with `decoderd/build.sh <tools_dir>`, or symlink an existing aarch64 build |
-| speech-to-phrase `_fst` | a C++ OpenFST extension with no pure-Python fallback, and not on PyPI, so it is built from source |
+| adapt-ctc `_viterbi` | a C extension (limited API), built in place with `python setup.py build_ext --inplace`; without it a numpy fallback gives the same scores several times slower |
 
-`_fst` needs `python3-dev` and `libfst-dev` (OpenFST **1.8** — the copy bundled
-with Kaldi's tools is older and does not compile). Then:
+(speech-to-phrase's `_fst`, an OpenFST extension that needed `libfst-dev` 1.8,
+is only needed for the benchmarks of the old chain now.) Then:
 
 ```bash
 rsync -a --exclude .venv --exclude var --exclude 'models/wake-kaldi-tools' \
       --exclude 'models/wake-kaldi-decoderd' voice_call/ pi:~/voice_call/
 ssh pi 'cd ~/voice_call && python3 -m venv .venv &&
         .venv/bin/python -m pip install -r requirements.txt &&
-        .venv/bin/python -m pip install -e _src/wyoming-wake-kaldi _src/s2p-lib'
+        .venv/bin/python -m pip install -e _src/wyoming-wake-kaldi &&
+        .venv/bin/python setup.py build_ext --inplace'
 ```
 
 ## Benchmark

@@ -1,0 +1,629 @@
+"""Command recognition: from a call's audio to the command to run.
+
+The command is recognized with adapt-ctc on Parakeet's CTC output:
+
+1. **Where the command starts.** The call is decoded from half a second
+   before the wake word (Kaldi's placement), and the wake phrase is found
+   again in the CTC evidence; the command is the frames after it. Cutting at
+   Kaldi's own end instead lands 0.3-0.4 s late and eats the first word of
+   the command: on the office-multicap corpus that was 76.2% correct against
+   89.6% (see adapt_ctc/README.md, "Where the command starts").
+2. **Example sentences first.** A command's examples are searched for in the
+   CTC evidence on every call, and one said word for word wins over keyword
+   matches. Then keyword intents; then, when nothing matched, the TDT
+   transcript against the examples, word for word.
+3. **Where it is available.** Matches are taken best first, skipping commands
+   that are not available on this satellite; the most specific scope decides
+   what happens.
+4. **Free text** is re-read from the TDT transcript over the same stretch of
+   audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
+5. **When nothing matched**, the closest command is named: from the keyword
+   evidence (what was heard, and what was missing), or else by meaning, with
+   EmbeddingGemma against the commands' descriptions and examples. That is
+   only ever a hint; the embedding never runs a command.
+"""
+
+from __future__ import annotations
+
+import copy
+import logging
+import re
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from adapt_ctc.acoustic import CtcModel
+from adapt_ctc.config import WakeConfig, parse_config
+from adapt_ctc.matcher import IntentResult, Recognition, Recognizer
+from adapt_ctc.report import to_json
+from adapt_ctc.wake import LEAD, WakeVerifier
+
+from adapt_ctc.config import ConfigError, _phrase
+
+from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, match_slots
+from .store import Compiled
+
+_LOGGER = logging.getLogger(__name__)
+
+SAMPLE_RATE = 16000
+
+# How Parakeet writes "okay nabu": it has no word "Nabu". Placement only, so no
+# confusables: Kaldi has already decided it was the wake word.
+WAKE_PHRASES = ("okay nabu", "okay naboo", "ok nabu", "ok naboo", "okay now")
+SPLIT_BOUND = 0.3
+"""Seconds past Kaldi's wake word end that the wake phrase may still end."""
+
+# Naming the closest command by meaning: only when it is this similar, and
+# this much closer than the runner-up (another command or an everyday
+# request). Hints only, so looser than adapt-ctc's acceptance margin.
+HINT_MIN_SIMILARITY = 0.6
+HINT_MARGIN = 0.02
+HINT_COVERAGE = 0.5
+"""A command is named from keyword evidence only when what it listens for
+(keywords, names, numbers) covers at least this share of the words that are
+not fillers: "set" alone does not make "set a timer" a temperature."""
+
+NAME_WORDS = {"entity": "which device", "area": "which room", "floor": "which floor"}
+NO_COMMANDS = "No voice commands are set up yet. Add some in the Voice Call app."
+
+# The app's own commands, recognized like the rest but handled here.
+LEARN_VOICE = "voice_call_learn_voice"
+INTERNAL_INTENTS: dict[str, dict[str, Any]] = {
+    LEARN_VOICE: {
+        "description": "learn a new voice",
+        "require": [["learn"], ["voice"]],
+        "optional": [["new"], ["for"]],
+        "wildcard": {
+            "slot": "speaker", "after": ["for"], "to_end": True, "required": True, "max_words": 3,
+        },
+    }
+}
+
+
+@dataclass
+class Satellite:
+    """Who asked, as Home Assistant sees it."""
+
+    key: str
+    name: str
+    area_id: str | None = None
+    area_name: str | None = None
+    floor_id: str | None = None
+    floor_name: str | None = None
+    device_id: str | None = None
+    """Its device in Home Assistant (the Voice Call integration's)."""
+    timer_list: str | None = None
+    """Its voice_timer_list entity."""
+    media_player: str | None = None
+    """Its Music Assistant player (its Sendspin client's)."""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.key,
+            "name": self.name,
+            "area_id": self.area_id,
+            "area_name": self.area_name,
+            "floor_id": self.floor_id,
+            "floor_name": self.floor_name,
+            "device_id": self.device_id,
+            "timer_list": self.timer_list,
+            "media_player": self.media_player,
+        }
+
+
+@dataclass
+class Decision:
+    """What a command's audio comes to."""
+
+    recognition: dict[str, Any]
+    """adapt-ctc's report of the recognition."""
+
+    command: Command | None = None
+    behavior: Behavior | None = None
+    decided_by: str | None = None
+    """``command`` or ``override N``: which scope decided what happens."""
+
+    intent: IntentResult | None = None
+    slots: dict[str, Any] = field(default_factory=dict)
+    skipped: list[dict[str, Any]] = field(default_factory=list)
+    """Matches passed over: not available on this satellite."""
+
+    hint: dict[str, Any] | None = None
+    message: str | None = None
+    """What to say when nothing will run."""
+
+    internal: str | None = None
+    """One of the app's own commands (INTERNAL_INTENTS) matched."""
+
+    text_from_tdt: dict[str, str] = field(default_factory=dict)
+    """Free-text slots re-read from the TDT transcript: slot -> as the CTC
+    head heard it."""
+
+    timings: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def transcript(self) -> str:
+        return self.recognition.get("tdt_transcript") or self.recognition.get("transcript") or ""
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "command": self.command.id if self.command else self.internal,
+            "description": self.command.description if self.command else None,
+            "decided_by": self.decided_by,
+            "does": self.behavior.does if self.behavior else None,
+            "slots": self.slots,
+            "skipped": self.skipped,
+            "hint": self.hint,
+            "message": self.message,
+            "text_from_tdt": self.text_from_tdt,
+            "recognition": self.recognition,
+            "timings": {k: round(v, 4) for k, v in self.timings.items()},
+        }
+
+
+@dataclass
+class Split:
+    """Where the command starts in a call, in seconds from its first sample."""
+
+    offset: float
+    """Where decoding started: half a second before Kaldi's wake word."""
+
+    cut: float
+    kaldi_split: float
+    phrase: str | None = None
+    wake_start: float | None = None
+    wake_end: float | None = None
+    cost: float | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "offset": round(self.offset, 3),
+            "cut": round(self.cut, 3),
+            "kaldi_split": round(self.kaldi_split, 3),
+            "phrase": self.phrase,
+            "wake_start": None if self.wake_start is None else round(self.wake_start, 3),
+            "wake_end": None if self.wake_end is None else round(self.wake_end, 3),
+            "cost": None if self.cost is None else round(self.cost, 3),
+        }
+
+
+class CachedEmbedder:
+    """Embeds documents (examples, descriptions, everyday requests) once.
+    Rebuilding after an edit then costs only the new sentences."""
+
+    def __init__(self, embedder) -> None:
+        self._embedder = embedder
+        self._cache: dict[str, np.ndarray] = {}
+
+    def embed(self, texts: list[str], document: bool = False) -> np.ndarray:
+        if not document:
+            return self._embedder.embed(texts, document)
+        missing = [t for t in dict.fromkeys(texts) if t not in self._cache]
+        if missing:
+            for text, vector in zip(missing, self._embedder.embed(missing, True)):
+                self._cache[text] = vector
+        if not texts:
+            return np.zeros((0, 768), dtype=np.float32)
+        return np.stack([self._cache[t] for t in texts])
+
+
+class Engine:
+    def __init__(
+        self,
+        model_dir: Path,
+        tdt_dir: Path | None = None,
+        embedding_dir: Path | None = None,
+        threads: int = 2,
+        internal: tuple[str, ...] = (),
+    ) -> None:
+        self.internal = {name: INTERNAL_INTENTS[name] for name in internal}
+        self.model = CtcModel(model_dir, num_threads=threads)
+        self.transcriber = None
+        if tdt_dir is not None and (Path(tdt_dir) / "encoder.onnx").is_file():
+            try:
+                from adapt_ctc.tdt import TdtTranscriber  # pylint: disable=import-outside-toplevel
+
+                self.transcriber = TdtTranscriber(tdt_dir, threads)
+            except ImportError:
+                _LOGGER.warning("sherpa-onnx is not installed; no TDT transcripts")
+        elif tdt_dir is not None:
+            _LOGGER.warning("No TDT model at %s; examples are matched in the CTC evidence only", tdt_dir)
+        self.embedder = None
+        if embedding_dir is not None and (Path(embedding_dir) / "onnx/model_q4.onnx").is_file():
+            try:
+                from adapt_ctc.embedding import Embedder  # pylint: disable=import-outside-toplevel
+
+                self.embedder = CachedEmbedder(Embedder(embedding_dir, threads))
+            except ImportError:
+                _LOGGER.warning("tokenizers is not installed; no hints by meaning")
+        elif embedding_dir is not None:
+            _LOGGER.info("No embedding model at %s; hints come from keywords only", embedding_dir)
+        self.placer = WakeVerifier(
+            WakeConfig(WAKE_PHRASES, scoring="best"), self.model.vocab, "en"
+        )
+        self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
+        """Values of the lists the app keeps current: running timers' names."""
+
+        self.compiled: Compiled | None = None
+        self.recognizer: Recognizer | None = None
+        self.unspeakable: list[str] = []
+        self.build_seconds = 0.0
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------- building
+
+    def build(self, compiled: Compiled) -> None:
+        """Make the store's commands the ones recognized. Slow-ish (graph,
+        examples, embeddings): call from a thread. On error the previous
+        commands stay."""
+        started = time.perf_counter()
+        recognizer = None
+        config = copy.deepcopy(compiled.config or {**BASE_CONFIG, "intents": {}})
+        config["intents"].update(copy.deepcopy(self.internal))
+        self._fill_dynamic(config)
+        if config["intents"]:
+            recognizer = Recognizer(
+                parse_config(config),
+                self.model,
+                transcriber=self.transcriber,
+                embedder=self.embedder,
+            )
+        with self._lock:
+            self.compiled = compiled
+            self.recognizer = recognizer
+            self.unspeakable = list(recognizer.unspeakable) if recognizer else []
+        self.build_seconds = time.perf_counter() - started
+        _LOGGER.info(
+            "Recognizing %d command(s); built in %.0f ms%s",
+            len(compiled.commands),
+            self.build_seconds * 1000,
+            f"; cannot spell {self.unspeakable}" if self.unspeakable else "",
+        )
+
+    def _fill_dynamic(self, config: dict[str, Any]) -> None:
+        """Put the app's own lists in, or take out what refers to an empty one:
+        an optional slot is dropped, an intent that needs the list is too."""
+        lists = config.setdefault("lists", {})
+        empty = set()
+        for name in DYNAMIC_LISTS:
+            values = {}
+            for value in self.dynamic.get(name, []):
+                try:
+                    _phrase(value, "en", name)
+                except ConfigError:
+                    continue  # nothing speakable in it
+                values[value] = [value]
+            if values:
+                lists[name] = values
+            else:
+                lists.pop(name, None)
+                empty.add(name)
+        if not empty:
+            return
+        for intent_name, intent in list(config["intents"].items()):
+            slots = intent.get("lists") or {}
+            for slot, spec in list(slots.items()):
+                listed = spec if isinstance(spec, str) else (spec or {}).get("list")
+                if listed not in empty:
+                    continue
+                if isinstance(spec, dict) and spec.get("optional"):
+                    del slots[slot]
+                else:
+                    del config["intents"][intent_name]
+                    break
+
+    # ---------------------------------------------------------- recognizing
+
+    def place_command(
+        self, audio: np.ndarray, wake_start: float | None, kaldi_split: float
+    ) -> tuple[np.ndarray, float, Split]:
+        """Log-probabilities of the command, their frame length, and where it
+        starts: after the wake phrase as the CTC evidence places it."""
+        anchor = wake_start if wake_start is not None else max(0.0, kaldi_split - 1.0)
+        offset = max(0.0, anchor - LEAD)
+        log_probs, frame_seconds = self.model.log_probs(audio[int(offset * SAMPLE_RATE) :])
+        bound = int((kaldi_split - offset + SPLIT_BOUND) / frame_seconds)
+        wake = self.placer.verify_log_probs(log_probs, frame_seconds, max_end=bound)
+        split = Split(offset, kaldi_split, kaldi_split)
+        if wake.phrase is not None:
+            end = wake.end
+            split.phrase = wake.phrase
+            split.wake_start = offset + wake.start * frame_seconds
+            split.wake_end = offset + (wake.end + 1) * frame_seconds
+            split.cost = wake.cost
+        else:
+            end = int((kaldi_split - offset) / frame_seconds) - 1
+        split.cut = offset + (end + 1) * frame_seconds
+        return log_probs[end + 1 :], frame_seconds, split
+
+    def recognize_call(
+        self, audio: np.ndarray, wake_start: float | None, kaldi_split: float, satellite: Satellite
+    ) -> tuple[Decision, Split]:
+        """A whole call, from the start of its pre-roll, after Kaldi accepted
+        the wake word."""
+        started = time.perf_counter()
+        log_probs, frame_seconds, split = self.place_command(audio, wake_start, kaldi_split)
+        placed = time.perf_counter() - started
+        command_audio = audio[int(split.cut * SAMPLE_RATE) :]
+        decision = self.decide(log_probs, frame_seconds, command_audio, satellite)
+        decision.timings = {"acoustic+placement": placed, **decision.timings}
+        return decision, split
+
+    def recognize_command(self, audio: np.ndarray, satellite: Satellite) -> Decision:
+        """Audio that is only the command (typed and synthesized, or uploaded)."""
+        started = time.perf_counter()
+        log_probs, frame_seconds = self.model.log_probs(audio)
+        decision = self.decide(log_probs, frame_seconds, audio, satellite)
+        decision.timings = {"acoustic": time.perf_counter() - started, **decision.timings}
+        return decision
+
+    def decide(
+        self,
+        log_probs: np.ndarray,
+        frame_seconds: float,
+        command_audio: np.ndarray,
+        satellite: Satellite,
+    ) -> Decision:
+        with self._lock:
+            compiled, recognizer = self.compiled, self.recognizer
+        if recognizer is None or compiled is None:
+            decision = Decision(recognition={"transcript": self._greedy(log_probs)})
+            decision.message = NO_COMMANDS
+            decision.hint = {"source": None, "text": decision.message}
+            return decision
+
+        recognition = recognizer.recognize_log_probs(log_probs, frame_seconds)
+        recognition = recognizer.match_examples(recognition, command_audio)
+        decision = Decision(recognition={})
+
+        for result in recognition.matches:
+            if result.intent in self.internal:
+                decision.internal = result.intent
+                decision.intent = result
+                decision.slots = dict(result.slots)
+                spec = self.internal[result.intent]
+                if spec.get("wildcard"):
+                    self._reread_text(
+                        decision, recognition, command_audio, frame_seconds, spec["wildcard"]["slot"]
+                    )
+                break
+            command = compiled.commands.get(result.intent)
+            if command is None:
+                continue
+            resolved = command.resolve(satellite.key, satellite.area_id)
+            if resolved is None:
+                decision.skipped.append(
+                    {"command": command.id, "why": "not available on this satellite"}
+                )
+                continue
+            decision.command = command
+            decision.behavior, decision.decided_by = resolved
+            decision.intent = result
+            heard = match_slots(command, result.slots)
+            # Fixed slots are the command's target; a name that was heard
+            # is more specific.
+            decision.slots = {**decision.behavior.slots, **heard}
+            if command.intent.get("wildcard"):
+                self._reread_text(
+                    decision, recognition, command_audio, frame_seconds,
+                    command.intent["wildcard"]["slot"],
+                )
+            break
+
+        if decision.command is None and decision.internal is None:
+            if self.transcriber is not None and recognition.tdt_transcript is None:
+                started = time.perf_counter()
+                recognition.tdt_transcript = self.transcriber.transcribe(command_audio)
+                recognition.timings["tdt"] = time.perf_counter() - started
+            decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
+            if not compiled.commands:
+                # Only the app's own commands are listened for.
+                decision.hint = {"source": None, "text": NO_COMMANDS}
+            decision.message = decision.hint["text"]
+
+        decision.recognition = to_json(recognition)
+        decision.timings = dict(recognition.timings)
+        return decision
+
+    def _greedy(self, log_probs: np.ndarray) -> str:
+        ids, previous = [], None
+        blank = self.model.vocab.blank_id
+        for token in log_probs.argmax(axis=-1):
+            token = int(token)
+            if token != previous and token != blank:
+                ids.append(token)
+            previous = token
+        return self.model.vocab.ids_to_text(ids)
+
+    def _reread_text(
+        self,
+        decision: Decision,
+        recognition: Recognition,
+        command_audio: np.ndarray,
+        frame_seconds: float,
+        slot: str,
+    ) -> None:
+        """Replace free text as the CTC head spelled it with the TDT
+        transcript's words over the same stretch of audio."""
+        if self.transcriber is None or decision.intent is None:
+            return
+        uses = [use for use in decision.intent.spans if use.role == "wildcard"]
+        if not uses:
+            return
+        started = time.perf_counter()
+        transcript, words = self.transcriber.transcribe_words(command_audio)
+        recognition.timings["tdt"] = time.perf_counter() - started
+        recognition.tdt_transcript = transcript
+        use = uses[0]
+        start = use.hit.start * frame_seconds - frame_seconds
+        end = (use.hit.end + 1) * frame_seconds + frame_seconds
+        inside = [w for w, s, e in words if s >= start and (s + e) / 2 <= end]
+        text = " ".join(_strip(w) for w in inside).strip()
+        if text and slot in decision.slots and text.lower() != str(decision.slots[slot]).lower():
+            decision.text_from_tdt[slot] = str(decision.slots[slot])
+            decision.slots[slot] = text
+
+    # --------------------------------------------------------------- hints
+
+    def _hint(
+        self,
+        recognition: Recognition,
+        compiled: Compiled,
+        satellite: Satellite,
+        skipped: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """What the command looks like it was trying to do, and why it did
+        not happen."""
+        commands = compiled.commands
+        with self._lock:
+            recognizer = self.recognizer
+        if skipped:
+            command = commands[skipped[0]["command"]]
+            return {
+                "source": "unavailable",
+                "command": command.id,
+                "text": f"It looks like you're trying to {command.description}, "
+                "but that isn't set up here.",
+            }
+
+        candidates = []
+        for result in recognition.rejected:
+            command = commands.get(result.intent)
+            if command is None or not result.missing:
+                continue
+            groups = len(command_groups(command))
+            matched_constraints = bool(result.spans)
+            if not matched_constraints and result.heard_groups == 0:
+                continue  # nothing of it was heard
+            if not matched_constraints and groups and result.heard_groups < max(1, groups - 1):
+                continue  # too little of it was heard
+            coverage = _coverage(recognition, recognizer, result.intent) if recognizer else 1.0
+            if coverage < HINT_COVERAGE:
+                continue
+            rank = (
+                0 if matched_constraints else 1,
+                result.cost if matched_constraints else -coverage,
+                len(result.missing),
+            )
+            candidates.append((rank, command, result))
+        if candidates:
+            _, command, result = min(candidates, key=lambda item: item[0])
+            available = command.resolve(satellite.key, satellite.area_id) is not None
+            why = (
+                "but that isn't set up here"
+                if not available
+                else _missing_text(command, result.missing)
+            )
+            return {
+                "source": "keywords",
+                "command": command.id,
+                "missing": result.missing,
+                "text": f"It looks like you're trying to {command.description}, {why}.",
+            }
+
+        if recognizer_has_meaning(self):
+            texts = [t for t in (recognition.tdt_transcript, recognition.transcript) if t]
+            closest = recognizer.closest_by_meaning(texts) if recognizer else None
+            if closest is not None:
+                margin = closest["similarity"] - (closest["next_similarity"] or 0.0)
+                hint = {"source": "meaning", **closest, "margin": round(margin, 4)}
+                hint["similarity"] = round(closest["similarity"], 4)
+                if closest["next_similarity"] is not None:
+                    hint["next_similarity"] = round(closest["next_similarity"], 4)
+                command = commands.get(closest["intent"])
+                if (
+                    command is not None
+                    and closest["similarity"] >= HINT_MIN_SIMILARITY
+                    and margin >= HINT_MARGIN
+                ):
+                    hint["command"] = command.id
+                    hint["text"] = (
+                        f"It looks like you're trying to {command.description}, "
+                        "but I didn't understand all of it."
+                    )
+                    return hint
+                hint["text"] = "Sorry, I didn't understand that."
+                return hint
+        return {"source": None, "text": "Sorry, I didn't understand that."}
+
+
+def _coverage(recognition: Recognition, recognizer: Recognizer, intent_name: str) -> float:
+    """Share of the transcript's words (fillers aside) that something this
+    intent listens for was heard on."""
+    intent = recognizer.config.intents.get(intent_name)
+    spotting = recognition.spotting
+    if intent is None:
+        return 0.0
+    keywords = {
+        part
+        for group in intent.require + intent.optional
+        for phrase in group
+        for part in phrase.split(" ... ")
+    }
+
+    def relevant(meaning) -> bool:
+        if meaning.kind == "keyword":
+            return meaning.phrase in keywords
+        if meaning.kind == "number":
+            return intent.number is not None
+        if meaning.kind == "name":
+            return intent.name_count(meaning.name_type) > 0
+        return False
+
+    hits = [h for h in spotting.hits if h.heard and any(relevant(m) for m in h.meanings)]
+    filler = {f for f in recognizer.config.filler if " " not in f}
+    words = [
+        w
+        for w in spotting.words
+        if w.frames and w.text.lower().strip(".,?!;:'\"") not in filler
+    ]
+    if not words:
+        return 0.0
+    covered = sum(
+        1
+        for w in words
+        if 2 * sum(any(h.start <= f <= h.end for h in hits) for f in w.frames) >= len(w.frames)
+    )
+    return covered / len(words)
+
+
+def recognizer_has_meaning(engine: Engine) -> bool:
+    return engine.embedder is not None and engine.recognizer is not None
+
+
+def command_groups(command: Command) -> list:
+    return list(command.intent.get("require") or [])
+
+
+def _missing_text(command: Command, missing: list[dict[str, Any]]) -> str:
+    first = missing[0]
+    kind = first.get("kind")
+    if kind == "require":
+        if first.get("slot"):
+            return f"but I didn't hear which {first['slot'].replace('_', ' ')}"
+        return f"but I didn't hear \"{first['phrases'][0]}\""
+    if kind == "name":
+        return f"but I didn't hear {NAME_WORDS.get(first['type'], 'which one')}"
+    if kind == "number":
+        if first.get("heard"):
+            return f"but {first['heard'][0]} is out of range"
+        if command.duration:
+            return "but I didn't hear how long"
+        what = command.number_slot.replace("_", " ")
+        return "but I didn't hear a number" if what == "number" else f"but I didn't hear the {what}"
+    if kind == "text":
+        return f"but I didn't hear the {first['slot'].replace('_', ' ')}"
+    if kind == "unexplained":
+        words = " ".join(first.get("words") or [])
+        return f"but I didn't understand \"{words}\"" if words else "but I didn't understand all of it"
+    if kind == "unknown_name":
+        return f"but I don't know \"{' '.join(first.get('words') or [])}\""
+    return "but I wasn't sure"
+
+
+def _strip(word: str) -> str:
+    return re.sub(r"^[^\w']+|[^\w']+$", "", word)

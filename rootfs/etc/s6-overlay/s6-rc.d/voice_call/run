@@ -1,0 +1,8 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Start voice_call. It reads its options from /data/options.json and talks to
+# Home Assistant through the Supervisor with SUPERVISOR_TOKEN.
+# ==============================================================================
+cd /usr/src/voice_call
+exec python3 -m voice_call --data-dir /data --http-port 8099

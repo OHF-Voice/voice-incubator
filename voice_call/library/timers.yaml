@@ -1,0 +1,108 @@
+# Timers, on the satellite that set them. They need the Voice Call integration
+# in Home Assistant, which gives each satellite a voice_timer_list; the app
+# starts, matches and rings them.
+#
+# Keywords follow adapt-ctc's core timer intents (adapt_ctc/examples/intents/
+# core.yaml). A timer is picked out by:
+#   timer_name  a running timer's name, recognized from the running_timers
+#               list the app keeps current: "cancel the pizza timer"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "a timer named chicken nuggets"
+#   duration    "the 5 minute timer"
+# or it is the only one running.
+title: Timers
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: set a timer
+    # Said quickly, "timer" loses its "r": "set a time for ninety seconds". The
+    # unit keeps "what time is it" out.
+    require: [[timer, time], [minutes, minute, seconds, second, hours, hour]]
+    optional: [[set, start, create], [for], [named, called, name]]
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: duration
+    timer: start
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: cancel a timer
+    require: [[cancel, stop, delete], [timer, time]]
+    optional: [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    lists:
+      timer_name: {list: running_timers, optional: true}
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: {preset: duration, optional: true}
+    timer: cancel
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: cancel all the timers
+    require: [[cancel, stop, delete], [all], [timers, timer]]
+    timer: cancel_all
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: pause a timer
+    require: [[pause, hold], [timer, timers, time]]
+    optional: [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    lists:
+      timer_name: {list: running_timers, optional: true}
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: {preset: duration, optional: true}
+    timer: pause
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: resume a timer
+    # Parakeet may write "unpause" as one word or two.
+    require: [[resume, unpause, un pause, continue], [timer, timers, time]]
+    optional: [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    lists:
+      timer_name: {list: running_timers, optional: true}
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: {preset: duration, optional: true}
+    timer: resume
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: say how long is left on a timer
+    examples: [how much time is left, how long is left on my timer]
+    require: [[how long, how much time], [left, remaining]]
+    optional: [[is], [on], [timer, time], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    lists:
+      timer_name: {list: running_timers, optional: true}
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: {preset: duration, optional: true}
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: add time to a timer
+    require: [[add], [timer, time]]
+    optional: [[to], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    lists:
+      timer_name: {list: running_timers, optional: true}
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: duration
+    timer: add
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: take time off a timer
+    require: [[decrease, reduce, subtract, remove, take off], [timer, time]]
+    optional: [[by, from], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
+    lists:
+      timer_name: {list: running_timers, optional: true}
+    wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
+    number: duration
+    timer: subtract

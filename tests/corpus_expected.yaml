@@ -1,0 +1,177 @@
+# What each office-multicap prompt must come back as, for scripts/bench_corpus.py:
+# the command (adapt-ctc intent) and the slots heard, or `none` for a command
+# that must be refused. Sentences are the prompt without "okay nabu,", or a
+# listener's correction where the speaker said something else
+# (tests/corpus_corrections.csv). Slots are as recognized, before a command's
+# fixed slots or presets are applied.
+#
+# Written for adapt_ctc/examples/home-extras.yaml (core intents plus the opt-in
+# ones): the garage, the oven and the stairs are names it does not have, so
+# those commands must not match. Copied from adapt-ctc's audio/office-multicap.yaml.
+sentences:
+  # -- On and off
+  turn on the lights: {expect: TurnOnLights, slots: {}}
+  turn off the lights: {expect: TurnOffLights, slots: {}}
+  switch on the lights: {expect: TurnOnLights, slots: {}}
+  switch off the lights: {expect: TurnOffLights, slots: {}}
+  turn it off: {expect: TurnItOff, slots: {}}
+  please turn on the lights: {expect: TurnOnLights, slots: {}}
+  turn on the lights thanks: {expect: TurnOnLights, slots: {}}
+  could you turn on the lights for me please: {expect: TurnOnLights, slots: {}}
+  turn the kitchen lights on: {expect: TurnOnLights, slots: {area: [kitchen]}}
+  turn on the kitchen lights: {expect: TurnOnLights, slots: {area: [kitchen]}}
+  turn on the den lights: {expect: TurnOnLights, slots: {area: [living_room]}}
+  turn on the lights in the den: {expect: TurnOnLights, slots: {area: [living_room]}}
+  um could you turn on the kitchen lights for me please: {expect: TurnOnLights, slots: {area: [kitchen]}}
+  turn off the den lights: {expect: TurnOffLights, slots: {area: [living_room]}}
+  turn on the lights in the kitchen and the bedroom: {expect: TurnOnLightsAreas, slots: {area: [kitchen, bedroom]}}
+  turn on the lights in the kitchen and in the bedroom: {expect: TurnOnLightsAreas, slots: {area: [kitchen, bedroom]}}
+  turn on the bedroom and kitchen lights: {expect: TurnOnLightsAreas, slots: {area: [kitchen, bedroom]}}
+  turn on the bedroom and the kitchen lights: {expect: TurnOnLightsAreas, slots: {area: [kitchen, bedroom]}}
+  turn on the ceiling light: {expect: TurnOnEntity, slots: {entity: [light.ceiling]}}
+  turn on the ecobee: {expect: TurnOnEntity, slots: {entity: [climate.ecobee]}}
+  turn on the tv: {expect: TurnOnEntity, slots: {entity: [media_player.tv]}}
+  turn on the garage lights: {expect: none}
+  turn on the gar garage lights: {expect: none}
+  turn on the garbage lights: {expect: none}
+  turn on the oven: {expect: none}
+  turn off the light on the stairs: {expect: none}
+  turn off the lights on the stairs: {expect: none}
+  turned off the lights on the stairs: {expect: none}
+
+  # -- Lights
+  set kitchen brightness to 13 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 13}}
+  set kitchen brightness to 15 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 15}}
+  set kitchen brightness to 19 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 19}}
+  set kitchen brightness to 30 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 30}}
+  set kitchen brightness to 50 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 50}}
+  set kitchen brightness to 90 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 90}}
+  set kitchen brightness to 100 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 100}}
+  set kitchen brightness to 150 percent: {expect: none}      # out of range
+  set the kitchen brightness to 15 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 15}}
+  set the kitchen brightness to 19 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 19}}
+  set the kitchen brightness to 30 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 30}}
+  set the kitchen brightness to 50 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 50}}
+  set the kitchen brightness to 90 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 90}}
+  set the kitchen brightness to 100 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 100}}
+  set the kitchen brightness of 15 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 15}}
+  set the kitchen brightness at 13 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 13}}
+  # A child's "set" swallowed or misspoken; still a brightness command.
+  the kitchen brightness to 15 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 15}}
+  the kitchen brightness to 30 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 30}}
+  the kitchen brightness at 100 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 100}}
+  the kitchen brightness is 90 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 90}}
+  the kitchen brightness is 150 percent: {expect: none}
+  set the kitchen lights to 16 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 16}}
+  set the kitchen lights to 60 percent: {expect: SetBrightness, slots: {area: [kitchen], number: 60}}
+  see the lights to 16 percent: {expect: SetBrightness, slots: {number: 16}}
+  change the bedroom lamp to 14 percent: {expect: SetBrightness, slots: {entity: [light.bedroom_lamp], number: 14}}
+  change the bedroom lamp to 40 percent: {expect: SetBrightness, slots: {entity: [light.bedroom_lamp], number: 40}}
+  set the bedroom lamp color temperature to 2700 kelvin: {expect: SetColorTemperature, slots: {entity: [light.bedroom_lamp], number: 2700}}
+  set the bedroom lamp to color temperature to 2700 kelvin: {expect: SetColorTemperature, slots: {entity: [light.bedroom_lamp], number: 2700}}
+  make the kitchen lights warmer: {expect: Warmer, slots: {area: [kitchen]}}
+  turn down the lights: {expect: Dim}
+
+  # -- Climate
+  set the temperature to 20.5 degrees: {expect: SetTemperature, slots: {number: 20.5}}
+  set the thermostat to 72 and a half degrees: {expect: SetTemperature, slots: {entity: [climate.ecobee], number: 72.5}}
+  set the thermostat to 72.5 degrees: {expect: SetTemperature, slots: {entity: [climate.ecobee], number: 72.5}}
+  what is the temperature in the living room: {expect: GetTemperature, slots: {area: [living_room]}}
+  whats the temperature in the living room: {expect: GetTemperature, slots: {area: [living_room]}}
+  how warm is it in here: {expect: GetTemperature, slots: {}}
+
+  # -- State: questions match, statements don't
+  is the garage door open: {expect: IsEntityOpen, slots: {entity: [cover.garage_door]}}
+  is the kitchen light on: {expect: AreLightsOn, slots: {area: [kitchen]}}
+  are all the fans off in the kitchen: {expect: AreFansOff, slots: {area: [kitchen]}}
+  are all the doors locked: {expect: AreDoorsLocked, slots: {}}
+  the lights are on in the kitchen: {expect: none}
+  the kitchen light is on: {expect: none}
+  all the doors are locked: {expect: none}
+
+  # -- Covers and fans
+  open the curtains to 50 percent: {expect: SetPosition, slots: {entity: [cover.curtains], number: 50}}
+  close the curtains to 15 percent: {expect: SetPosition, slots: {entity: [cover.curtains], number: 15}}
+  close the curtains to 50 percent: {expect: SetPosition, slots: {entity: [cover.curtains], number: 50}}
+  set the fan speed to 50 percent: {expect: SetFanSpeed, slots: {number: 50}}
+
+  # -- Timers
+  set a timer for 13 minutes: {expect: StartTimer, slots: {minutes: 13}}
+  set a timer for 15 seconds: {expect: StartTimer, slots: {seconds: 15}}
+  set a timer for 30 minutes: {expect: StartTimer, slots: {minutes: 30}}
+  set a timer for 50 seconds: {expect: StartTimer, slots: {seconds: 50}}
+  set the timer for 50 seconds: {expect: StartTimer, slots: {seconds: 50}}
+  set a timer for 90 seconds: {expect: StartTimer, slots: {seconds: 90}}
+  set a timer for half an hour: {expect: StartTimer, slots: {hours: 0.5}}
+  set the timer for half an hour: {expect: StartTimer, slots: {hours: 0.5}}
+  set a timer for an hour and a half: {expect: StartTimer, slots: {hours: 1.5}}
+  set the timer for an hour and a half: {expect: StartTimer, slots: {hours: 1.5}}
+  at the timer for an hour and a half: {expect: StartTimer, slots: {hours: 1.5}}
+  set a timer for a minute and a half: {expect: StartTimer, slots: {minutes: 1.5}}
+  set a timer for 1 hour and 30 seconds: {expect: StartTimer, slots: {hours: 1, seconds: 30}}
+  set a timer for 1 hour 5 minutes and 30 seconds: {expect: StartTimer, slots: {hours: 1, minutes: 5, seconds: 30}}
+  set a timer for 1 hour and 5 minutes and 30 seconds: {expect: StartTimer, slots: {hours: 1, minutes: 5, seconds: 30}}
+  cancel all timers: {expect: CancelAllTimers}
+  cancel all my timers: {expect: CancelAllTimers}
+  cancel the 30 minute timer: {expect: CancelTimer, slots: {minutes: 30}}
+  pause my timer: {expect: PauseTimer}
+  how long is left on my 5 minute timer: {expect: TimerStatus, slots: {minutes: 5}}
+  how long is is left on my 5 minute timer: {expect: TimerStatus, slots: {minutes: 5}}
+  add 1 hour to the pizza timer: {expect: IncreaseTimer, slots: {timer: pizza, hours: 1}}
+  decrease the kitchen timer by 5 minutes: {expect: DecreaseTimer, slots: {area: [kitchen], minutes: 5}}
+
+  # -- Media
+  pause: {expect: Pause}
+  pause the music: {expect: Pause}
+  stop playing: {expect: Pause}
+  resume: {expect: Resume}
+  resume the music: {expect: Resume}
+  unpause the movie: {expect: Resume}
+  next song: {expect: NextTrack}
+  skip the track: {expect: NextTrack}
+  go back: {expect: PreviousTrack}
+  go back to the previous song: {expect: PreviousTrack}
+  mute: {expect: Mute, slots: {}}
+  mute the tv: {expect: Mute, slots: {entity: [media_player.tv]}}
+  mute tv: {expect: Mute, slots: {entity: [media_player.tv]}}
+  unmute: {expect: Unmute, slots: {}}
+  unmute the tv: {expect: Unmute, slots: {entity: [media_player.tv]}}
+  set the volume to 19 percent: {expect: SetVolume, slots: {number: 19}}
+  set the volume to 90 percent: {expect: SetVolume, slots: {number: 90}}
+  turn the volume up: {expect: VolumeUp}
+  turn up the volume: {expect: VolumeUp}
+  turn up the music: {expect: VolumeUp}
+  turn the volume down: {expect: VolumeDown}
+  turn down the volume: {expect: VolumeDown}
+  turn up the volume by 20 percent: {expect: VolumeUpBy, slots: {number: 20}}
+  turn the volume up by 20 percent: {expect: VolumeUpBy, slots: {number: 20}}
+  play some classical music in the bedroom: {expect: Play, slots: {media: [genre.classical], area: [bedroom]}}
+  play some jazz in the kitchen: {expect: Play, slots: {media: [genre.jazz], area: [kitchen]}}
+  play some music by radiohead: {expect: Play, slots: {media: [artist.radiohead]}}
+  play party playlist: {expect: Play, slots: {media: [playlist.party]}}
+  play the office on the tv in the kitchen: {expect: Play, slots: {media: [show.the_office], entity: [media_player.tv], area: [kitchen]}}
+
+  # -- Other
+  what time is it: {expect: GetTime}
+  what time is it right now: {expect: GetTime}
+  tell me what time it is right now: {expect: GetTime}
+  tell me the date: {expect: GetDate}
+  tell me about the date: {expect: GetDate}
+  never mind: {expect: Nevermind}
+
+  # -- Must not match
+  blah blah: {expect: none}
+  tell me a joke: {expect: none}
+  remind me in 3 hours to pick up the kids: {expect: none}
+  set an alarm for 7: {expect: none}
+  make it cozy in the living room: {expect: none}
+  add bananas to the shopping list: {expect: none}
+  put clean the garage on my todo list: {expect: none}
+  put clean the garage onto my todo list: {expect: none}
+  put the clean garbage onto my todo list: {expect: none}
+  whats the weather tomorrow: {expect: none}
+  whats the weather like in london: {expect: none}
+  # Compound commands are rejected for their unused words, not split.
+  turn on the kitchen lights and set brightness to 50: {expect: none}
+  turn on the lights and set brightness to 50 percent: {expect: none}
+  turn on the the kitchen lights and set the brightness to 50: {expect: none}

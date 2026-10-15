@@ -1,15 +1,35 @@
-"""Run the voice_call app against a device on the local network."""
+"""Run the voice_call app against devices on the local network.
+
+As a Home Assistant app (``SUPERVISOR_TOKEN`` is set) it talks to Home
+Assistant through the Supervisor's proxy, keeps its data in /data, serves the
+web UI to ingress only, and reads its options from /data/options.json.
+"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import os
 from pathlib import Path
+
+from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL
 
 from .server import Options, VoiceCallApp
 
 _LOGGER = logging.getLogger(__name__)
+
+ROOT = Path(__file__).resolve().parent.parent
+SUPERVISOR_URL = "http://supervisor/core"
+SUPERVISOR_WEBSOCKET = "ws://supervisor/core/websocket"
+INGRESS_PROXY = "172.30.32.2"
+OPTIONS_FILE = Path("/data/options.json")
+
+
+def _default_embedding() -> Path:
+    bundled = ROOT / "models/embeddinggemma-2"
+    return bundled if (bundled / "onnx/model_q4.onnx").exists() else DEFAULT_EMBEDDING_MODEL
 
 
 async def main() -> None:
@@ -26,22 +46,30 @@ async def main() -> None:
         default="/home/hansenm/opt/homeassistant/token",
         help="file holding a long-lived access token",
     )
+    parser.add_argument(
+        "--data-dir",
+        help="commands, satellites, settings and saved calls (default var/, "
+        "or /data as an app)",
+    )
+    parser.add_argument("--http-host", default="127.0.0.1", help="web UI address")
+    parser.add_argument("--http-port", type=int, default=8099, help="web UI port")
     parser.add_argument("--language", default="en")
     parser.add_argument("--silence", type=float, default=1.0)
     parser.add_argument("--max-command", type=float, default=15.0)
+    parser.add_argument("--save-dir", help="also write each call's audio here, per device")
     parser.add_argument(
-        "--max-score",
-        type=float,
-        help="per-token acoustic penalty gate (default: speech-to-phrase's "
-        "calibrated value for the backend)",
-    )
-    parser.add_argument("--save-dir", help="write each call's audio here")
-    parser.add_argument(
-        "--no-second-pass",
+        "--no-tdt",
         action="store_true",
-        help="skip the Parakeet TDT re-transcription (saves ~590 MB)",
+        help="skip Parakeet's TDT head (saves ~350 MB; examples are then only "
+        "found in the CTC evidence, and free text is spelled as the CTC head heard it)",
     )
-    parser.add_argument("--tdt-threads", type=int, default=2)
+    parser.add_argument(
+        "--embedding-model",
+        default=str(_default_embedding()),
+        help="EmbeddingGemma 2 ONNX snapshot, used only to name the closest "
+        "command when nothing matched ('none' to skip it)",
+    )
+    parser.add_argument("--threads", type=int, default=2, help="ONNX threads per model")
     parser.add_argument(
         "--wake-model",
         action="append",
@@ -59,12 +87,20 @@ async def main() -> None:
         "lets through",
     )
     parser.add_argument(
+        "--wake-tail",
+        type=float,
+        metavar="S",
+        help="seconds of audio from after the detection to add before "
+        "verifying again, when the first attempt put the wake phrase at the "
+        "very end of the pre-roll (default 0.3; 0 disables the retry)",
+    )
+    parser.add_argument(
         "--wake-ratio",
         type=float,
         metavar="R",
         help="per-frame threshold for the second opinion on a wake word the "
         "Kaldi verifier rejected on its phrase or last-word test (default "
-        "1.2; negative disables it, and a confusable rejection always "
+        "1.3; negative disables it, and a confusable rejection always "
         "stands)",
     )
     parser.add_argument(
@@ -105,29 +141,61 @@ async def main() -> None:
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
+    supervisor_token = os.environ.get("SUPERVISOR_TOKEN")
+    app_options: dict = {}
+    if supervisor_token and OPTIONS_FILE.exists():
+        app_options = json.loads(OPTIONS_FILE.read_text(encoding="utf-8"))
+    if app_options.get("debug_logging"):
+        args.debug = True
+    for option, attribute in (
+        ("wake_cutoff", "wake_cutoff"),
+        ("speaker_threshold", "speaker_threshold"),
+        ("silence_seconds", "silence"),
+    ):
+        if app_options.get(option) is not None:
+            setattr(args, attribute, app_options[option])
+
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
 
-    token = Path(args.hass_token_file).read_text(encoding="utf-8").strip()
+    if supervisor_token:
+        hass = {
+            "hass_url": SUPERVISOR_URL,
+            "hass_token": supervisor_token,
+            "hass_websocket_url": SUPERVISOR_WEBSOCKET,
+            "data_dir": Path(args.data_dir or "/data"),
+            "http_host": "0.0.0.0",
+            "http_port": args.http_port,
+            "http_allow": (INGRESS_PROXY,),
+        }
+    else:
+        hass = {
+            "hass_url": args.hass_url,
+            "hass_token": Path(args.hass_token_file).read_text(encoding="utf-8").strip(),
+            "data_dir": Path(args.data_dir) if args.data_dir else None,
+            "http_host": args.http_host,
+            "http_port": args.http_port,
+        }
+    embedding = None if args.embedding_model in ("", "none") else Path(args.embedding_model)
 
     app = VoiceCallApp(
         Options(
             host=args.host,
             port=args.port,
-            hass_url=args.hass_url,
-            hass_token=token,
+            **hass,
             language=args.language,
             silence_seconds=args.silence,
             max_command_seconds=args.max_command,
-            max_score=args.max_score,
             save_dir=Path(args.save_dir) if args.save_dir else None,
-            second_pass=not args.no_second_pass,
-            tdt_threads=args.tdt_threads,
+            tdt=not args.no_tdt,
+            embedding_dir=embedding,
+            threads=args.threads,
             wake_models=tuple(args.wake_model) if args.wake_model else ("okay_nabu", "vad"),
-            wake_probability_cutoff=args.wake_cutoff,
+            **({} if args.wake_cutoff is None else {"wake_probability_cutoff": args.wake_cutoff}),
             wake_ratio=args.wake_ratio,
+            **({} if args.wake_tail is None else {"wake_tail": args.wake_tail}),
             speaker_id=not args.no_speaker_id,
             speaker_profiles=Path(args.speaker_profiles) if args.speaker_profiles else None,
             speaker_threshold=args.speaker_threshold,

@@ -1,8 +1,9 @@
-"""Shared pieces for the corpus bench: triggers, ground truth, gain, wake word.
+"""Shared pieces for the corpus scripts: the take audit's ground truth
+(tests/corpus_expected.tsv), listener corrections, levels, and the on-device
+wake word detector.
 
-Home Assistant does not have to be running. Sentence triggers are read straight
-out of ``automations.yaml`` and split exactly as ``voice_call.hass`` splits them,
-so the vocabulary here is the vocabulary the app would load over the API.
+The bench's own expectations are commands and slots, in
+tests/corpus_expected.yaml (see bench_corpus.py).
 """
 
 from __future__ import annotations
@@ -15,46 +16,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voice_call.hass import WILDCARD_PATTERN, Sentences  # noqa: E402
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 160  # 10 ms, one frontend frame
 FEATURES_PER_FRAME = 40
-
-
-def sentence_triggers(automations: Path) -> Sentences:
-    """Every ``conversation`` trigger in an automations.yaml."""
-    sentences = Sentences()
-    for config in yaml.safe_load(automations.read_text()) or []:
-        triggers = config.get("triggers") or config.get("trigger") or []
-        if isinstance(triggers, dict):
-            triggers = [triggers]
-        alias = config.get("alias", config.get("id", "?"))
-        for trigger in triggers:
-            if "conversation" not in (
-                trigger.get("trigger"),
-                trigger.get("platform"),
-            ):
-                continue
-            commands = trigger.get("command") or []
-            if isinstance(commands, str):
-                commands = [commands]
-            for command in commands:
-                command = command.strip()
-                if not command:
-                    continue
-                target = (
-                    sentences.wildcard
-                    if WILDCARD_PATTERN.search(command)
-                    else sentences.plain
-                )
-                target.append(command)
-                sentences.source.setdefault(command.lower(), alias)
-    return sentences
 
 
 @dataclass

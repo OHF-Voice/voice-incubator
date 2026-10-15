@@ -1,0 +1,141 @@
+---
+language: en
+
+# Words that explain audio without meaning anything.
+filler: [the, a, an, please, my, can you, could you, would you, it, of]
+
+# Words a name follows. The word right after one is where a name goes: when
+# nothing recognized it ("turn on the garage lights") or only as a name the
+# intent cannot take ("lock the kitchen"), an intent that leaves it
+# unexplained is rejected rather than acting on everything. "a timer named
+# popcorn" is rejected, not started without its name.
+name_cues: [the, my, named, called]
+
+# Numbers listened for regardless of intent, so an unexpected one is reported.
+# Up to 200 so "one hundred fifty" is heard as one number, out of range,
+# rather than as "fifty" after an unexplained "one hundred".
+numbers:
+  detect:
+    min: 0
+    max: 200
+
+names:
+  areas:
+    living_room: { name: Living Room, aliases: [Den, Lounge] }
+    kitchen: Kitchen
+    bedroom: { name: Bedroom, aliases: [Master Bedroom] }
+    office: Office
+  floors:
+    upstairs: { name: Upstairs, aliases: [First Floor] }
+    downstairs: { name: Downstairs, aliases: [Ground Floor] }
+
+intents:
+  volume_up:
+    require: [["turn up", "turn ... up"], ["volume", "music"]]
+
+  volume_down:
+    require: [["turn down", "turn ... down"], ["volume", "music"]]
+
+  timer_start:
+    require:
+      [
+        ["start", "set", "create"],
+        ["timer"],
+        ["minutes", "minute", "seconds", "second", "hours", "hour"],
+      ]
+    optional: ["for"]
+    number:
+      min: 1
+      max: 100
+      units: ["second", "minute", "hour"]
+
+  timer_cancel:
+    require: [["cancel", "stop"], ["timer"]]
+    optional: ["named", "called", "name"]
+    wildcard:
+      slot: "timer"
+      before: ["timer"]
+      after: ["named", "called", "name"]
+
+  timer_increase:
+    require:
+      [
+        ["add", "increase"],
+        ["timer"],
+        ["minutes", "minute", "seconds", "second", "hours", "hour"],
+      ]
+    optional: ["to", "by"]
+    number:
+      min: 1
+      max: 100
+      units: ["second", "minute", "hour"]
+
+  timer_decrease:
+    require:
+      [
+        ["remove", "decrease"],
+        ["timer"],
+        ["minutes", "minute", "seconds", "second", "hours", "hour"],
+      ]
+    optional: ["to", "by"]
+    number:
+      min: 1
+      max: 100
+      units: ["second", "minute", "hour"]
+
+  timer_status:
+    examples:
+      - "how much time is left on my timer?"
+      - "timer status"
+    require:
+      [["time", "time is left", "how much", "status", "remaining"], ["timer"]]
+    optional: ["on", "my"]
+
+  weather_forecast:
+    examples:
+      - "what's the weather like today?"
+      - "is it going to rain?"
+    require: [["weather", "forecast"]]
+
+  lights_color_here:
+    require:
+      [
+        ["set", "make"],
+        ["light", "lights"],
+        [
+          "red",
+          "orange",
+          "green",
+          "yellow",
+          "green",
+          "blue",
+          "purple",
+          "violet",
+          "white",
+          "black",
+        ],
+      ]
+    optional: ["color", "in", "here"]
+
+  lights_color_area:
+    require:
+      [
+        ["set", "make"],
+        ["light", "lights"],
+        [
+          "red",
+          "orange",
+          "green",
+          "yellow",
+          "green",
+          "blue",
+          "purple",
+          "violet",
+          "white",
+          "black",
+        ],
+      ]
+    optional: ["color", "in"]
+    names:
+      area:
+        count: 1
