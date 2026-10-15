@@ -115,7 +115,17 @@ def load_library() -> list[dict[str, Any]]:
     entries = []
     for path in sorted(LIBRARY_DIR.glob("*.yaml")):
         data = plain(yaml.load(path.read_text("utf-8")) or {})
+        file_lists = data.get("lists") or {}
         for command_id, spec in (data.get("commands") or {}).items():
+            # The file's shared value lists this command uses: added with it.
+            used = sorted(
+                {
+                    str(value["list"])
+                    for value in (spec.get("lists") or {}).values()
+                    if isinstance(value, dict) and value.get("list") in file_lists
+                }
+                | {str(value) for value in (spec.get("lists") or {}).values() if isinstance(value, str) and value in file_lists}
+            )
             entry = {
                 "file": path.stem,
                 "group": data.get("title") or path.stem,
@@ -124,11 +134,17 @@ def load_library() -> list[dict[str, Any]]:
                 "title": spec.get("title") or command_id,
                 "description": spec.get("description", ""),
                 "spec": spec,
+                "lists": {name: file_lists[name] for name in used},
                 "needs": spec.get("needs") or [],
             }
             try:
                 # adapt-ctc's own checks too: keywords, names, numbers.
-                compile_store({"commands": {command_id: {k: v for k, v in spec.items() if k != "needs"}}})
+                compile_store(
+                    {
+                        "lists": entry["lists"],
+                        "commands": {command_id: {k: v for k, v in spec.items() if k != "needs"}},
+                    }
+                )
             except ConfigError as err:
                 entry["error"] = str(err)
             entries.append(entry)
@@ -307,6 +323,11 @@ class Api:
         spec = copy.deepcopy(entry["spec"])
         spec.pop("needs", None)
         spec.setdefault("title", entry["title"])
+        # Shared lists it uses, unless yours already has one by that name.
+        have = self.app.store.load().data.get("lists") or {}
+        for name, values in entry["lists"].items():
+            if name not in have:
+                self.app.store.put_list(name, copy.deepcopy(values))
         existing = self.app.store.load().commands
         base = SAFE_ID.sub("_", str(body.get("new_id") or entry["id"]).lower()).strip("_") or "command"
         command_id, n = base, 2

@@ -58,6 +58,44 @@ commands:
       action: light.turn_off
       target: "{{ target }}"
 
+  any_lights_on:
+    title: Are any lights on
+    icon: mdi:lightbulb-question
+    description: say which lights are on
+    # No example sentences: one said word for word carries no area or floor.
+    require: [[are, is], [light, lights], [on]]
+    optional: [[any], [in]]
+    exclude: [turn, switch]
+    names:
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    response: >-
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], on=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+        else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor
+        else ((' in the ' ~ satellite.area_name) if satellite.area_name else '')) -%}
+      {%- for s in states.light if (not ns.areas or area_id(s.entity_id) in ns.areas) and s.state == 'on' -%}
+      {%- set ns.on = ns.on + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.on | count -%}
+      {%- if count == 0 -%}
+      No, the lights are off{{ where }}.
+      {%- elif count > 3 -%}
+      Yes, {{ count }} lights are on{{ where }}.
+      {%- else -%}
+      Yes, {{ (ns.on[:-1] | join(', ') ~ ' and ' ~ ns.on[-1]) if count > 1 else ns.on[0] }}
+      {{- ' is' if count == 1 else ' are' }} on{{ where }}.
+      {%- endif -%}
+    needs:
+      - The satellite's area is asked about unless an area or floor is named.
+
   device_on:
     title: Turn on a device
     icon: mdi:toggle-switch-outline

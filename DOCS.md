@@ -52,9 +52,10 @@ at the top of the Satellites page, and per satellite below it.
 
 ## Commands
 
-Start from the **Library** (adding one copies it into your commands; one you
-already have is marked **added**, by its id, so a command you renamed counts
-as your own and the library's can be added again) or make a new one. A
+Start from the **Library** (adding one copies it into your commands, with any
+shared value list it uses that you don't have yet; one you already have is
+marked **added**, by its id, so a command you renamed counts as your own and
+the library's can be added again) or make a new one. A
 command has:
 
 - **Icon**: to tell commands apart at a glance; by default, one for what it
@@ -192,6 +193,24 @@ searched, `media` (`name`, `artist`, `media_type`, `uri`).
 
 On the satellite, music is turned down while it listens to you or a timer
 rings, never paused, and the center button pauses and resumes it.
+
+## Covers and locks
+
+The library's **Covers and locks** group opens and closes covers and locks and
+unlocks locks, and answers "is the garage door open?", "are the blinds closed
+in the bedroom?", "is the front door locked?" and "is everything locked?". The
+**Basics** group answers "are any lights on (upstairs)?".
+
+- **By name** ("open the garage door", "lock the front door"): add a name for
+  the cover or lock on the Names page. A binary sensor of the lock class can
+  answer "is it locked" too (on means unlocked); type its entity id there.
+- **By type** ("close the blinds", "open the garage door", "close all the
+  curtains upstairs"): no names needed. The cover's device class says what it
+  is; the area or floor you name, else the satellite's area, says which. When
+  the satellite's area has none of that type, every one in the home is meant.
+  When there are none, it says so.
+- Unlocking works for anyone the satellite hears: scope the command to the
+  satellites that should.
 
 ## Names
 

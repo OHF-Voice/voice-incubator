@@ -19,6 +19,9 @@
   satellite's player is its Sendspin client's, found by MAC. The volume
   commands moved from Basics to the new Music group.
 - Commands have icons, and the library marks the ones you already have.
+- Library: covers and locks (by name, or by type and area or floor), "are any
+  lights on", "is the garage door open", "is the front door locked", "is
+  everything locked". Adding a command adds the shared value lists it uses.
 - The VPE's light ring flashes while a timer rings and otherwise shows the time
   left on the timer that finishes soonest. The timer alarm is the stock VPE's
   sound, and "stop" -- or the center button -- now stops it at once.

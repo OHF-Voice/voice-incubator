@@ -1,0 +1,365 @@
+# Covers and locks: opening, closing, locking, and asking about them.
+#
+# A cover or a lock by name needs a name for it (Names page). Covers by type
+# ("the blinds", "the garage door") need no names: their device class says
+# what they are, and the area or floor named -- else the satellite's area --
+# where. When nothing of that type is in the satellite's area, every one in
+# the home is meant ("open the garage door" from the kitchen).
+#
+# The by-type actions return an outcome (stop with response_variable), so they
+# say "There aren't any shades in the Bedroom" instead of nothing happening.
+title: Covers and locks
+icon: mdi:door
+
+commands:
+  open_cover:
+    title: Open a cover
+    icon: mdi:window-shutter-open
+    description: open a cover
+    require: [[open, raise]]
+    optional: [[up]]
+    exclude: [is, are]
+    names:
+      entity: {count: 1, domains: [cover]}
+    action:
+      action: cover.open_cover
+      target: "{{ target }}"
+    response: "Opening {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the covers it may open (Names page).
+
+  close_cover:
+    title: Close a cover
+    icon: mdi:window-shutter
+    description: close a cover
+    require: [[close, shut, lower]]
+    optional: [[down]]
+    exclude: [is, are]
+    names:
+      entity: {count: 1, domains: [cover]}
+    action:
+      action: cover.close_cover
+      target: "{{ target }}"
+    response: "Closing {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the covers it may close (Names page).
+
+  open_covers:
+    title: Open covers by type
+    icon: mdi:blinds-open
+    description: open the blinds
+    require: [[open, raise]]
+    optional: [[all], [up], [in, on]]
+    exclude: [is, are]
+    names:
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    lists:
+      device_class: {list: cover_classes}
+    action:
+      - variables:
+          covers: >-
+            {%- set named = slots.area or slots.floor -%}
+            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
+            {%- for f in slots.floor or [] -%}
+            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+            {%- endfor -%}
+            {%- if not named and satellite.area_id -%}
+            {%- set ns.areas = [satellite.area_id] -%}
+            {%- endif -%}
+            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+              | selectattr('attributes.device_class', 'eq', slots.device_class)
+              | map(attribute='entity_id') | list -%}
+            {%- for e in every if area_id(e) in ns.areas -%}
+            {%- set ns.picked = ns.picked + [e] -%}
+            {%- endfor -%}
+            {{ ns.picked if ns.picked or named else every }}
+      - if: "{{ covers | count == 0 }}"
+        then:
+          - variables:
+              result: {outcome: not_found}
+          - stop: Nothing to open
+            response_variable: result
+      - action: cover.open_cover
+        target:
+          entity_id: "{{ covers }}"
+      - variables:
+          result:
+            count: "{{ covers | count }}"
+      - stop: Opening
+        response_variable: result
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
+          'curtain': ['curtain', 'curtains'], 'door': ['door', 'doors'],
+          'garage': ['garage door', 'garage doors'], 'gate': ['gate', 'gates'],
+          'shade': ['shade', 'shades'], 'shutter': ['shutter', 'shutters'],
+          'window': ['window', 'windows']} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        Opening the {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
+      not_found: >-
+        {%- set kinds = {'awning': 'awnings', 'blind': 'blinds', 'curtain': 'curtains',
+          'door': 'doors', 'garage': 'garage doors', 'gate': 'gates', 'shade': 'shades',
+          'shutter': 'shutters', 'window': 'windows'} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        There aren't any {{ kinds[slots.device_class] }}{{ where }}.
+
+  close_covers:
+    title: Close covers by type
+    icon: mdi:blinds
+    description: close the blinds
+    require: [[close, shut, lower]]
+    optional: [[all], [down], [in, on]]
+    exclude: [is, are]
+    names:
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    lists:
+      device_class: {list: cover_classes}
+    action:
+      - variables:
+          covers: >-
+            {%- set named = slots.area or slots.floor -%}
+            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
+            {%- for f in slots.floor or [] -%}
+            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+            {%- endfor -%}
+            {%- if not named and satellite.area_id -%}
+            {%- set ns.areas = [satellite.area_id] -%}
+            {%- endif -%}
+            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+              | selectattr('attributes.device_class', 'eq', slots.device_class)
+              | map(attribute='entity_id') | list -%}
+            {%- for e in every if area_id(e) in ns.areas -%}
+            {%- set ns.picked = ns.picked + [e] -%}
+            {%- endfor -%}
+            {{ ns.picked if ns.picked or named else every }}
+      - if: "{{ covers | count == 0 }}"
+        then:
+          - variables:
+              result: {outcome: not_found}
+          - stop: Nothing to close
+            response_variable: result
+      - action: cover.close_cover
+        target:
+          entity_id: "{{ covers }}"
+      - variables:
+          result:
+            count: "{{ covers | count }}"
+      - stop: Closing
+        response_variable: result
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
+          'curtain': ['curtain', 'curtains'], 'door': ['door', 'doors'],
+          'garage': ['garage door', 'garage doors'], 'gate': ['gate', 'gates'],
+          'shade': ['shade', 'shades'], 'shutter': ['shutter', 'shutters'],
+          'window': ['window', 'windows']} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        Closing the {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
+      not_found: >-
+        {%- set kinds = {'awning': 'awnings', 'blind': 'blinds', 'curtain': 'curtains',
+          'door': 'doors', 'garage': 'garage doors', 'gate': 'gates', 'shade': 'shades',
+          'shutter': 'shutters', 'window': 'windows'} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        There aren't any {{ kinds[slots.device_class] }}{{ where }}.
+
+  lock:
+    title: Lock a lock
+    icon: mdi:lock
+    description: lock a door
+    require: [[lock]]
+    exclude: [unlock, is, are, all, everything]
+    names:
+      entity: {count: 1, domains: [lock]}
+    action:
+      action: lock.lock
+      target: "{{ target }}"
+    response: "Locking {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the locks it may lock (Names page).
+
+  unlock:
+    title: Unlock a lock
+    icon: mdi:lock-open-variant
+    description: unlock a door
+    require: [[unlock]]
+    exclude: [is, are]
+    names:
+      entity: {count: 1, domains: [lock]}
+    action:
+      action: lock.unlock
+      target: "{{ target }}"
+    response: "Unlocking {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the locks it may unlock (Names page). Anyone the satellite
+        hears can unlock them; scope it to the satellites that should.
+
+  lock_all:
+    title: Lock up
+    icon: mdi:shield-lock
+    description: lock all the doors
+    examples: [lock up, lock all the doors, lock everything]
+    require: [[lock], [all, everything, up]]
+    optional: [[doors, locks]]
+    exclude: [unlock, is, are]
+    action:
+      action: lock.lock
+      target:
+        entity_id: all
+    response: Locking all the doors.
+
+  is_cover_open:
+    title: Is a cover open
+    icon: mdi:window-shutter-alert
+    description: say if a cover is open
+    require: [[is, are]]
+    names:
+      entity: {count: 1, domains: [cover]}
+    lists:
+      asked: {list: open_closed}
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- set state = states(e) -%}
+      {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+      {%- if state in ['open', 'closed'] -%}
+      {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
+      {%- else -%}
+      {{ said }}
+      {%- endif -%}
+    needs:
+      - Add names for the covers it may ask about (Names page).
+
+  are_covers_open:
+    title: Are covers open, by type
+    icon: mdi:blinds-horizontal
+    description: say if the blinds are open
+    require: [[is, are]]
+    optional: [[any, all], [in, on]]
+    names:
+      area: {count: 1, optional: true}
+      floor: {count: 1, optional: true}
+    lists:
+      device_class: {list: cover_classes}
+      asked: {list: open_closed}
+    response: >-
+      {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
+        'curtain': ['curtain', 'curtains'], 'door': ['door', 'doors'],
+        'garage': ['garage door', 'garage doors'], 'gate': ['gate', 'gates'],
+        'shade': ['shade', 'shades'], 'shutter': ['shutter', 'shutters'],
+        'window': ['window', 'windows']} -%}
+      {%- set kind = kinds[slots.device_class] -%}
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], picked=[], opened=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+        else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+      {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+        | selectattr('attributes.device_class', 'eq', slots.device_class) | list -%}
+      {%- for s in every if area_id(s.entity_id) in ns.areas -%}
+      {%- set ns.picked = ns.picked + [s] -%}
+      {%- endfor -%}
+      {%- set covers = ns.picked if ns.picked or named else every -%}
+      {%- for s in covers if s.state in ['open', 'opening'] -%}
+      {%- set ns.opened = ns.opened + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.opened | count -%}
+      {%- if not covers -%}
+      There aren't any {{ kind[1] }}{{ where }}.
+      {%- elif count == 0 -%}
+      {{ 'Yes' if slots.asked == 'closed' else 'No' }},
+      {{- (' the ' ~ kind[0] ~ ' is') if covers | count == 1 else (' the ' ~ kind[1] ~ ' are') }} closed{{ where }}.
+      {%- else -%}
+      {{ 'Yes' if slots.asked == 'open' else 'No' }},
+      {{ (ns.opened[:-1] | join(', ') ~ ' and ' ~ ns.opened[-1]) if count > 1 else ns.opened[0] }}
+      {{- ' is' if count == 1 else ' are' }} open.
+      {%- endif -%}
+
+  is_locked:
+    title: Is a lock locked
+    icon: mdi:lock-question
+    description: say if a door is locked
+    require: [[is, are]]
+    names:
+      entity: {count: 1, domains: [lock, binary_sensor]}
+    lists:
+      asked: {list: locked_unlocked}
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- if e.startswith('binary_sensor.') -%}
+      {%- set state = 'unlocked' if is_state(e, 'on') else ('locked' if is_state(e, 'off') else states(e)) -%}
+      {%- else -%}
+      {%- set state = states(e) -%}
+      {%- endif -%}
+      {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+      {%- if state in ['locked', 'unlocked'] -%}
+      {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
+      {%- else -%}
+      {{ said }}
+      {%- endif -%}
+    needs:
+      - Add names for the locks it may ask about (Names page). A binary sensor of
+        the lock class works too (on is unlocked); type its entity id there.
+
+  all_locked:
+    title: Is everything locked
+    icon: mdi:lock-alert
+    description: say if all the doors are locked
+    require: [[is, are], [all, any, everything, doors]]
+    optional: [[the], [doors, locks]]
+    lists:
+      asked: {list: locked_unlocked}
+    response: >-
+      {%- set ns = namespace(open=[], total=0) -%}
+      {%- for s in states.lock -%}
+      {%- set ns.total = ns.total + 1 -%}
+      {%- if s.state != 'locked' -%}
+      {%- set ns.open = ns.open + [s.name ~ ' is ' ~ s.state] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- for s in states.binary_sensor | selectattr('attributes.device_class', 'defined')
+        | selectattr('attributes.device_class', 'eq', 'lock') -%}
+      {%- set ns.total = ns.total + 1 -%}
+      {%- if s.state != 'off' -%}
+      {%- set ns.open = ns.open + [s.name ~ ' is ' ~ ('unlocked' if s.state == 'on' else s.state)] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set count = ns.open | count -%}
+      {%- set asked = slots.asked or 'locked' -%}
+      {%- if ns.total == 0 -%}
+      There aren't any locks.
+      {%- elif count == 0 -%}
+      {{ 'Yes' if asked == 'locked' else 'No' }},
+      {{- ' it is locked' if ns.total == 1 else ' all ' ~ ns.total ~ ' are locked' }}.
+      {%- else -%}
+      {{ 'Yes' if asked == 'unlocked' else 'No' }},
+      {{ (ns.open[:-1] | join(', ') ~ ' and ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
+      {%- endif -%}
+
+# Shared by the commands above (added with them).
+lists:
+  cover_classes:
+    awning: [awning, awnings]
+    blind: [blind, blinds]
+    curtain: [curtain, curtains, drapes]
+    door: [door, doors]
+    garage: [garage door, garage doors, garage]
+    gate: [gate, gates]
+    shade: [shade, shades]
+    shutter: [shutter, shutters]
+    window: [window, windows]
+  open_closed:
+    open: [open]
+    closed: [closed, shut]
+  locked_unlocked:
+    locked: [locked]
+    unlocked: [unlocked]
