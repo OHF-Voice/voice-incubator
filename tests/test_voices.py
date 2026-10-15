@@ -34,6 +34,14 @@ def test_every_satellite_unless_its_own():
         ("cancel the deep dish pizza timer", {"before": ["timer"]}, "deep dish pizza", "deep dish pizza"),
         ("a timer named chicken nuggets", {"after": ["named"], "before": ["timer"]}, "chicken nuggets", "chicken nuggets"),
         ("remind me to call mom", {"after": ["to"], "to_end": True}, "", "call mom"),
+        # A keyword more than once: the place closest to what the CTC head heard.
+        (
+            "Boo, How much time is left on the pizza timer?",
+            {"before": ["timer", "time"], "after": ["named", "called", "name"]},
+            "pizza",
+            "pizza",
+        ),
+        ("set a timer named lasagna for the time being", {"before": ["timer", "time"], "after": ["named"]}, "lasagna", "lasagna"),
         ("what time is it", {"after": ["play"], "to_end": True}, "", None),
         ("add to the queue", {"after": ["add"], "before": ["to"], "bounded": True}, "", None),
     ],

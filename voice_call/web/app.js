@@ -172,24 +172,48 @@ async function catalog(kind, q, domain) {
   return (await api("GET", `hass/catalog?${params}`)).results;
 }
 
+const ENTITY_ID = /^[a-z0-9_]+\.[a-z0-9_]+$/;
+
+// Search Home Assistant's areas, floors or entities. Entities are searched in
+// the voice domains only, so any entity id may also be typed in full.
 function hassPicker(kind, onPick, opts = {}) {
   const plural = { entity: "entities", area: "areas", floor: "floors" }[kind] || `${kind}s`;
-  const input = h("input", { type: "search", placeholder: opts.placeholder || `Search Home Assistant ${plural}…` });
+  const hint = kind === "entity" ? `Search Home Assistant ${opts.domain ? `${opts.domain}s` : plural}, or type an entity id…` : `Search Home Assistant ${plural}…`;
+  const input = h("input", { type: "search", placeholder: opts.placeholder || hint });
   const results = h("div", { class: "results hidden" });
   let timer = null;
+  const pick = (item) => { results.classList.add("hidden"); input.value = ""; onPick(item); };
+  // An entity id typed in full, in the picker's domain if it has one.
+  const typedId = () => {
+    const value = input.value.trim().toLowerCase();
+    if (kind !== "entity" || !ENTITY_ID.test(value)) return null;
+    return opts.domain && !value.startsWith(`${opts.domain}.`) ? null : value;
+  };
   async function search() {
+    const typed = typedId();
+    const useTyped = (items) => (typed && !items.some((item) => item.id === typed) ? h("div", {
+      class: "result",
+      onmousedown: (e) => { e.preventDefault(); pick({ id: typed, name: "" }); },
+    }, "Use ", h("code", {}, typed), h("span", { class: "muted small" }, " (not in the list)")) : null);
     try {
       const items = await catalog(kind, input.value, opts.domain);
-      fill(results, ...(items.length ? items.map((item) => h("div", {
+      const extra = useTyped(items);
+      fill(results, extra, ...(items.length ? items.map((item) => h("div", {
         class: "result",
-        onmousedown: (e) => { e.preventDefault(); results.classList.add("hidden"); input.value = ""; onPick(item); },
-      }, h("span", {}, item.name), " ", h("span", { class: "muted small" }, item.id, item.area ? ` · ${item.area}` : "", item.floor ? ` · ${item.floor}` : ""))) : [h("div", { class: "result muted" }, "Nothing found (is Home Assistant connected?)")]));
+        onmousedown: (e) => { e.preventDefault(); pick(item); },
+      }, h("span", {}, item.name), " ", h("span", { class: "muted small" }, item.id, item.area ? ` · ${item.area}` : "", item.floor ? ` · ${item.floor}` : ""))) : extra ? [] : [h("div", { class: "result muted" }, kind === "entity" ? "Nothing found. Type the whole entity id to use it anyway." : "Nothing found (is Home Assistant connected?)")]));
       results.classList.remove("hidden");
     } catch (err) {
-      fill(results, h("div", { class: "result muted" }, String(err.message)));
+      fill(results, useTyped([]), h("div", { class: "result muted" }, String(err.message)));
       results.classList.remove("hidden");
     }
   }
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const typed = typedId();
+    if (typed) pick({ id: typed, name: "" });
+  });
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 200); });
   input.addEventListener("focus", search);
   input.addEventListener("blur", () => setTimeout(() => results.classList.add("hidden"), 150));
@@ -423,7 +447,7 @@ async function pageCommand(id, prefill) {
         const ids = asList(slots[kind]);
         rows.push(field(kind === "entity" ? "Entities" : kind === "area" ? "Areas" : "Floors", h("div", {},
           idChips(ids, kind === "area" ? { ...areas, ...labels } : labels, (i) => { ids.splice(i, 1); setSlot(kind, ids); render(); }),
-          hassPicker(kind, (item) => { labels[item.id] = `${item.name} (${item.id})`; if (!ids.includes(item.id)) ids.push(item.id); setSlot(kind, ids); render(); }))));
+          hassPicker(kind, (item) => { labels[item.id] = item.name ? `${item.name} (${item.id})` : item.id; if (!ids.includes(item.id)) ids.push(item.id); setSlot(kind, ids); render(); }))));
       }
       const others = Object.keys(slots).filter((k) => !["entity", "area", "floor"].includes(k));
       fill(wrap, h("div", { class: "grid2" }, ...rows),
@@ -465,7 +489,7 @@ async function pageCommand(id, prefill) {
         const domain = mode;
         control = field(mode === "script" ? "Script" : "Scene", h("div", {},
           target[domain] ? h("div", { class: "chips" }, h("span", { class: "chip" }, target[domain], h("button", { type: "button", onclick: () => { delete target[domain]; render(); } }, "×"))) : null,
-          hassPicker("entity", (item) => { target[domain] = item.id; render(); }, { domain, placeholder: `Search ${domain}s…` })),
+          hassPicker("entity", (item) => { target[domain] = item.id; render(); }, { domain })),
           mode === "script" ? "The script gets slots, satellite, speaker, target and command as variables; what it returns (stop with response_variable) is the response's result." : null);
       } else if (mode === "timer") {
         const ops = { start: "Start a timer", cancel: "Cancel a timer", cancel_all: "Cancel every timer", pause: "Pause a timer", resume: "Resume a timer", add: "Add time", subtract: "Take time off", status: "Say how long is left" };

@@ -26,6 +26,7 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
 from __future__ import annotations
 
 import copy
+import difflib
 import logging
 import re
 import threading
@@ -656,6 +657,10 @@ def _strip(word: str) -> str:
     return re.sub(r"^[^\w']+|[^\w']+$", "", word)
 
 
+def _norm(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
 def _timing(transcriber: Any) -> str:
     return "tdt" if getattr(transcriber, "source", "TDT") == "TDT" else "stt"
 
@@ -663,17 +668,21 @@ def _timing(transcriber: Any) -> str:
 def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str | None:
     """A wildcard's text in a transcript without word times, found as the
     recognizer found it: after one of its ``after`` keywords (to the end, or
-    up to a ``before`` keyword), or before one of its ``before`` keywords. As
-    many words as the CTC head heard there, when only one edge bounds it."""
+    up to a ``before`` keyword), or before one of its ``before`` keywords; as
+    many words as the CTC head heard there when only one edge bounds it.
+
+    A keyword can come more than once ("how much *time* is left on the pizza
+    *timer*"), so every place it could be is read, and the one closest to what
+    the CTC head heard (``heard``) wins."""
     words = [_strip(w) for w in transcript.split()]
     words = [w for w in words if w]
     lower = [w.lower() for w in words]
 
-    def find(phrases: list[str], start: int = 0) -> list[tuple[int, int]]:
+    def find(phrases: list[str]) -> list[tuple[int, int]]:
         found = []
         for phrase in phrases:
             parts = [p for p in str(phrase).lower().split() if p != "..."]
-            for i in range(start, len(lower) - len(parts) + 1):
+            for i in range(len(lower) - len(parts) + 1):
                 if parts and lower[i : i + len(parts)] == parts:
                     found.append((i, i + len(parts)))
         return sorted(found)
@@ -682,21 +691,30 @@ def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str
     count = min(count, int(wildcard.get("max_words") or count))
     afters = find(wildcard.get("after") or [])
     befores = find(wildcard.get("before") or [])
-    if afters:
-        start = afters[0][1]
-        if wildcard.get("to_end"):
-            text = words[start:]
-        else:
-            ends = [b for b, _ in befores if b > start]
-            if ends:
-                text = words[start : ends[0]]
-            elif wildcard.get("bounded"):
-                return None
-            else:
-                text = words[start : start + count]
-    elif befores and not wildcard.get("bounded") and not wildcard.get("to_end"):
-        end = befores[0][0]
-        text = words[max(0, end - count) : end]
-    else:
+    bounded, to_end = bool(wildcard.get("bounded")), bool(wildcard.get("to_end"))
+    candidates: list[list[str]] = []
+    for _, start in afters:
+        if to_end:
+            candidates.append(words[start:])
+            continue
+        ends = [b for b, _ in befores if b > start]
+        if ends:
+            candidates.append(words[start : ends[0]])
+        if not bounded:
+            # Unbounded, a later keyword need not end it ("a timer named
+            # lasagna for the time being").
+            candidates.append(words[start : start + count])
+    if not bounded and not to_end:
+        candidates += [words[max(0, end - count) : end] for end, _ in befores]
+    candidates = [c for c in candidates if c]
+    if not candidates:
         return None
-    return " ".join(text).strip() or None
+    if heard:
+        target = _norm(heard)
+        best = max(
+            candidates,
+            key=lambda c: (difflib.SequenceMatcher(None, _norm(" ".join(c)), target).ratio(), -abs(len(c) - count)),
+        )
+    else:
+        best = candidates[0]
+    return " ".join(best).strip() or None
