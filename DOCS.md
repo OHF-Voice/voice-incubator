@@ -6,7 +6,7 @@ happens in Home Assistant: speak a response, run a script, activate a scene,
 or run an action.
 
 Open **Voice Call** in the sidebar to make commands, name things, set up
-satellites and look at calls.
+satellites and look at sessions.
 
 ## The Voice Call integration
 
@@ -403,22 +403,23 @@ ecobee). Devices are limited to lights, switches, fans, covers, locks,
 climate, media players, scenes, scripts, input booleans, valves and vacuums;
 `commands.yaml` may name anything.
 
-## Trying, calls and debugging
+## Testing, sessions and debugging
 
-- **Try** recognizes a sentence as if said on a satellite and heard word for
+- **Test** recognizes a sentence as if said on a satellite and heard word for
   word -- no speech recognition, so commands, skills and questions read
   exactly what you typed -- without running anything unless you ask. Tick
   "Say it first" to have the app's voice speak it and recognize the audio
   instead, to test speech recognition too.
-- **Calls** lists recent calls with every stage: wake word verification, where
-  the command was cut, the speaker, every command that matched or was
-  rejected and why, what ran and what was said.
-- Turn on **debugging** on the Calls page to keep every call's audio, or start
-  a **debug session** on one satellite (Satellites page). A session keeps that
-  satellite's audio and can be a **dry run**: nothing is executed, and you hear
-  what would have been said. Kept calls show their waveform with the wake word,
-  the cut and the recognized words marked, and can be **replayed** through
-  today's commands.
+- **Sessions** lists recent sessions -- everything from the wake word to the
+  answer -- with every stage: wake word verification, where the command was
+  cut, the speaker, every command that matched or was rejected and why, what
+  ran and what was said.
+- Turn on **debugging** on the Sessions page to keep every session's audio,
+  or start a **debug session** on one satellite (Satellites page). A debug
+  session keeps that satellite's audio and can be a **dry run**: nothing is
+  executed, and you hear what would have been said. Kept sessions show their
+  waveform with the wake word, the cut and the recognized words marked, and
+  can be **replayed** through today's commands.
 
 ## YAML
 

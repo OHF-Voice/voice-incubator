@@ -468,7 +468,7 @@ async function pageSkills() {
     const perSatellite = sats.map((sat) => {
       const own = ((data.satellites || {})[sat.key] || {})[skill.id];
       const choice = h("select", { onchange: (e) => put(skill.id, { satellites: { [sat.key]: e.target.value === "" ? null : e.target.value === "on" } }) },
-        h("option", { value: "", selected: own === undefined }, `As the home (${homeOn ? "on" : "off"})`),
+        h("option", { value: "", selected: own === undefined }, `Default (${homeOn ? "on" : "off"})`),
         h("option", { value: "on", selected: own === true }, "On"),
         h("option", { value: "off", selected: own === false }, "Off"));
       return h("label", { class: "skill-satellite" }, h("span", { class: "grow" }, sat.name), choice);
@@ -1112,9 +1112,6 @@ async function pageCommand(id, prefill) {
     const idInput = h("input", { type: "text", value: commandId, placeholder: "turn_on_the_lights", oninput: (e) => { commandId = slug(e.target.value); } });
     const description = h("input", { type: "text", value: spec.description || "", style: "width:100%", placeholder: "turn on the lights", oninput: (e) => { spec.description = e.target.value; if (isNew && !idInput.dataset.touched) { commandId = slug(e.target.value); idInput.value = commandId; } } });
     idInput.addEventListener("input", () => { idInput.dataset.touched = "1"; });
-    const tryInput = h("input", { type: "text", class: "grow", placeholder: "Try a sentence against the saved commands…" });
-    const tryOut = h("div");
-    const trySat = h("select", {}, h("option", { value: "" }, "no satellite"), ...state.satellites.map((s) => h("option", { value: s.key }, s.name)));
     const iconBox = h("div");
     const drawIcon = (open) => {
       const current = h("button", { type: "button", class: "icon-button", title: "Change the icon", onclick: () => drawIcon(!open) }, icon(iconFor(spec), "big"));
@@ -1174,14 +1171,6 @@ async function pageCommand(id, prefill) {
       h("div", { class: "panel" }, h("h2", {}, "Overrides"),
         h("p", { class: "muted small" }, "Change what happens in some areas or on some satellites, or turn the command off there. A satellite's override wins over its area's, which wins over the command."),
         overridesEditor()),
-      isNew ? null : h("div", { class: "panel" }, h("h2", {}, "Try it"),
-        h("div", { class: "row" }, tryInput, trySat, h("button", { onclick: async () => {
-          fill(tryOut, h("p", { class: "muted" }, "Recognizing…"));
-          try {
-            const record = await api("POST", "try", { text: tryInput.value, satellite: trySat.value || null });
-            fill(tryOut, renderOutcome(record));
-          } catch (err) { fill(tryOut, errorBox(err)); }
-        } }, "Try")), tryOut),
     );
   }
 
@@ -1383,11 +1372,11 @@ async function pageNames() {
 // -------------------------------------------------------------- satellites
 
 // Home Assistant STT and TTS entities: a select of them, with the built-in
-// model and (for one satellite) "as every satellite" first.
+// model and (for one satellite) "Default" -- every satellite's -- first.
 function voiceSelect(kind, entities, value, inherit) {
   const builtin = kind === "stt" ? "Built-in (Parakeet TDT)" : "Built-in (Piper)";
   const options = [];
-  if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite (${inherit})`));
+  if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `Default (${inherit})`));
   options.push(h("option", { value: "builtin", selected: inherit === undefined ? !value : value === "builtin" }, builtin));
   for (const e of entities) options.push(h("option", { value: e.entity_id, selected: value === e.entity_id }, e.entity_id));
   if (value && value !== "builtin" && !entities.some((e) => e.entity_id === value)) options.push(h("option", { value, selected: true }, `${value} (not found)`));
@@ -1400,15 +1389,15 @@ function voiceSelectValue(select, inheritable) {
 
 // The language an STT or TTS entity is asked in: every one it supports,
 // "automatic" (its best match for English) first, and for one satellite
-// "as every satellite". Follows the entity picked in `entitySelect`, whose
-// value may be "" (as every satellite: `inheritEntity`).
+// "Default" (every satellite's). Follows the entity picked in `entitySelect`,
+// whose value may be "" (the default: `inheritEntity`).
 function languagePicker(entities, entitySelect, value, inherit, inheritEntity) {
   const select = h("select", {});
   function load() {
     const entityId = entitySelect.value || inheritEntity || "";
     const entity = entities.find((e) => e.entity_id === entityId);
     const options = [];
-    if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite${inherit ? ` (${inherit})` : ""}`));
+    if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `Default${inherit ? ` (${inherit})` : ""}`));
     options.push(h("option", { value: "auto", selected: inherit === undefined ? !value : value === "auto" }, entity && entity.english ? `Automatic (${entity.english})` : "Automatic"));
     for (const code of (entity && entity.languages) || []) options.push(h("option", { value: code, selected: value === code }, code));
     if (value && value !== "auto" && !(entity && entity.languages.includes(value))) options.push(h("option", { value, selected: true }, `${value} (not supported)`));
@@ -1420,7 +1409,7 @@ function languagePicker(entities, entitySelect, value, inherit, inheritEntity) {
   return select;
 }
 
-// What a language select means: "" (as every satellite), null (automatic) or a code.
+// What a language select means: "" (the default), null (automatic) or a code.
 function languageValue(select, inheritable) {
   if (select.value === "auto") return inheritable ? "auto" : null;
   return select.value || null;
@@ -1432,7 +1421,7 @@ function voicePicker(ttsSelect, value, inherit, languageSelect) {
   async function load() {
     const tts = ttsSelect.value;
     const options = [];
-    if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite${inherit ? ` (${inherit})` : ""}`));
+    if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `Default${inherit ? ` (${inherit})` : ""}`));
     options.push(h("option", { value: "default", selected: inherit === undefined ? !value : value === "default" }, "Its default voice"));
     if (tts && tts.startsWith("tts.")) {
       const language = languageSelect && languageSelect.value && languageSelect.value !== "auto" ? `?language=${encodeURIComponent(languageSelect.value)}` : "";
@@ -1451,7 +1440,7 @@ function voicePicker(ttsSelect, value, inherit, languageSelect) {
 
 // Wake words to tick, at most `slots` of them. With `inherit` (a satellite),
 // unticking "its own" follows every satellite's pick. `.picked()` is the ids
-// ticked, or null for "as every satellite".
+// ticked, or null for the default (every satellite's).
 function wakeChooser(words, picked, slots, inherit) {
   const own = h("input", { type: "checkbox", checked: !inherit || !!(picked && picked.length) });
   const boxes = words.map((w) => {
@@ -1486,7 +1475,7 @@ function wakeChooser(words, picked, slots, inherit) {
   boxes.forEach((b) => b.box.addEventListener("change", update));
   update();
   const el = h("div", { class: "wake-words" },
-    inherit ? h("label", { class: "small" }, own, "Its own wake words (otherwise as every satellite)") : null,
+    inherit ? h("label", { class: "small" }, own, "Its own wake words (otherwise the default)") : null,
     filter,
     h("div", { class: "wake-list" }, boxes.map(({ word, box }) => h("label", { title: word.error || "" }, box, word.name,
       word.verified ? h("span", { class: "badge ok", title: `Checked by the verifier; the detector runs at ${word.cutoff}` }, "verified")
@@ -1499,7 +1488,7 @@ function wakeChooser(words, picked, slots, inherit) {
 }
 
 // Command groups to tick. With `inherit` (a satellite), unticking "its own"
-// follows every satellite's. `.picked()` is the ids ticked, or null.
+// follows the default (every satellite's). `.picked()` is the ids ticked, or null.
 function groupChooser(groups, picked, inherit) {
   const ids = Object.keys(groups);
   const own = h("input", { type: "checkbox", checked: !inherit || !!(picked && picked.length) });
@@ -1514,7 +1503,7 @@ function groupChooser(groups, picked, inherit) {
   own.addEventListener("change", update);
   update();
   const el = h("div", { class: "wake-words" },
-    inherit ? h("label", { class: "small" }, own, "Its own command groups (otherwise as every satellite)") : null,
+    inherit ? h("label", { class: "small" }, own, "Its own command groups (otherwise the default)") : null,
     h("div", { class: "wake-list" }, boxes.map(({ g, box }) => h("label", {}, box, (groups[g] && groups[g].name) || g))));
   el.picked = () => (inherit && !own.checked ? null : boxes.filter((b) => b.box.checked).map((b) => b.g));
   return el;
@@ -1672,19 +1661,25 @@ async function pageSatellites() {
         h("div", { class: "row" },
           h("label", {}, dry, "Dry run (don't run commands)"),
           s.debug ? h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: false }); pageSatellites(); refreshStatus(); } }, "Stop session") :
-            h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: true, dry_run: dry.checked }); location.hash = `#/calls?satellite=${s.key}`; refreshStatus(); } }, "Start debug session"),
+            h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: true, dry_run: dry.checked }); location.hash = `#/sessions?satellite=${s.key}`; refreshStatus(); } }, "Start debug session"),
           s.debug ? h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: true, dry_run: dry.checked }); toast("Updated"); pageSatellites(); } }, "Update") : null,
-          h("a", { href: `#/calls?satellite=${s.key}` }, "Calls")),
+          h("a", { href: `#/sessions?satellite=${s.key}` }, "Sessions")),
       );
     }),
   );
 }
 
-// ------------------------------------------------------------------- calls
+// ---------------------------------------------------------------- sessions
 
 const OUTCOME_CLASS = { answered: "ok", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
 
-async function pageCalls(query) {
+// What a session was: a call on a satellite, a test, a replay.
+function sessionKind(record, sats) {
+  if (record.kind === "call") return (sats && sats[record.satellite.id]) || record.satellite.name || "Session";
+  return record.kind === "try" ? "test" : record.kind;
+}
+
+async function pageSessions(query) {
   const satellite = new URLSearchParams(query || "").get("satellite");
   await loadSatellites();
   const settings = await api("GET", "settings");
@@ -1694,24 +1689,24 @@ async function pageCalls(query) {
 
   async function refresh() {
     const data = await api("GET", `calls${satellite ? `?satellite=${satellite}` : ""}`);
-    fill(list, ...(data.calls.length ? data.calls.map((c) => h("div", { class: "item clickable", onclick: () => { location.hash = `#/call/${c.id}`; } },
-      h("div", { style: "min-width:150px" }, h("div", {}, time(c.started)), h("div", { class: "muted small" }, c.kind === "call" ? (sats[c.satellite.id] || c.satellite.name || "") : c.kind)),
+    fill(list, ...(data.calls.length ? data.calls.map((c) => h("div", { class: "item clickable", onclick: () => { location.hash = `#/session/${c.id}`; } },
+      h("div", { style: "min-width:150px" }, h("div", {}, time(c.started)), h("div", { class: "muted small" }, sessionKind(c, sats))),
       h("div", { class: "grow" }, c.summary || h("span", { class: "muted" }, "…")),
       c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
       c.kept ? h("span", { class: "badge", title: "audio kept" }, "♪ audio") : null,
-      h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome))) : [h("p", { class: "muted" }, "No calls yet.")]));
+      h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome))) : [h("p", { class: "muted" }, "No sessions yet.")]));
   }
 
-  const keep = h("input", { type: "checkbox", checked: settings.keep_audio, onchange: async (e) => { await api("PUT", "settings", { keep_audio: e.target.checked }); refreshStatus(); toast(e.target.checked ? "Keeping audio of every call" : "Not keeping audio"); } });
+  const keep = h("input", { type: "checkbox", checked: settings.keep_audio, onchange: async (e) => { await api("PUT", "settings", { keep_audio: e.target.checked }); refreshStatus(); toast(e.target.checked ? "Keeping audio of every session" : "Not keeping audio"); } });
   const max = h("input", { type: "number", min: 1, value: settings.max_saved_calls, style: "width:80px", onchange: async (e) => { await api("PUT", "settings", { max_saved_calls: Number(e.target.value) }); toast("Saved"); } });
   fill($main, 
-    h("div", { class: "row" }, h("h1", { class: "grow" }, satellite ? `Calls on ${sats[satellite] || satellite}` : "Calls"), satellite ? h("a", { href: "#/calls" }, "All satellites") : null),
-    session && session.debug ? h("div", { class: "notice warn" }, `Debug session on ${session.name}${session.debug.dry_run ? " (dry run: nothing is executed)" : ""}. New calls appear here as they happen.`) : null,
+    h("div", { class: "row" }, h("h1", { class: "grow" }, satellite ? `Sessions on ${sats[satellite] || satellite}` : "Sessions"), satellite ? h("a", { href: "#/sessions" }, "All satellites") : null),
+    session && session.debug ? h("div", { class: "notice warn" }, `Debugging ${session.name}${session.debug.dry_run ? " (dry run: nothing is executed)" : ""}. New sessions appear here as they happen.`) : null,
     h("div", { class: "panel" },
       h("div", { class: "row" },
-        h("label", {}, keep, "Debugging: keep the audio and full trace of every call"),
-        h("label", { class: "right" }, "keep at most", max, "calls")),
-      h("p", { class: "muted small" }, "Without it, the last calls' traces are kept in memory only. Debug sessions (Satellites page) keep one satellite's audio.")),
+        h("label", {}, keep, "Debugging: keep the audio and full trace of every session"),
+        h("label", { class: "right" }, "keep at most", max, "sessions")),
+      h("p", { class: "muted small" }, "A session is everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (Test page) keeps its audio.")),
     h("div", { class: "panel" }, list),
   );
   await refresh();
@@ -1835,7 +1830,7 @@ function llmNote(fallback) {
 }
 
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT
-// entity), or typed on the Try page and read as spoken words.
+// entity), or typed on the Test page and read as spoken words.
 function heardLabels(rec) {
   if (rec.text_source === "typed") return { ctc: "Read as", text: "Typed" };
   return { ctc: "CTC heard", text: `${rec.text_source && rec.text_source !== "TDT" ? rec.text_source : "TDT"} heard` };
@@ -1954,7 +1949,7 @@ function renderStage(stage) {
     h("details", {}, h("summary", {}, "raw"), h("pre", {}, JSON.stringify(stage, null, 2))));
 }
 
-async function pageCall(id) {
+async function pageSession(id) {
   const record = await api("GET", `calls/${id}`);
   const split = stageOf(record, "split");
   const offset = split ? split.cut : 0;
@@ -1963,37 +1958,37 @@ async function pageCall(id) {
     fill(out, h("p", { class: "muted" }, "Replaying…"));
     try {
       const result = await api("POST", `calls/${id}/replay`, { run_actions: runActions });
-      location.hash = `#/call/${result.id}`;
+      location.hash = `#/session/${result.id}`;
     } catch (err) { fill(out, errorBox(err)); }
   }
   const rec = stageOf(record, "recognition");
   const heard = rec && rec.recognition ? (rec.recognition.tdt_transcript || rec.recognition.transcript || "") : "";
   fill($main, 
     h("div", { class: "row" },
-      h("a", { href: "#/calls" }, "← Calls"),
-      h("h1", { class: "grow", style: "margin:0" }, `${record.kind === "call" ? record.satellite.name || "Call" : record.kind} · ${time(record.started)}`),
+      h("a", { href: "#/sessions" }, "← Sessions"),
+      h("h1", { class: "grow", style: "margin:0" }, `${sessionKind(record)} · ${time(record.started)}`),
       h("span", { class: `badge ${OUTCOME_CLASS[record.outcome] || ""}` }, record.outcome),
       record.dry_run && record.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null),
     h("p", {}, record.summary),
     h("div", { class: "row" },
       record.audio && record.audio.call ? h("button", { onclick: () => replay(false) }, "Replay with today's commands (dry run)") : null,
       heard ? h("button", { onclick: () => { pageCommand(null, { description: "", examples: [heard.replace(/[.?!]+$/, "")] }); } }, "Make a command from this") : null,
-      record.kept ? h("button", { class: "danger", onclick: async () => { if (confirm("Delete this call and its audio?")) { await api("DELETE", `calls/${id}`); location.hash = "#/calls"; } } }, "Delete") : null),
+      record.kept ? h("button", { class: "danger", onclick: async () => { if (confirm("Delete this session and its audio?")) { await api("DELETE", `calls/${id}`); location.hash = "#/sessions"; } } }, "Delete") : null),
     out,
     record.audio && Object.keys(record.audio).length ? h("div", { class: "panel" }, h("h2", {}, "Audio"),
       record.audio.call ? [h("h3", {}, "Call (AGC): pre-roll, wake word, command"), waveform(record, "call", recognitionSpans(record, offset))] : null,
       record.audio["call-aec"] ? [h("h3", {}, "Call (AEC)"), waveform(record, "call-aec", [])] : null,
       record.audio.command ? [h("h3", {}, record.kind === "try" ? "Synthesized command" : "Command (endpointing cut)"), waveform(record, "command", record.kind === "try" ? recognitionSpans(record, 0) : [])] : null,
       h("div", { class: "legend" }, ...Object.entries(SPAN_COLORS).map(([role, color]) => h("span", { style: `--c:${color}` }, role)))) :
-      h("div", { class: "panel muted small" }, "No audio kept for this call. Turn on debugging (Calls page) or start a debug session (Satellites page) to keep it."),
+      h("div", { class: "panel muted small" }, "No audio kept for this session. Turn on debugging (Sessions page), or debug its satellite (Test page), to keep it."),
     h("div", { class: "panel" }, h("h2", {}, "Pipeline"), ...(record.stages || []).map(renderStage)),
   );
-  if (record.outcome === "in progress") poll(async () => { const next = await api("GET", `calls/${id}`); if (next.outcome !== "in progress") { stopPolling(); pageCall(id); } }, 1000);
+  if (record.outcome === "in progress") poll(async () => { const next = await api("GET", `calls/${id}`); if (next.outcome !== "in progress") { stopPolling(); pageSession(id); } }, 1000);
 }
 
-// --------------------------------------------------------------------- try
+// -------------------------------------------------------------------- test
 
-async function pageTry() {
+async function pageTest() {
   await loadSatellites();
   const input = h("input", { type: "text", class: "grow", placeholder: "turn on the kitchen lights" });
   const sat = h("select", {}, h("option", { value: "" }, "no satellite"), ...state.satellites.map((s) => h("option", { value: s.key }, `${s.name}${s.area_name ? ` (${s.area_name})` : ""}`)));
@@ -2004,16 +1999,16 @@ async function pageTry() {
     fill(out, h("p", { class: "muted" }, speak.checked ? "Synthesizing and recognizing…" : "Recognizing…"));
     try {
       const record = await api("POST", "try", { text: input.value, satellite: sat.value || null, run_actions: run.checked, speak: speak.checked });
-      fill(out, h("div", { class: "panel" }, renderOutcome(record), h("p", {}, h("a", { href: `#/call/${record.id}` }, "Full trace"))),
+      fill(out, h("div", { class: "panel" }, renderOutcome(record), h("p", {}, h("a", { href: `#/session/${record.id}` }, "Full trace"))),
         h("div", { class: "panel" }, ...(record.stages || []).filter((s) => s.stage === "recognition" || s.stage === "action").map(renderStage)));
     } catch (err) { fill(out, errorBox(err)); }
   }
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   fill($main, 
-    h("h1", {}, "Try a command"),
+    h("h1", {}, "Test"),
     h("p", { class: "muted" }, "What you type is recognized like a command said on that satellite, after the wake word, as if every word had been heard exactly as typed: no speech recognition. Commands, skills and questions all read your text as it is."),
     h("div", { class: "panel" },
-      h("div", { class: "row" }, input, sat, h("button", { class: "primary", onclick: go }, "Try")),
+      h("div", { class: "row" }, input, sat, h("button", { class: "primary", onclick: go }, "Test")),
       h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run)"),
       h("label", { class: "small" }, speak, "Say it first: spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient.")),
     out,
@@ -2050,7 +2045,7 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    link.classList.toggle("active", link.dataset.page === page || ((page === "command" || page === "group" || page === "fallback") && link.dataset.page === "commands") || (page === "call" && link.dataset.page === "calls"));
+    link.classList.toggle("active", link.dataset.page === page || ((page === "command" || page === "group" || page === "fallback") && link.dataset.page === "commands") || (page === "session" && link.dataset.page === "sessions"));
   }
   try {
     if (page === "commands") await pageCommands();
@@ -2061,9 +2056,13 @@ async function route() {
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "satellites") await pageSatellites();
-    else if (page === "calls") await pageCalls(query);
-    else if (page === "call") await pageCall(arg);
-    else if (page === "try") await pageTry();
+    else if (page === "sessions") await pageSessions(query);
+    else if (page === "session") await pageSession(arg);
+    else if (page === "test") await pageTest();
+    // Old links: the Calls and Try pages.
+    else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
+    else if (page === "call") location.hash = `#/session/${arg}`;
+    else if (page === "try") location.hash = "#/test";
     else if (page === "yaml") await pageYaml();
     else await pageCommands();
   } catch (err) {

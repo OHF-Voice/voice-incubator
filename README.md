@@ -700,7 +700,7 @@ for this app:
   which spells better than the CTC head.
 - **The transcript too.** When nothing matches in the audio, the same
   keyword and name matcher runs on the TDT or STT transcript, as typed text
-  is matched on the Try page (`Engine._match_transcript`: evidence made from
+  is matched on the Test page (`Engine._match_transcript`: evidence made from
   its words, `Vocabulary.text_log_probs`), before skills and the fallback.
   A strong speech model may hear plainly what the CTC evidence only half
   did: "Unlock front door." from Home Assistant Cloud, where the CTC head
@@ -1138,7 +1138,7 @@ need, so `voice_call/__init__.py` imports `llama_cpp` first.
 
 ## Trying typed text
 
-The Try page (`/api/try`) skips speech recognition: the typed text is the
+The Test page (`/api/try`) skips speech recognition: the typed text is the
 transcript, and the CTC matcher reads evidence made from it
 (`Engine.recognize_text`, adapt-ctc `Vocabulary.text_log_probs`). Its spoken
 words (`adapt_ctc.text.spoken_words`: "10" is "ten", "&" is "and") are

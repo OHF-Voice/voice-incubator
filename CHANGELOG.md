@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- The web UI's Try page is now **Test**, and Calls is now **Sessions**. A
+  command's page no longer has its own "Try it"; per-satellite choices that
+  follow every satellite's read "Default".
 - Timers, on the satellite that set them: start, cancel, pause, resume, add or
   take off time, how long is left. A finished timer rings until "stop".
 - The Voice Call integration for Home Assistant (HACS): each satellite gets a
