@@ -91,6 +91,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.delete("/api/names/{kind}/{id}", api.delete_name),
             web.put("/api/lists/{name}", api.put_list),
             web.put("/api/groups/{id}", api.put_group),
+            web.put("/api/unknown", api.put_unknown),
             web.put("/api/fallback", api.put_fallback),
             web.get("/api/skills", api.skills),
             web.put("/api/skills/{id}", api.put_skill),
@@ -271,6 +272,8 @@ class Api:
                 "names": {kind: (data.get("names") or {}).get(kind) or {} for kind in NAME_KINDS},
                 "lists": data.get("lists") or {},
                 "groups": data.get("groups") or {},
+                # What is said when nothing understood a sentence.
+                "unknown": data.get("unknown") or {},
                 # Where each group is given: the whole home, and satellites.
                 "group_use": self._group_use(),
                 "error": error,
@@ -418,6 +421,12 @@ class Api:
             raise ConfigError("commands: expected a list of command ids")
         compiled = self.app.store.put_group(group_id, spec, None if members is None else [str(m) for m in members])
         return await self._saved(compiled)
+
+    async def put_unknown(self, request: web.Request) -> web.Response:
+        """The Unknown command's ``response`` template; empty: the built-in."""
+        body = await request.json()
+        response = str(body.get("response") or "").strip()
+        return await self._saved(self.app.store.put_unknown(response or None))
 
     async def put_fallback(self, request: web.Request) -> web.Response:
         """Which commands each fallback step may run: ``{meaning: [ids],

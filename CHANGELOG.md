@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- An **Unknown command**, always at the top of the Commands page: a response
+  template for when nothing understood a sentence ("Sorry, I couldn't
+  understand the sentence {{ transcript }}."), with the near miss as `hint`
+  (`unknown:` in commands.yaml).
 - The Commands page lists commands by the library's sections (Basics, Covers
   and locks, Music, Timers), under Custom for your own. A command added from
   the library remembers its section (`library:`).

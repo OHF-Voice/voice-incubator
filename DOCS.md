@@ -369,6 +369,26 @@ from the library are not chosen until you choose them.
 Both are on, and do nothing until a command is chosen for them. A call's trace
 shows what each step tried.
 
+### The Unknown command
+
+When nothing understood a sentence -- no command, no skill, nothing above --
+the satellite says the closest command ("It looks like you're trying to turn
+on the lights, but I didn't hear which room."), or "Sorry, I didn't
+understand that." The **Unknown command**, always at the top of the Commands
+page, says something else instead: a Home Assistant template, such as
+
+```
+Sorry, I couldn't understand the sentence {{ transcript }}.
+```
+
+It sees `transcript` (what the speech model heard), `heard` (what the keyword
+matcher heard), `hint` (the near miss, empty when nothing came close),
+`closest` (that command's `id` and `description`), `response` (what it says
+without the template), and `satellite`, `speaker` and `place` as a command's
+response does. A template that renders to nothing says the default.
+Something understood but impossible as said ("the fan in the office" where
+there is none) still says why.
+
 ## Skills
 
 The **Skills** tab: questions no command takes, answered exactly and at once,

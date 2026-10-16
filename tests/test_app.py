@@ -285,6 +285,23 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/skills/nope", json={"home": False})).status == 404
             assert (await http.put("/api/skills/live", json={"satellites": {MAC: "off"}})).status == 400
 
+            # The Unknown command: what is said when nothing understood it.
+            assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
+            template = "Sorry, I couldn't understand the sentence {{ transcript }}."
+            assert (await http.put("/api/unknown", json={"response": template})).status == 200
+            assert (await (await http.get("/api/store")).json())["unknown"] == {"response": template}
+            assert await said("blorp the frobnicator") == "Sorry, I couldn't understand the sentence blorp the frobnicator."
+            record = await app.try_text("blorp the frobnicator", MAC)
+            unknown = next(s for s in record.stages if s["stage"] == "unknown")
+            assert unknown["variables"]["hint"] == "" and unknown["variables"]["satellite"]["area_id"] == "kitchen"
+            # Nothing rendered, or a template Home Assistant refuses: the default.
+            assert (await http.put("/api/unknown", json={"response": "{% if hint %}{{ hint }}{% endif %}"})).status == 200
+            assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
+            assert (await http.put("/api/unknown", json={"response": "{{ nope("})).status == 200
+            assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
+            assert (await http.put("/api/unknown", json={"response": ""})).status == 200
+            assert "unknown" not in (tmp_path / "commands.yaml").read_text()
+
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
         timer_list = f"voice_timer_list.{MAC}_timers"

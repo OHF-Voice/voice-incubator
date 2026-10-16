@@ -595,6 +595,27 @@ def parse_groups(data: Any) -> dict[str, dict[str, str]]:
     return out
 
 
+UNKNOWN_KEYS = {"response"}
+
+
+def parse_unknown(data: Any) -> str | None:
+    """What is said when nothing understood a sentence, from a store's
+    ``unknown`` mapping: a response template, or None (the built-in hint).
+    Raises ConfigError."""
+    if data in (None, {}):
+        return None
+    spec = _mapping(data, "unknown")
+    extra = set(spec) - UNKNOWN_KEYS
+    if extra:
+        raise ConfigError(f"unknown: unknown key(s) {sorted(extra)} (use response)")
+    response = spec.get("response")
+    if response in (None, ""):
+        return None
+    if not isinstance(response, str):
+        raise ConfigError("unknown.response: expected a template string")
+    return response
+
+
 def _behavior(spec: dict[str, Any], where: str) -> Behavior:
     given = [key for key in DO_KEYS if spec.get(key)]
     if len(given) > 1:

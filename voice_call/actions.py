@@ -50,6 +50,15 @@ question always answers.
 Every command that runs also fires a ``voice_call_command`` event with the
 same variables plus ``outcome`` and ``response`` (what was said), so
 automations can follow along.
+
+When nothing understood a sentence, the Unknown command's response (the
+store's ``unknown``) is said instead of the built-in one, rendered with
+``unknown_variables``: ``satellite``, ``speaker``, ``place``, ``target`` and
+``slots`` (none) as above, and ``transcript`` (what the speech model heard),
+``heard`` (what the keyword matcher heard), ``hint`` (the near miss, "It
+looks like you're trying to …, but …"; empty when nothing came close),
+``closest`` (that command's ``id`` and ``description``, or none) and
+``response`` (what would be said without it).
 """
 
 from __future__ import annotations
@@ -143,6 +152,46 @@ def variables(
         "command": {"id": command.id, "description": command.description, "text": text},
         "place": place(slots, satellite, catalog),
     }
+
+
+SORRY = "Sorry, I didn't understand that."
+
+
+def unknown_variables(
+    decision: Decision,
+    satellite: Satellite,
+    speaker: dict[str, Any] | None,
+    commands: dict[str, Command],
+    catalog: Any = None,
+) -> dict[str, Any]:
+    """What the Unknown command's response sees: a command's variables
+    where there are any, and what was heard and came close."""
+    hint = decision.hint or {}
+    closest = commands.get(str(hint.get("command") or ""))
+    return {
+        "transcript": decision.transcript,
+        "heard": str(decision.recognition.get("transcript") or ""),
+        "hint": str(hint.get("text") or "") if closest is not None else "",
+        "closest": {"id": closest.id, "description": closest.description} if closest is not None else None,
+        "response": decision.message or SORRY,
+        "slots": {},
+        "satellite": satellite.as_dict(),
+        "speaker": speaker or {"name": None, "score": None},
+        "target": {"area_id": [satellite.area_id]} if satellite.area_id else {},
+        "place": place({}, satellite, catalog),
+    }
+
+
+async def say_unknown(
+    hass: HomeAssistant, template: str, values: dict[str, Any]
+) -> tuple[str | None, str | None]:
+    """The Unknown command's response, rendered: ``(said, error)``; said is
+    None when it renders to nothing or cannot be rendered."""
+    try:
+        said = _tidy(await hass.render_template(template, values))
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        return None, str(err) or type(err).__name__
+    return (said or None), None
 
 
 def place(slots: dict[str, Any], satellite: Satellite, catalog: Any = None) -> dict[str, Any]:

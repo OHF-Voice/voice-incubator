@@ -22,11 +22,11 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from adapt_ctc.config import ConfigError, parse_config
 
-from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_groups, shared_examples
+from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_groups, parse_unknown, shared_examples
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"commands", "names", "lists", "groups", "settings"}
+STORE_KEYS = {"commands", "names", "lists", "groups", "unknown", "settings"}
 NAME_KINDS = ("entities", "areas", "floors")
 
 NEW_FILE = """\
@@ -36,7 +36,8 @@ NEW_FILE = """\
 #   names:     what things are called, each pointing at one Home Assistant id
 #   lists:     value lists for slots ("red" -> red), shared by commands
 #   groups:    command groups, given to the whole home or a satellite
-#   commands:  what is listened for, where, and what happens
+#   commands:  what is listened for, and what happens
+#   unknown:   what is said when nothing understood a sentence
 names: {}
 lists: {}
 commands: {}
@@ -102,6 +103,9 @@ class Compiled:
     twins: dict[str, tuple[str, ...]] = field(default_factory=dict)
     """Intents that say another's example sentences (a command's copy), by
     the intent the sentences went to (``shared_examples``)."""
+    unknown: str | None = None
+    """The response template when nothing understood a sentence; None: the
+    built-in hint."""
 
 
 def compile_store(data: dict[str, Any]) -> Compiled:
@@ -117,6 +121,7 @@ def compile_store(data: dict[str, Any]) -> Compiled:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
     commands = parse_commands(data.get("commands") or {})
     groups = parse_groups(data.get("groups"))
+    unknown_response = parse_unknown(data.get("unknown"))
     for command in commands.values():
         unknown = [g for g in command.groups if g not in groups]
         if unknown:
@@ -124,7 +129,7 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, groups, shared_examples(commands)[1])
+    return Compiled(data, commands, config, groups, shared_examples(commands)[1], unknown_response)
 
 
 @dataclass
@@ -335,6 +340,18 @@ class Store:
                     command["fallback"] = styled(keep)
                 else:
                     command.pop("fallback", None)
+
+        return self.update(edit)
+
+    def put_unknown(self, response: str | None) -> Compiled:
+        """What is said when nothing understood a sentence; None or empty:
+        the built-in hint."""
+
+        def edit(document: CommentedMap) -> None:
+            if response:
+                document["unknown"] = styled({"response": response})
+            else:
+                document.pop("unknown", None)
 
         return self.update(edit)
 

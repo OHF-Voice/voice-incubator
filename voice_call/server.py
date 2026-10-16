@@ -1464,7 +1464,16 @@ class VoiceCallApp:
             answer = decision.answer
             return answer["text"], "answered", f"{decision.transcript!r}: {answer['kind']} answer"
         if decision.command is None:
-            message = decision.message or "Sorry, I didn't understand that."
+            message = decision.message or actions.SORRY
+            compiled = self.engine.compiled if self.engine is not None else None
+            if compiled is not None and compiled.unknown and decision.refused is None:
+                # Nothing understood it: the Unknown command says what to say.
+                values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, self.hass.catalog)
+                said, error = await actions.say_unknown(self.hass, compiled.unknown, values)
+                if record is not None:
+                    record.stage("unknown", said=said, error=error, variables=values)
+                if said:
+                    message = said
             tried = llm_note(decision.fallback)
             summary = f"{decision.transcript!r}: {message}" + (f" ({tried})" if tried else "")
             return message, "not recognized", summary

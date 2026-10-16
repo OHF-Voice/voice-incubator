@@ -506,9 +506,17 @@ async function pageCommands() {
       asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
       detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
   };
-  const section = (title, iconName, members, empty) => h("div", { class: "panel" },
+  const section = (title, iconName, members, empty, first) => h("div", { class: "panel" },
     h("h2", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(members.length))),
-    members.length ? h("div", { class: "list" }, members.map(item)) : empty);
+    h("div", { class: "list" }, first, members.map(item)), members.length ? null : empty);
+  // Always there: what is said when nothing understood a sentence.
+  const unknown = (store.unknown || {}).response;
+  const unknownItem = h("div", { class: "item clickable", onclick: () => { location.hash = "#/unknown"; } },
+    icon("mdi:help-circle-outline", "big"),
+    h("div", { class: "grow" },
+      h("div", { class: "title" }, "Unknown command"),
+      h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What is said when nothing understood a sentence. Default: the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.”")),
+    h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
   fill($main,
     h("div", { class: "row" }, h("h1", { class: "grow" }, "Commands"),
       h("button", { class: "primary", onclick: () => newCommandDialog() }, "New command")),
@@ -517,9 +525,55 @@ async function pageCommands() {
     section("Custom", "mdi:pencil-outline", bySection[""] || [],
       h("p", { class: "muted small" }, ids.length
         ? "Commands you make from scratch (New command, then Custom command) are listed here; the library's are below, as the library has them."
-        : "No voice commands yet. Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
+        : "No voice commands yet. Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens."),
+      unknownItem),
     ...(store.sections || []).filter((s) => (bySection[s.file] || []).length)
       .map((s) => section(s.title, s.icon || "mdi:folder-outline", bySection[s.file])),
+  );
+}
+
+// The Unknown command: what is said when nothing -- no command, skill, the
+// fallback -- understood a sentence. A template, rendered by Home Assistant.
+const UNKNOWN_EXAMPLES = [
+  "Sorry, I couldn't understand the sentence {{ transcript }}.",
+  "{% if hint %}{{ hint }}{% else %}Sorry, I didn't catch “{{ transcript }}”.{% endif %}",
+  "{{ response }} {% if speaker.name %}Sorry, {{ speaker.name }}.{% endif %}",
+];
+
+async function pageUnknown() {
+  const store = await loadStore();
+  const area = h("textarea", { placeholder: "Sorry, I couldn't understand the sentence {{ transcript }}." });
+  area.value = (store.unknown || {}).response || "";
+  const errors = h("div");
+  async function save() {
+    fill(errors);
+    try { await api("PUT", "unknown", { response: area.value }); toast("Saved"); refreshStatus(); }
+    catch (err) { errors.append(errorBox(err)); }
+  }
+  const vars = [
+    ["transcript", "what the speech model heard (Home Assistant's STT, or the built-in TDT)"],
+    ["heard", "what the keyword matcher heard in the audio"],
+    ["hint", "the near miss: “It looks like you're trying to turn on the lights, but I didn't hear which room.” Empty when nothing came close."],
+    ["closest", "that command: closest.id, closest.description; none when nothing came close"],
+    ["response", "what is said without this response: the hint, or “Sorry, I didn't understand that.”"],
+    ["satellite", "id, name, area_id, area_name, floor_id, floor_name, device_id"],
+    ["speaker", "name (none when not recognized) and score"],
+    ["place", "place.said (“in the Kitchen”), place.areas: the satellite's area"],
+  ];
+  fill($main,
+    h("div", { class: "row" },
+      h("a", { href: "#/commands" }, "← Commands"),
+      h("h1", { class: "grow", style: "margin:0" }, "Unknown command"),
+      h("button", { class: "primary", onclick: save }, "Save")),
+    errors,
+    h("div", { class: "panel" },
+      h("p", { class: "muted" }, "When nothing understood a sentence — no command, no skill, nothing that runs when nothing matches — the satellite says this. Left empty, it says the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.” Something understood but impossible as said (“the fan in the office” where there is none) still says why."),
+      field("Response", area, "A Home Assistant template. Something that renders to nothing says the default."),
+      h("div", { class: "row small" }, h("span", { class: "muted" }, "Start from:"),
+        ...UNKNOWN_EXAMPLES.map((example) => h("button", { type: "button", class: "link", onclick: () => { area.value = example; area.focus(); } }, h("code", {}, example)))),
+      h("h3", {}, "Variables"),
+      h("div", { class: "kv" }, ...vars.flatMap(([name, text]) => [h("div", {}, h("code", {}, name)), h("div", {}, text)])),
+      h("p", { class: "muted small" }, "Type a sentence no command takes on the Test page to hear it.")),
   );
 }
 
@@ -1931,6 +1985,10 @@ function renderStage(stage) {
   } else if (name === "timer_stopped") {
     head = "Timer stopped";
     body = h("div", { class: "small" }, data.by === "stop" ? "by “stop” or a call" : data.by === "button" ? "by the center button" : data.by === "timeout" ? "rang out" : data.by, data.heard ? ` · heard ${data.heard}` : "");
+  } else if (name === "unknown") {
+    cls = data.error ? "bad" : "ok";
+    head = "Unknown command";
+    body = h("div", { class: "small" }, data.error ? ["Could not render it (", data.error, "): said the default."] : data.said ? ["Says “", data.said, "”"] : "Rendered to nothing: said the default.");
   } else if (name === "speech") {
     head = "Said";
     body = h("div", {}, data.text || h("span", { class: "muted" }, "(a short sound)"));
@@ -2063,13 +2121,14 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    const parent = { command: "commands", group: "commands", fallback: "settings", yaml: "settings", session: "sessions" }[page];
+    const parent = { command: "commands", group: "commands", unknown: "commands", fallback: "settings", yaml: "settings", session: "sessions" }[page];
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
     if (page === "commands") await pageCommands();
     else if (page === "command") await pageCommand(arg || null);
     else if (page === "group") await pageGroup(arg || null);
+    else if (page === "unknown") await pageUnknown();
     else if (page === "fallback") await pageFallback();
     else if (page === "skills") await pageSkills();
     else if (page === "library") await pageLibrary();
