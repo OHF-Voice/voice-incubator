@@ -13,6 +13,7 @@ import copy
 import functools
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1022,7 +1023,7 @@ class Api:
     # ---------------------------------------------------------------- calls
 
     async def calls(self, request: web.Request) -> web.Response:
-        return web.json_response({"calls": self.app.calls.list(request.query.get("satellite"))})
+        return web.json_response({"calls": self.app.calls.list(request.query.get("satellite"))}, dumps=_dumps)
 
     async def call(self, request: web.Request) -> web.Response:
         record = self.app.calls.get(request.match_info["id"])
@@ -1128,4 +1129,16 @@ async def _json_or_empty(request: web.Request) -> dict[str, Any]:
 
 
 def _dumps(data: Any) -> str:
-    return json.dumps(data, default=str)
+    """JSON a browser can read: a number that is not finite (a margin over
+    nobody, in traces saved before it was left out) is null."""
+    return json.dumps(_finite(data), default=str, allow_nan=False)
+
+
+def _finite(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _finite(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(item) for item in value]
+    return value

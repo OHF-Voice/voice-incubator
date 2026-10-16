@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import re
 import socket
 import time
@@ -1933,7 +1934,8 @@ class VoiceCallApp:
                 name=ident.name if ident else None,
                 score=round(float(ident.score), 4) if ident and ident.utterance else None,
                 best=ident.best if ident else None,
-                margin=round(float(ident.margin), 4) if ident and ident.utterance else None,
+                # No margin with one speaker enrolled: nobody is second.
+                margin=round(float(ident.margin), 4) if ident and ident.utterance and math.isfinite(ident.margin) else None,
             )
         await self._event(session, "processing", **fields)
         return ident

@@ -63,10 +63,12 @@ async function api(method, path, body) {
   }
   const response = await fetch(`api/${path}`, options);
   let data = null;
-  try { data = await response.json(); } catch (_) { /* not JSON */ }
+  let unreadable = false;
+  try { data = await response.json(); } catch (_) { unreadable = true; }
   if (!response.ok || (data && data.ok === false)) {
     throw new Error((data && data.error) || `${response.status} ${response.statusText}`);
   }
+  if (unreadable) throw new Error(`The app's answer to ${path.split("?")[0]} could not be read`);
   return data;
 }
 

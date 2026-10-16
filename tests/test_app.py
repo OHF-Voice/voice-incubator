@@ -189,6 +189,18 @@ async def _scenario(tmp_path: Path) -> None:
             added = await (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": "MIKE"})).json()
             assert added["name"] == "Mike" and added["learned"] == 1
             assert [s["name"] for s in (await (await http.get("/api/speakers")).json())["speakers"]] == ["Mike"]
+            # One speaker enrolled: nobody is second, so there is no margin
+            # -- and the trace is JSON a browser can read.
+            app.calls.start_session(MAC, dry_run=True)
+            assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+            app.calls.stop_session(MAC)
+            heard = app.calls.recent[-1]
+            assert next(s for s in heard.stages if s["stage"] == "speaker")["margin"] is None
+            heard.stage("saved_before", margin=float("inf"))  # as traces saved before were
+            strict = lambda constant: pytest.fail(f"{constant} is not JSON")  # noqa: E731
+            trace = json.loads(await (await http.get(f"/api/calls/{heard.id}")).text(), parse_constant=strict)
+            assert trace["stages"][-1]["margin"] is None
+            json.loads(await (await http.get("/api/calls")).text(), parse_constant=strict)
             unkept = next(c for c in calls if not c["kept"])
             assert (await http.post(f"/api/calls/{unkept['id']}/speaker", json={"name": "Mike"})).status == 404
             assert (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": " "})).status == 400
