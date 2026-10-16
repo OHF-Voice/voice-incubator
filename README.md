@@ -137,7 +137,7 @@ them into the vocabulary unless someone adds it.
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
-| `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then Hammer 2.1 0.5B with the commands as tools |
+| `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then a small LLM (Granite 4.0 350M or Hammer 2.1 0.5B) with the commands as tools -- each only for the commands chosen for it |
 | `voice_call/questions.py` | questions no command took: exact answers, the live notice, a small LLM |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
@@ -849,23 +849,32 @@ Assistant.
 ## When nothing matches: meaning, then an LLM
 
 `voice_call/fallback.py`. After the CTC matcher (keywords and examples), in
-order, each only when the one before found nothing:
+order, each only when the one before found nothing -- and each only for the
+commands chosen for it (`fallback: [meaning, llm]` on the command; ticked on
+its page, or many at once on the Commands page). None are chosen to begin
+with, the library's included: a command is run this way only when someone
+decided it may be.
 
 1. **Meaning.** EmbeddingGemma (already loaded for hints) names the closest
-   command; it is *run* only when the similarity is at least 0.80, at least
-   0.05 ahead of the runner-up (another command, or an everyday request that
-   is not one), and the command needs nothing said -- every slot fixed or
-   optional. `settings.yaml` `fallback_meaning`, on by default.
-2. **The LLM.** Hammer 2.1 0.5B (Qwen 2.5 0.5B tuned for function calling,
-   Q8_0, llama.cpp) gets the commands as tools -- slots as parameters: names
-   as an enum of their spoken names, value lists as theirs, numbers, durations
-   and free text as text -- and the TDT transcript. Its call is checked like a
-   match: the command must be available on the satellite, names map back to
-   ids, list values to values, and a name, value or free text the sentence
-   does not contain is dropped (a 0.5B model fills in arguments nobody gave:
-   "kill the lights" came back with a bedroom and a floor). A required one
-   that is missing or wrong refuses the call, and the miss is hinted from the
-   command the LLM chose. `fallback_llm`, off by default; `fallback_top_k`.
+   command; it is *run* only when it is chosen for meaning, the similarity is
+   at least 0.80, at least 0.05 ahead of the runner-up (another command,
+   chosen or not, or an everyday request that is not one), and the command
+   needs nothing said -- every slot fixed or optional. `settings.yaml`
+   `fallback_meaning`, on by default.
+2. **The LLM** (`fallback_model`): Granite 4.0 350M by default -- Apache-2.0,
+   and already there as the question model -- or Hammer 2.1 0.5B (Qwen 2.5
+   0.5B tuned for function calling, CC-BY-NC-4.0). Q8_0, llama.cpp. It gets
+   the chosen commands as tools -- slots as parameters: names as an enum of
+   their spoken names, value lists as theirs, numbers, durations and free text
+   as text -- and the TDT transcript. Its call is checked like a match: the
+   command must be chosen and available on the satellite, names map back to
+   ids, list values to values, and a name, value, number, duration or free
+   text the sentence does not say is dropped (a small model fills in
+   arguments nobody gave: "kill the lights" came back with a bedroom and a
+   floor, "start the coffee maker" with a 5-minute timer). A required one that
+   is missing or wrong refuses the call, and the miss is hinted from the
+   command the LLM chose. `fallback_llm`, on by default (it loads nothing until
+   a command is chosen for it); `fallback_top_k`.
 3. **The hint**, as before.
 
 Tools are the commands' descriptions plus how they are said (their examples,
@@ -874,28 +883,69 @@ descriptions were sharpened for it ("play an artist, album, song, playlist or
 genre", "play more music like what's playing"): Hammer could not tell
 "play music" from "play music like this".
 
-**Every command, or the closest few.** With every command (56 in the library)
-the system-and-tools prefix is evaluated once and reused by every request;
-with only the closest K by meaning (`Recognizer.rank_by_meaning`) the context
-holds just those but they are evaluated each time. The closest 8 are right
-more often and wrong far less often, so that is the default.
+**A way out, for Granite.** Granite calls *some* tool for almost any
+sentence: "what's the capital of France" ran `what_time`, "never mind" went
+on the shopping list. It is given one more tool, `not_a_command` ("a question
+about the world, small talk, thanks, or something none of the other tools
+does"), and asked to call that instead of nothing; that halves the wrong
+commands it runs. Hammer, trained to answer an empty list, does slightly worse
+with it, so it is not given one.
+
+**Close in meaning, too.** What the LLM picks must also be close in meaning
+to the sentence (EmbeddingGemma, as for hints): 0.65, or 0.70 when the call
+takes nothing from the sentence -- there is nothing else to check it by.
+"What's the capital of France" played as music came in at 0.48, "thank you"
+as the time at 0.65; every right pick on the benchmark was at 0.678 or more.
+Applied to the runs below it would have refused about half of Granite's wrong
+commands (15 to 7 with 8 chosen; 11 to 7 and 16 to 10 with every library
+command) and a third of Hammer's (9 to 7; 15 to 10 and 5 to 5), and none of
+the right ones -- tuned on these same 64 sentences, so the margin is thin. A
+pick refused this way gives no hint ("it looks like you're trying to...").
+
+**Every chosen command, or the closest few.** With no more chosen than
+`fallback_top_k` (8), the LLM gets them all, in a fixed order, so the
+system-and-tools prefix is evaluated once and reused by every request (it
+gets every chosen command whatever the satellite; availability is checked
+after). With more, only the closest 8 by meaning (`Recognizer.rank_by_meaning`)
+that the satellite may run, evaluated each time.
 
 `scripts/bench_fallback.py` with `tests/fallback_utterances.yaml`: 64
 sentences the library's keywords mostly miss -- music, shopping and to-do
 lists, alarms, timers, lights and devices, covers and locks -- plus 10 that are
 not commands ("what's the capital of France", "thank you"), in a made-up home.
+The LLM alone, on the sentence as text (`--mode llm`), Raspberry Pi 5, 4
+threads.
 
-Hammer alone, on the sentence as text (`--mode llm`), 4 threads:
+Eight commands chosen (`--chosen`: play music, add to and take off the
+shopping list, add to the to-do list, set an alarm, start a timer, lights on,
+lights off) -- the way it is meant to be used. 32 sentences are for one of
+them; the other 32 (for another command, or none) should be refused:
 
-| | commands right | non-commands refused | per sentence | once |
-|---|---|---|---|---|
-| desktop (Ryzen 9 5950X), every command | 43% | 100% | 0.57 s | 10 s prefix |
-| desktop, closest 8 | 61% | 100% | 1.15 s | |
-| Raspberry Pi 5, every command | 46% | 90% | 1.73 s (p90 2.0) | 45 s prefix |
-| Raspberry Pi 5, closest 8 | 63% | 100% | 4.52 s (p90 6.5) | |
+| | its commands right | refused when it should be | ran a wrong command | per sentence | once |
+|---|---|---|---|---|---|
+| Granite 4.0 350M | 18/32 | 18/32 | 15 | 1.0 s (p90 1.1) | 7 s prefix |
+| Hammer 2.1 0.5B | 16/32 | 26/32 | 9 | 0.35 s (p90 1.4) | 7 s prefix |
+
+Every library command chosen (56):
+
+| | commands right | non-commands refused | ran a wrong command | per sentence | once |
+|---|---|---|---|---|---|
+| Granite, every command | 41% | 7/10 | 11 | 2.1 s (p90 2.8) | 70 s prefix |
+| Granite, closest 8 | 52% | 4/10 | 16 | 6.3 s (p90 8.7) | |
+| Hammer, every command | 43% | 9/10 | 15 | 1.7 s (p90 2.0) | 45 s prefix |
+| Hammer, closest 8 | 59% | 10/10 | 5 | 4.5 s (p90 6.2) | |
+
+Neither is ahead everywhere. Granite gets about as many right; Hammer is
+the more careful with a few commands chosen (9 wrong runs against 15) and
+with the closest 8 (5 against 16, every non-command refused), Granite with
+every library command (11 against 15). Without the way out Granite ran a
+wrong command for 29 of the 64 sentences (8 chosen). Choose for the LLM the
+commands it would do little harm to run by mistake. Earlier, on a
+desktop (Ryzen 9 5950X), Hammer alone: 43% with every command (0.57 s, 10 s
+prefix) and 61% with the closest 8 (1.15 s); every non-command refused.
 
 The whole chain, as a call runs it (`--mode chain`: Piper speaks the
-sentence, then CTC, meaning, Hammer), desktop:
+sentence, then CTC, meaning, Hammer), desktop, every command chosen:
 
 | chain | commands right | decided by CTC (right) | by meaning | by Hammer (right) | median |
 |---|---|---|---|---|---|
@@ -906,16 +956,9 @@ sentence, then CTC, meaning, Hammer), desktop:
 | + Hammer, every command | 56% | 18 (17) | | 27 (13) | 0.42 s |
 
 Every non-command was refused by every chain. Meaning never ran a wrong
-command; Hammer ran the wrong one about a quarter of the times it ran one with
-the closest 8, and half the time with every command. What it still cannot do
-is infer: "we need milk", "we're out of coffee", "it's too dark in here" mostly
-come back as no call at all.
-
-Why the LLM is off by default: on a Pi 5 it adds 4-5 s to whatever nothing
-else understood, it is wrong about a quarter of the times it acts, and Hammer
-is licensed CC-BY-NC-4.0. The model (531 MB) is downloaded when it is turned
-on. A faster machine (an N100 is roughly between the two above) makes the
-closest-8 variant about 2 s.
+command. What neither LLM does well is infer: "we need milk", "we're out of
+coffee", "it's too dark in here" mostly come back as no call, or the wrong
+one.
 
 **llama.cpp and pysilero-vad** each ship a `libggml` under the same soname,
 and the first one loaded serves both; only llama.cpp's has everything both

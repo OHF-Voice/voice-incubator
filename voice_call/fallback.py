@@ -7,17 +7,21 @@ The chain, in order, each step only when the one before found nothing:
    is taken only when it is very close (``EMBED_ACCEPT``), well ahead of the
    runner-up (``EMBED_MARGIN``), and needs nothing heard -- a command whose
    slots are all fixed or optional. Off unless ``embedding_accept`` is set.
-3. **LLM** (Hammer 2.1 0.5B, llama.cpp): every enabled command is a tool, its
-   slots the parameters -- names as their spoken names, value lists as their
-   values, numbers, durations and free text as text. The call is then
-   checked like a match: the command must be available on the satellite,
-   names map back to ids, values to list values, and nothing required may be
-   missing.
+3. **LLM** (Granite 4.0 350M or Hammer 2.1 0.5B, llama.cpp): commands are
+   tools, their slots the parameters -- names as their spoken names, value
+   lists as their values, numbers, durations and free text as text. The call
+   is then checked like a match: the command must be available on the
+   satellite, names map back to ids, values to list values, and nothing
+   required may be missing.
 4. **Fail**: the hint, as before.
 
-The LLM is given every command, whatever the satellite, so the system and
+Both steps are opt-in, per command (``fallback: [meaning, llm]``): a command
+nobody chose for a step is never run by it.
+
+With every chosen command as a tool, whatever the satellite, the system and
 tools prefix is evaluated once and reused by every request (llama.cpp keeps
-the longest common prefix of its context). Availability is checked after.
+the longest common prefix of its context); availability is checked after.
+With the closest few, they are evaluated each time.
 """
 
 from __future__ import annotations
@@ -43,20 +47,81 @@ EMBED_ACCEPT = 0.80
 EMBED_MARGIN = 0.05
 """How far ahead of the runner-up (another command, or an everyday request
 that is not a command) it must be."""
+LLM_MIN_SIMILARITY = 0.65
+"""What the LLM picks must be at least this close in meaning to the sentence
+(a small model plays "what's the capital of France" as music)..."""
+LLM_BARE_MIN_SIMILARITY = 0.70
+"""...and this close when it takes nothing from the sentence ("thank you" ran
+"what time is it"). On the fallback benchmark the right picks were all at
+0.678 or more; these refused half of Granite's wrong ones, a third of
+Hammer's."""
 
-HAMMER_REPO = "Melvin56/Hammer2.1-0.5b-GGUF"
-HAMMER_FILE = "hammer2.1-0.5b-Q8_0.gguf"
+@dataclass(frozen=True)
+class ToolModelInfo:
+    name: str
+    repo: str
+    file: str
+    mb: int
+    licence: str
+    way_out: bool
+    """Give it ``not_a_command`` (NOT_A_COMMAND_TOOL) and ask for that, not for
+    no call. Granite needs it; Hammer, trained to answer ``[]``, does better
+    without."""
+
+
+TOOL_MODELS = {
+    # Granite is the question model too: one download, and (memory-mapped)
+    # one copy.
+    "granite-4.0-350m": ToolModelInfo(
+        "Granite 4.0 350M", "ibm-granite/granite-4.0-350m-GGUF", "granite-4.0-350m-Q8_0.gguf", 370, "Apache-2.0", True
+    ),
+    "hammer-2.1-0.5b": ToolModelInfo(
+        "Hammer 2.1 0.5B", "Melvin56/Hammer2.1-0.5b-GGUF", "hammer2.1-0.5b-Q8_0.gguf", 531, "CC-BY-NC-4.0", False
+    ),
+}
+DEFAULT_TOOL_MODEL = "granite-4.0-350m"
 MAX_TOKENS = 96
 CONTEXT_OVERHEAD = 384 + MAX_TOKENS + 128
-"""Hammer's template wraps the tools in instructions; plus the reply and the
-request itself."""
+"""The chat template wraps the tools in instructions (Hammer's are the
+longest); plus the reply and the request itself."""
+CALL_STARTS = ("<tool_call>", "```", "[", "{")
+"""How a reply with a call begins; anything else is a refusal in words, and
+is not waited for."""
 
 SYSTEM_PROMPT = (
     "You control a smart home by voice. Call the one tool that does what the "
     "sentence asks. Give only the arguments the sentence says, in its words. "
     "If no tool does what it asks, or it is a question no tool answers, call none."
 )
+WAY_OUT_PROMPT = (
+    "You control a smart home by voice. Call the one tool that does what the "
+    "sentence asks. Give only the arguments the sentence says, in its words. "
+    "If no other tool does what it asks -- a question about the world, small "
+    "talk, thanks -- call not_a_command."
+)
 USER_PROMPT = 'Sentence: "{text}"'
+
+NOT_A_COMMAND = "not_a_command"
+NOT_A_COMMAND_TOOL = {
+    "type": "function",
+    "function": {
+        "name": NOT_A_COMMAND,
+        "description": "Nothing to do: the sentence is a question about the world, small talk, thanks, "
+        "or asks for something none of the other tools does",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+}
+"""A way out. Granite calls some tool for almost any sentence ("what time is
+it" for "what's the capital of France"); given one that means "none of
+these", it takes it about half the time (scripts/bench_fallback.py)."""
+
+
+def with_way_out(specs: list[dict[str, Any]], way_out: bool = True) -> list[dict[str, Any]]:
+    """The tools, and last (the prefix stays the same) the way out -- unless a
+    command has its name."""
+    if not way_out or not specs or any(spec["function"]["name"] == NOT_A_COMMAND for spec in specs):
+        return specs
+    return [*specs, NOT_A_COMMAND_TOOL]
 
 
 # ----------------------------------------------------------------- the tools
@@ -270,11 +335,16 @@ class Tools:
             if number is None:
                 problems.append(f"{name} {value!r} is not a number")
                 return
+            if text is not None and float(number) not in said_numbers(text):
+                return
             heard["number"] = number
         elif parameter.kind == "duration":
             seconds = parse_duration(value)
             if not seconds:
                 problems.append(f"{name} {value!r} is not a duration")
+                return
+            said = parse_duration(text) if text is not None else seconds
+            if said is None or abs(said - seconds) > 1:
                 return
             hours, rest = divmod(int(seconds), 3600)
             minutes, secs = divmod(rest, 60)
@@ -284,8 +354,9 @@ class Tools:
             # written differently ("six" -> "6:00 am"), its parser checks it,
             # but not with an am or pm the sentence did not say.
             value = str(value).strip()
-            if name == "time" and text is not None and not _MERIDIEM.search(text):
-                value = _MERIDIEM.sub("", value).strip()
+            if name == "time":
+                if text is not None and not _MERIDIEM.search(text):
+                    value = _MERIDIEM.sub("", value).strip()
             elif text is not None and not _heard(value, text):
                 return
             heard[name] = value
@@ -350,6 +421,34 @@ def _number(value: Any) -> float | int | None:
     return int(number) if number.is_integer() else number
 
 
+def said_numbers(text: str) -> set[float]:
+    """Every number a sentence says, in digits or words, and every run of
+    words within one ("two hundred and fifty" is 250, and 2, 200, 50)."""
+    from .questions import FRACTIONS, SCALES, WORD_NUM, parse_num  # pylint: disable=import-outside-toplevel
+
+    numeric = set(WORD_NUM) | set(SCALES) | {"and", "a", "an", "half", "quarter"} | set(FRACTIONS)
+    out: set[float] = set()
+    run: list[str] = []
+
+    def flush() -> None:
+        for start in range(len(run)):
+            for end in range(start + 1, len(run) + 1):
+                if run[start] in ("and", "a", "an") and end == start + 1:
+                    continue  # alone, not a number
+                value = parse_num(" ".join(run[start:end]))
+                if value is not None:
+                    out.add(float(value))
+        run.clear()
+
+    for word in re.findall(r"\d+(?:\.\d+)?|[a-z]+", str(text).lower().replace(",", "")):
+        if word[0].isdigit() or word in numeric:
+            run.append(word)
+        else:
+            flush()
+    flush()
+    return out
+
+
 _UNITS = {"second": 1, "sec": 1, "minute": 60, "min": 60, "hour": 3600, "hr": 3600}
 _WORDS = {
     "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -373,7 +472,12 @@ def parse_duration(value: Any) -> float | None:
     total = 0.0
     last_unit = None
     for amount, unit in re.findall(r"(\d+(?:\.\d+)?|[a-z]+(?: [a-z]+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)", text):
-        number = float(amount) if amount[0].isdigit() else _WORDS.get(amount.split()[-1], _WORDS.get(amount))
+        if amount[0].isdigit():
+            number = float(amount)
+        elif amount.split()[0] == "half" and amount.split()[-1] in ("a", "an"):
+            number = 0.5  # "half an hour"
+        else:
+            number = _WORDS.get(amount.split()[-1], _WORDS.get(amount))
         if number is None:
             continue
         unit_seconds = _UNITS[re.sub(r"s$", "", unit)]
@@ -432,13 +536,48 @@ def parse_hammer(text: str) -> list[tuple[str, dict[str, Any]]]:
     return calls
 
 
-class Hammer:
-    """Hammer 2.1 0.5B in llama.cpp, with the tools as a reused prefix. Calls
-    are serialized; ``load`` and ``call`` are slow, run them in a thread."""
+def parse_calls(text: str) -> list[tuple[str, dict[str, Any]]]:
+    """The tool calls in a reply: Granite's ``<tool_call>`` blocks (the last
+    one may be cut at its closing tag, a stop sequence), Hammer's fenced list,
+    or JSON objects one after another."""
+    blocks = re.findall(r"<tool_call>(.*?)(?:</tool_call>|$)", text, re.S)
+    if blocks:
+        return [call for block in blocks for call in parse_hammer(block)]
+    calls = parse_hammer(text)
+    if calls:
+        return calls
+    decoder = json.JSONDecoder()
+    value, at = text.strip(), 0
+    while (start := value.find("{", at)) >= 0:
+        try:
+            decoded, at = decoder.raw_decode(value, start)
+        except json.JSONDecodeError:
+            break
+        calls += parse_hammer(json.dumps(decoded))
+    return calls
 
-    def __init__(self, model_path: Path | None = None, n_threads: int = 2) -> None:
+
+def llama_available() -> bool:
+    """Whether llama.cpp is installed."""
+    try:
+        import llama_cpp  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
+    except ImportError:
+        return False
+    return True
+
+
+class ToolModel:
+    """A small LLM in llama.cpp that picks a command as a tool call, with the
+    tools as a reused prefix. Calls are serialized; ``load`` and ``call`` are
+    slow, run them in a thread."""
+
+    def __init__(self, model_path: Path | None = None, n_threads: int = 2, model: str = DEFAULT_TOOL_MODEL) -> None:
         self.model_path = model_path
         self.n_threads = n_threads
+        self.model = model
+        info = TOOL_MODELS.get(model)
+        self.way_out = bool(info and info.way_out)
+        self.prompt = WAY_OUT_PROMPT if self.way_out else SYSTEM_PROMPT
         self.llm: Any = None
         self.tools: list[dict[str, Any]] = []
         self.signature: str | None = None
@@ -446,19 +585,18 @@ class Hammer:
         self._lock = threading.Lock()
         self.error: str | None = None
 
-    @staticmethod
-    def find_model(download: bool = False, cache_dir: Path | None = None) -> Path | None:
-        """The GGUF in the Hugging Face cache, fetched first when asked to."""
-        return find_gguf(HAMMER_REPO, HAMMER_FILE, download, cache_dir)
+    @property
+    def name(self) -> str:
+        info = TOOL_MODELS.get(self.model)
+        return info.name if info else self.model
 
     @staticmethod
-    def available() -> bool:
-        """Whether llama.cpp is installed."""
-        try:
-            import llama_cpp  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
-        except ImportError:
-            return False
-        return True
+    def find_model(
+        model: str = DEFAULT_TOOL_MODEL, download: bool = False, cache_dir: Path | None = None
+    ) -> Path | None:
+        """The GGUF in the Hugging Face cache, fetched first when asked to."""
+        info = TOOL_MODELS[model]
+        return find_gguf(info.repo, info.file, download, cache_dir)
 
     def load(self, tools: list[dict[str, Any]], signature: str) -> None:
         """Load the model if needed, and evaluate the system and tools prefix."""
@@ -469,7 +607,7 @@ class Hammer:
             needed = _context_size(tools)
             if self.llm is None or self.llm.n_ctx() < needed:
                 if self.model_path is None:
-                    raise RuntimeError("No Hammer model")
+                    raise RuntimeError(f"No {self.name} model")
                 self.llm = None
                 self.llm = Llama(
                     model_path=str(self.model_path),
@@ -482,12 +620,14 @@ class Hammer:
             # Hammer's template wants a message after the system one; the empty
             # user turn shares the whole prefix with real requests.
             self.llm.create_chat_completion(
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": ""}],
+                messages=[{"role": "system", "content": self.prompt}, {"role": "user", "content": ""}],
                 tools=tools,
                 max_tokens=1,
             )
             self.load_seconds = time.perf_counter() - started
-            _LOGGER.info("Hammer ready: %d tools, context %d, %.1f s", len(tools), self.llm.n_ctx(), self.load_seconds)
+            _LOGGER.info(
+                "%s ready: %d tools, context %d, %.1f s", self.name, len(tools), self.llm.n_ctx(), self.load_seconds
+            )
 
     @property
     def ready(self) -> bool:
@@ -497,28 +637,27 @@ class Hammer:
         self, text: str, tools: list[dict[str, Any]] | None = None
     ) -> tuple[list[tuple[str, dict[str, Any]]], str, float]:
         """The tool calls for one sentence, the raw reply, and seconds. With
-        ``tools``, only those (no cached prefix: they are evaluated each time)."""
+        ``tools``, only those (no cached prefix: they are evaluated each time).
+        A reply that is not a call is cut short."""
         content = USER_PROMPT.format(text=text.strip())
+        pieces: list[str] = []
         with self._lock:
             started = time.perf_counter()
-            response = self.llm.create_chat_completion(
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}],
+            for chunk in self.llm.create_chat_completion(
+                messages=[{"role": "system", "content": self.prompt}, {"role": "user", "content": content}],
                 tools=tools if tools is not None else self.tools,
                 temperature=0.0,
                 max_tokens=MAX_TOKENS,
-            )
+                stop=["</tool_call>"],
+                stream=True,
+            ):
+                pieces.append((chunk["choices"][0].get("delta") or {}).get("content") or "")
+                said = "".join(pieces).lstrip()
+                if len(said) >= len(CALL_STARTS[0]) and not said.startswith(CALL_STARTS):
+                    break
             seconds = time.perf_counter() - started
-        message = response["choices"][0]["message"]
-        raw = message.get("content") or ""
-        calls = parse_hammer(raw)
-        for tool_call in message.get("tool_calls") or []:
-            function = tool_call.get("function") or {}
-            try:
-                arguments = json.loads(function.get("arguments") or "{}")
-            except json.JSONDecodeError:
-                arguments = {}
-            calls.append((function.get("name"), arguments))
-        return calls, raw, seconds
+        raw = "".join(pieces)
+        return parse_calls(raw), raw, seconds
 
 
 def find_gguf(repo: str, filename: str, download: bool = False, cache_dir: Path | None = None) -> Path | None:
@@ -542,7 +681,7 @@ def find_gguf(repo: str, filename: str, download: bool = False, cache_dir: Path 
 
 def _context_size(tools: list[dict[str, Any]]) -> int:
     """chars / 3 bounds the tokens; rounded up to 256."""
-    chars = len(SYSTEM_PROMPT) + len(USER_PROMPT) + len(json.dumps(tools))
+    chars = max(len(SYSTEM_PROMPT), len(WAY_OUT_PROMPT)) + len(USER_PROMPT) + len(json.dumps(tools))
     return ((chars // 3 + CONTEXT_OVERHEAD) // 256 + 1) * 256
 
 
@@ -595,91 +734,140 @@ def by_meaning(closest: dict[str, Any] | None, command: Command | None) -> tuple
     return True, trace
 
 
+def chosen(compiled: Any, step: str) -> list[str]:
+    """The commands chosen for a fallback step (``meaning`` or ``llm``), in
+    id order."""
+    return sorted(c.id for c in compiled.commands.values() if step in c.fallback and not c.disabled)
+
+
 class Fallback:
     """Meaning, then the LLM, for one engine. ``prepare`` after every build
     (new commands are new tools); ``decide`` from the engine's thread."""
 
     def __init__(
-        self, embedding_accept: bool = False, hammer: Hammer | None = None, top_k: int | None = None
+        self, embedding_accept: bool = False, llm: ToolModel | None = None, top_k: int | None = None
     ) -> None:
         self.embedding_accept = embedding_accept
-        self.hammer = hammer
+        self.llm = llm
         self.top_k = top_k
-        """Give the LLM only the commands closest in meaning, this many."""
+        """Give the LLM only the commands closest in meaning, this many --
+        when more than this many are chosen for it."""
         self.tools: Tools | None = None
+        self.chosen: list[str] = []
+        """The commands chosen for the LLM."""
+        self.closest_only = False
+        """Whether it gets the closest ``top_k`` of them, not all."""
         self.signature: str | None = None
         """What the LLM must have been loaded for."""
-        self.status = "off" if hammer is None else "waiting for the commands"
+        self.status = "off" if llm is None else "waiting for the commands"
         self._thread: threading.Thread | None = None
 
     def prepare(self, engine: Any, wait: bool = False) -> None:
-        """New commands: new tools. With every command as a tool, their prefix
-        is evaluated again; with the closest few, the context is sized for
-        the longest few."""
+        """New commands: new tools. With every chosen command as a tool, their
+        prefix is evaluated again; with the closest few, the context is sized
+        for the longest few."""
         compiled = engine.compiled
         if compiled is None:
             return
         tools = Tools(compiled, engine.dynamic)
         self.tools = tools
-        if self.top_k:
-            longest = sorted(tools.specs, key=lambda spec: -len(json.dumps(spec)))[: self.top_k]
+        self.chosen = chosen(compiled, "llm")
+        everything = tools.subset(self.chosen)
+        self.closest_only = bool(self.top_k) and len(everything) > int(self.top_k or 0)
+        llm = self.llm
+        way_out = bool(llm is not None and llm.way_out)
+        if self.closest_only:
+            longest = with_way_out(sorted(everything, key=lambda spec: -len(json.dumps(spec)))[: self.top_k], way_out)
             specs, signature = longest, f"closest {self.top_k}, context {_context_size(longest)}"
         else:
-            specs, signature = tools.specs, tools.signature
+            specs = with_way_out(everything, way_out)
+            signature = json.dumps(specs, sort_keys=True)
         self.signature = signature
-        hammer = self.hammer
-        if hammer is None or (hammer.ready and hammer.signature == signature):
+        if llm is None:
+            return
+        if not specs:
+            self.status = "no commands chosen for it"
+            return
+        if llm.ready and llm.signature == signature:
+            self.status = "ready"
             return
 
         def load() -> None:
             try:
-                hammer.load(specs, signature)
+                llm.load(specs, signature)
                 self.status = "ready"
             except Exception as err:  # noqa: BLE001 - the chain works without it
                 self.status = f"not available: {err}"
-                _LOGGER.exception("Hammer could not be loaded")
+                _LOGGER.exception("%s could not be loaded", llm.name)
 
         self.status = "loading"
         if wait:
             load()
         else:
-            self._thread = threading.Thread(target=load, name="hammer", daemon=True)
+            self._thread = threading.Thread(target=load, name="fallback-llm", daemon=True)
             self._thread.start()
 
     def decide(self, text: str, closest: Any, compiled: Any, satellite: Any, ranked: Any = None) -> Found:
         """``closest()`` is the closest command by meaning, ``ranked()`` every
         command by meaning (each costs an embedding, so only asked for when
-        needed)."""
+        needed). Only commands chosen for a step are run by it."""
         found = Found()
-        if self.embedding_accept:
+        if self.embedding_accept and chosen(compiled, "meaning"):
             near = closest()
             command = compiled.commands.get(near["intent"]) if near else None
             accept, why = by_meaning(near, command)
+            if accept and command is not None and "meaning" not in command.fallback:
+                accept, why = False, {**why, "why": "not chosen for meaning"}
             found.trace["meaning"] = why
             if accept and command is not None and satellite.available(command) is not None:
                 return Found(command, {}, "meaning", found.trace)
-        hammer = self.hammer
-        if hammer is None or self.tools is None or not text.strip():
+        llm = self.llm
+        if llm is None or self.tools is None or not self.chosen or not text.strip():
             return found
-        if not hammer.ready or hammer.signature != self.signature:
+        if not llm.ready or llm.signature != self.signature:
             found.trace["llm"] = {"skipped": self.status}
             return found
         subset = None
         trace: dict[str, Any] = {}
-        if self.top_k and ranked is not None:
-            order = [c for c, _ in ranked() if c in compiled.commands and satellite.available(compiled.commands[c])]
-            if order:
-                subset = self.tools.subset(order[: self.top_k])
-                trace["candidates"] = order[: self.top_k]
-        calls, raw, seconds = hammer.call(text, subset)
+        scores: dict[str, float] | None = None
+
+        def by_similarity() -> dict[str, float]:
+            """Every command's similarity to the sentence, closest first (one
+            embedding, when first asked for)."""
+            nonlocal scores
+            if scores is None:
+                scores = dict(ranked()) if ranked is not None else {}
+            return scores
+
+        if self.closest_only and ranked is not None:
+            allowed = set(self.chosen)
+            order = [
+                c for c in by_similarity()
+                if c in allowed and c in compiled.commands and satellite.available(compiled.commands[c])
+            ]
+            if not order:
+                found.trace["llm"] = {"skipped": "none of its commands is available here"}
+                return found
+            subset = with_way_out(self.tools.subset(order[: self.top_k]), llm.way_out)
+            trace["candidates"] = order[: self.top_k]
+        calls, raw, seconds = llm.call(text, subset)
         trace.update(raw=raw, seconds=round(seconds, 3), calls=[[n, a] for n, a in calls])
         found.trace["llm"] = trace
         for name, arguments in calls:
+            if name == NOT_A_COMMAND and name not in compiled.commands:
+                trace["said"] = "not a command"
+                return found
             command = compiled.commands.get(name)
-            if command is None or command.disabled:
+            if command is None or command.disabled or name not in self.chosen:
                 trace.setdefault("problems", []).append(f"no command {name}")
                 continue
             slots, problems = self.tools.slots(command, arguments, text)
+            close = by_similarity().get(command.id)
+            floor = LLM_BARE_MIN_SIMILARITY if slots == match_slots(command, {}) else LLM_MIN_SIMILARITY
+            if close is not None and close < floor:
+                # Not what it meant, so no hint from it either.
+                trace["refused"] = {"command": command.id, "similarity": round(close, 4), "why": "not close in meaning"}
+                return found
             trace["command"] = command.id
             if problems:
                 trace["problems"] = problems

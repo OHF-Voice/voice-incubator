@@ -39,9 +39,10 @@
   Assistant STT and TTS entities get a language, for every satellite or per
   satellite.
 - When nothing matches: the closest command by meaning runs when it is very
-  close and needs nothing said (on), and Hammer 2.1 0.5B can pick a command
-  and fill in its slots from the closest few (off; downloaded when turned
-  on).
+  close and needs nothing said, and a small LLM (Granite 4.0 350M, or Hammer
+  2.1 0.5B) can pick a command and fill in its slots. Both only run the
+  commands chosen for them (`fallback: [meaning, llm]`, ticked per command or
+  many at once on the Commands page); none are chosen to begin with.
 - Questions no command takes are answered: exactly (arithmetic, units, dates
   and times, spelling), "I can't look that up" for live ones, and the rest by
   a small LLM (Granite 4.0 350M, or Gemma 3 1B), downloaded on first start.

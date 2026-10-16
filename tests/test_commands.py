@@ -226,6 +226,31 @@ def test_command_groups_limit_a_satellite():
     assert kids.as_dict()["command_groups"] == ["kids"] and anywhere.as_dict()["command_groups"] is None
 
 
+def test_fallback_steps_are_chosen():
+    assert command().fallback == ()
+    assert command(fallback=["llm", "meaning"]).fallback == ("meaning", "llm")
+    assert command(fallback="llm").fallback == ("llm",)
+    with pytest.raises(ConfigError, match="'guess' is not one of meaning, llm"):
+        command(fallback=["guess"])
+
+
+def test_choosing_commands_for_the_fallback(tmp_path):
+    store = Store(tmp_path)
+    store.save_text(
+        "commands:\n"
+        "  lights:\n    description: turn on the lights\n    require: [[lights]]\n    response: ok\n"
+        "  fan:\n    description: turn on the fan\n    require: [[fan]]\n    response: ok\n    fallback: [meaning]\n"
+    )
+    compiled = store.put_fallback({"llm": ["lights", "fan"]})
+    assert compiled.commands["lights"].fallback == ("llm",)
+    assert compiled.commands["fan"].fallback == ("meaning", "llm")  # meaning left as it was
+    compiled = store.put_fallback({"meaning": [], "llm": ["fan"]})
+    assert compiled.commands["lights"].fallback == () and compiled.commands["fan"].fallback == ("llm",)
+    assert "fallback" not in store.read_text().split("fan:")[0]  # not left empty
+    with pytest.raises(ConfigError, match="No command 'nope'"):
+        store.put_fallback({"llm": ["nope"]})
+
+
 def test_command_group_errors():
     with pytest.raises(ConfigError, match="group ids"):
         command(groups=["Kids Room"])

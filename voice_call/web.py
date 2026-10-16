@@ -23,7 +23,8 @@ from adapt_ctc.config import ConfigError
 
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
-from .commands import DYNAMIC_LISTS, NUMBER_PRESETS, parse_command
+from .commands import DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, parse_command
+from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .store import NAME_KINDS, compile_store, dump, plain
 from .voices import language_code
@@ -87,6 +88,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.delete("/api/names/{kind}/{id}", api.delete_name),
             web.put("/api/lists/{name}", api.put_list),
             web.put("/api/groups/{id}", api.put_group),
+            web.put("/api/fallback", api.put_fallback),
             web.delete("/api/groups/{id}", api.delete_group),
             web.delete("/api/lists/{name}", api.delete_list),
             web.get("/api/library", api.library),
@@ -220,6 +222,8 @@ class Api:
                     "does": command.behavior.does,
                     "scope": command.scope.to_data(),
                     "overrides": len(command.overrides),
+                    # Meaning can't run it: it needs a name, number, value or text heard.
+                    "needs_said": needs_heard_slots(command),
                 }
             except ConfigError as err:
                 details[command_id] = {"error": str(err)}
@@ -353,6 +357,18 @@ class Api:
             raise ConfigError("commands: expected a list of command ids")
         compiled = self.app.store.put_group(group_id, spec, None if members is None else [str(m) for m in members])
         return await self._saved(compiled)
+
+    async def put_fallback(self, request: web.Request) -> web.Response:
+        """Which commands each fallback step may run: ``{meaning: [ids],
+        llm: [ids]}``, exactly; a step left out is left as it is."""
+        body = await request.json()
+        steps = {}
+        for step in FALLBACK_STEPS:
+            if step in body:
+                if not isinstance(body[step], list):
+                    raise ConfigError(f"{step}: expected a list of command ids")
+                steps[step] = [str(c) for c in body[step]]
+        return await self._saved(self.app.store.put_fallback(steps))
 
     async def delete_group(self, request: web.Request) -> web.Response:
         """Delete a group: every command leaves it, and it is no longer given
@@ -652,6 +668,13 @@ class Api:
                 fallback_changed = True
         if "fallback_top_k" in body:
             settings["fallback_top_k"] = max(1, min(int(body["fallback_top_k"]), 64))
+            fallback_changed = True
+        if "fallback_model" in body:
+            from .fallback import TOOL_MODELS  # pylint: disable=import-outside-toplevel
+
+            if str(body["fallback_model"]) not in TOOL_MODELS:
+                raise ConfigError(f"fallback_model: one of {', '.join(TOOL_MODELS)}")
+            settings["fallback_model"] = str(body["fallback_model"])
             fallback_changed = True
         if fallback_changed:
             self.app.store.save_settings()

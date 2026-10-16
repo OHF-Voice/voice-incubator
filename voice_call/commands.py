@@ -64,6 +64,14 @@ runs only the commands in them. Without any, every command is available::
     commands:
       lights_on:
         groups: [kids]
+
+``fallback`` lets the steps after keywords and examples run the command when
+nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
+very close to it in meaning (for a command that needs nothing said), ``llm``
+when the small LLM picks it. Neither unless chosen::
+
+    lights_off:
+      fallback: [meaning, llm]
 """
 
 from __future__ import annotations
@@ -106,10 +114,12 @@ COMMAND_KEYS = {
     "title",
     "icon",
     "groups",
+    "fallback",
     *LISTEN_KEYS,
     *DO_KEYS,
 }
 GROUP_KEYS = {"name", "description"}
+FALLBACK_STEPS = ("meaning", "llm")
 OVERRIDE_KEYS = {"scope", "slots", "response", "disabled", *DO_KEYS}
 
 # Shared settings for every home: the core intents' filler words and name
@@ -289,6 +299,8 @@ class Command:
     title: str = ""
     groups: tuple[str, ...] = ()
     """The command groups it is in."""
+    fallback: tuple[str, ...] = ()
+    """The steps after keywords and examples that may run it (FALLBACK_STEPS)."""
 
     def allowed(self, groups: frozenset[str] | None) -> bool:
         """Whether a satellite limited to these command groups may run it
@@ -409,7 +421,21 @@ def parse_command(command_id: str, spec: Any) -> Command:
         bool(spec.get("disabled", False)),
         str(spec.get("title") or ""),
         _group_ids(spec.get("groups"), f"{where}.groups"),
+        _fallback_steps(spec.get("fallback"), f"{where}.fallback"),
     )
+
+
+def _fallback_steps(value: Any, where: str) -> tuple[str, ...]:
+    if value in (None, []):
+        return ()
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: a list of {' and '.join(FALLBACK_STEPS)}")
+    unknown = [str(v) for v in value if v not in FALLBACK_STEPS]
+    if unknown:
+        raise ConfigError(f"{where}: {unknown[0]!r} is not one of {', '.join(FALLBACK_STEPS)}")
+    return tuple(step for step in FALLBACK_STEPS if step in value)
 
 
 def _group_ids(value: Any, where: str) -> tuple[str, ...]:

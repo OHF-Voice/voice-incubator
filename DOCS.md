@@ -265,21 +265,30 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
 
 ## When nothing matches
 
-Keywords and example sentences come first. When they find nothing, on the
-**Commands** page under "When nothing matches":
+Keywords and example sentences come first. When they find nothing, two more
+steps can run a command -- but only a command you chose for them: tick
+"meaning" or "LLM" on the command's page, or many at once with **Choose
+commands** under "When nothing matches" on the **Commands** page. Commands
+from the library are not chosen until you choose them.
 
-- **The closest command in meaning** runs when it is very close and needs
-  nothing said: "kill the lights" for "turn off the lights". On by default.
-- **A small LLM** (Hammer 2.1 0.5B) picks a command and fills in what it
+- **Meaning** runs the chosen command a sentence is very close to, when it
+  needs nothing said: "kill the lights" for "turn off the lights". A command
+  that needs a name, number, value or text can't be run this way.
+- **A small LLM** picks one of its chosen commands and fills in what it
   needs: "throw on my workout playlist", "take milk off the list", "wake me
-  up at six". It chooses among the commands closest in meaning (8 by
-  default). Off by default: it is downloaded when turned on (531 MB), needs
-  about 1 GB of memory, adds 4-5 seconds on a Raspberry Pi 5 (about 1 on a
-  desktop) to what nothing else understood, and is licensed for
-  non-commercial use only. It only runs commands the satellite may run, and
-  never with a name or value you didn't say.
+  up at six". Granite 4.0 350M by default -- the same model that answers
+  questions, so nothing more to download -- or Hammer 2.1 0.5B, usually the
+  more careful of the two but licensed for non-commercial use only. With
+  more than 8 commands chosen (the number is a setting) it is given the 8
+  closest in meaning to the sentence. On a Raspberry Pi 5 it adds about a
+  second to what nothing else understood with a few commands chosen, several
+  with many. It can pick the wrong command, so choose the ones it would do
+  little harm to run by mistake. It only runs commands the satellite may
+  run, close enough in meaning to what was said, and never with a name,
+  value or number you didn't say.
 
-A call's trace shows what each step tried.
+Both are on, and do nothing until a command is chosen for them. A call's trace
+shows what each step tried.
 
 ## Questions
 

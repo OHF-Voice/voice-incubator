@@ -22,7 +22,7 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from adapt_ctc.config import ConfigError, parse_config
 
-from .commands import Command, adapt_config, parse_commands, parse_groups
+from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_groups
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -254,6 +254,36 @@ class Store:
                     command.pop("groups", None)
             if spec is None and not groups:
                 document.pop("groups", None)
+
+        return self.update(edit)
+
+    def put_fallback(self, steps: dict[str, list[str]]) -> Compiled:
+        """For each fallback step given (``meaning``, ``llm``), exactly which
+        commands it may run (their ``fallback`` key)."""
+        from .commands import FALLBACK_STEPS  # pylint: disable=import-outside-toplevel
+
+        def edit(document: CommentedMap) -> None:
+            commands = document["commands"]
+            for members in steps.values():
+                unknown = sorted(set(members) - set(commands))
+                if unknown:
+                    raise ConfigError(f"No command {unknown[0]!r}")
+            for command_id, command in commands.items():
+                if not isinstance(command, dict):
+                    continue
+                current = command.get("fallback") or []
+                current = [str(current)] if isinstance(current, str) else [str(c) for c in current]
+                keep = [
+                    step
+                    for step in FALLBACK_STEPS
+                    if (command_id in steps[step] if step in steps else step in current)
+                ]
+                if keep == current:
+                    continue
+                if keep:
+                    command["fallback"] = styled(keep)
+                else:
+                    command.pop("fallback", None)
 
         return self.update(edit)
 

@@ -5,14 +5,16 @@ home (HOME).
 
 Two modes:
 
-- ``--mode llm``: the sentence as text straight to Hammer. What the LLM step
+- ``--mode llm``: the sentence as text straight to the LLM. What the LLM step
   is worth on its own, and what it costs -- runs anywhere llama-cpp-python
   does (a Pi 5), no other model needed.
 - ``--mode chain``: the whole chain as a call would run it -- Piper speaks the
   sentence, the CTC matcher tries it, then meaning (EmbeddingGemma), then
-  Hammer -- and which step decided each one.
+  the LLM -- and which step decided each one.
 
-    scripts/bench_fallback.py --mode llm --threads 4 --out /tmp/llm.json
+Every command is chosen for both steps (``fallback: [meaning, llm]``).
+
+    scripts/bench_fallback.py --mode llm --llm hammer-2.1-0.5b --threads 4 --out /tmp/llm.json
     scripts/bench_fallback.py --mode chain --embedding-accept --out /tmp/chain.json
 """
 
@@ -32,7 +34,15 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from voice_call.fallback import Hammer, Tools  # noqa: E402
+from voice_call.fallback import (  # noqa: E402
+    DEFAULT_TOOL_MODEL,
+    NOT_A_COMMAND,
+    SYSTEM_PROMPT,
+    TOOL_MODELS,
+    ToolModel,
+    Tools,
+    with_way_out,
+)
 from voice_call.store import _yaml, compile_store, plain  # noqa: E402
 
 LIBRARY = ROOT / "voice_call/library"
@@ -66,7 +76,7 @@ def library_store() -> dict[str, Any]:
         data = plain(_yaml().load(path.read_text()))  # YAML 1.2: "on" is a word
         lists.update(data.get("lists") or {})
         for command_id, spec in (data.get("commands") or {}).items():
-            commands[command_id] = {k: v for k, v in spec.items() if k != "needs"}
+            commands[command_id] = {k: v for k, v in spec.items() if k != "needs"} | {"fallback": ["meaning", "llm"]}
     return {"names": HOME, "lists": lists, "commands": commands}
 
 
@@ -115,16 +125,26 @@ def rankings(args, compiled, utterances) -> dict[str, list[str]]:
 
 def run_llm(args, compiled, utterances) -> dict[str, Any]:
     tools = Tools(compiled)
-    path = Path(args.model) if args.model else Hammer.find_model(download=True)
-    hammer = Hammer(path, n_threads=args.threads)
+    if args.chosen:
+        # Only these are tools; a sentence for any other command should be refused.
+        chosen = [c.strip() for c in args.chosen.split(",") if c.strip()]
+        tools.specs = tools.subset(sorted(chosen))
+        utterances = [u if u.get("expect") in chosen else {**u, "expect": None, "slots": {}} for u in utterances]
+    llm = _tool_model(args)
     ranked = rankings(args, compiled, utterances) if args.top_k else {}
-    hammer.load(tools.specs if not args.top_k else tools.subset(_largest(ranked, args.top_k, tools)), tools.signature)
+
+    def way_out(specs):
+        return with_way_out(specs, llm.way_out)
+
+    llm.load(way_out(tools.specs if not args.top_k else tools.subset(_largest(ranked, args.top_k, tools))), tools.signature)
     rows = []
     for utterance in utterances:
-        subset = tools.subset(ranked[utterance["text"]][: args.top_k]) if args.top_k else None
-        calls, raw, seconds = hammer.call(utterance["text"], subset)
+        subset = way_out(tools.subset(ranked[utterance["text"]][: args.top_k])) if args.top_k else None
+        calls, raw, seconds = llm.call(utterance["text"], subset)
         command_id, slots, problems = None, {}, []
         for name, arguments in calls:
+            if name == NOT_A_COMMAND:
+                break
             command = compiled.commands.get(name)
             if command is None:
                 problems.append(f"no command {name}")
@@ -142,19 +162,31 @@ def run_llm(args, compiled, utterances) -> dict[str, Any]:
     seconds = [r["seconds"] for r in rows]
     return {
         "mode": "llm",
+        "llm": args.llm,
         "tools": len(tools.specs),
-        "context": hammer.llm.n_ctx(),
-        "prefix_seconds": round(hammer.load_seconds or 0, 2),
+        "context": llm.llm.n_ctx(),
+        "prefix_seconds": round(llm.load_seconds or 0, 2),
         "threads": args.threads,
         "top_k": args.top_k,
+        "way_out": llm.way_out,
+        "chosen": args.chosen,
         "accuracy": sum(r["ok"] for r in rows) / len(rows),
         "commands_ok": _rate([r for r in rows if r["expect"]]),
         "non_commands_ok": _rate([r for r in rows if not r["expect"]]),
+        "wrong_command": sum(1 for r in rows if r["got"] and not r["ok"]),
         "median_seconds": statistics.median(seconds),
         "p90_seconds": sorted(seconds)[int(0.9 * (len(seconds) - 1))],
         "max_seconds": max(seconds),
         "rows": rows,
     }
+
+
+def _tool_model(args) -> ToolModel:
+    path = Path(args.model) if args.model else ToolModel.find_model(args.llm, download=True)
+    llm = ToolModel(path, n_threads=args.threads, model=args.llm)
+    if args.no_way_out:
+        llm.way_out, llm.prompt = False, SYSTEM_PROMPT
+    return llm
 
 
 def _largest(ranked: dict[str, list[str]], k: int, tools: Tools) -> list[str]:
@@ -178,11 +210,8 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
     ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     engine = Engine(ctc, tdt_models(ROOT)["en"], DEFAULT_EMBEDDING_MODEL, threads=args.threads)
     engine.build(compiled)
-    hammer = None
-    if not args.no_llm:
-        path = Path(args.model) if args.model else Hammer.find_model(download=True)
-        hammer = Hammer(path, n_threads=args.threads)
-    engine.fallback = Fallback(embedding_accept=args.embedding_accept, hammer=hammer, top_k=args.top_k)
+    llm = None if args.no_llm else _tool_model(args)
+    engine.fallback = Fallback(embedding_accept=args.embedding_accept, llm=llm, top_k=args.top_k)
     engine.fallback.prepare(engine, wait=True)
     speech = Speech(ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx", ROOT / "sounds/acknowledge.mp3")
     await speech.start()
@@ -211,7 +240,7 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
     return {
         "mode": "chain",
         "embedding_accept": args.embedding_accept,
-        "llm": hammer is not None,
+        "llm": None if llm is None else args.llm,
         "top_k": args.top_k,
         "accuracy": sum(r["ok"] for r in rows) / len(rows),
         "commands_ok": _rate([r for r in rows if r["expect"]]),
@@ -225,13 +254,16 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=("llm", "chain"), default="llm")
-    parser.add_argument("--model", help="the Hammer GGUF (default: from the Hugging Face cache)")
+    parser.add_argument("--llm", choices=sorted(TOOL_MODELS), default=DEFAULT_TOOL_MODEL)
+    parser.add_argument("--model", help="the LLM's GGUF (default: from the Hugging Face cache)")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--embedding-accept", action="store_true")
     parser.add_argument("--top-k", type=int, help="give the LLM only the K commands closest in meaning")
     parser.add_argument("--ranking", help="per-sentence command ranking (JSON) instead of computing it")
     parser.add_argument("--save-ranking", help="write the ranking computed here")
     parser.add_argument("--no-llm", action="store_true")
+    parser.add_argument("--no-way-out", action="store_true", help="without the not_a_command tool (and its prompt) for a model that has it")
+    parser.add_argument("--chosen", help="only these commands (comma-separated) are tools, in --mode llm")
     parser.add_argument("--only", help="only utterances containing this")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()

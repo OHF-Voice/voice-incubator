@@ -320,28 +320,80 @@ function groupsPanel(store, sats) {
 }
 
 // What happens when nothing matched: the closest command by meaning, and
-// the LLM.
+// the LLM -- each only for the commands chosen for it.
 function fallbackPanel() {
   const status = (state.status && state.status.fallback) || {};
   const meaning = h("input", { type: "checkbox", checked: status.meaning !== false });
-  const llm = h("input", { type: "checkbox", checked: !!status.llm, disabled: status.llm_installed === false });
+  const llm = h("input", { type: "checkbox", checked: status.llm !== false, disabled: status.llm_installed === false });
+  const model = h("select", {}, Object.entries(status.models || {}).map(([id, m]) => h("option", { value: id, selected: status.model === id }, `${m.name} (${m.mb} MB, ${m.licence})`)));
   const topK = h("input", { type: "number", min: 1, max: 64, value: status.top_k || 8, style: "width:70px" });
+  const count = (n) => `${n || 0} command${n === 1 ? "" : "s"} chosen`;
   async function save() {
     try {
-      await api("PUT", "settings", { fallback_meaning: meaning.checked, fallback_llm: llm.checked, fallback_top_k: Number(topK.value) });
+      await api("PUT", "settings", { fallback_meaning: meaning.checked, fallback_llm: llm.checked, fallback_model: model.value, fallback_top_k: Number(topK.value) });
       toast("Saved"); await refreshStatus(); pageCommands();
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
-    h("h2", {}, "When nothing matches"),
-    h("p", { class: "muted small" }, "Keywords and example sentences come first. When they find nothing:"),
+    h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "When nothing matches"),
+      h("button", { onclick: () => { location.hash = "#/fallback"; } }, "Choose commands")),
+    h("p", { class: "muted small" }, "Keywords and example sentences come first. When they find nothing, these can run a command — only one chosen for it, here or on the command's page:"),
     h("label", {}, meaning, "Run the command closest in meaning, when it is very close and needs nothing said (“kill the lights”)",
+      h("span", { class: "badge" }, count(status.meaning_commands)),
       status.meaning_available === false ? h("span", { class: "badge" }, "needs the embedding model") : null),
-    h("label", {}, llm, "Ask a small LLM, Hammer 2.1 0.5B, to pick a command and fill in what it needs (“we're out of coffee”)",
+    h("label", {}, llm, "Ask a small LLM to pick a command and fill in what it needs (“we're out of coffee”)",
+      h("span", { class: "badge" }, count(status.llm_commands)),
       status.llm_installed === false ? h("span", { class: "badge" }, "llama.cpp is not installed") : h("span", { class: "badge" }, status.llm_status || "off")),
-    h("div", { class: "row" }, field("Commands the LLM chooses from", topK, "The closest in meaning. Fewer is faster and picks wrong less often."),
+    h("div", { class: "row" },
+      field("LLM", model, "Granite is also the question model: no second download. Hammer is usually more careful, but is licensed for non-commercial use only."),
+      field("Commands it chooses from", topK, "When more are chosen, the closest in meaning. Fewer is faster and picks wrong less often; with no more than this many, they are read once and reused."),
       h("button", { class: "primary", onclick: save }, "Save")),
-    h("p", { class: "muted small" }, "The LLM is downloaded the first time it is turned on (531 MB) and needs about 1 GB of memory. It is licensed CC-BY-NC-4.0, for non-commercial use. On a Raspberry Pi 5 it adds a few seconds, only to commands nothing else understood."));
+    h("p", { class: "muted small" }, "The LLM is downloaded the first time a command is chosen for it. On a Raspberry Pi 5 it adds a few seconds, only to what nothing else understood."));
+}
+
+// Which commands the steps after keywords and examples may run.
+async function pageFallback() {
+  const store = await loadStore();
+  const errors = h("div");
+  const filter = h("input", { type: "search", placeholder: "Filter commands", style: "max-width:260px" });
+  const rows = Object.entries(store.commands || {}).map(([cid, spec]) => {
+    const steps = asList(spec && spec.fallback);
+    const needsSaid = !!(store.details[cid] || {}).needs_said;
+    const meaning = h("input", { type: "checkbox", checked: steps.includes("meaning"), disabled: needsSaid && !steps.includes("meaning"),
+      title: needsSaid ? "It needs something said (a name, number, value or text), which meaning can't hear" : "" });
+    const llm = h("input", { type: "checkbox", checked: steps.includes("llm") });
+    const row = h("div", { class: "item" }, icon(iconFor(spec || {}), "big"),
+      h("div", { class: "grow" }, h("div", { class: "title" }, (spec && (spec.title || spec.description)) || cid),
+        h("div", { class: "muted small" }, cid, needsSaid ? " · needs something said" : "")),
+      h("label", { title: meaning.title }, meaning, "meaning"), h("label", {}, llm, "LLM"));
+    return { cid, spec, meaning, llm, row };
+  });
+  filter.addEventListener("input", () => {
+    const text = filter.value.trim().toLowerCase();
+    for (const r of rows) r.row.style.display = !text || r.cid.includes(text) || String((r.spec && (r.spec.title || r.spec.description)) || "").toLowerCase().includes(text) ? "" : "none";
+  });
+  const all = (step, on) => rows.forEach((r) => { if (r.row.style.display !== "none" && !r[step].disabled) r[step].checked = on; });
+  async function save() {
+    fill(errors);
+    try {
+      await api("PUT", "fallback", { meaning: rows.filter((r) => r.meaning.checked).map((r) => r.cid), llm: rows.filter((r) => r.llm.checked).map((r) => r.cid) });
+      toast("Saved"); await refreshStatus(); pageFallback();
+    } catch (err) { errors.append(errorBox(err)); }
+  }
+  fill($main,
+    h("div", { class: "row" },
+      h("a", { href: "#/commands" }, "← Commands"),
+      h("h1", { class: "grow", style: "margin:0" }, "When nothing matches"),
+      h("button", { class: "primary", onclick: save }, "Save")),
+    errors,
+    h("div", { class: "panel" },
+      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Commands"), filter,
+        h("button", { onclick: () => all("meaning", true) }, "All by meaning"), h("button", { onclick: () => all("llm", true) }, "All by LLM"),
+        h("button", { onclick: () => { all("meaning", false); all("llm", false); } }, "None")),
+      h("p", { class: "muted small" }, "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (one that needs nothing said), and “LLM” lets the small LLM pick it and fill in what it needs. A command not chosen is never run by them."),
+      h("div", { class: "list" }, rows.map((r) => r.row))),
+    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
+  );
 }
 
 // Questions no command took: exact answers, and a small LLM for the rest.
@@ -402,6 +454,7 @@ async function pageCommands() {
             h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
             h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
           ...asList(spec.groups).map((g) => h("span", { class: "badge", title: "command group" }, groupNames[g] || g)),
+          asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "LLM" : f)).join(" + ")) : null,
           detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
           detail.overrides ? h("span", { class: "badge" }, `${detail.overrides} override${detail.overrides > 1 ? "s" : ""}`) : null);
       })))),
@@ -901,7 +954,18 @@ async function pageCommand(id, prefill) {
               if (e.target.checked) now.push(g);
               if (now.length) spec.groups = now; else delete spec.groups;
             } }), (info && info.name) || g))),
-          "A satellite limited to command groups runs only the commands in them (Satellites page).") : null),
+          "A satellite limited to command groups runs only the commands in them (Satellites page).") : null,
+        field("When nothing else matches", h("div", { class: "wake-list" },
+          [["meaning", "Run it when a sentence is very close in meaning"], ["llm", "Let the small LLM pick it"]].map(([step, label]) => h("label", {},
+            h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
+              const now = asList(spec.fallback).filter((x) => x !== step);
+              if (e.target.checked) now.push(step);
+              const ordered = ["meaning", "llm"].filter((x) => now.includes(x));
+              if (ordered.length) spec.fallback = ordered; else delete spec.fallback;
+            } }), label))),
+          (id && ((state.store.details || {})[id] || {}).needs_said)
+            ? "It needs something said (a name, number, value or text), so meaning won't run it: only the LLM can fill that in."
+            : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Commands page.")),
       h("div", { class: "panel" }, h("h2", {}, "Where"), scopeEditor(spec, "scope", true)),
       h("div", { class: "panel" }, h("h2", {}, "Target"),
         h("p", { class: "muted small" }, "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
@@ -1554,6 +1618,8 @@ function renderRecognition(rec) {
           h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${Math.round((rec.fallback.llm.seconds || 0) * 1000)} ms`,
           rec.fallback.llm.candidates ? h("div", { class: "muted" }, "chose from ", rec.fallback.llm.candidates.join(", ")) : null,
           rec.fallback.llm.problems ? h("div", { class: "muted" }, "refused: ", rec.fallback.llm.problems.join("; ")) : null,
+          rec.fallback.llm.refused ? h("div", { class: "muted" }, `refused: ${rec.fallback.llm.refused.command} is not close in meaning (similarity ${rec.fallback.llm.refused.similarity})`) : null,
+          rec.fallback.llm.said ? h("div", { class: "muted" }, `it said: ${rec.fallback.llm.said}`) : null,
         ]) : null) : null,
     rec.hint ? h("div", { class: "notice info" }, rec.hint.text, h("div", { class: "small muted" }, `hint from ${rec.hint.source || "nothing"}`, rec.hint.similarity !== undefined ? ` · similarity ${rec.hint.similarity} vs ${rec.hint.next_similarity} (${rec.hint.next})` : "")) : null,
     h("h3", {}, `Matched (${(r.matches || []).length})`),
@@ -1716,12 +1782,13 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    link.classList.toggle("active", link.dataset.page === page || ((page === "command" || page === "group") && link.dataset.page === "commands") || (page === "call" && link.dataset.page === "calls"));
+    link.classList.toggle("active", link.dataset.page === page || ((page === "command" || page === "group" || page === "fallback") && link.dataset.page === "commands") || (page === "call" && link.dataset.page === "calls"));
   }
   try {
     if (page === "commands") await pageCommands();
     else if (page === "command") await pageCommand(arg || null);
     else if (page === "group") await pageGroup(arg || null);
+    else if (page === "fallback") await pageFallback();
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "satellites") await pageSatellites();

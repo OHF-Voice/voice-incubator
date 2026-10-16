@@ -22,7 +22,7 @@ from . import actions, timers
 from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
 from .endpoint import Endpointer
-from .fallback import Fallback, Hammer
+from .fallback import DEFAULT_TOOL_MODEL, TOOL_MODELS, Fallback, ToolModel, chosen, llama_available
 from .questions import DEFAULT_QA_MODEL, QA_MODELS, Answerer, Questions
 from .engine import LEARN_VOICE, Decision, Engine, Satellite
 from .hass import HassError, HomeAssistant
@@ -118,9 +118,10 @@ TDT_MODELS = {
 }
 DEFAULT_TDT = "en"
 DEFAULT_TOP_K = 8
-"""The LLM fallback chooses among this many commands, the closest in meaning:
-on the fallback benchmark, 61% of the commands it was given against 56% with
-every command, and a quarter of its picks wrong against half."""
+"""With more commands chosen for the LLM fallback than this, it chooses among
+the closest this many in meaning; with no more, among all of them, read once
+(a reused prefix). On the fallback benchmark with every library command,
+the closest 8 are right more often (Granite 52% against 41%) but slower."""
 
 
 def tdt_models(root: Path) -> dict[str, Path]:
@@ -377,6 +378,8 @@ class VoiceCallApp:
         # satellites waking at once is rare, so one lock over them is enough.
         self._model_lock = asyncio.Lock()
         self._build_lock = asyncio.Lock()
+        self._fallback_lock = asyncio.Lock()
+        """One fallback change at a time: a second waits, and reuses the LLM."""
 
     # ------------------------------------------------------------ lifecycle
 
@@ -463,57 +466,89 @@ class VoiceCallApp:
         async with self._build_lock:
             await asyncio.to_thread(self.engine.build, compiled)
         self.store_error = None
-        if self.engine.fallback is not None:
-            self.engine.fallback.prepare(self.engine)  # new commands, new tools
+        fallback = self.engine.fallback
+        if fallback is not None:
+            if fallback.llm is None and self._llm_wanted():
+                self._spawn(self.configure_fallback())  # the first command chosen for it
+            else:
+                fallback.prepare(self.engine)  # new commands, new tools
 
     # ------------------------------------------------------------ fallback
 
     def fallback_settings(self) -> dict[str, Any]:
-        """``settings.yaml``: when nothing matched, take the closest command
-        by meaning (``fallback_meaning``, on unless turned off) and ask the
-        LLM (``fallback_llm``, off unless turned on) with the closest
-        ``fallback_top_k`` commands."""
+        """``settings.yaml``: when nothing matched, run the closest command by
+        meaning (``fallback_meaning``) and ask an LLM (``fallback_llm``,
+        ``fallback_model``) with the closest ``fallback_top_k`` commands.
+        Both on unless turned off; each only for the commands chosen for it
+        (``fallback: [meaning, llm]``)."""
         settings = self.store.settings
+        model = str(settings.get("fallback_model") or DEFAULT_TOOL_MODEL)
         return {
             "meaning": bool(settings.get("fallback_meaning", True)),
-            "llm": bool(settings.get("fallback_llm", False)),
+            "llm": bool(settings.get("fallback_llm", True)),
+            "model": model if model in TOOL_MODELS else DEFAULT_TOOL_MODEL,
             "top_k": int(settings.get("fallback_top_k") or DEFAULT_TOP_K),
         }
 
+    def _llm_wanted(self) -> bool:
+        """The LLM is turned on and some command is chosen for it."""
+        compiled = self.engine.compiled if self.engine is not None else None
+        return self.fallback_settings()["llm"] and compiled is not None and bool(chosen(compiled, "llm"))
+
     def fallback_status(self) -> dict[str, Any]:
         fallback = self.engine.fallback if self.engine is not None else None
+        compiled = self.engine.compiled if self.engine is not None else None
+        settings = self.fallback_settings()
+        llm_commands = chosen(compiled, "llm") if compiled is not None else []
+        if not settings["llm"]:
+            status = "off"
+        elif not llm_commands:
+            status = "no commands chosen for it"
+        else:
+            status = self._llm_status or (fallback.status if fallback is not None else "off")
         return {
-            **self.fallback_settings(),
+            **settings,
+            "models": {m: {"name": i.name, "mb": i.mb, "licence": i.licence} for m, i in TOOL_MODELS.items()},
             "meaning_available": bool(self.engine and self.engine.embedder),
-            "llm_installed": Hammer.available(),
-            "llm_status": self._llm_status or (fallback.status if fallback is not None else "off"),
+            "meaning_commands": len(chosen(compiled, "meaning")) if compiled is not None else 0,
+            "llm_commands": len(llm_commands),
+            "llm_installed": llama_available(),
+            "llm_status": status,
         }
 
     async def configure_fallback(self) -> None:
         """Apply the fallback settings. The LLM is downloaded the first time
-        it is turned on (531 MB) and loaded in the background."""
+        it is needed -- turned on, with a command chosen for it -- and loaded
+        in the background."""
         if self.engine is None:
             return
+        async with self._fallback_lock:
+            await self._configure_fallback()
+
+    async def _configure_fallback(self) -> None:
+        assert self.engine is not None
         wanted = self.fallback_settings()
         current = self.engine.fallback
-        hammer = current.hammer if current is not None else None
+        llm = current.llm if current is not None else None
         self._llm_status = None
-        if not wanted["llm"]:
-            hammer = None
-        elif hammer is None:
-            if not Hammer.available():
+        if not self._llm_wanted() or (llm is not None and llm.model != wanted["model"]):
+            llm = None
+        if llm is None and self._llm_wanted():
+            info = TOOL_MODELS[wanted["model"]]
+            name, size = info.name, info.mb
+            if not llama_available():
                 self._llm_status = "llama.cpp is not installed"
             else:
-                self._llm_status = "downloading Hammer 2.1 0.5B (531 MB)"
+                self._llm_status = f"downloading {name} ({size} MB)"
                 path = await asyncio.to_thread(
-                    Hammer.find_model, self.options.downloads, self.store.data_dir / "models"
+                    ToolModel.find_model, wanted["model"], self.options.downloads, self.store.data_dir / "models"
                 )
                 if path is None:
-                    self._llm_status = "could not download Hammer 2.1 0.5B"
+                    self._llm_status = f"could not download {name}"
                 else:
                     self._llm_status = None
-                    hammer = Hammer(path, n_threads=self.options.threads)
-        fallback = Fallback(wanted["meaning"], hammer, wanted["top_k"])
+                    llm = ToolModel(path, n_threads=self.options.threads, model=wanted["model"])
+        fallback = Fallback(wanted["meaning"], llm, wanted["top_k"])
         self.engine.fallback = fallback
         fallback.prepare(self.engine)
 
@@ -537,7 +572,7 @@ class VoiceCallApp:
         return {
             **self.question_settings(),
             "models": {m: {"name": n, "mb": mb} for m, (n, _r, _f, mb) in QA_MODELS.items()},
-            "llm_installed": Hammer.available(),
+            "llm_installed": llama_available(),
             "llm_status": self._qa_status or ("ready" if loaded else "off"),
         }
 
@@ -559,7 +594,7 @@ class VoiceCallApp:
         if not wanted["llm"] or answerer is not None:
             self._qa_status = None
             return
-        if not Hammer.available():
+        if not llama_available():
             self._qa_status = "llama.cpp is not installed"
             return
         name, _repo, _file, size = QA_MODELS[wanted["model"]]

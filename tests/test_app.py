@@ -221,6 +221,19 @@ async def _scenario(tmp_path: Path) -> None:
             assert "command_groups" not in app.store.settings
             assert (await tried_command("turn on the lights"))["command"] == "lights_on"
 
+            # Commands chosen for the fallback steps; meaning can't take one
+            # that needs something said.
+            assert (await http.put("/api/fallback", json={"meaning": ["what_time"], "llm": ["lights_on"]})).status == 200
+            store_data = await (await http.get("/api/store")).json()
+            assert store_data["commands"]["what_time"]["fallback"] == ["meaning"]
+            assert store_data["commands"]["lights_on"]["fallback"] == ["llm"]
+            assert store_data["details"]["what_time"]["needs_said"] is False
+            fallback = (await (await http.get("/api/status")).json())["fallback"]
+            assert fallback["meaning_commands"] == 1 and fallback["llm_commands"] == 1 and fallback["model"] == "granite-4.0-350m"
+            assert (await http.put("/api/fallback", json={"llm": ["nope"]})).status == 400
+            assert (await http.put("/api/settings", json={"fallback_model": "nope"})).status == 400
+            assert (await http.put("/api/fallback", json={"meaning": [], "llm": []})).status == 200
+
             # A question no command takes is answered: exactly, or (not here:
             # there is no question model) as live.
             record = await app.try_text("what is twelve times eight", MAC)
