@@ -106,6 +106,26 @@ def _pcm_to_float(pcm: bytes) -> np.ndarray:
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
+# Parakeet's TDT head, which writes example sentences, free text and hints:
+# the English one beside the CTC model (parakeet-tdt_ctc-110m, int8 preferred)
+# or NVIDIA's multilingual parakeet-tdt-0.6b-v3 (25 European languages; it
+# finds the language itself), as sherpa-onnx releases it.
+TDT_MODELS = {
+    "en": ("English", "parakeet-tdt_ctc-110m, 110M parameters"),
+    "multilingual": ("Multilingual (25 European languages)", "parakeet-tdt-0.6b-v3, 600M parameters"),
+}
+DEFAULT_TDT = "en"
+
+
+def tdt_models(root: Path) -> dict[str, Path]:
+    from adapt_ctc.tdt import has_model  # pylint: disable=import-outside-toplevel
+
+    english = root / "models/parakeet-tdt-int8"
+    if not has_model(english):
+        english = root / "models/parakeet-tdt"
+    return {"en": english, "multilingual": root / "models/parakeet-tdt-v3-int8"}
+
+
 # Shipped lower than the models' own manifests, per wake word (see
 # wake_words.VERIFIED_CUTOFF, and the "Two stages" and "Wake words" sections of
 # the README for the measurements behind them).
@@ -299,12 +319,10 @@ class VoiceCallApp:
         ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
         if not (ctc_dir / "model.onnx").exists():
             ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
-        # Prefer the int8 encoder: 172 MB vs 456 MB, same transcripts, faster.
-        tdt_dir = root / "models/parakeet-tdt-int8"
-        if not (tdt_dir / "encoder.onnx").exists():
-            tdt_dir = root / "models/parakeet-tdt"
         self._ctc_dir = ctc_dir
-        self._tdt_dir = tdt_dir if options.tdt else None
+        self._tdt_dirs = tdt_models(root)
+        self.tdt_status: str | None = None
+        """What became of the last change of TDT model, for the UI."""
         self.engine: Engine | None = None
         # A second opinion on the two Kaldi tests that are about "is this the
         # wake word or just speech". Its `confusable` test is left alone.
@@ -362,7 +380,7 @@ class VoiceCallApp:
         self.engine = await asyncio.to_thread(
             Engine,
             self._ctc_dir,
-            self._tdt_dir,
+            self.tdt_dir(),
             self.options.embedding_dir,
             self.options.threads,
             (LEARN_VOICE,) if self.speakers is not None else (),
@@ -466,6 +484,45 @@ class VoiceCallApp:
             info = self.hass.catalog.area_info(area)
             return Satellite(key, name, **info, device_id=link.device_id, timer_list=link.timer_list, **extra)
         return Satellite(key, name, **self.hass.catalog.area_info(stored.get("area")), **extra)
+
+    # ----------------------------------------------------------- TDT model
+
+    def tdt_dir(self, choice: str | None = None) -> Path | None:
+        """The TDT model's directory: the one picked (settings.yaml
+        ``tdt_model``), else English. None with ``--no-tdt``."""
+        if not self.options.tdt:
+            return None
+        choice = choice or str(self.store.settings.get("tdt_model") or DEFAULT_TDT)
+        return self._tdt_dirs.get(choice) or self._tdt_dirs.get(DEFAULT_TDT)
+
+    def tdt_models(self) -> list[dict[str, Any]]:
+        from adapt_ctc.tdt import has_model  # pylint: disable=import-outside-toplevel
+
+        current = self.engine.tdt_dir if self.engine is not None else None
+        out = []
+        for model_id, (name, detail) in TDT_MODELS.items():
+            path = self._tdt_dirs.get(model_id)
+            out.append(
+                {
+                    "id": model_id,
+                    "name": name,
+                    "detail": detail,
+                    "available": bool(path and has_model(path)),
+                    "loaded": bool(path and current and Path(current).resolve() == path.resolve()),
+                }
+            )
+        return out
+
+    async def change_tdt(self) -> None:
+        """Load the picked TDT model in place of the current one. Recognition
+        waits for it; the previous model stays if it cannot be loaded."""
+        wanted = self.tdt_dir()
+        if self.engine is None or wanted is None or self.engine.tdt_dir == wanted:
+            return
+        self.tdt_status = f"loading {wanted.name}"
+        async with self._model_lock:
+            loaded = await asyncio.to_thread(self.engine.use_tdt, wanted)
+        self.tdt_status = None if loaded else f"could not load {wanted.name}; kept {self.engine.tdt_dir}"
 
     def satellite_command_groups(self, key: str | None) -> frozenset[str] | None:
         """The command groups a satellite is limited to: its own, else every
@@ -1223,7 +1280,7 @@ class VoiceCallApp:
         voice = satellite.voice
         assert voice.tts is not None
         data: dict = {"media_player_entity_id": target, "message": text, "cache": True}
-        language = await self.voices.tts_language(voice.tts)
+        language = await self.voices.tts_language(voice.tts, voice.tts_language)
         if language:
             data["language"] = language
         if voice.tts_voice:
@@ -1603,7 +1660,9 @@ class VoiceCallApp:
         """The satellite's STT entity for this command, or None: the TDT head."""
         if satellite.voice.stt is None or self.engine is None:
             return None
-        return await self.voices.transcriber(satellite.voice.stt, self.engine.transcriber)
+        return await self.voices.transcriber(
+            satellite.voice.stt, self.engine.transcriber, satellite.voice.stt_language
+        )
 
     async def _hang_up(self, session: Session, reason: str) -> None:
         _LOGGER.info("[%s] Hanging up: %s", session, reason)

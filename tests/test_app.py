@@ -371,6 +371,28 @@ async def _voices(tmp_path: Path) -> None:
         stored["speak_on"] = "media_player.kitchen_speaker"
         assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
         assert spoken[-1]["media_player_entity_id"] == "media_player.kitchen_speaker"
+
+        # Languages: German for this satellite's STT and TTS.
+        stored.update(stt_language="de", tts_language="de-DE")
+        await app.try_text("please play kind of blue", MAC)
+        assert hass.stt_requests[-1]["header"].endswith("language=de-DE")
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        assert spoken[-1]["language"] == "de-DE"
+
+        # The multilingual TDT model, picked and loaded while running.
+        if (ROOT / "models/parakeet-tdt-v3-int8").exists():
+            app.store.settings["tdt_model"] = "multilingual"
+            await app.change_tdt()
+            assert app.engine.tdt_dir.name == "parakeet-tdt-v3-int8" and app.tdt_status is None
+            assert [m["loaded"] for m in app.tdt_models()] == [False, True]
+            stored.pop("stt", None)  # back to the built-in TDT for text
+            app.store.settings.pop("stt", None)
+            record = await app.try_text("please play kind of blue", MAC)
+            recognition = next(s for s in record.stages if s["stage"] == "recognition")
+            assert recognition["command"] == "play_music" and recognition["text_source"] == "TDT"
+            app.store.settings["tdt_model"] = "en"
+            await app.change_tdt()
+            assert app.engine.tdt_dir.name == "parakeet-tdt-int8"
     finally:
         runner.cancel()
         await app.stop()

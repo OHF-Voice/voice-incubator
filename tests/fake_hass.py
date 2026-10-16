@@ -67,8 +67,19 @@ SENDSPIN_PLAYERS = {"aabbccddeeff": "media_player.fake_vpe"}
 """Satellite -> its Sendspin player, as the Voice Call integration finds it."""
 # The fake satellite's ESPHome device and its media player (where TTS speaks).
 ESPHOME_DEVICE = {"id": "esphome-fake-vpe", "mac": "aa:bb:cc:dd:ee:ff", "media_player": "media_player.fake_vpe_media_player"}
-STT_ENGINES = [{"engine_id": "stt.fake_whisper", "supported_languages": ["en-US", "en-GB"]}]
-TTS_ENGINES = [{"engine_id": "tts.fake_cloud", "supported_languages": ["en-US"]}]
+STT_ENGINES = [{"engine_id": "stt.fake_whisper", "supported_languages": ["en-US", "en-GB", "de-DE", "fr-FR"]}]
+TTS_ENGINES = [{"engine_id": "tts.fake_cloud", "supported_languages": ["en-US", "de-DE"]}]
+
+
+def _for_language(providers: list[dict], language: str | None) -> list[dict]:
+    """As Home Assistant answers: with a language, only what matches it."""
+    if not language:
+        return providers
+    base = language.split("-")[0].lower()
+    return [
+        {**p, "supported_languages": [c for c in p["supported_languages"] if c.split("-")[0].lower() == base]}
+        for p in providers
+    ]
 TTS_VOICES = {"tts.fake_cloud": [{"voice_id": "JennyNeural", "name": "Jenny"}, {"voice_id": "GuyNeural", "name": "Guy"}]}
 MUSIC_LIBRARY = {
     "artists": [{"media_type": "artist", "uri": "library://artist/1", "name": "Miles Davis"}],
@@ -106,6 +117,7 @@ class FakeHass:
         self.stt_text = "what time is it"
         """What the STT entity hears (over REST, see serve_rest)."""
         self.stt_requests: list[dict[str, Any]] = []
+        self.voice_requests: list[dict[str, Any]] = []
         self.on_speak: Any = None
         """Called with tts.speak's data: a test makes the satellite announce."""
         self.broken_search = False
@@ -271,10 +283,11 @@ class FakeHass:
         elif kind == "voice_timer_list/item/list":
             await result({"timers": list(self.timers.get(message["entity_id"], {}).values())})
         elif kind == "stt/engine/list":
-            await result({"providers": STT_ENGINES})
+            await result({"providers": _for_language(STT_ENGINES, message.get("language"))})
         elif kind == "tts/engine/list":
-            await result({"providers": TTS_ENGINES})
+            await result({"providers": _for_language(TTS_ENGINES, message.get("language"))})
         elif kind == "tts/engine/voices":
+            self.voice_requests.append(message)
             await result({"voices": TTS_VOICES.get(message["engine_id"], [])})
         elif kind == "call_service":
             self.services.append(message)

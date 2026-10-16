@@ -61,6 +61,14 @@ at the top of the Satellites page, and per satellite below it.
   example sentences said word for word, free text ("play …", timer names),
   and hints. It is only asked when one of those is needed, so "turn on the
   lights" never waits for it. Should it fail, the built-in model stands in.
+- **Language.** Each entity is asked in the language you pick from the ones it
+  supports, or automatically in its best match for English.
+- **Built-in speech model.** Without a speech-to-text entity, the app's own
+  model writes that text: English, or **multilingual** (25 European
+  languages, found by itself) at about three times the time and 600 MB more
+  memory. Commands are still matched by the English model first, so in
+  another language a command is matched by its example sentences, said word
+  for word.
 - **Text-to-speech.** Responses are spoken with the TTS entity (and the voice
   you pick) on the satellite's own media player -- Home Assistant sends it the
   audio's address and it plays it -- or, per satellite, on **another media

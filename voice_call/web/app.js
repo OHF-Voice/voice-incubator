@@ -1051,8 +1051,36 @@ function voiceSelectValue(select, inheritable) {
   return select.value === "builtin" && !inheritable ? null : select.value || null;
 }
 
-// A TTS entity's voices, loaded when it is picked.
-function voicePicker(ttsSelect, value, inherit) {
+// The language an STT or TTS entity is asked in: every one it supports,
+// "automatic" (its best match for English) first, and for one satellite
+// "as every satellite". Follows the entity picked in `entitySelect`, whose
+// value may be "" (as every satellite: `inheritEntity`).
+function languagePicker(entities, entitySelect, value, inherit, inheritEntity) {
+  const select = h("select", {});
+  function load() {
+    const entityId = entitySelect.value || inheritEntity || "";
+    const entity = entities.find((e) => e.entity_id === entityId);
+    const options = [];
+    if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite${inherit ? ` (${inherit})` : ""}`));
+    options.push(h("option", { value: "auto", selected: inherit === undefined ? !value : value === "auto" }, entity && entity.english ? `Automatic (${entity.english})` : "Automatic"));
+    for (const code of (entity && entity.languages) || []) options.push(h("option", { value: code, selected: value === code }, code));
+    if (value && value !== "auto" && !(entity && entity.languages.includes(value))) options.push(h("option", { value, selected: true }, `${value} (not supported)`));
+    fill(select, options);
+    select.disabled = !entity;
+  }
+  entitySelect.addEventListener("change", () => { value = undefined; load(); });
+  load();
+  return select;
+}
+
+// What a language select means: "" (as every satellite), null (automatic) or a code.
+function languageValue(select, inheritable) {
+  if (select.value === "auto") return inheritable ? "auto" : null;
+  return select.value || null;
+}
+
+// A TTS entity's voices, loaded when it (or its language) is picked.
+function voicePicker(ttsSelect, value, inherit, languageSelect) {
   const select = h("select", {});
   async function load() {
     const tts = ttsSelect.value;
@@ -1060,14 +1088,16 @@ function voicePicker(ttsSelect, value, inherit) {
     if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `As every satellite${inherit ? ` (${inherit})` : ""}`));
     options.push(h("option", { value: "default", selected: inherit === undefined ? !value : value === "default" }, "Its default voice"));
     if (tts && tts.startsWith("tts.")) {
+      const language = languageSelect && languageSelect.value && languageSelect.value !== "auto" ? `?language=${encodeURIComponent(languageSelect.value)}` : "";
       try {
-        const data = await api("GET", `voices/${encodeURIComponent(tts)}`);
+        const data = await api("GET", `voices/${encodeURIComponent(tts)}${language}`);
         for (const v of data.voices) options.push(h("option", { value: v.id, selected: value === v.id }, v.name || v.id));
       } catch (_) { /* no voices to offer */ }
     }
     fill(select, options);
   }
   ttsSelect.addEventListener("change", () => { value = undefined; load(); });
+  if (languageSelect) languageSelect.addEventListener("change", () => { value = undefined; load(); });
   load();
   return select;
 }
@@ -1153,7 +1183,12 @@ async function pageSatellites() {
   const settings = (state.status && state.status.settings) || {};
   const globalStt = voiceSelect("stt", voices.stt, settings.stt);
   const globalTts = voiceSelect("tts", voices.tts, settings.tts);
-  const globalVoice = voicePicker(globalTts, settings.tts_voice);
+  const globalSttLanguage = languagePicker(voices.stt, globalStt, settings.stt_language);
+  const globalTtsLanguage = languagePicker(voices.tts, globalTts, settings.tts_language);
+  const globalVoice = voicePicker(globalTts, settings.tts_voice, undefined, globalTtsLanguage);
+  const models = (state.status && state.status.tdt_models) || [];
+  const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
+    `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
   const label = (value, kind) => value || (kind === "stt" ? "built-in" : "built-in");
   const store = await loadStore();
   const groups = store.groups || {};
@@ -1210,11 +1245,17 @@ async function pageSatellites() {
       h("h2", {}, "Listening and speaking"),
       h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own below). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
       voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
+      field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
+      state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
       h("div", { class: "row" },
-        field("Speech-to-text", globalStt), field("Text-to-speech", globalTts), field("Voice", globalVoice),
+        field("Speech-to-text", globalStt), field("Language", globalSttLanguage),
+        field("Text-to-speech", globalTts), field("Language", globalTtsLanguage), field("Voice", globalVoice),
         h("button", { class: "primary", onclick: async () => {
           try {
-            await api("PUT", "settings", { stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null });
+            await api("PUT", "settings", {
+              stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null,
+              stt_language: languageValue(globalSttLanguage), tts_language: languageValue(globalTtsLanguage), tdt_model: tdtModel.value,
+            });
             await refreshStatus(); toast("Saved"); pageSatellites();
           } catch (err) { toast(err.message); }
         } }, "Save"))),
@@ -1227,7 +1268,9 @@ async function pageSatellites() {
       const used = s.voice_used || {};
       const stt = voiceSelect("stt", voices.stt, own.stt, label(settings.stt));
       const tts = voiceSelect("tts", voices.tts, own.tts, label(settings.tts));
-      const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "");
+      const sttLanguage = languagePicker(voices.stt, stt, own.stt_language, settings.stt_language || "automatic", settings.stt);
+      const ttsLanguage = languagePicker(voices.tts, tts, own.tts_language, settings.tts_language || "automatic", settings.tts);
+      const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "", ttsLanguage);
       const speakOn = h("select", {},
         h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
         ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
@@ -1250,8 +1293,8 @@ async function pageSatellites() {
           h("div", {}, "Wake words"), h("div", {}, (s.wake_words_used || []).map((id) => (wake.wake_words.find((w) => w.id === id) || { name: id }).name).join(", ") || "none", s.wake_words ? " (its own)" : ""),
           h("div", {}, "Commands"), h("div", {}, s.command_groups_used ? ["only those in ", s.command_groups_used.map((g) => (groups[g] && groups[g].name) || g).join(", "), s.command_groups ? " (its own)" : ""] : "every command"),
           h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
-          h("div", {}, "Listens with"), h("div", {}, used.stt ? h("code", {}, used.stt) : "the built-in TDT model", " after the built-in matcher"),
-          h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice ? ` (${used.tts_voice})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in")),
+          h("div", {}, "Listens with"), h("div", {}, used.stt ? [h("code", {}, used.stt), used.stt_language ? ` (${used.stt_language})` : ""] : "the built-in TDT model", " after the built-in matcher"),
+          h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice || used.tts_language ? ` (${[used.tts_language, used.tts_voice].filter(Boolean).join(", ")})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in")),
         s.timers && s.timers.length ? h("div", { class: "small" }, h("b", {}, "Timers: "),
           s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · ")) : null,
         s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
@@ -1260,7 +1303,8 @@ async function pageSatellites() {
         field("Wake words", wakeWords),
         commandGroups ? field("Command groups", commandGroups) : null,
         h("div", { class: "row" },
-          field("Speech-to-text", stt), field("Text-to-speech", tts), field("Voice", voice),
+          field("Speech-to-text", stt), field("Language", sttLanguage),
+          field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
           field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
         h("div", { class: "row" },
           h("button", { class: "primary", onclick: async () => {
@@ -1268,6 +1312,7 @@ async function pageSatellites() {
               await api("PUT", `satellites/${s.key}`, {
                 name: name.value, area: area.value || null, media_player: player.value || null,
                 stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
+                stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
                 wake_words: wakeWords.picked(),
                 ...(commandGroups ? { command_groups: commandGroups.picked() } : {}),
               });

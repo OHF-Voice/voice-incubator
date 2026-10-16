@@ -9,7 +9,7 @@ import pytest
 
 from voice_call.engine import free_text
 from voice_call.hass import HassError, HomeAssistant
-from voice_call.voices import HassTranscriber, VoiceChoice, Voices, choose
+from voice_call.voices import HassTranscriber, VoiceChoice, Voices, _match, choose, language_code
 
 from . import fake_hass
 
@@ -23,6 +23,21 @@ def test_every_satellite_unless_its_own():
     )
     # Speaking elsewhere needs a TTS entity; the built-in voice is the satellite's.
     assert choose({}, {"speak_on": "media_player.kitchen", "tts_voice": "Jenny"}) == VoiceChoice()
+    # Languages, for every satellite or its own; none without the entity.
+    settings = {**settings, "stt_language": "de-DE", "tts_language": "de"}
+    assert choose(settings, {}).stt_language == "de-DE" and choose(settings, {}).tts_language == "de"
+    assert choose(settings, {"stt_language": "fr"}).stt_language == "fr"
+    assert choose(settings, {"stt_language": "auto"}).stt_language is None  # automatic, its own
+    assert choose({"stt_language": "de"}, {}).stt_language is None
+
+
+def test_language_codes():
+    assert language_code("de-DE") == "de-DE" and language_code("") == "" and language_code("pt_BR") == "pt_BR"
+    with pytest.raises(ValueError):
+        language_code("German")
+    assert _match("de", ["en-US", "de-DE"]) == "de-DE"
+    assert _match("DE_de", ["en-US", "de-DE"]) == "de-DE"
+    assert _match("fr", ["en-US", "de-DE"]) is None
 
 
 @pytest.mark.parametrize(
@@ -96,7 +111,15 @@ def test_through_home_assistant():
             voices = Voices(hass)
             engines = await voices.engines()
             assert [e["entity_id"] for e in engines["stt"]] == ["stt.fake_whisper"]
+            assert engines["stt"][0]["languages"] == ["en-US", "en-GB", "de-DE", "fr-FR"]
+            assert engines["stt"][0]["english"] == "en-US"
             assert await voices.stt_language("stt.fake_whisper") == "en-US"
+            assert await voices.stt_language("stt.fake_whisper", "de") == "de-DE"
+            with pytest.raises(HassError):
+                await voices.stt_language("stt.fake_whisper", "nl")
+            assert await voices.tts_language("tts.fake_cloud", "de-DE") == "de-DE"
+            await voices.voices("tts.fake_cloud", "de")
+            assert fake.voice_requests[-1]["language"] == "de-DE"
             assert [v["voice_id"] for v in await voices.voices("tts.fake_cloud")] == ["JennyNeural", "GuyNeural"]
             fake.stt_text = "play kind of blue"
             assert await hass.speech_to_text("stt.fake_whisper", bytes(3200), "en-US") == "play kind of blue"

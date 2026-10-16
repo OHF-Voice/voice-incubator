@@ -34,6 +34,10 @@
   satellite, which then runs only the commands in its groups (its own, else
   the home's). Made and filled on the Commands page; a command's editor ticks
   its groups too.
+- A multilingual built-in speech model (parakeet-tdt-0.6b-v3, 25 European
+  languages) in place of the English one, switched while running. Home
+  Assistant STT and TTS entities get a language, for every satellite or per
+  satellite.
 - Every model in the Tater Wake Words catalog (851) runs on the satellite;
   `scripts/check_wake_words.py` checks a collection. A manifest cutoff of 1.0
   is run as 0.99.

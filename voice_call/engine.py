@@ -247,16 +247,9 @@ class Engine:
     ) -> None:
         self.internal = {name: INTERNAL_INTENTS[name] for name in internal}
         self.model = CtcModel(model_dir, num_threads=threads)
-        self.transcriber = None
-        if tdt_dir is not None and (Path(tdt_dir) / "encoder.onnx").is_file():
-            try:
-                from adapt_ctc.tdt import TdtTranscriber  # pylint: disable=import-outside-toplevel
-
-                self.transcriber = TdtTranscriber(tdt_dir, threads)
-            except ImportError:
-                _LOGGER.warning("sherpa-onnx is not installed; no TDT transcripts")
-        elif tdt_dir is not None:
-            _LOGGER.warning("No TDT model at %s; examples are matched in the CTC evidence only", tdt_dir)
+        self.threads = threads
+        self.transcriber = self._load_tdt(tdt_dir)
+        self.tdt_dir = Path(tdt_dir) if self.transcriber is not None and tdt_dir is not None else None
         self.embedder = None
         if embedding_dir is not None and (Path(embedding_dir) / "onnx/model_q4.onnx").is_file():
             try:
@@ -277,6 +270,39 @@ class Engine:
         self.unspeakable: list[str] = []
         self.build_seconds = 0.0
         self._lock = threading.Lock()
+
+    def _load_tdt(self, tdt_dir: Path | None):
+        from adapt_ctc.tdt import has_model  # pylint: disable=import-outside-toplevel
+
+        if tdt_dir is None:
+            return None
+        if not has_model(Path(tdt_dir)):
+            _LOGGER.warning("No TDT model at %s; examples are matched in the CTC evidence only", tdt_dir)
+            return None
+        try:
+            from adapt_ctc.tdt import TdtTranscriber  # pylint: disable=import-outside-toplevel
+
+            transcriber = TdtTranscriber(tdt_dir, self.threads)
+        except ImportError:
+            _LOGGER.warning("sherpa-onnx is not installed; no TDT transcripts")
+            return None
+        _LOGGER.info("TDT model: %s", tdt_dir)
+        return transcriber
+
+    def use_tdt(self, tdt_dir: Path | None) -> bool:
+        """Transcribe with another TDT model from now on (the English one or
+        the multilingual one). Slow: call from a thread. False, and the old
+        one kept, when it cannot be loaded."""
+        transcriber = self._load_tdt(tdt_dir)
+        if transcriber is None and tdt_dir is not None:
+            return False
+        with self._lock:
+            self.transcriber = transcriber
+            self.tdt_dir = Path(tdt_dir) if tdt_dir is not None else None
+            compiled = self.compiled
+        if compiled is not None:
+            self.build(compiled)  # the recognizer holds the transcriber
+        return True
 
     # ------------------------------------------------------------- building
 

@@ -21,9 +21,24 @@ from .acoustic import SAMPLE_RATE
 DEFAULT_TDT_MODEL = Path(__file__).resolve().parent.parent / "models/parakeet-tdt-int8"
 
 
+def model_file(model_dir: Path, part: str) -> Path | None:
+    """``encoder.onnx``, or ``encoder.int8.onnx`` as sherpa-onnx's own
+    releases name it; None when neither is there."""
+    for name in (f"{part}.onnx", f"{part}.int8.onnx"):
+        path = Path(model_dir) / name
+        if path.is_file():
+            return path
+    return None
+
+
+def has_model(model_dir: Path | None) -> bool:
+    return model_dir is not None and all(model_file(model_dir, p) for p in ("encoder", "decoder", "joiner"))
+
+
 class TdtTranscriber:
     """A NeMo TDT model exported for sherpa-onnx: ``encoder.onnx``,
-    ``decoder.onnx``, ``joiner.onnx`` and ``tokens.txt``."""
+    ``decoder.onnx``, ``joiner.onnx`` (or their ``.int8.onnx``) and
+    ``tokens.txt``."""
 
     def __init__(self, model_dir: Path, num_threads: int = 2) -> None:
         import sherpa_onnx  # pylint: disable=import-outside-toplevel
@@ -31,9 +46,9 @@ class TdtTranscriber:
         model_dir = Path(model_dir)
         self.model_dir = model_dir.resolve()
         self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-            encoder=str(model_dir / "encoder.onnx"),
-            decoder=str(model_dir / "decoder.onnx"),
-            joiner=str(model_dir / "joiner.onnx"),
+            encoder=str(model_file(model_dir, "encoder")),
+            decoder=str(model_file(model_dir, "decoder")),
+            joiner=str(model_file(model_dir, "joiner")),
             tokens=str(model_dir / "tokens.txt"),
             num_threads=num_threads,
             sample_rate=SAMPLE_RATE,
@@ -68,7 +83,7 @@ class TdtTranscriber:
 
 def load_transcriber(model_dir: Path, num_threads: int, prog: str) -> TdtTranscriber | None:
     """The transcriber, or None with a warning when it cannot be loaded."""
-    if not (Path(model_dir) / "encoder.onnx").is_file():
+    if not has_model(Path(model_dir)):
         print(
             f"{prog}: warning: no TDT model at {model_dir}; example sentences "
             "will not be matched",

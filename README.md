@@ -163,6 +163,7 @@ them into the vocabulary unless someone adds it.
 | `scripts/report_corpus.py` | per channel, per prompt, per failure |
 | `models/` | everything needed to run offline (~770 MB) |
 | `models/speaker/` | `redimnet_b2_vox2.onnx` from `OpenVoiceOS/redimnet-b2-vox2-onnx` |
+| `models/parakeet-tdt-v3-int8/` | optional: the multilingual TDT model, `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` from the sherpa-onnx releases |
 | `var/speakers.json` | speaker profiles and LED colors |
 
 ## Multi-microphone corpus
@@ -739,7 +740,10 @@ and falls back to TDT on failure. STT text has no word times, so free text is
 found by the wildcard's own keywords in the transcript (`engine.free_text`:
 after an `after` keyword to the end or to a `before` keyword, or as many
 words before a `before` keyword as the CTC head heard there). The language is
-the entity's best match for English (`stt/engine/list`).
+`stt_language` (`de` matches the entity's first `de-*`), else the entity's
+best match for English (`stt/engine/list`); TTS has `tts_language` the same
+way, and a satellite may say `auto` to override the home's language with the
+automatic one.
 
 **TTS on the satellite.** `tts.speak` on the satellite's ESPHome media player
 (found by its MAC in the device registry): the firmware's `speaker_source`
@@ -758,6 +762,32 @@ announcement, and music is turned down while one plays.
 **TTS elsewhere.** With `speak_on`, `tts.speak` targets that player and the
 call ends at once. The acknowledgement sound (a command with nothing to say)
 is still streamed to the satellite.
+
+### The multilingual TDT model
+
+`settings.yaml` `tdt_model: multilingual` replaces the English TDT head
+(parakeet-tdt_ctc-110m's) with NVIDIA's parakeet-tdt-0.6b-v3, as sherpa-onnx
+releases it (`sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8`, copied as is into
+`models/parakeet-tdt-v3-int8`; `adapt_ctc/tdt.py` takes its `*.int8.onnx`
+names). It is loaded in place of the other while the app runs
+(`Engine.use_tdt`, under the recognition lock), and the recognizer is rebuilt
+around it. It finds the language itself, so it writes German example
+sentences, free text and hints in German -- but the CTC matcher is still the
+English model, so commands in another language are matched by their example
+sentences, word for word against its transcript, not by keywords.
+
+Transcribing (best of three, after a warm-up), 2 threads:
+
+| | resident | 3.0 s command | 3.8 s German | 6.8 s French |
+|---|---|---|---|---|
+| English, this machine | 319 MB | 41 ms | 53 ms (nonsense) | 90 ms (nonsense) |
+| multilingual, this machine | 1,191 MB | 188 ms | 229 ms | 408 ms |
+| English, Pi 5 | 290 MB | 127 ms | 162 ms (nonsense) | 310 ms (nonsense) |
+| multilingual, Pi 5 | 867 MB | 382 ms | 468 ms | 849 ms |
+
+(4 threads on the Pi 5: 354 ms for the command.) It is only asked when text is
+needed -- never for a keyword command -- so the cost lands on examples, free
+text and misses.
 
 ## Music (Music Assistant and Sendspin)
 

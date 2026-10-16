@@ -15,6 +15,11 @@ mkdir -p local/models/speech-to-phrase
 cp -a models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8 local/models/speech-to-phrase/
 cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
       models/wake-kaldi-models models/wake-kaldi-tools models/wake-kaldi-decoderd local/models/
+# The multilingual TDT model (640 MB), when it has been put in models/: the
+# sherpa-onnx release sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8, as is.
+if [[ -d models/parakeet-tdt-v3-int8 ]]; then
+    cp -a models/parakeet-tdt-v3-int8 local/models/
+fi
 
 mkdir -p local/wyoming-wake-kaldi
 cp -a "$KALDI_SRC/pyproject.toml" "$KALDI_SRC/wyoming_wake_kaldi" local/wyoming-wake-kaldi/

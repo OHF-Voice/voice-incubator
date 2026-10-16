@@ -26,6 +26,7 @@ from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .commands import DYNAMIC_LISTS, NUMBER_PRESETS, parse_command
 from .hass import VOICE_DOMAINS, HassError
 from .store import NAME_KINDS, compile_store, dump, plain
+from .voices import language_code
 from .wake_words import DEFAULT_MODEL_SLOTS, RESERVED_SLOTS, SPECIAL
 
 if TYPE_CHECKING:
@@ -181,6 +182,8 @@ class Api:
                 "embedding": bool(engine and engine.embedder),
                 "commands": len(engine.compiled.commands) if engine and engine.compiled else 0,
                 "speakers": app.speakers is not None,
+                "tdt_models": app.tdt_models(),
+                "tdt_status": app.tdt_status,
                 "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
                 "settings": app.store.settings,
@@ -487,7 +490,11 @@ class Api:
                     ),
                     "model_slots": (session.hello.get("model_slots") if session else None),
                     # As stored (absent: as every satellite) and as it comes out.
-                    "voice": {k: stored.get(k) for k in ("stt", "tts", "tts_voice", "speak_on") if k in stored},
+                    "voice": {
+                        k: stored.get(k)
+                        for k in ("stt", "tts", "tts_voice", "speak_on", "stt_language", "tts_language")
+                        if k in stored
+                    },
                     "voice_used": satellite.voice.__dict__,
                     "device_media_player": satellite.device_media_player,
                     # Picked here, or else found: its Sendspin client's player.
@@ -526,6 +533,13 @@ class Api:
                 entry.pop("area", None)
         # STT and TTS of its own: an entity, "builtin", or empty for what every
         # satellite uses. speak_on: a media player for its responses.
+        for option in ("stt_language", "tts_language"):
+            if option in body:
+                value = _language(body[option], option)
+                if value:
+                    entry[option] = value
+                else:
+                    entry.pop(option, None)
         for option, domain in (("stt", "stt."), ("tts", "tts."), ("tts_voice", ""), ("speak_on", "media_player.")):
             if option in body:
                 value = str(body[option] or "")
@@ -591,7 +605,7 @@ class Api:
         if not entity_id.startswith("tts."):
             raise ConfigError("Expected a tts entity")
         try:
-            voices = await self.app.voices.voices(entity_id)
+            voices = await self.app.voices.voices(entity_id, request.query.get("language") or None)
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             return web.json_response({"voices": [], "error": str(err)})
         return web.json_response({"voices": [{"id": v.get("voice_id"), "name": v.get("name")} for v in voices]})
@@ -617,8 +631,28 @@ class Api:
                     settings[key] = value
                 else:
                     settings.pop(key, None)
+        for option in ("stt_language", "tts_language"):
+            if option in body:
+                value = _language(body[option], option)
+                if value:
+                    settings[option] = value
+                else:
+                    settings.pop(option, None)
         if "tts" in body and not settings.get("tts"):
             settings.pop("tts_voice", None)
+            settings.pop("tts_language", None)
+        if "stt" in body and not settings.get("stt"):
+            settings.pop("stt_language", None)
+        if "tdt_model" in body:
+            from .server import DEFAULT_TDT, TDT_MODELS  # pylint: disable=import-outside-toplevel
+
+            choice = str(body["tdt_model"] or DEFAULT_TDT)
+            if choice not in TDT_MODELS:
+                raise ConfigError(f"tdt_model: one of {', '.join(TDT_MODELS)}")
+            settings["tdt_model"] = choice
+            self.app.store.save_settings()
+            # Loading takes a while; the UI follows it in the status.
+            asyncio.ensure_future(self.app.change_tdt())
         if "command_groups" in body:
             # Empty: every command, on satellites without groups of their own.
             picked = self._group_ids(body["command_groups"])
@@ -790,6 +824,13 @@ def _from_form(spec: dict[str, Any]) -> dict[str, Any]:
     for override in spec["overrides"]:
         take(override)
     return spec
+
+
+def _language(value: Any, option: str) -> str:
+    try:
+        return language_code(value)
+    except ValueError as err:
+        raise ConfigError(f"{option}: {err}") from err
 
 
 def _clean(value: Any) -> Any:

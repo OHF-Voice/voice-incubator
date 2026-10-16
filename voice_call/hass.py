@@ -481,14 +481,20 @@ class HomeAssistant:
             raise HassError(f"{entity_id} could not transcribe the audio")
         return str(result.get("text") or "")
 
-    async def stt_engines(self, language: str) -> list[dict]:
+    async def stt_engines(self, language: str | None) -> list[dict]:
         """STT entities and the languages they support that match ``language``
-        (best first)."""
-        result = await self.call({"type": "stt/engine/list", "language": language})
+        (best first); every language they support when it is None."""
+        message: dict[str, Any] = {"type": "stt/engine/list"}
+        if language:
+            message["language"] = language
+        result = await self.call(message)
         return [p for p in (result or {}).get("providers", []) if str(p.get("engine_id", "")).startswith("stt.")]
 
-    async def tts_engines(self, language: str) -> list[dict]:
-        result = await self.call({"type": "tts/engine/list", "language": language})
+    async def tts_engines(self, language: str | None) -> list[dict]:
+        message: dict[str, Any] = {"type": "tts/engine/list"}
+        if language:
+            message["language"] = language
+        result = await self.call(message)
         return [p for p in (result or {}).get("providers", []) if str(p.get("engine_id", "")).startswith("tts.")]
 
     async def tts_voices(self, engine_id: str, language: str) -> list[dict]:
