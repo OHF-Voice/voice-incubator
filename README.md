@@ -1144,12 +1144,16 @@ transcript, and the CTC matcher reads evidence made from it
 words (`adapt_ctc.text.spoken_words`: "10" is "ten", "&" is "and") are
 spelled in the model's own SentencePiece pieces (the fewest that spell each
 word), each piece certain for two frames, with blanks between pieces and
-words and around them. Keywords, names, numbers and example sentences then
-match as if the sentence had been heard perfectly, through the same code as
-audio; the text itself stands in for the TDT head (`TypedText`), so example
-lookups, free text ("Kind of Blue by Miles Davis", as typed), skills and
-questions read it as written. All 58 example sentences in the library match
-their own command this way. A word no pieces spell (outside the model's
+words and around them. Keywords, names and numbers then match as if the
+sentence had been heard perfectly, through the same code as audio; the text
+itself stands in for the TDT head (`TypedText`), so free text ("Kind of Blue
+by Miles Davis", as typed), skills and questions read it as written. Example
+sentences count only typed whole (`Recognizer.example_first`, then
+`recognize_log_probs(examples=False)`): example search in the evidence
+allows words around an example, for audio, and on clean text took "grab
+bananas *next* time you shop" for "next" -- the same rule as the transcript
+pass. All 58 example sentences in the library match their own command this
+way. A word no pieces spell (outside the model's
 alphabet) is left out, and listed in the trace.
 
 With `speak` (the "Say it first" box), the old way: Piper says it, and it is

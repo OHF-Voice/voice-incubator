@@ -79,3 +79,21 @@ def test_the_transcript_is_matched_when_the_audio_was_not(engine):
     # Nothing in either: on to the rest, the pass recorded.
     decision = decide(engine, "blah blah", CloudStt("What's the capital of France?"))
     assert decision.command is None and decision.transcript_pass["command"] is None
+
+
+def test_typed_text_takes_an_example_only_typed_whole(engine):
+    """The Try page: an example typed word for word wins, as one said does;
+    a short one with words around it is no example ("grab bananas *next*
+    time you shop")."""
+    store = {**STORE, "commands": {**STORE["commands"], "next_track": {
+        "description": "skip to the next song", "examples": ["next", "play the next song"], "require": [["skip"]],
+        "response": "Skipped."}}}
+    engine.build(compile_store(store))
+    try:
+        assert engine.recognize_text("next", OFFICE).command.id == "next_track"
+        decision = engine.recognize_text("Play the next song.", OFFICE)
+        assert decision.command.id == "next_track" and decision.intent.example == "play the next song"
+        assert engine.recognize_text("grab bananas next time you shop", OFFICE).command is None
+        assert engine.recognize_text("skip this one", OFFICE).command.id == "next_track"  # its keywords
+    finally:
+        engine.build(compile_store(STORE))

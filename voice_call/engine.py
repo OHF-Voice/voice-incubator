@@ -504,7 +504,12 @@ class Engine:
             decision.hint = {"source": None, "text": decision.message}
             return decision
 
-        recognition = recognizer.recognize_log_probs(log_probs, frame_seconds)
+        typed = getattr(transcriber, "source", "TDT") == "typed"
+        # Typed text is clean: an example counts only typed whole, not a short
+        # one with words around it ("grab bananas *next* time you shop").
+        recognition = recognizer.recognize_log_probs(log_probs, frame_seconds, examples=not typed)
+        if typed:
+            recognizer.example_first(recognition, transcriber.transcribe(command_audio))
         recognition = recognizer.match_examples(recognition, command_audio, transcriber)
         decision = Decision(recognition={}, text_source=getattr(transcriber, "source", "TDT"))
 

@@ -440,6 +440,24 @@ class Recognizer:
             self._match_embedding(recognition, with_examples)
         return recognition
 
+    def example_first(self, recognition: Recognition, text: str, source: str = "typed") -> bool:
+        """``text`` (typed, or a transcript) is one of the example sentences,
+        word for word: that intent goes first, ahead of keyword matches, as
+        an example found in the CTC evidence does. For evidence made from
+        text, where example search would take a short example with words
+        around it (``recognize_log_probs(examples=False)``)."""
+        found = self._find_example(text, skip_first=False)
+        if found is None:
+            return False
+        result = IntentResult(found[0], True, cost=0.0, example=found[1], example_source=source)
+        recognition.rejected = [r for r in recognition.rejected if r.intent != result.intent]
+        recognition.matches = [m for m in recognition.matches if m.intent != result.intent]
+        for other in recognition.matches:
+            other.ambiguous_with = [i for i in other.ambiguous_with if i != result.intent]
+        result.notes.extend(f"keyword match {m.intent} ({m.cost:.2f}) comes after the example" for m in recognition.matches)
+        recognition.matches.insert(0, result)
+        return True
+
     @staticmethod
     def _accept(recognition: Recognition, result: IntentResult) -> None:
         recognition.rejected = [r for r in recognition.rejected if r.intent != result.intent]
