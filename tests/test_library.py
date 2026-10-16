@@ -33,9 +33,22 @@ def test_every_icon_is_shipped():
     icons = shipped_icons()
     used = {e["spec"]["icon"] for e in load_library() if e["spec"].get("icon")}
     used |= {e["group_icon"] for e in load_library() if e["group_icon"]}
-    kinds = set(re.findall(r'"(mdi:[a-z0-9-]+)"', re.search(r"const KIND_ICONS = \{.*?\};", (WEB / "app.js").read_text()).group(0)))
-    assert used and not (used | kinds) - icons
+    # Every icon the page names, the kinds' defaults among them.
+    page = set(re.findall(r'"(mdi:[a-z0-9-]+)"', (WEB / "app.js").read_text()))
+    assert used and not (used | page) - icons
     assert all(e["spec"].get("icon") for e in load_library())
+
+
+def test_commands_are_listed_by_library_section():
+    from voice_call.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
+
+    sections, _ids = library_sections()
+    assert [s["file"] for s in sections] == ["basic", "home", "music", "timers"] and sections[0]["title"] == "Basics"
+    # Added from the library (library: music), else by id -- a numbered or
+    # copied one too; made from scratch: none (Custom).
+    assert library_of("anything", {"library": "music"}) == "music"
+    assert [library_of(i, {}) for i in ("lights_on", "lights_on_2", "lights_on_copy", "pause_timer_copy_3", "my_lights")] == [
+        "basic", "basic", "basic", "timers", None]
 
 
 def test_icons_are_material_design_names():

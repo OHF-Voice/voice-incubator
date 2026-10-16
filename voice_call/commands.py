@@ -11,8 +11,9 @@ A command is one adapt-ctc intent plus what to do when it matches::
         script: script.heat_up                   # or scene:, action:, or none
         response: "OK, {{ slots.entity[0] }} is on"
 
-``title`` and ``icon`` (a Material Design Icon, ``mdi:lightbulb``) are only
-for the UI.
+``title``, ``icon`` (a Material Design Icon, ``mdi:lightbulb``) and
+``library`` (the library file it was added from, ``music``: where the
+Commands page lists it) are only for the UI.
 
 Listening is adapt-ctc's own vocabulary -- ``examples``, ``require``,
 ``optional``, ``exclude``, ``names``, ``number``, ``lists`` and ``wildcard``
@@ -128,6 +129,7 @@ COMMAND_KEYS = {
     "disabled",
     "title",
     "icon",
+    "library",
     "groups",
     "fallback",
     "combinations",

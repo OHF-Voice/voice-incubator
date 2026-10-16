@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import json
 import logging
 import re
@@ -166,6 +167,29 @@ def load_library() -> list[dict[str, Any]]:
     return entries
 
 
+@functools.lru_cache(maxsize=1)
+def library_sections() -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """The library's files in order -- ``{file, title, icon}`` -- and which
+    file each library command id is in. The library ships with the app."""
+    yaml = YAML(typ="safe")
+    sections, ids = [], {}
+    for path in sorted(LIBRARY_DIR.glob("*.yaml")):
+        data = yaml.load(path.read_text("utf-8")) or {}
+        sections.append({"file": path.stem, "title": data.get("title") or path.stem, "icon": data.get("icon")})
+        for command_id in data.get("commands") or {}:
+            ids.setdefault(str(command_id), path.stem)
+    return sections, ids
+
+
+def library_of(command_id: str, spec: dict[str, Any]) -> str | None:
+    """The library file a command came from: its ``library``, else the one
+    with its id (also as a numbered or copied one, ``lights_on_2``)."""
+    sections, ids = library_sections()
+    if spec.get("library") in {section["file"] for section in sections}:
+        return str(spec["library"])
+    return ids.get(command_id) or ids.get(re.sub(r"(_copy)?(_\d+)?$", "", command_id))
+
+
 class Api:
     def __init__(self, app: "VoiceCallApp") -> None:
         self.app = app
@@ -227,6 +251,7 @@ class Api:
             try:
                 command = parse_command(command_id, spec)
                 details[command_id] = {
+                    "library": library_of(command_id, spec),
                     "does": command.behavior.does,
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": needs_heard_slots(command),
@@ -236,11 +261,13 @@ class Api:
                     "question": command.behavior.question,
                 }
             except ConfigError as err:
-                details[command_id] = {"error": str(err)}
+                details[command_id] = {"error": str(err), "library": library_of(command_id, spec if isinstance(spec, dict) else {})}
         return web.json_response(
             {
                 "commands": commands,
                 "details": details,
+                # Where the Commands page lists them: the library's sections.
+                "sections": library_sections()[0],
                 "names": {kind: (data.get("names") or {}).get(kind) or {} for kind in NAME_KINDS},
                 "lists": data.get("lists") or {},
                 "groups": data.get("groups") or {},
@@ -495,6 +522,7 @@ class Api:
         spec = copy.deepcopy(entry["spec"])
         spec.pop("needs", None)
         spec.setdefault("title", entry["title"])
+        spec["library"] = entry["file"]
         # Shared lists it uses, unless yours already has one by that name.
         have = self.app.store.load().data.get("lists") or {}
         for name, values in entry["lists"].items():

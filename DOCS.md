@@ -78,6 +78,11 @@ at the top of the Satellites page, and per satellite below it.
 
 ## Commands
 
+The **Commands** page lists your commands as the library has them -- Basics,
+Covers and locks, Music, Timers -- with the ones you made from scratch first,
+under **Custom**. A command from the library stays in its section when you
+change it, rename it or duplicate it.
+
 **New command** on the Commands page offers the library's commands --
 search them, or show one group (Basics, Covers and locks, Music, Timers) --
 and, always at the top, a custom command made from scratch. Adding one from

@@ -33,6 +33,8 @@ DEFAULTS = [
     "mdi:pencil-plus-outline",
     # Settings: commands.yaml.
     "mdi:code-braces",
+    # The Commands page: your own commands.
+    "mdi:pencil-outline",
 ]
 PICKER = [
     "mdi:lightbulb",

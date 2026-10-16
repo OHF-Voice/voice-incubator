@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- The Commands page lists commands by the library's sections (Basics, Covers
+  and locks, Music, Timers), under Custom for your own. A command added from
+  the library remembers its section (`library:`).
 - Overrides are gone. **Duplicate** a command instead, into the command group
   of the satellites where it should do something else: the copy can take the
   original's place in that group, and says the same example sentences.

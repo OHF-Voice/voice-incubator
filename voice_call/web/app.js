@@ -482,35 +482,44 @@ async function pageSkills() {
     ...data.skills.map(card));
 }
 
+// Commands as the library has them -- Basics, Covers and locks, Music,
+// Timers -- under your own (Custom), which come first.
 async function pageCommands() {
   const [store] = await Promise.all([loadStore(), loadSatellites()]);
   const sats = satelliteLabels();
   const ids = Object.keys(store.commands || {});
   const groupNames = Object.fromEntries(Object.entries(store.groups || {}).map(([g, spec]) => [g, (spec && spec.name) || g]));
-  const groups = ids.length ? { Commands: ids } : {};
-  const order = Object.keys(groups);
-  fill($main, 
+  const bySection = {};
+  for (const id of ids) {
+    const section = (store.details[id] || {}).library || "";
+    (bySection[section] = bySection[section] || []).push(id);
+  }
+  const item = (id) => {
+    const spec = store.commands[id] || {};
+    const detail = store.details[id] || {};
+    return h("div", { class: "item clickable", onclick: () => { location.hash = `#/command/${id}`; } },
+      icon(iconFor(spec), "big"),
+      h("div", { class: "grow" },
+        h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
+        h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
+      ...asList(spec.groups).map((g) => h("span", { class: "badge", title: "command group" }, groupNames[g] || g)),
+      asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
+      detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
+  };
+  const section = (title, iconName, members, empty) => h("div", { class: "panel" },
+    h("h2", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(members.length))),
+    members.length ? h("div", { class: "list" }, members.map(item)) : empty);
+  fill($main,
     h("div", { class: "row" }, h("h1", { class: "grow" }, "Commands"),
       h("button", { class: "primary", onclick: () => newCommandDialog() }, "New command")),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
     ids.length ? groupsPanel(store, sats) : null,
-    ids.length ? null : h("div", { class: "panel" },
-      h("p", {}, "No voice commands yet."),
-      h("p", { class: "muted" }, "Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
-    ...order.map((group) => h("div", { class: "panel" },
-      h("h2", {}, group),
-      h("div", { class: "list" }, ...groups[group].map((id) => {
-        const spec = store.commands[id] || {};
-        const detail = store.details[id] || {};
-        return h("div", { class: "item clickable", onclick: () => { location.hash = `#/command/${id}`; } },
-          icon(iconFor(spec), "big"),
-          h("div", { class: "grow" },
-            h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
-            h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
-          ...asList(spec.groups).map((g) => h("span", { class: "badge", title: "command group" }, groupNames[g] || g)),
-          asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
-          detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
-      })))),
+    section("Custom", "mdi:pencil-outline", bySection[""] || [],
+      h("p", { class: "muted small" }, ids.length
+        ? "Commands you make from scratch (New command, then Custom command) are listed here; the library's are below, as the library has them."
+        : "No voice commands yet. Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
+    ...(store.sections || []).filter((s) => (bySection[s.file] || []).length)
+      .map((s) => section(s.title, s.icon || "mdi:folder-outline", bySection[s.file])),
   );
 }
 
