@@ -8,6 +8,7 @@ Assistant with an admin token.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -569,13 +570,19 @@ class Api:
     async def wake_words(self, request: web.Request) -> web.Response:
         app = self.app
         catalog = app.wake_words
-        words = []
-        for word in catalog.scan().values():
-            item = word.to_json()
-            # Lowered now, so a model the device cannot run says so here.
-            item["runs"] = catalog.model(word.id) is not None
-            item["error"] = catalog.errors.get(word.id)
-            words.append(item)
+
+        def describe() -> list[dict[str, Any]]:
+            # Lowered now (and cached), so a model the device cannot run says
+            # so here. Hundreds of custom words take seconds: off the loop.
+            words = []
+            for word in catalog.scan().values():
+                item = word.to_json()
+                item["runs"] = catalog.model(word.id) is not None
+                item["error"] = catalog.errors.get(word.id)
+                words.append(item)
+            return words
+
+        words = await asyncio.to_thread(describe)
         return web.json_response(
             {
                 "wake_words": words,
@@ -619,7 +626,7 @@ class Api:
         manifest_path = catalog.custom_dir / f"{word_id}.json"
         tflite.write_bytes(model)
         manifest_path.write_text(json.dumps({**manifest, "model": tflite.name}, indent=2), "utf-8")
-        if catalog.model(word_id) is None:
+        if await asyncio.to_thread(catalog.model, word_id) is None:
             error = catalog.errors.get(word_id, "unknown error")
             tflite.unlink(missing_ok=True)
             manifest_path.unlink(missing_ok=True)

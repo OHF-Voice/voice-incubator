@@ -988,6 +988,19 @@ function wakeChooser(words, picked, slots, inherit) {
     return { word: w, box };
   });
   const note = h("span", { class: "help" });
+  // Hundreds of custom words: a filter, and the picked ones always shown.
+  const filter = words.length > 12 ? h("input", { type: "search", placeholder: `Filter ${words.length} wake words`, style: "max-width:260px" }) : null;
+  function shown() {
+    const text = filter ? filter.value.trim().toLowerCase() : "";
+    let room = 60;
+    for (const { word, box } of boxes) {
+      const match = !text || word.name.toLowerCase().includes(text) || word.id.includes(text);
+      const show = box.checked || !word.custom || (match && (text || room > 0));
+      if (show && word.custom && !box.checked) room--;
+      box.parentElement.style.display = show ? "" : "none";
+    }
+  }
+  if (filter) filter.addEventListener("input", shown);
   function update() {
     const following = inherit && !own.checked;
     for (const { word, box } of boxes) {
@@ -996,18 +1009,21 @@ function wakeChooser(words, picked, slots, inherit) {
     }
     const n = boxes.filter((b) => b.box.checked).length;
     note.textContent = n > slots ? `Only ${slots} fit on a satellite: the first ${slots} ticked are used.` : n ? "" : "Pick at least one.";
+    if (boxes.length && boxes[0].box.parentElement) shown();
   }
   own.addEventListener("change", update);
   boxes.forEach((b) => b.box.addEventListener("change", update));
   update();
   const el = h("div", { class: "wake-words" },
     inherit ? h("label", { class: "small" }, own, "Its own wake words (otherwise as every satellite)") : null,
+    filter,
     h("div", { class: "wake-list" }, boxes.map(({ word, box }) => h("label", { title: word.error || "" }, box, word.name,
       word.verified ? h("span", { class: "badge ok", title: `Checked by the verifier; the detector runs at ${word.cutoff}` }, "verified")
         : h("span", { class: "badge", title: "No verifier: runs at its own manifest's cutoff" }, `custom · ${word.cutoff}`),
       word.runs ? null : h("span", { class: "badge bad" }, "can't run")))),
     note);
   el.picked = () => (inherit && !own.checked ? null : boxes.filter((b) => b.box.checked).map((b) => b.word.id));
+  shown();
   return el;
 }
 
@@ -1055,7 +1071,7 @@ async function pageSatellites() {
             toast(`Added ${data.id}`); pageSatellites();
           } catch (err) { toast(err.message); }
         } }, "Upload")),
-      custom.length ? h("div", { class: "small" }, "Custom: ", custom.map((w) => h("span", { class: "chip" }, w.name,
+      custom.length ? h("details", { class: "small" }, h("summary", {}, `Delete custom wake words (${custom.length})`), custom.map((w) => h("span", { class: "chip" }, w.name,
         h("button", { class: "link", title: `Delete ${w.id}`, onclick: async () => {
           if (!confirm(`Delete the wake word ${w.name}?`)) return;
           try { await api("DELETE", `wake_words/${encodeURIComponent(w.id)}`); toast("Deleted"); pageSatellites(); }

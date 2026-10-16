@@ -30,6 +30,9 @@
   own (low) cutoff. Custom microWakeWord models (Tater, ESPHome) can be
   uploaded or put in `wake_words/`; they run unverified at their manifest's
   cutoff. Firmware: six model slots, reported in `HELLO`.
+- Every model in the Tater Wake Words catalog (851) runs on the satellite;
+  `scripts/check_wake_words.py` checks a collection. A manifest cutoff of 1.0
+  is run as 0.99.
 - Home Assistant STT and TTS entities, for every satellite or per satellite.
   STT writes what TDT would (examples, free text, hints) and only when needed;
   TTS speaks on the satellite's own media player or on another one.

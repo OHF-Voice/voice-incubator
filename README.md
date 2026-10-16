@@ -152,6 +152,7 @@ them into the vocabulary unless someone adds it.
 | `scripts/false_accepts.py` | how often the chain fires on audio with no wake word in it |
 | `scripts/synth_wake_words.py` | wake words and near misses spoken by every Piper English voice, in rooms and noise |
 | `scripts/bench_wake_words.py` | a wake word through both stages on labeled clips, at several cutoffs; sweeps thresholds afterwards |
+| `scripts/check_wake_words.py` | whether custom wake words lower for the device, match TFLite and hear their own phrase |
 | `tests/alignments/` | wake word spans and word boundaries, one JSONL per session |
 | `tests/corpus_corrections.csv` | what was actually said, where it differs from the prompt list |
 | `corpus/positives/` | 32 VPE captures of in-vocabulary commands, for threshold work |
@@ -477,6 +478,30 @@ The verifier accepted none of them at any cutoff, but each firing lights the
 ring and ducks the music until it is refused, so the cutoffs are 0.2, 0.5 and
 0.7. "Hey Mycroft" is the trigger-happy one: at 0.7 it still finds 95% of the
 synthetic wake words against 90% at 0.9.
+
+### Custom wake words
+
+A custom wake word is a microWakeWord manifest and model, as ESPHome and the
+[Tater Wake Words](https://github.com/TaterTotterson/Tater-Wake-Words) catalog
+ship them (Tater's own `.json` and its `.esphome.json` twin both work; the
+openWakeWord files beside them are ignored). Its id is the model's file name.
+It cannot shadow a built-in word, "stop" or the VAD, and of two with the same
+id in a nested directory the first is used (with a warning). A cutoff of 1.0
+is run as 0.99: the device fires when the window's average is *above* the
+cutoff, so 1.0 would never fire.
+
+`scripts/check_wake_words.py` ran every model in the Tater catalog -- 851
+models, 794 distinct phrases, versions 1 to 7 -- through three checks:
+
+| check | result |
+|---|---|
+| lowered for the device by the app | 851 of 851 |
+| upstream executor (what the firmware compiles) against TFLite's reference kernels, on speech | 848 identical; `yuki` off by 1, `igad` by 11 and `okay_hal` by 31 at some step (the executor rounds as esp-nn does; all three still detect) |
+| its own phrase, 6 synthetic clips at the manifest's cutoff | 775 hear all 6, 68 hear 5, 7 hear 4; V6 `hey_athena` heard none at its manifest's 1.0, all 6 at 0.99 |
+
+The V7 models are three times the size of the older ones (94,772 B against
+33,876 B). A Voice PE took two of them, a V1 model and "okay nabu" at once.
+The manifests' cutoffs run from 0.02 to 1.0; 415 are 0.97.
 
 ## Two captures per call
 
