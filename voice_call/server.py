@@ -24,7 +24,7 @@ from .discover import Device, Discovery
 from .endpoint import Endpointer
 from .fallback import DEFAULT_TOOL_MODEL, TOOL_MODELS, Fallback, ToolModel, chosen, llama_available
 from .questions import DEFAULT_QA_MODEL, QA_MODELS, Answerer, Questions
-from .engine import LEARN_VOICE, Decision, Engine, Satellite
+from .engine import LEARN_VOICE, Decision, Engine, Satellite, llm_note
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
@@ -1406,7 +1406,9 @@ class VoiceCallApp:
             return answer["text"], "answered", f"{decision.transcript!r}: {answer['kind']} answer"
         if decision.command is None:
             message = decision.message or "Sorry, I didn't understand that."
-            return message, "not recognized", f"{decision.transcript!r}: {message}"
+            tried = llm_note(decision.fallback)
+            summary = f"{decision.transcript!r}: {message}" + (f" ({tried})" if tried else "")
+            return message, "not recognized", summary
         _LOGGER.info(
             "Matched %s (%s) slots=%s%s",
             decision.command.id,

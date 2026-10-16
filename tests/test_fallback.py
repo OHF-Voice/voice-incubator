@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from voice_call.engine import Satellite
+from voice_call.engine import Satellite, llm_note
 from voice_call.fallback import (
     Fallback,
     Tools,
@@ -238,6 +238,7 @@ def test_the_chain():
     llm.reply = '<tool_call>\n{"name": "not_a_command", "arguments": {}}\n'
     found = fallback.decide("what's the capital of france", far, compiled, KITCHEN, ranked)
     assert found.command is None and found.trace["llm"]["said"] == "not a command"
+    assert llm_note(found.trace) == "LLM: not a command"
 
 
 def test_only_chosen_commands():
@@ -289,6 +290,8 @@ def test_picks_must_be_close_in_meaning():
     found = fallback.decide("thank you", far, compiled, KITCHEN, at(0.68))
     assert found.command is None and found.trace["llm"]["refused"]["why"] == "not close in meaning"
     assert "command" not in found.trace["llm"]  # so no "it looks like you're trying to..." from it
+    # Said in the call's summary.
+    assert llm_note(found.trace) == "LLM picked lights_on, not close enough in meaning to run (0.68, needs 0.70)"
     # Something taken from it: 0.65.
     llm.reply = '<tool_call>\n{"name": "add_item", "arguments": {"item": "milk"}}\n'
     assert fallback.decide("we need milk", far, compiled, KITCHEN, at(0.68)).command.id == "add_item"

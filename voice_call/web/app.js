@@ -1619,8 +1619,20 @@ function renderOutcome(record) {
       h("div", {}, rec.text_source === "typed" ? "Read as" : "Heard"), h("div", {}, rec.recognition.transcript || "—"),
       rec.recognition.tdt_transcript ? [h("div", {}, heardLabels(rec).text), h("div", {}, rec.recognition.tdt_transcript)] : null,
       rec.slots && Object.keys(rec.slots).length ? [h("div", {}, "Slots"), h("div", {}, h("code", {}, JSON.stringify(rec.slots)))] : null,
+      !rec.command && llmNote(rec.fallback) ? [h("div", {}, "LLM"), h("div", {}, llmNote(rec.fallback))] : null,
       speech ? [h("div", {}, "Says"), h("div", {}, speech.text || h("span", { class: "muted" }, "(a short sound)"))] : null,
       action && action.error ? [h("div", {}, "Error"), h("div", { class: "notice bad" }, action.error)] : null));
+}
+
+// What the LLM fallback came to when it ran no command, in a line (as
+// engine.llm_note); null when it was not asked.
+function llmNote(fallback) {
+  const llm = fallback && fallback.llm;
+  if (!llm) return null;
+  if (llm.skipped) return `skipped: ${llm.skipped}`;
+  if (llm.refused) return `picked ${llm.refused.command}, not close enough in meaning to run (${llm.refused.similarity.toFixed(2)}, needs ${llm.refused.floor.toFixed(2)})`;
+  if (llm.problems) return `${llm.command ? `picked ${llm.command}` : "its pick"}, not run: ${llm.problems.join("; ")}`;
+  return "not a command";
 }
 
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT
@@ -1654,14 +1666,14 @@ function renderRecognition(rec) {
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
       h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
     rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
-    rec.fallback ? h("details", {}, h("summary", {}, "When nothing matched"),
+    rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "") : null,
       rec.fallback.llm ? h("div", { class: "small" }, "LLM: ",
         rec.fallback.llm.skipped ? `skipped (${rec.fallback.llm.skipped})` : [
           h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${Math.round((rec.fallback.llm.seconds || 0) * 1000)} ms`,
           rec.fallback.llm.candidates ? h("div", { class: "muted" }, "chose from ", rec.fallback.llm.candidates.join(", ")) : null,
           rec.fallback.llm.problems ? h("div", { class: "muted" }, "refused: ", rec.fallback.llm.problems.join("; ")) : null,
-          rec.fallback.llm.refused ? h("div", { class: "muted" }, `refused: ${rec.fallback.llm.refused.command} is not close in meaning (similarity ${rec.fallback.llm.refused.similarity})`) : null,
+          rec.fallback.llm.refused ? h("div", { class: "muted" }, `not run: ${rec.fallback.llm.refused.command} is not close enough in meaning to what was said (similarity ${rec.fallback.llm.refused.similarity}, needs ${rec.fallback.llm.refused.floor}). The sentence is compared with the command's description and examples: a fuller description helps.`) : null,
           rec.fallback.llm.said ? h("div", { class: "muted" }, `it said: ${rec.fallback.llm.said}`) : null,
         ]) : null) : null,
     rec.hint ? h("div", { class: "notice info" }, rec.hint.text, h("div", { class: "small muted" }, `hint from ${rec.hint.source || "nothing"}`, rec.hint.similarity !== undefined ? ` · similarity ${rec.hint.similarity} vs ${rec.hint.next_similarity} (${rec.hint.next})` : "")) : null,

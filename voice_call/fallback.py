@@ -865,7 +865,13 @@ class Fallback:
             floor = LLM_BARE_MIN_SIMILARITY if slots == match_slots(command, {}) else LLM_MIN_SIMILARITY
             if close is not None and close < floor:
                 # Not what it meant, so no hint from it either.
-                trace["refused"] = {"command": command.id, "similarity": round(close, 4), "why": "not close in meaning"}
+                trace["refused"] = {
+                    "command": command.id,
+                    "arguments": arguments,
+                    "similarity": round(close, 4),
+                    "floor": floor,
+                    "why": "not close in meaning",
+                }
                 return found
             trace["command"] = command.id
             if problems:

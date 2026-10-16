@@ -901,7 +901,16 @@ Applied to the runs below it would have refused about half of Granite's wrong
 commands (15 to 7 with 8 chosen; 11 to 7 and 16 to 10 with every library
 command) and a third of Hammer's (9 to 7; 15 to 10 and 5 to 5), and none of
 the right ones -- tuned on these same 64 sentences, so the margin is thin. A
-pick refused this way gives no hint ("it looks like you're trying to...").
+pick refused this way gives no hint ("it looks like you're trying to..."),
+and the call's summary says what was picked and how close it was.
+
+The similarity is to the command's description and examples, so a thin
+description costs: "I want to hear something corporate" is 0.61 from a
+`play_music` described as "play music", refused, and 0.67 from the library's
+"play an artist, album, song, playlist or genre"; "never mind" is 0.61 and
+0.60. (Granite's query there was "corporate": the sentence, all lowercase,
+reads as "something that is corporate". Given "Something Corporate" it takes
+the band.)
 
 **Every chosen command, or the closest few.** With no more chosen than
 `fallback_top_k` (8), the LLM gets them all, in a fixed order, so the

@@ -285,7 +285,10 @@ from the library are not chosen until you choose them.
   with many. It can pick the wrong command, so choose the ones it would do
   little harm to run by mistake. It only runs commands the satellite may
   run, close enough in meaning to what was said, and never with a name,
-  value or number you didn't say.
+  value or number you didn't say. "Close in meaning" compares what was said
+  with the command's description and examples, so describe what it does in
+  full: "play an artist, album, song, playlist or genre", not "play music".
+  A call's trace says what the LLM picked, and why it was not run.
 
 Both are on, and do nothing until a command is chosen for them. A call's trace
 shows what each step tried.
