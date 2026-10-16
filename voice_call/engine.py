@@ -173,6 +173,8 @@ class Decision:
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
+    answer: dict[str, Any] | None = None
+    """No command: a question, answered (voice_call/questions.py)."""
 
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -190,6 +192,7 @@ class Decision:
             "skipped": self.skipped,
             "matched_by": self.matched_by if self.command else None,
             "fallback": self.fallback,
+            "answer": self.answer,
             "hint": self.hint,
             "message": self.message,
             "text_from_tdt": self.text_from_tdt,
@@ -273,6 +276,8 @@ class Engine:
         self.placer = self.placer_for(WAKE_PHRASES)
         self.fallback: Any = None
         """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
+        self.questions: Any = None
+        """When no command is meant: questions answered (voice_call/questions.py)."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
 
@@ -505,9 +510,21 @@ class Engine:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
                 recognition.timings[_timing(transcriber)] = time.perf_counter() - started
-            if self.fallback is not None and compiled.commands:
+            text = recognition.tdt_transcript or recognition.transcript or ""
+            questions = self.questions
+            exact = questions.exact(text) if questions is not None else None
+            if exact is not None:
+                # Arithmetic, units, the calendar, spelling: exact, and instant.
+                decision.answer = exact.to_json()
+            elif self.fallback is not None and compiled.commands:
                 self._fall_back(decision, recognition, compiled, satellite)
-        if decision.command is None and decision.internal is None:
+            if decision.command is None and decision.answer is None and questions is not None:
+                started = time.perf_counter()
+                answer = questions.answer(text)
+                if answer is not None:
+                    recognition.timings["question"] = time.perf_counter() - started
+                    decision.answer = answer.to_json()
+        if decision.command is None and decision.internal is None and decision.answer is None:
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
             llm = (decision.fallback or {}).get("llm") or {}
             if llm.get("command") in compiled.commands:

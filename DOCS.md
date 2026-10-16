@@ -281,6 +281,25 @@ Keywords and example sentences come first. When they find nothing, on the
 
 A call's trace shows what each step tried.
 
+## Questions
+
+When no command is meant, a question still gets an answer (Commands page,
+"Questions"):
+
+- **Exactly**: arithmetic ("what's twelve times eight"), unit conversions
+  ("how many cups in a quart", "100 Fahrenheit in Celsius"), dates and times
+  ("what day is Christmas", "is 2028 a leap year", "what time is 90 minutes
+  after 2 pm"), spelling ("how do you spell necessary"). These are computed,
+  never guessed.
+- Questions about **now or here** -- the weather, news, scores, prices,
+  what's open -- get "Sorry, I can't look that up" (unless a command of yours
+  answers them, like the library's weather command).
+- **The rest** goes to a small LLM, answered in one sentence: Granite 4.0 350M
+  (downloaded on first start, 370 MB; about half a second on a Raspberry Pi
+  5), or Gemma 3 1B on a faster machine. It answers about 9 in 10 everyday
+  questions right, and can be confidently wrong. Only what reads as a
+  question is asked.
+
 ## Names
 
 What things are called when spoken, each pointing at one Home Assistant id.

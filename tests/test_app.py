@@ -221,6 +221,14 @@ async def _scenario(tmp_path: Path) -> None:
             assert "command_groups" not in app.store.settings
             assert (await tried_command("turn on the lights"))["command"] == "lights_on"
 
+            # A question no command takes is answered: exactly, or (not here:
+            # there is no question model) as live.
+            record = await app.try_text("what is twelve times eight", MAC)
+            assert record.outcome == "answered"
+            assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "It's 96."
+            record = await app.try_text("what are the top news headlines", MAC)
+            assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, I can't look that up."
+
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
         timer_list = f"voice_timer_list.{MAC}_timers"

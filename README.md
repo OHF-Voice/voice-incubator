@@ -138,6 +138,8 @@ them into the vocabulary unless someone adds it.
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then Hammer 2.1 0.5B with the commands as tools |
+| `voice_call/questions.py` | questions no command took: exact answers, the live notice, a small LLM |
+| `scripts/bench_questions.py` | the smart-home quick-questions benchmark through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
 | `custom_components/voice_call/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_call.timer_*` triggers |
@@ -918,6 +920,77 @@ closest-8 variant about 2 s.
 **llama.cpp and pysilero-vad** each ship a `libggml` under the same soname,
 and the first one loaded serves both; only llama.cpp's has everything both
 need, so `voice_call/__init__.py` imports `llama_cpp` first.
+
+## Questions
+
+`voice_call/questions.py`, ported from llama.cpp's smart-home-qa-bench
+(`router.py`, and its model results). When no command is meant -- after the
+CTC matcher, and around the command fallback -- a question still gets an
+answer:
+
+1. **Exact**: spelling, arithmetic, unit conversions, calendar and clock
+   arithmetic, by grammars that must parse the whole question *and* compute
+   an answer. Before the command fallback: they are instant and never wrong
+   when they answer. `settings.yaml` `questions`, on by default.
+2. **Live**: anything about now or here (weather, news, scores, prices,
+   opening hours, "tonight", "last night") gets "Sorry, I can't look that up."
+   After the command fallback, so "do I need an umbrella" can still be the
+   weather command.
+3. **Knowledge**: the rest, only when it reads as a question (a question
+   word first, or a question mark) -- "thank you" and "I'm cold" are not
+   asked -- goes to a small LLM, answered in one short sentence.
+   `questions_llm`, on by default; `questions_model`: Granite 4.0 350M
+   (Apache-2.0, 370 MB, downloaded on first start) or Gemma 3 1B (for a
+   faster machine). The same llama.cpp as the command fallback.
+
+From the benchmark (Q8_0, the "plain" prompt the app uses), on the 148
+knowledge questions its router hands to a model: Granite 4.0 350M 128 right,
+~0.2 s per answer on a Ryzen 9 5950X; Gemma 3 1B 137, ~0.6 s. On a Pi 5 here
+(4 threads, 40 questions) Granite answered in 0.45 s median, 0.9 s p90.
+
+The port was checked against the original: it routes all 241 benchmark
+questions and all 180 held-out ones exactly as it did, and every exact answer
+is right (65 and 55). It was written against typed questions, so spoken ones
+needed more: "zero", years in pairs ("twenty twenty four"), clock times in
+words ("ninety minutes after two pm"), "how should you spell", and a
+transcript's question marks in the middle of a sentence ("the average of
+four? eight and twelve").
+
+Spoken (`scripts/bench_questions.py`: Piper says each question, then the
+whole recognition with the library's commands, meaning on, Granite):
+
+| | benchmark (241) | held out (180) |
+|---|---|---|
+| exact answers | 57, all right | 43, all right (one, "how many days until Christmas", has no answer key: it depends on today) |
+| "can't look that up" | 25, all live | 31, all live |
+| live questions answered otherwise | 3 (the weather command) | 9 (5 the weather command) |
+| question model | 155 (0.29 s median) | 92 (0.29 s median) |
+| taken as a command | 3 | 8 |
+| nothing (mis-transcribed) | 1 | 6 |
+
+The question model's answers are not graded here; its accuracy is the
+benchmark's (above). The live patterns were widened after the first held-out
+run missed "who's the prime minister" (the model said Boris Johnson),
+"how many euros is a dollar", "what time does Costco close", "did Manchester
+United win" and "who won the Super Bowl last year", so the held-out live
+numbers are no longer held out. Questions that ran a command:
+
+- **The weather command** for "will it rain this afternoon", "do I need an
+  umbrella": fair.
+- **`play_music`** for "who played Jack in Titanic", "how many players are on a
+  soccer team", "what movies are playing near me": the keyword "play" is
+  heard inside "played", "players" and "playing". The library's `play_music`
+  now excludes those words.
+- **`what_time`** for "what time does Costco close": it now excludes "does",
+  "close", "open", "after" and the like, so that one is live and "what time
+  is 45 minutes after 3 pm" is answered.
+- **The `script` example "good night"** for "how do you say good night in
+  Italian": an example said word for word always wins.
+
+The exact questions that were not answered exactly when spoken were
+mis-transcribed ("how many ounces are in a pound" heard as "how many ants are
+in a pand", "leap year" as "leap here"); they went to the model, which got
+some of them anyway.
 
 ## History: the sentence-trigger chain
 

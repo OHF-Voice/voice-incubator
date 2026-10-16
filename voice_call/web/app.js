@@ -344,6 +344,29 @@ function fallbackPanel() {
     h("p", { class: "muted small" }, "The LLM is downloaded the first time it is turned on (531 MB) and needs about 1 GB of memory. It is licensed CC-BY-NC-4.0, for non-commercial use. On a Raspberry Pi 5 it adds a few seconds, only to commands nothing else understood."));
 }
 
+// Questions no command took: exact answers, and a small LLM for the rest.
+function questionsPanel() {
+  const status = (state.status && state.status.questions) || {};
+  const exact = h("input", { type: "checkbox", checked: status.exact !== false });
+  const llm = h("input", { type: "checkbox", checked: status.llm !== false, disabled: status.llm_installed === false });
+  const model = h("select", {}, Object.entries(status.models || {}).map(([id, m]) => h("option", { value: id, selected: status.model === id }, `${m.name} (${m.mb} MB)`)));
+  async function save() {
+    try {
+      await api("PUT", "settings", { questions: exact.checked, questions_llm: llm.checked, questions_model: model.value });
+      toast("Saved"); await refreshStatus(); pageCommands();
+    } catch (err) { toast(err.message); }
+  }
+  return h("div", { class: "panel" },
+    h("h2", {}, "Questions"),
+    h("p", { class: "muted small" }, "When no command is meant, a question still gets an answer."),
+    h("label", {}, exact, "Answer exactly: arithmetic, unit conversions, dates and times, spelling (“what's twelve times eight”, “how many cups in a quart”, “how do you spell necessary”). Questions about now or here — the weather, news, scores, prices — get “I can't look that up”."),
+    h("label", {}, llm, "Answer the rest with a small LLM, in one sentence (“who wrote The Odyssey?”)",
+      status.llm_installed === false ? h("span", { class: "badge" }, "llama.cpp is not installed") : h("span", { class: "badge" }, status.llm_status || "off")),
+    h("div", { class: "row" }, field("Model", model, "Granite answers about 9 in 10 of these in under half a second on a Raspberry Pi 5. Gemma 3 1B gets a few more right, for a faster machine."),
+      h("button", { class: "primary", onclick: save }, "Save")),
+    h("p", { class: "muted small" }, "A small model can be wrong, and says so with confidence. Only what reads as a question is asked."));
+}
+
 async function pageCommands() {
   const [store] = await Promise.all([loadStore(), loadSatellites()]);
   const areas = await areaLabels();
@@ -364,6 +387,7 @@ async function pageCommands() {
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
     ids.length ? groupsPanel(store, sats) : null,
     ids.length ? fallbackPanel() : null,
+    questionsPanel(),
     ids.length ? null : h("div", { class: "panel" },
       h("p", {}, "No voice commands yet."),
       h("p", { class: "muted" }, "Start from the library, or make one: pick what it targets, give example sentences or keywords, and choose what happens.")),
@@ -1361,7 +1385,7 @@ async function pageSatellites() {
 
 // ------------------------------------------------------------------- calls
 
-const OUTCOME_CLASS = { done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
+const OUTCOME_CLASS = { answered: "ok", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
 
 async function pageCalls(query) {
   const satellite = new URLSearchParams(query || "").get("satellite");
@@ -1520,6 +1544,8 @@ function renderRecognition(rec) {
       h("div", {}, "Timing"), h("div", { class: "small" }, Object.entries(rec.timings || {}).map(([k, v]) => `${k} ${Math.round(v * 1000)} ms`).join(" · "))),
     rec.skipped && rec.skipped.length ? h("div", { class: "notice warn" }, "Passed over: ", rec.skipped.map((s) => `${s.command} (${s.why})`).join(", ")) : null,
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
+    rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
+      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
     rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
     rec.fallback ? h("details", {}, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "") : null,

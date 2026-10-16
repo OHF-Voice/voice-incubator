@@ -184,6 +184,7 @@ class Api:
                 "speakers": app.speakers is not None,
                 "tdt_models": app.tdt_models(),
                 "fallback": app.fallback_status(),
+                "questions": app.question_status(),
                 "tdt_status": app.tdt_status,
                 "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
@@ -655,6 +656,21 @@ class Api:
         if fallback_changed:
             self.app.store.save_settings()
             asyncio.ensure_future(self.app.configure_fallback())
+        questions_changed = False
+        for option in ("questions", "questions_llm"):
+            if option in body:
+                settings[option] = bool(body[option])
+                questions_changed = True
+        if "questions_model" in body:
+            from .questions import QA_MODELS  # pylint: disable=import-outside-toplevel
+
+            if str(body["questions_model"]) not in QA_MODELS:
+                raise ConfigError(f"questions_model: one of {', '.join(QA_MODELS)}")
+            settings["questions_model"] = str(body["questions_model"])
+            questions_changed = True
+        if questions_changed:
+            self.app.store.save_settings()
+            asyncio.ensure_future(self.app.configure_questions())
         if "tdt_model" in body:
             from .server import DEFAULT_TDT, TDT_MODELS  # pylint: disable=import-outside-toplevel
 

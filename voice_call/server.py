@@ -23,6 +23,7 @@ from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
 from .endpoint import Endpointer
 from .fallback import Fallback, Hammer
+from .questions import DEFAULT_QA_MODEL, QA_MODELS, Answerer, Questions
 from .engine import LEARN_VOICE, Decision, Engine, Satellite
 from .hass import HassError, HomeAssistant
 from .integration import Integration
@@ -333,6 +334,8 @@ class VoiceCallApp:
         """What became of the last change of TDT model, for the UI."""
         self._llm_status: str | None = None
         """Getting the LLM, when it is not the fallback's to say."""
+        self._qa_status: str | None = None
+        """Getting the question model."""
         self.engine: Engine | None = None
         # A second opinion on the two Kaldi tests that are about "is this the
         # wake word or just speech". Its `confusable` test is left alone.
@@ -397,6 +400,7 @@ class VoiceCallApp:
         )
         await self.reload_commands()
         self._spawn(self.configure_fallback())
+        self._spawn(self.configure_questions())
         if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
             for word in self.wake_words.scan().values():
                 if not word.verified:
@@ -512,6 +516,70 @@ class VoiceCallApp:
         fallback = Fallback(wanted["meaning"], hammer, wanted["top_k"])
         self.engine.fallback = fallback
         fallback.prepare(self.engine)
+
+    # ----------------------------------------------------------- questions
+
+    def question_settings(self) -> dict[str, Any]:
+        """``settings.yaml``: answer questions no command took -- exactly
+        (``questions``), and with a small LLM (``questions_llm``). Both on
+        unless turned off."""
+        settings = self.store.settings
+        model = str(settings.get("questions_model") or DEFAULT_QA_MODEL)
+        return {
+            "exact": bool(settings.get("questions", True)),
+            "llm": bool(settings.get("questions_llm", True)),
+            "model": model if model in QA_MODELS else DEFAULT_QA_MODEL,
+        }
+
+    def question_status(self) -> dict[str, Any]:
+        questions = self.engine.questions if self.engine is not None else None
+        loaded = bool(questions is not None and questions.answerer is not None)
+        return {
+            **self.question_settings(),
+            "models": {m: {"name": n, "mb": mb} for m, (n, _r, _f, mb) in QA_MODELS.items()},
+            "llm_installed": Hammer.available(),
+            "llm_status": self._qa_status or ("ready" if loaded else "off"),
+        }
+
+    async def configure_questions(self) -> None:
+        """Apply the question settings. The LLM (Granite 4.0 350M, 370 MB) is
+        downloaded the first time and loaded in the background."""
+        if self.engine is None:
+            return
+        wanted = self.question_settings()
+        if not wanted["exact"]:
+            self.engine.questions = None
+            self._qa_status = None
+            return
+        current = self.engine.questions
+        answerer = current.answerer if current is not None and wanted["llm"] else None
+        if answerer is not None and answerer.model != wanted["model"]:
+            answerer = None
+        self.engine.questions = Questions(answerer)
+        if not wanted["llm"] or answerer is not None:
+            self._qa_status = None
+            return
+        if not Hammer.available():
+            self._qa_status = "llama.cpp is not installed"
+            return
+        name, _repo, _file, size = QA_MODELS[wanted["model"]]
+        self._qa_status = f"downloading {name} ({size} MB)"
+        path = await asyncio.to_thread(
+            Answerer.find_model, wanted["model"], self.options.downloads, self.store.data_dir / "models"
+        )
+        if path is None:
+            self._qa_status = f"could not download {name}"
+            return
+        self._qa_status = "loading"
+        try:
+            answerer = await asyncio.to_thread(Answerer, path, self.options.threads, wanted["model"])
+        except Exception as err:  # noqa: BLE001 - questions work without it
+            _LOGGER.exception("Question model could not be loaded")
+            self._qa_status = f"not available: {err}"
+            return
+        self._qa_status = None
+        if self.question_settings()["llm"] and self.engine.questions is not None:
+            self.engine.questions.answerer = answerer
 
     async def _watch_store(self) -> None:
         while True:
@@ -1269,7 +1337,11 @@ class VoiceCallApp:
             await self._hang_up(session, "timer_stopped")
             return
         speech, outcome, summary = await self._carry_out(decision, satellite, speaker, dry_run, record)
-        if decision.command is None:
+        answered = outcome == "answered"
+        if answered:
+            _LOGGER.info("[%s] Answered %r", session, decision.transcript)
+            await self._event(session, "recognized", text=decision.transcript, command="question")
+        elif decision.command is None:
             _LOGGER.info("[%s] Not recognized; heard %r", session, decision.transcript)
             await self._event(session, "not_recognized", heard=decision.transcript)
         else:
@@ -1280,7 +1352,7 @@ class VoiceCallApp:
             await self._announce_enrolled(session, notice)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
-        await self._hang_up(session, "done" if decision.command else "not_recognized")
+        await self._hang_up(session, "done" if decision.command or answered else "not_recognized")
 
     async def _carry_out(
         self,
@@ -1292,6 +1364,9 @@ class VoiceCallApp:
     ) -> tuple[str, str, str]:
         """Run (or show) the decided command. Returns what to say, the
         outcome, and a one-line summary."""
+        if decision.command is None and decision.answer is not None and decision.answer.get("text"):
+            answer = decision.answer
+            return answer["text"], "answered", f"{decision.transcript!r}: {answer['kind']} answer"
         if decision.command is None:
             message = decision.message or "Sorry, I didn't understand that."
             return message, "not recognized", f"{decision.transcript!r}: {message}"

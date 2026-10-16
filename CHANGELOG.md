@@ -42,6 +42,9 @@
   close and needs nothing said (on), and Hammer 2.1 0.5B can pick a command
   and fill in its slots from the closest few (off; downloaded when turned
   on).
+- Questions no command takes are answered: exactly (arithmetic, units, dates
+  and times, spelling), "I can't look that up" for live ones, and the rest by
+  a small LLM (Granite 4.0 350M, or Gemma 3 1B), downloaded on first start.
 - Library: set an alarm (a timer that rings at a clock time: "wake me up at
   half past six"), take something off the shopping list, add to the to-do
   list.

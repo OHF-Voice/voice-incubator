@@ -18,6 +18,9 @@ commands:
     examples: [what time is it]
     require: [[what time]]
     optional: [[is it, it is], [right now, now], [tell me]]
+    # Other times: "what time does the store close", "what time is ninety
+    # minutes after two" (that one is answered as a question).
+    exclude: [does, do, close, open, after, before, until, from]
     response: "It's {{ now().strftime('%-I:%M %p') }}."
 
   what_date:

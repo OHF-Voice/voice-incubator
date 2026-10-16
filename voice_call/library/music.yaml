@@ -16,7 +16,9 @@ commands:
     icon: mdi:music
     description: play an artist, album, song, playlist or genre
     require: [[play, put on, listen to]]
-    exclude: [next, previous]
+    # Questions: "who played Jack in Titanic", "how many players are on a
+    # team", "what movies are playing near me" are not "play".
+    exclude: [next, previous, played, players, playing]
     wildcard: {slot: query, after: [play, put on, listen to], to_end: true, required: true, max_words: 8}
     music: play
 
