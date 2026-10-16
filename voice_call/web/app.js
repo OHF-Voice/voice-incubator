@@ -243,7 +243,7 @@ async function refreshStatus() {
     h("span", { class: `badge ${s.hass ? "ok" : "bad"}` }, s.hass ? "Home Assistant" : "Home Assistant offline"),
     h("span", { class: "badge" }, `${s.commands} command${s.commands === 1 ? "" : "s"}`),
   ];
-  if (Object.keys(s.debug_sessions || {}).length) badges.push(h("span", { class: "badge warn" }, "debug session"));
+  if (Object.keys(s.debug_sessions || {}).length) badges.push(h("a", { class: "badge warn", href: "#/test" }, "debugging a satellite"));
   if (s.settings && s.settings.keep_audio) badges.push(h("span", { class: "badge warn" }, "keeping audio"));
   document.getElementById("status").replaceChildren(...badges);
   const banner = document.getElementById("banner");
@@ -1662,7 +1662,6 @@ async function pageSatellites() {
     ...sats.map((s) => {
       const name = h("input", { type: "text", value: s.name });
       const area = h("select", {}, h("option", { value: "" }, "No area"), ...Object.entries(areas).map(([id, label]) => h("option", { value: id, selected: s.area === id }, label)));
-      const dry = h("input", { type: "checkbox", checked: s.debug ? s.debug.dry_run : true });
       const own = s.voice || {};
       const used = s.voice_used || {};
       const stt = voiceSelect("stt", voices.stt, own.stt, label(settings.stt));
@@ -1683,7 +1682,8 @@ async function pageSatellites() {
         h("div", { class: "row" },
           h("h2", { class: "grow", style: "margin:0" }, s.name),
           h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : "offline"),
-          s.debug ? h("span", { class: "badge warn" }, `debug session${s.debug.dry_run ? " · dry run" : ""}`) : null),
+          s.debug ? h("a", { class: "badge warn", href: `#/test?satellite=${s.key}` }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
+          h("a", { href: `#/test?satellite=${s.key}` }, "Test it")),
         h("div", { class: "kv small", style: "margin:8px 0" },
           h("div", {}, "Id"), h("div", {}, h("code", {}, s.key)),
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
@@ -1719,14 +1719,6 @@ async function pageSatellites() {
             }
             catch (err) { toast(err.message); }
           } }, "Save")),
-        h("h3", {}, "Debugging"),
-        h("p", { class: "muted small" }, "A debug session keeps the audio of every call on this satellite, from the pre-roll before the wake word to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
-        h("div", { class: "row" },
-          h("label", {}, dry, "Dry run (don't run commands)"),
-          s.debug ? h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: false }); pageSatellites(); refreshStatus(); } }, "Stop session") :
-            h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: true, dry_run: dry.checked }); location.hash = `#/sessions?satellite=${s.key}`; refreshStatus(); } }, "Start debug session"),
-          s.debug ? h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: true, dry_run: dry.checked }); toast("Updated"); pageSatellites(); } }, "Update") : null,
-          h("a", { href: `#/sessions?satellite=${s.key}` }, "Sessions")),
       );
     }),
   );
@@ -1769,7 +1761,7 @@ async function pageSessions(query) {
       h("div", { class: "row" },
         h("label", {}, keep, "Debugging: keep the audio and full trace of every session"),
         h("label", { class: "right" }, "keep at most", max, "sessions")),
-      h("p", { class: "muted small" }, "A session is everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (Test page) keeps its audio.")),
+      h("p", { class: "muted small" }, "A session is everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (", h("a", { href: "#/test" }, "Test page"), ") keeps its audio.")),
     h("div", { class: "panel" }, list),
   );
   await refresh();
@@ -2106,10 +2098,12 @@ async function voicePanel(record) {
 
 // -------------------------------------------------------------------- test
 
-async function pageTest() {
+async function pageTest(query) {
   await loadSatellites();
+  const satOptions = (blank) => [blank ? h("option", { value: "" }, blank) : null,
+    ...state.satellites.map((s) => h("option", { value: s.key }, `${s.name}${s.area_name ? ` (${s.area_name})` : ""}${s.connected ? "" : " — offline"}`))];
   const input = h("input", { type: "text", class: "grow", placeholder: "turn on the kitchen lights" });
-  const sat = h("select", {}, h("option", { value: "" }, "no satellite"), ...state.satellites.map((s) => h("option", { value: s.key }, `${s.name}${s.area_name ? ` (${s.area_name})` : ""}`)));
+  const sat = h("select", {}, satOptions("no satellite"));
   const run = h("input", { type: "checkbox" });
   const speak = h("input", { type: "checkbox" });
   const out = h("div");
@@ -2118,20 +2112,53 @@ async function pageTest() {
     try {
       const record = await api("POST", "try", { text: input.value, satellite: sat.value || null, run_actions: run.checked, speak: speak.checked });
       fill(out, h("div", { class: "panel" }, renderOutcome(record), h("p", {}, h("a", { href: `#/session/${record.id}` }, "Full trace"))),
-        h("div", { class: "panel" }, ...(record.stages || []).filter((s) => s.stage === "recognition" || s.stage === "action").map(renderStage)));
+        h("div", { class: "panel" }, ...(record.stages || []).filter((s) => ["recognition", "agent", "unknown", "action"].includes(s.stage)).map(renderStage)));
     } catch (err) { fill(out, errorBox(err)); }
   }
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
-  fill($main, 
+
+  // One satellite: debugging it, and listening to it live.
+  const wanted = new URLSearchParams(query || "").get("satellite");
+  const picked = state.satellites.find((s) => s.key === wanted) || state.satellites.find((s) => s.connected) || state.satellites[0];
+  const satellite = h("select", { onchange: () => { location.hash = `#/test?satellite=${satellite.value}`; } }, satOptions(null));
+  if (picked) satellite.value = picked.key;
+  if (picked) sat.value = picked.key;
+  fill($main,
     h("h1", {}, "Test"),
-    h("p", { class: "muted" }, "What you type is recognized like a command said on that satellite, after the wake word, as if every word had been heard exactly as typed: no speech recognition. Commands, skills and questions all read your text as it is."),
     h("div", { class: "panel" },
+      h("h2", {}, "A sentence"),
+      h("p", { class: "muted small" }, "What you type is recognized like a command said on that satellite, after the wake word, as if every word had been heard exactly as typed: no speech recognition. Commands, skills and questions all read your text as it is."),
       h("div", { class: "row" }, input, sat, h("button", { class: "primary", onclick: go }, "Test")),
-      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run)"),
+      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run, which never asks the conversation agent)"),
       h("label", { class: "small" }, speak, "Say it first: spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient.")),
     out,
+    picked ? h("div", { class: "panel" },
+      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "A satellite"), satellite),
+      debugSection(picked)) : h("div", { class: "panel muted" }, "No satellite has connected yet: debugging one, and listening to it, wait for one."),
   );
   input.focus();
+}
+
+// Debugging a satellite: every session's audio and trace kept, and maybe a
+// dry run (nothing is executed; what would be said is said).
+function debugSection(s) {
+  const dry = h("input", { type: "checkbox", checked: s.debug ? s.debug.dry_run : true });
+  const set = async (active) => {
+    try {
+      await api("POST", `satellites/${s.key}/debug`, { active, dry_run: dry.checked });
+      toast(active ? (s.debug ? "Updated" : "Debugging") : "Stopped");
+      await refreshStatus();
+      route();
+    } catch (err) { toast(err.message); }
+  };
+  return h("div", {},
+    h("h3", {}, "Debugging", s.debug ? h("span", { class: "badge warn", style: "margin-left:8px" }, `on${s.debug.dry_run ? " · dry run" : ""}`) : null),
+    h("p", { class: "muted small" }, "Keeps the audio of every session on this satellite, from the pre-roll before the wake word to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
+    h("div", { class: "row" },
+      h("label", {}, dry, "Dry run (don't run commands)"),
+      s.debug ? h("button", { onclick: () => set(false) }, "Stop debugging") : h("button", { class: "primary", onclick: () => set(true) }, "Start debugging"),
+      s.debug ? h("button", { onclick: () => set(true) }, "Update") : null,
+      h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")));
 }
 
 // ---------------------------------------------------------------- settings
@@ -2199,7 +2226,7 @@ async function route() {
     else if (page === "satellites") await pageSatellites();
     else if (page === "sessions") await pageSessions(query);
     else if (page === "session") await pageSession(arg);
-    else if (page === "test") await pageTest();
+    else if (page === "test") await pageTest(query);
     // Old links: the Calls and Try pages.
     else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
     else if (page === "call") location.hash = `#/session/${arg}`;

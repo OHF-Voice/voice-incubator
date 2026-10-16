@@ -2,6 +2,8 @@
 
 ## 0.2.0
 
+- Debugging a satellite moved from the Satellites page to the Test page,
+  where a select picks the satellite.
 - A kept session's voice can be added to a speaker's, known or new ("Who
   spoke" on its page).
 - What nothing here understood can go to a Home Assistant **conversation

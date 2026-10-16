@@ -450,9 +450,9 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   cut, the speaker, every command that matched or was rejected and why, what
   ran and what was said.
 - Turn on **debugging** on the Sessions page to keep every session's audio,
-  or start a **debug session** on one satellite (Satellites page). A debug
-  session keeps that satellite's audio and can be a **dry run**: nothing is
-  executed, and you hear what would have been said. Kept sessions show their
+  or debug one satellite (Test page: pick it under "A satellite"). That keeps
+  the satellite's audio and can be a **dry run**: nothing is executed, and
+  you hear what would have been said. Kept sessions show their
   waveform with the wake word, the cut and the recognized words marked, and
   can be **replayed** through today's commands.
 - **Who spoke**: a kept session's voice can be added to a speaker's -- one
