@@ -38,6 +38,13 @@
   languages) in place of the English one, switched while running. Home
   Assistant STT and TTS entities get a language, for every satellite or per
   satellite.
+- When nothing matches: the closest command by meaning runs when it is very
+  close and needs nothing said (on), and Hammer 2.1 0.5B can pick a command
+  and fill in its slots from the closest few (off; downloaded when turned
+  on).
+- Library: set an alarm (a timer that rings at a clock time: "wake me up at
+  half past six"), take something off the shopping list, add to the to-do
+  list.
 - Every model in the Tater Wake Words catalog (851) runs on the satellite;
   `scripts/check_wake_words.py` checks a collection. A manifest cutoff of 1.0
   is run as 0.99.

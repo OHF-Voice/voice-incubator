@@ -1,0 +1,79 @@
+# What people say that the library's keywords and examples mostly do not
+# catch: for scripts/bench_fallback.py. `expect` is the command that should
+# run (null: none should), `slots` what it must carry (a subset; text slots
+# are compared loosely).
+#
+# The home: see scripts/bench_fallback.py (HOME).
+utterances:
+  # ---- music
+  - {text: put on some jazz, expect: play_music, slots: {query: jazz}}
+  - {text: i want to listen to taylor swift, expect: play_music, slots: {query: taylor swift}}
+  - {text: can you play something by the beatles, expect: play_music, slots: {query: the beatles}}
+  - {text: let's hear abbey road, expect: play_music, slots: {query: abbey road}}
+  - {text: throw on my workout playlist, expect: play_music, slots: {query: workout}}
+  - {text: i'd like some classical music, expect: play_music, slots: {query: classical}}
+  - {text: start the radio, expect: play_music}
+  - {text: skip this song, expect: next_track}
+  - {text: go back to the last song, expect: previous_track}
+  - {text: hold the music, expect: pause_music}
+  - {text: it's too loud, expect: volume_down}
+  - {text: crank it up, expect: volume_up}
+  - {text: who sings this, expect: whats_playing}
+  # ---- shopping and to-do lists
+  - {text: we need milk, expect: shopping_list_add, slots: {item: milk}}
+  - {text: we're out of coffee, expect: shopping_list_add, slots: {item: coffee}}
+  - {text: don't let me forget to buy eggs, expect: shopping_list_add, slots: {item: eggs}}
+  - {text: put paper towels on my shopping list, expect: shopping_list_add, slots: {item: paper towels}}
+  - {text: grab bananas next time you shop, expect: shopping_list_add, slots: {item: bananas}}
+  - {text: i already got the bread, expect: shopping_list_remove, slots: {item: bread}}
+  - {text: take milk off the list, expect: shopping_list_remove, slots: {item: milk}}
+  - {text: we don't need apples anymore, expect: shopping_list_remove, slots: {item: apples}}
+  - {text: scratch the butter from my shopping list, expect: shopping_list_remove, slots: {item: butter}}
+  - {text: i need to call the plumber, expect: todo_add, slots: {item: call the plumber}}
+  - {text: add renew my passport to my to do list, expect: todo_add, slots: {item: renew my passport}}
+  - {text: note that i have to pay the electric bill, expect: todo_add, slots: {item: pay the electric bill}}
+  - {text: remind me to water the plants, expect: remind_me, slots: {reminder: water the plants}}
+  # ---- alarms
+  - {text: wake me up at six, expect: set_alarm, slots: {time: "6"}}
+  - {text: i need to get up at seven thirty tomorrow, expect: set_alarm, slots: {time: "7:30"}}
+  - {text: set an alarm for quarter past six in the morning, expect: set_alarm, slots: {time: "6:15"}}
+  - {text: alarm at noon, expect: set_alarm, slots: {time: "12:00"}}
+  - {text: get me up at 5 am, expect: set_alarm, slots: {time: "5"}}
+  - {text: i want to be woken at half past eight, expect: set_alarm, slots: {time: "8:30"}}
+  # ---- timers
+  - {text: give me ten minutes, expect: start_timer, slots: {duration: 600}}
+  - {text: count down five minutes for the eggs, expect: start_timer, slots: {duration: 300}}
+  - {text: let me know when twenty minutes are up, expect: start_timer, slots: {duration: 1200}}
+  - {text: how much longer on the pizza, expect: timer_status}
+  - {text: forget the timer, expect: cancel_timer}
+  - {text: hold the timer, expect: pause_timer}
+  # ---- lights and devices
+  - {text: it's too dark in here, expect: lights_on}
+  - {text: make the kitchen brighter, expect: set_brightness, slots: {area: [kitchen]}}
+  - {text: kill the lights, expect: lights_off}
+  - {text: lights out in the bedroom, expect: lights_off, slots: {area: [bedroom]}}
+  - {text: can i get some light in the living room, expect: lights_on, slots: {area: [living_room]}}
+  - {text: dim the office to thirty percent, expect: set_brightness, slots: {area: [office], percentage: 30}}
+  - {text: start the coffee maker, expect: device_on, slots: {entity: [switch.coffee_maker]}}
+  - {text: shut off the bedroom fan, expect: device_off, slots: {entity: [fan.bedroom_fan]}}
+  - {text: make it warmer, expect: set_temperature}
+  - {text: i'm cold, expect: null}
+  # ---- covers and locks
+  - {text: let some light in, expect: open_covers}
+  - {text: shut the garage, expect: close_cover, slots: {entity: [cover.garage_door]}}
+  - {text: is the front door secure, expect: is_locked, slots: {entity: [lock.front_door]}}
+  - {text: secure the house, expect: lock_all}
+  # ---- time, date, weather
+  - {text: do you know what time it is, expect: what_time}
+  - {text: what's today, expect: what_date}
+  - {text: do i need an umbrella, expect: weather}
+  # ---- not commands
+  - {text: what's the capital of france, expect: null}
+  - {text: tell me a joke, expect: null}
+  - {text: how are you doing, expect: null}
+  - {text: thank you, expect: null}
+  - {text: never mind, expect: null}
+  - {text: how many ounces are in a cup, expect: null}
+  - {text: who won the game last night, expect: null}
+  - {text: spell necessary, expect: null}
+  - {text: what's twelve times eight, expect: null}

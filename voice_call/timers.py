@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-OPERATIONS = ("start", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status")
+OPERATIONS = ("start", "alarm", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status")
 SERVICES = {
     "cancel": "cancel_timer",
     "pause": "pause_timer",
@@ -53,6 +53,7 @@ APPLIES_TO = {
 # How each operation can turn out (Plan.outcome), in the order they are offered.
 OUTCOMES = {
     "start": ("done", "missing_duration"),
+    "alarm": ("done", "missing_time"),
     "cancel": ("done", "no_timers", "not_found", "ambiguous"),
     "cancel_all": ("done", "no_timers"),
     "pause": ("done", "no_timers", "not_found", "ambiguous", "already"),
@@ -93,8 +94,13 @@ class Plan:
         }
 
 
-def plan(operation: str, slots: dict[str, Any], running: list[dict[str, Any]]) -> Plan:
-    """Decide what ``operation`` does with these slots and running timers."""
+def plan(
+    operation: str, slots: dict[str, Any], running: list[dict[str, Any]], now: datetime | None = None
+) -> Plan:
+    """Decide what ``operation`` does with these slots and running timers.
+    ``now`` (local time) is for an alarm."""
+    if operation == "alarm":
+        return _alarm(slots, now or datetime.now())
     duration = _seconds(slots.get("duration"))
     if operation == "start":
         if not duration:
@@ -163,6 +169,136 @@ def plan(operation: str, slots: dict[str, Any], running: list[dict[str, Any]]) -
     return Plan(f"{_describe(timer, capital=True)} {done}.", "done", SERVICES[operation], data, timer)
 
 
+def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
+    """A timer that rings at a clock time: "seven thirty", "6 am", "half past
+    six", "noon". Without am or pm, the next time it comes round."""
+    clock = parse_clock(str(slots.get("time") or ""))
+    if clock is None:
+        return Plan("What time should the alarm be for?", "missing_time")
+    hour, minute, meridiem = clock
+    candidates = [hour] if meridiem or hour >= 12 or hour == 0 else [hour, hour + 12]
+    if meridiem == "pm" and hour < 12:
+        candidates = [hour + 12]
+    elif meridiem == "am" and hour == 12:
+        candidates = [0]
+    best = None
+    for candidate in candidates:
+        at = now.replace(hour=candidate % 24, minute=minute, second=0, microsecond=0)
+        seconds = (at - now).total_seconds()
+        if seconds <= 0:
+            seconds += 24 * 3600
+        if best is None or seconds < best[0]:
+            best = (seconds, candidate % 24)
+    assert best is not None
+    seconds, hour24 = best
+    name = _clean_name(slots.get("timer")) or "alarm"
+    data: dict[str, Any] = {"duration": int(round(seconds)), "name": name}
+    timer = {"name": name, "created_duration": data["duration"]}
+    said = _clock_text(hour24, minute)
+    return Plan(f"Alarm set for {said}.", "done", "create_timer", data, timer)
+
+
+_SMALL = {
+    "zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50}
+
+
+def _number_words(words: list[str]) -> list[int | str]:
+    """Number words to numbers ("twenty five" -> 25, "oh five" -> 0, 5),
+    other words kept."""
+    out: list[int | str] = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word.isdigit():
+            out.append(int(word))
+        elif word in _TENS:
+            value = _TENS[word]
+            if index + 1 < len(words) and words[index + 1] in _SMALL and 0 < _SMALL[words[index + 1]] < 10:
+                value += _SMALL[words[index + 1]]
+                index += 1
+            out.append(value)
+        elif word in _SMALL:
+            out.append(_SMALL[word])
+        else:
+            out.append(word)
+        index += 1
+    return out
+
+
+def parse_clock(text: str) -> tuple[int, int, str | None] | None:
+    """A clock time said or written: (hour, minute, "am" | "pm" | None)."""
+    text = text.lower().replace(".", "").replace("o'clock", " ").replace("oclock", " ")
+    text = re.sub(r"(\d)(am|pm)\b", r"\1 \2", text)
+    text = re.sub(r"(\d{1,2}):(\d{2})", r"\1 \2", text)
+    words = re.findall(r"[a-z]+|\d+", text)
+    meridiem = None
+    if any(w in ("pm", "evening", "night", "afternoon", "tonight") for w in words):
+        meridiem = "pm"
+    elif any(w in ("am", "morning") for w in words):
+        meridiem = "am"
+    if "noon" in words or "midday" in words:
+        return 12, 0, "pm"
+    if "midnight" in words:
+        return 0, 0, "am"
+    tokens = _number_words(words)
+    numbers = [t for t in tokens if isinstance(t, int)]
+    if not numbers:
+        return None
+    joined = " ".join(str(t) for t in tokens)
+    # "half past seven", "quarter past seven", "quarter to eight", "ten to eight"
+    for pattern, offset in (
+        (r"half past (\d+)", 30),
+        (r"quarter past (\d+)", 15),
+        (r"quarter to (\d+)", -15),
+        (r"(\d+) (?:minutes )?past (\d+)", None),
+        (r"(\d+) (?:minutes )?to (\d+)", None),
+    ):
+        found = re.search(pattern, joined)
+        if not found:
+            continue
+        if offset is not None:
+            hour, minute = int(found.group(1)), offset
+        else:
+            amount, hour = int(found.group(1)), int(found.group(2))
+            minute = amount if "past" in found.group(0) else -amount
+        if minute < 0:
+            hour, minute = hour - 1, 60 + minute
+        return _valid(hour % 24 if hour >= 0 else 23, minute, meridiem)
+    # "7 30", "seven thirty", "7 oh 5", "1930", "7"
+    first = numbers[0]
+    if first >= 100 and len(numbers) == 1:
+        return _valid(first // 100, first % 100, meridiem)
+    minute = 0
+    rest = numbers[1:]
+    if rest and rest[0] == 0 and len(rest) > 1:  # "seven oh five"
+        minute = rest[1]
+    elif rest:
+        minute = rest[0]
+    return _valid(first, minute, meridiem)
+
+
+def _valid(hour: int, minute: int, meridiem: str | None) -> tuple[int, int, str | None] | None:
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    if hour > 12:
+        meridiem = None  # 24-hour
+    return hour, minute, meridiem
+
+
+def _clock_text(hour: int, minute: int) -> str:
+    """"7:30 AM", "noon"."""
+    if (hour, minute) == (12, 0):
+        return "noon"
+    if (hour, minute) == (0, 0):
+        return "midnight"
+    suffix = "AM" if hour < 12 else "PM"
+    return f"{hour % 12 or 12}:{minute:02d} {suffix}"
+
+
 # What each outcome says, from a few made-up timers: the defaults a command's
 # own responses replace (shown in the UI).
 _SAMPLE = [
@@ -171,7 +307,7 @@ _SAMPLE = [
     {"timer_id": "3", "name": "tea", "status": "paused", "created_duration": 240, "remaining": 90},
 ]
 _SCENARIOS: list[tuple[dict[str, Any], list[dict[str, Any]]]] = [
-    ({"timer": "pizza", "duration": 600}, []),
+    ({"timer": "pizza", "duration": 600, "time": "seven thirty in the morning"}, []),
     ({"timer_name": "pizza"}, _SAMPLE),
     ({"timer_name": "pizza", "duration": 120}, _SAMPLE),
     ({"timer_name": "tea"}, _SAMPLE),

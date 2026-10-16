@@ -319,6 +319,31 @@ function groupsPanel(store, sats) {
       h("span", { class: "badge" }, `${members(g)} command${members(g) === 1 ? "" : "s"}`)))) : null);
 }
 
+// What happens when nothing matched: the closest command by meaning, and
+// the LLM.
+function fallbackPanel() {
+  const status = (state.status && state.status.fallback) || {};
+  const meaning = h("input", { type: "checkbox", checked: status.meaning !== false });
+  const llm = h("input", { type: "checkbox", checked: !!status.llm, disabled: status.llm_installed === false });
+  const topK = h("input", { type: "number", min: 1, max: 64, value: status.top_k || 8, style: "width:70px" });
+  async function save() {
+    try {
+      await api("PUT", "settings", { fallback_meaning: meaning.checked, fallback_llm: llm.checked, fallback_top_k: Number(topK.value) });
+      toast("Saved"); await refreshStatus(); pageCommands();
+    } catch (err) { toast(err.message); }
+  }
+  return h("div", { class: "panel" },
+    h("h2", {}, "When nothing matches"),
+    h("p", { class: "muted small" }, "Keywords and example sentences come first. When they find nothing:"),
+    h("label", {}, meaning, "Run the command closest in meaning, when it is very close and needs nothing said (“kill the lights”)",
+      status.meaning_available === false ? h("span", { class: "badge" }, "needs the embedding model") : null),
+    h("label", {}, llm, "Ask a small LLM, Hammer 2.1 0.5B, to pick a command and fill in what it needs (“we're out of coffee”)",
+      status.llm_installed === false ? h("span", { class: "badge" }, "llama.cpp is not installed") : h("span", { class: "badge" }, status.llm_status || "off")),
+    h("div", { class: "row" }, field("Commands the LLM chooses from", topK, "The closest in meaning. Fewer is faster and picks wrong less often."),
+      h("button", { class: "primary", onclick: save }, "Save")),
+    h("p", { class: "muted small" }, "The LLM is downloaded the first time it is turned on (531 MB) and needs about 1 GB of memory. It is licensed CC-BY-NC-4.0, for non-commercial use. On a Raspberry Pi 5 it adds a few seconds, only to commands nothing else understood."));
+}
+
 async function pageCommands() {
   const [store] = await Promise.all([loadStore(), loadSatellites()]);
   const areas = await areaLabels();
@@ -338,6 +363,7 @@ async function pageCommands() {
       h("button", { class: "primary", onclick: () => { location.hash = "#/command/"; } }, "New command")),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
     ids.length ? groupsPanel(store, sats) : null,
+    ids.length ? fallbackPanel() : null,
     ids.length ? null : h("div", { class: "panel" },
       h("p", {}, "No voice commands yet."),
       h("p", { class: "muted" }, "Start from the library, or make one: pick what it targets, give example sentences or keywords, and choose what happens.")),
@@ -1494,6 +1520,15 @@ function renderRecognition(rec) {
       h("div", {}, "Timing"), h("div", { class: "small" }, Object.entries(rec.timings || {}).map(([k, v]) => `${k} ${Math.round(v * 1000)} ms`).join(" · "))),
     rec.skipped && rec.skipped.length ? h("div", { class: "notice warn" }, "Passed over: ", rec.skipped.map((s) => `${s.command} (${s.why})`).join(", ")) : null,
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
+    rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
+    rec.fallback ? h("details", {}, h("summary", {}, "When nothing matched"),
+      rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "") : null,
+      rec.fallback.llm ? h("div", { class: "small" }, "LLM: ",
+        rec.fallback.llm.skipped ? `skipped (${rec.fallback.llm.skipped})` : [
+          h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${Math.round((rec.fallback.llm.seconds || 0) * 1000)} ms`,
+          rec.fallback.llm.candidates ? h("div", { class: "muted" }, "chose from ", rec.fallback.llm.candidates.join(", ")) : null,
+          rec.fallback.llm.problems ? h("div", { class: "muted" }, "refused: ", rec.fallback.llm.problems.join("; ")) : null,
+        ]) : null) : null,
     rec.hint ? h("div", { class: "notice info" }, rec.hint.text, h("div", { class: "small muted" }, `hint from ${rec.hint.source || "nothing"}`, rec.hint.similarity !== undefined ? ` · similarity ${rec.hint.similarity} vs ${rec.hint.next_similarity} (${rec.hint.next})` : "")) : null,
     h("h3", {}, `Matched (${(r.matches || []).length})`),
     matchRows.length ? matchRows : h("p", { class: "muted" }, "Nothing matched."),

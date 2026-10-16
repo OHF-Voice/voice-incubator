@@ -26,6 +26,20 @@ commands:
     number: duration
     timer: start
 
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: set an alarm
+    # A timer that rings at a clock time: "set an alarm for seven thirty",
+    # "wake me up at 6 am", "an alarm for half past six tomorrow morning".
+    # Without am or pm it is the next time that comes round.
+    require: [[alarm, wake me up, wake me]]
+    optional: [[set, make, create, an, a], [for, at]]
+    wildcard: {slot: time, after: [for, at], to_end: true, required: true, max_words: 7}
+    timer: alarm
+    response:
+      missing_time: What time should the alarm be for?
+
   cancel_timer:
     title: Cancel a timer
     icon: mdi:timer-off-outline

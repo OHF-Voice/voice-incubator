@@ -14,7 +14,7 @@ commands:
   play_music:
     title: Play music
     icon: mdi:music
-    description: play music
+    description: play an artist, album, song, playlist or genre
     require: [[play, put on, listen to]]
     exclude: [next, previous]
     wildcard: {slot: query, after: [play, put on, listen to], to_end: true, required: true, max_words: 8}
@@ -23,7 +23,7 @@ commands:
   add_to_queue:
     title: Add to the queue
     icon: mdi:playlist-plus
-    description: add music to the queue
+    description: add an artist, album or song to the queue
     require: [[add], [queue]]
     optional: [[to]]
     wildcard: {slot: query, after: [add], before: [to], bounded: true, required: true, max_words: 6}
@@ -32,7 +32,7 @@ commands:
   play_similar:
     title: Play music like it
     icon: mdi:radio
-    description: play music like this
+    description: "play more music like what's playing"
     examples: [play more like this, more like this, play something similar]
     require: [[like, similar]]
     optional: [[play], [more, music, songs, something, stuff]]

@@ -209,6 +209,50 @@ commands:
         item: "{{ slots.item }}"
     response: "Added {{ slots.item }} to the shopping list."
 
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: take something off the shopping list
+    require: [[remove, take, delete, cross], [shopping list, list]]
+    optional: [[from, off]]
+    wildcard:
+      slot: item
+      after: [remove, take, delete, cross]
+      before: [from, off]
+      bounded: true
+      required: true
+      max_words: 5
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: todo.shopping_list
+      data:
+        item: "{{ slots.item }}"
+    response: "Took {{ slots.item }} off the shopping list."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: add something to the to-do list
+    require: [[add, put], [to do list, to do]]
+    optional: [[to, on]]
+    wildcard:
+      slot: item
+      after: [add, put]
+      before: [to, on]
+      bounded: true
+      required: true
+      max_words: 8
+    action:
+      action: todo.add_item
+      target:
+        entity_id: todo.to_do
+      data:
+        item: "{{ slots.item }}"
+    response: "Added {{ slots.item }} to the to-do list."
+    needs:
+      - Point it at your to-do list (todo.to_do here).
+
   remind_me:
     title: Remember something
     icon: mdi:note-edit-outline

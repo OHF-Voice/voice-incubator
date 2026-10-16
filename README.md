@@ -137,6 +137,8 @@ them into the vocabulary unless someone adds it.
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
+| `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then Hammer 2.1 0.5B with the commands as tools |
+| `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
 | `custom_components/voice_call/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_call.timer_*` triggers |
 | `hass_tests/` | the integration's tests, run with a Home Assistant core checkout's fixtures (see its conftest) |
@@ -841,6 +843,81 @@ event), and comes back over 1 s when neither holds. The center button pauses
 the Sendspin group when it plays and resumes it on the next press, through the
 Sendspin controller role (`media_player: platform: sendspin`), without Home
 Assistant.
+
+## When nothing matches: meaning, then an LLM
+
+`voice_call/fallback.py`. After the CTC matcher (keywords and examples), in
+order, each only when the one before found nothing:
+
+1. **Meaning.** EmbeddingGemma (already loaded for hints) names the closest
+   command; it is *run* only when the similarity is at least 0.80, at least
+   0.05 ahead of the runner-up (another command, or an everyday request that
+   is not one), and the command needs nothing said -- every slot fixed or
+   optional. `settings.yaml` `fallback_meaning`, on by default.
+2. **The LLM.** Hammer 2.1 0.5B (Qwen 2.5 0.5B tuned for function calling,
+   Q8_0, llama.cpp) gets the commands as tools -- slots as parameters: names
+   as an enum of their spoken names, value lists as theirs, numbers, durations
+   and free text as text -- and the TDT transcript. Its call is checked like a
+   match: the command must be available on the satellite, names map back to
+   ids, list values to values, and a name, value or free text the sentence
+   does not contain is dropped (a 0.5B model fills in arguments nobody gave:
+   "kill the lights" came back with a bedroom and a floor). A required one
+   that is missing or wrong refuses the call, and the miss is hinted from the
+   command the LLM chose. `fallback_llm`, off by default; `fallback_top_k`.
+3. **The hint**, as before.
+
+Tools are the commands' descriptions plus how they are said (their examples,
+else the first keyword of each required group). The music commands'
+descriptions were sharpened for it ("play an artist, album, song, playlist or
+genre", "play more music like what's playing"): Hammer could not tell
+"play music" from "play music like this".
+
+**Every command, or the closest few.** With every command (56 in the library)
+the system-and-tools prefix is evaluated once and reused by every request;
+with only the closest K by meaning (`Recognizer.rank_by_meaning`) the context
+holds just those but they are evaluated each time. The closest 8 are right
+more often and wrong far less often, so that is the default.
+
+`scripts/bench_fallback.py` with `tests/fallback_utterances.yaml`: 64
+sentences the library's keywords mostly miss -- music, shopping and to-do
+lists, alarms, timers, lights and devices, covers and locks -- plus 10 that are
+not commands ("what's the capital of France", "thank you"), in a made-up home.
+
+Hammer alone, on the sentence as text (`--mode llm`), 4 threads:
+
+| | commands right | non-commands refused | per sentence | once |
+|---|---|---|---|---|
+| desktop (Ryzen 9 5950X), every command | 43% | 100% | 0.57 s | 10 s prefix |
+| desktop, closest 8 | 61% | 100% | 1.15 s | |
+| Raspberry Pi 5, every command | 46% | 90% | 1.73 s (p90 2.0) | 45 s prefix |
+| Raspberry Pi 5, closest 8 | 63% | 100% | 4.52 s (p90 6.5) | |
+
+The whole chain, as a call runs it (`--mode chain`: Piper speaks the
+sentence, then CTC, meaning, Hammer), desktop:
+
+| chain | commands right | decided by CTC (right) | by meaning | by Hammer (right) | median |
+|---|---|---|---|---|---|
+| CTC alone | 31% | 18 (17) | | | 0.09 s |
+| + meaning | 35% | 17 (15) | 4 (4) | | 0.11 s |
+| + Hammer, closest 8 | 61% | 18 (17) | | 21 (16) | 1.12 s |
+| + meaning + Hammer, closest 8 | **67%** | 18 (17) | 4 (4) | 21 (15) | 1.10 s |
+| + Hammer, every command | 56% | 18 (17) | | 27 (13) | 0.42 s |
+
+Every non-command was refused by every chain. Meaning never ran a wrong
+command; Hammer ran the wrong one about a quarter of the times it ran one with
+the closest 8, and half the time with every command. What it still cannot do
+is infer: "we need milk", "we're out of coffee", "it's too dark in here" mostly
+come back as no call at all.
+
+Why the LLM is off by default: on a Pi 5 it adds 4-5 s to whatever nothing
+else understood, it is wrong about a quarter of the times it acts, and Hammer
+is licensed CC-BY-NC-4.0. The model (531 MB) is downloaded when it is turned
+on. A faster machine (an N100 is roughly between the two above) makes the
+closest-8 variant about 2 s.
+
+**llama.cpp and pysilero-vad** each ship a `libggml` under the same soname,
+and the first one loaded serves both; only llama.cpp's has everything both
+need, so `voice_call/__init__.py` imports `llama_cpp` first.
 
 ## History: the sentence-trigger chain
 

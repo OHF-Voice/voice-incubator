@@ -180,6 +180,11 @@ timers". A timer is picked out by:
 - its **length** when it was set: "the 5 minute timer";
 - or it is the **only one**.
 
+An **alarm** is a timer that rings at a clock time: "set an alarm for seven
+thirty", "wake me up at 6 am", "an alarm for half past six" (without am or pm,
+the next time it comes round). It is named "alarm" and can be cancelled like
+any timer.
+
 When several timers fit, the satellite asks which ("There's the pizza timer and
 the 5 minute timer"). Timer commands say how it went, and each outcome can have
 a response of your own (the editor shows what is said otherwise); templates
@@ -193,6 +198,7 @@ also see `timer` (the timer it was about) and `timers`:
 | `ambiguous` | several fit; it asks which |
 | `already` | pausing a paused timer, or resuming a running one |
 | `missing_duration` | starting a timer or adding time with no length heard |
+| `missing_time` | an alarm with no time heard |
 | `failed` | Home Assistant refused, or the integration isn't set up |
 
 Between calls the satellite's light ring shows the time left on the timer that
@@ -256,6 +262,24 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
   When there are none, it says so.
 - Unlocking works for anyone the satellite hears: scope the command to the
   satellites that should.
+
+## When nothing matches
+
+Keywords and example sentences come first. When they find nothing, on the
+**Commands** page under "When nothing matches":
+
+- **The closest command in meaning** runs when it is very close and needs
+  nothing said: "kill the lights" for "turn off the lights". On by default.
+- **A small LLM** (Hammer 2.1 0.5B) picks a command and fills in what it
+  needs: "throw on my workout playlist", "take milk off the list", "wake me
+  up at six". It chooses among the commands closest in meaning (8 by
+  default). Off by default: it is downloaded when turned on (531 MB), needs
+  about 1 GB of memory, adds 4-5 seconds on a Raspberry Pi 5 (about 1 on a
+  desktop) to what nothing else understood, and is licensed for
+  non-commercial use only. It only runs commands the satellite may run, and
+  never with a name or value you didn't say.
+
+A call's trace shows what each step tried.
 
 ## Names
 

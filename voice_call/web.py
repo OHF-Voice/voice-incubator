@@ -183,6 +183,7 @@ class Api:
                 "commands": len(engine.compiled.commands) if engine and engine.compiled else 0,
                 "speakers": app.speakers is not None,
                 "tdt_models": app.tdt_models(),
+                "fallback": app.fallback_status(),
                 "tdt_status": app.tdt_status,
                 "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
@@ -643,6 +644,17 @@ class Api:
             settings.pop("tts_language", None)
         if "stt" in body and not settings.get("stt"):
             settings.pop("stt_language", None)
+        fallback_changed = False
+        for option in ("fallback_meaning", "fallback_llm"):
+            if option in body:
+                settings[option] = bool(body[option])
+                fallback_changed = True
+        if "fallback_top_k" in body:
+            settings["fallback_top_k"] = max(1, min(int(body["fallback_top_k"]), 64))
+            fallback_changed = True
+        if fallback_changed:
+            self.app.store.save_settings()
+            asyncio.ensure_future(self.app.configure_fallback())
         if "tdt_model" in body:
             from .server import DEFAULT_TDT, TDT_MODELS  # pylint: disable=import-outside-toplevel
 

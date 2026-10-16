@@ -22,6 +22,7 @@ from . import actions, timers
 from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
 from .endpoint import Endpointer
+from .fallback import Fallback, Hammer
 from .engine import LEARN_VOICE, Decision, Engine, Satellite
 from .hass import HassError, HomeAssistant
 from .integration import Integration
@@ -115,6 +116,10 @@ TDT_MODELS = {
     "multilingual": ("Multilingual (25 European languages)", "parakeet-tdt-0.6b-v3, 600M parameters"),
 }
 DEFAULT_TDT = "en"
+DEFAULT_TOP_K = 8
+"""The LLM fallback chooses among this many commands, the closest in meaning:
+on the fallback benchmark, 61% of the commands it was given against 56% with
+every command, and a quarter of its picks wrong against half."""
 
 
 def tdt_models(root: Path) -> dict[str, Path]:
@@ -215,6 +220,9 @@ class Options:
     enroll_commands: int = 5
     timer_ring_seconds: float = 300.0
     """How long a finished timer rings if nobody stops it."""
+    downloads: bool = False
+    """Download the LLMs from Hugging Face when they are turned on and not
+    there (the command line and the app turn it on; tests leave it off)."""
 
 
 @dataclass
@@ -323,6 +331,8 @@ class VoiceCallApp:
         self._tdt_dirs = tdt_models(root)
         self.tdt_status: str | None = None
         """What became of the last change of TDT model, for the UI."""
+        self._llm_status: str | None = None
+        """Getting the LLM, when it is not the fallback's to say."""
         self.engine: Engine | None = None
         # A second opinion on the two Kaldi tests that are about "is this the
         # wake word or just speech". Its `confusable` test is left alone.
@@ -386,6 +396,7 @@ class VoiceCallApp:
             (LEARN_VOICE,) if self.speakers is not None else (),
         )
         await self.reload_commands()
+        self._spawn(self.configure_fallback())
         if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
             for word in self.wake_words.scan().values():
                 if not word.verified:
@@ -448,6 +459,59 @@ class VoiceCallApp:
         async with self._build_lock:
             await asyncio.to_thread(self.engine.build, compiled)
         self.store_error = None
+        if self.engine.fallback is not None:
+            self.engine.fallback.prepare(self.engine)  # new commands, new tools
+
+    # ------------------------------------------------------------ fallback
+
+    def fallback_settings(self) -> dict[str, Any]:
+        """``settings.yaml``: when nothing matched, take the closest command
+        by meaning (``fallback_meaning``, on unless turned off) and ask the
+        LLM (``fallback_llm``, off unless turned on) with the closest
+        ``fallback_top_k`` commands."""
+        settings = self.store.settings
+        return {
+            "meaning": bool(settings.get("fallback_meaning", True)),
+            "llm": bool(settings.get("fallback_llm", False)),
+            "top_k": int(settings.get("fallback_top_k") or DEFAULT_TOP_K),
+        }
+
+    def fallback_status(self) -> dict[str, Any]:
+        fallback = self.engine.fallback if self.engine is not None else None
+        return {
+            **self.fallback_settings(),
+            "meaning_available": bool(self.engine and self.engine.embedder),
+            "llm_installed": Hammer.available(),
+            "llm_status": self._llm_status or (fallback.status if fallback is not None else "off"),
+        }
+
+    async def configure_fallback(self) -> None:
+        """Apply the fallback settings. The LLM is downloaded the first time
+        it is turned on (531 MB) and loaded in the background."""
+        if self.engine is None:
+            return
+        wanted = self.fallback_settings()
+        current = self.engine.fallback
+        hammer = current.hammer if current is not None else None
+        self._llm_status = None
+        if not wanted["llm"]:
+            hammer = None
+        elif hammer is None:
+            if not Hammer.available():
+                self._llm_status = "llama.cpp is not installed"
+            else:
+                self._llm_status = "downloading Hammer 2.1 0.5B (531 MB)"
+                path = await asyncio.to_thread(
+                    Hammer.find_model, self.options.downloads, self.store.data_dir / "models"
+                )
+                if path is None:
+                    self._llm_status = "could not download Hammer 2.1 0.5B"
+                else:
+                    self._llm_status = None
+                    hammer = Hammer(path, n_threads=self.options.threads)
+        fallback = Fallback(wanted["meaning"], hammer, wanted["top_k"])
+        self.engine.fallback = fallback
+        fallback.prepare(self.engine)
 
     async def _watch_store(self) -> None:
         while True:

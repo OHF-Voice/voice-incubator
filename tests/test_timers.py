@@ -1,6 +1,7 @@
 """Timer commands: which timer is meant, and what is said."""
 
 import copy
+from datetime import datetime
 
 import pytest
 
@@ -202,3 +203,39 @@ def test_the_ring_shows_the_timer_that_finishes_soonest():
     assert timers.progress([], now) == {"shown": 0}
     # Without an end time (a fake), what was left when it was reported.
     assert timers.progress([{"status": "active", "created_duration": 15, "remaining": 15}], now)["remaining"] == 15.0
+
+
+@pytest.mark.parametrize(
+    ("said", "clock"),
+    [
+        ("seven thirty", (7, 30, None)),
+        ("7:30 am", (7, 30, "am")),
+        ("6 pm", (6, 0, "pm")),
+        ("half past six", (6, 30, None)),
+        ("quarter to eight in the morning", (7, 45, "am")),
+        ("ten past nine at night", (9, 10, "pm")),
+        ("twenty to seven", (6, 40, None)),
+        ("seven oh five", (7, 5, None)),
+        ("19:45", (19, 45, None)),
+        ("830", (8, 30, None)),
+        ("noon", (12, 0, "pm")),
+        ("midnight", (0, 0, "am")),
+        ("whenever", None),
+    ],
+)
+def test_clock_times(said, clock):
+    assert timers.parse_clock(said) == clock
+
+
+def test_alarms_ring_at_the_next_time_it_comes_round():
+    evening = datetime(2026, 10, 15, 22, 0)
+    plan = timers.plan("alarm", {"time": "seven"}, [], evening)
+    assert plan.outcome == "done" and plan.service == "create_timer"
+    assert plan.data == {"duration": 9 * 3600, "name": "alarm"} and plan.speech == "Alarm set for 7:00 AM."
+    assert timers.plan("alarm", {"time": "7 pm"}, [], evening).data["duration"] == 21 * 3600
+    assert timers.plan("alarm", {"time": "noon"}, [], evening).speech == "Alarm set for noon."
+    morning = datetime(2026, 10, 15, 6, 0)
+    assert timers.plan("alarm", {"time": "seven"}, [], morning).data["duration"] == 3600
+    assert timers.plan("alarm", {"time": "6:30", "timer": "school"}, [], morning).data == {"duration": 1800, "name": "school"}
+    missing = timers.plan("alarm", {}, [], evening)
+    assert missing.outcome == "missing_time" and missing.service is None

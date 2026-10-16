@@ -167,6 +167,13 @@ class Decision:
     text_source: str = "TDT"
     """What wrote the transcript: the TDT head, or an STT entity."""
 
+    matched_by: str = "ctc"
+    """What found the command: the CTC matcher, or the fallback (``meaning``,
+    ``llm``)."""
+    fallback: dict[str, Any] | None = None
+    """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
+
+
     timings: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -181,6 +188,8 @@ class Decision:
             "does": self.behavior.does if self.behavior else None,
             "slots": self.slots,
             "skipped": self.skipped,
+            "matched_by": self.matched_by if self.command else None,
+            "fallback": self.fallback,
             "hint": self.hint,
             "message": self.message,
             "text_from_tdt": self.text_from_tdt,
@@ -262,6 +271,8 @@ class Engine:
             _LOGGER.info("No embedding model at %s; hints come from keywords only", embedding_dir)
         self._placers: dict[tuple[str, ...], WakeVerifier] = {}
         self.placer = self.placer_for(WAKE_PHRASES)
+        self.fallback: Any = None
+        """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
 
@@ -494,7 +505,16 @@ class Engine:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
                 recognition.timings[_timing(transcriber)] = time.perf_counter() - started
+            if self.fallback is not None and compiled.commands:
+                self._fall_back(decision, recognition, compiled, satellite)
+        if decision.command is None and decision.internal is None:
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
+            llm = (decision.fallback or {}).get("llm") or {}
+            if llm.get("command") in compiled.commands:
+                # The LLM knew what was meant but not all of it.
+                command = compiled.commands[llm["command"]]
+                why = "but that isn't set up here" if satellite.available(command) is None else "but I didn't understand all of it"
+                decision.hint = {"source": "llm", "command": command.id, "text": f"It looks like you're trying to {command.description}, {why}."}
             if not compiled.commands:
                 # Only the app's own commands are listened for.
                 decision.hint = {"source": None, "text": NO_COMMANDS}
@@ -503,6 +523,36 @@ class Engine:
         decision.recognition = to_json(recognition)
         decision.timings = dict(recognition.timings)
         return decision
+
+    def _fall_back(self, decision: Decision, recognition: Recognition, compiled: Compiled, satellite: Satellite) -> None:
+        """Nothing matched: the closest command by meaning, then the LLM."""
+        with self._lock:
+            recognizer = self.recognizer
+        texts = [t for t in (recognition.tdt_transcript, recognition.transcript) if t]
+
+        def closest() -> dict[str, Any] | None:
+            if recognizer is None or self.embedder is None:
+                return None
+            return recognizer.closest_by_meaning(texts)
+
+        def ranked() -> list[tuple[str, float]]:
+            if recognizer is None or self.embedder is None:
+                return []
+            return recognizer.rank_by_meaning(texts)
+
+        started = time.perf_counter()
+        found = self.fallback.decide(texts[0] if texts else "", closest, compiled, satellite, ranked)
+        recognition.timings["fallback"] = time.perf_counter() - started
+        decision.fallback = found.trace or None
+        if found.command is None:
+            return
+        resolved = satellite.available(found.command)
+        if resolved is None:
+            return
+        decision.command = found.command
+        decision.behavior, decision.decided_by = resolved
+        decision.slots = {**decision.behavior.slots, **found.slots}
+        decision.matched_by = found.by or "llm"
 
     def _greedy(self, log_probs: np.ndarray) -> str:
         ids, previous = [], None

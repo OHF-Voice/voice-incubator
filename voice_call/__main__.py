@@ -214,6 +214,7 @@ async def main() -> None:
             speaker_channel=args.speaker_channel,
             speaker_learn=not args.no_speaker_learn,
             enroll_commands=args.enroll_commands,
+            downloads=True,
         )
     )
     await app.start()

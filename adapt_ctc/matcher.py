@@ -511,6 +511,21 @@ class Recognizer:
             "next_similarity": rival[0],
         }
 
+    def rank_by_meaning(self, texts: list[str]) -> list[tuple[str, float]]:
+        """Every intent with examples or a description, closest in meaning to
+        any of ``texts`` first: ``[(intent, similarity)]``. Empty without an
+        embedder. (For narrowing what something else chooses from; never a
+        match.)"""
+        texts = [t for t in texts if t and t.strip()]
+        if self.embedder is None or not self._hint_owners or not texts:
+            return []
+        queries = self.embedder.embed(texts)
+        similar = (queries @ self._hint_vectors.T).max(axis=0)
+        best: dict[str, float] = {}
+        for (intent, _text), similarity in zip(self._hint_owners, similar):
+            best[intent] = max(best.get(intent, -1.0), float(similarity))
+        return sorted(best.items(), key=lambda item: -item[1])
+
     def _find_example(self, transcript: str, skip_first: bool) -> tuple[str, str] | None:
         """``(intent, example)`` for a transcript; also without its first word
         when the keyword pass took that for the tail of the wake word."""
