@@ -174,7 +174,7 @@ class Decision:
 
     matched_by: str = "ctc"
     """What found the command: the CTC matcher, or the fallback (``meaning``,
-    ``llm``)."""
+    ``gliner``, ``llm``)."""
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
@@ -819,23 +819,26 @@ def _norm(value: str) -> str:
 
 
 def llm_note(fallback: dict[str, Any] | None) -> str | None:
-    """What the LLM fallback came to when it ran no command, in a line (None
-    when it was not asked)."""
+    """What the fallback's model step (GLiNER or an LLM) came to when it ran
+    no command, in a line (None when it was not asked)."""
     llm = (fallback or {}).get("llm") or {}
     if not llm:
         return None
+    by = llm.get("by", "LLM")
     if llm.get("skipped"):
-        return f"LLM skipped: {llm['skipped']}"
-    if llm.get("refused"):
-        refused = llm["refused"]
+        return f"{by} skipped: {llm['skipped']}"
+    refused = llm.get("refused")
+    if refused and "similarity" in refused:
         return (
-            f"LLM picked {refused['command']}, not close enough in meaning to run "
+            f"{by} picked {refused['command']}, not close enough in meaning to run "
             f"({refused['similarity']:.2f}, needs {refused['floor']:.2f})"
         )
+    if refused:
+        return f"{by} picked {refused['command']}, not run: {refused['why']}"
     if llm.get("problems"):
-        picked = f"LLM picked {llm['command']}" if llm.get("command") else "LLM's pick"
+        picked = f"{by} picked {llm['command']}" if llm.get("command") else f"{by}'s pick"
         return f"{picked}, not run: {'; '.join(llm['problems'])}"
-    return "LLM: not a command"
+    return f"{by}: {llm.get('said') or 'not a command'}"
 
 
 def _timing(transcriber: Any) -> str:

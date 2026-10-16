@@ -22,7 +22,17 @@ from . import actions, skills, timers
 from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
 from .endpoint import Endpointer
-from .fallback import DEFAULT_TOOL_MODEL, TOOL_MODELS, Fallback, ToolModel, chosen, llama_available
+from .fallback import (
+    DEFAULT_FALLBACK_MODEL,
+    GLINER_MODELS,
+    GLINER_THRESHOLD,
+    TOOL_MODELS,
+    Fallback,
+    GlinerPicker,
+    ToolModel,
+    chosen,
+    llama_available,
+)
 from .questions import DEFAULT_QA_MODEL, QA_MODELS, Answerer, Questions
 from .engine import LEARN_VOICE, Decision, Engine, Satellite, llm_note
 from .hass import HassError, HomeAssistant
@@ -118,10 +128,11 @@ TDT_MODELS = {
 }
 DEFAULT_TDT = "en"
 DEFAULT_TOP_K = 8
-"""With more commands chosen for the LLM fallback than this, it chooses among
-the closest this many in meaning; with no more, among all of them, read once
-(a reused prefix). On the fallback benchmark with every library command,
-the closest 8 are right more often (Granite 52% against 41%) but slower."""
+"""How many commands the fallback's model chooses among. GLiNER: the closest
+this many in meaning among those that need something said, chosen or not (it
+needs others to tell the chosen ones from). An LLM: with more chosen than
+this, the closest this many of them; with no more, all of them, read once (a
+reused prefix)."""
 
 
 def tdt_models(root: Path) -> dict[str, Path]:
@@ -477,21 +488,25 @@ class VoiceCallApp:
 
     def fallback_settings(self) -> dict[str, Any]:
         """``settings.yaml``: when nothing matched, run the closest command by
-        meaning (``fallback_meaning``) and ask an LLM (``fallback_llm``,
-        ``fallback_model``) with the closest ``fallback_top_k`` commands.
+        meaning (``fallback_meaning``), and let a model (``fallback_llm``)
+        pick one and fill in what it needs: GLiNER (``fallback_model``, the
+        default) among the closest ``fallback_top_k`` commands that need
+        something said, sure to at least ``fallback_threshold``, or an LLM.
         Both on unless turned off; each only for the commands chosen for it
         (``fallback: [meaning, llm]``)."""
         settings = self.store.settings
-        model = str(settings.get("fallback_model") or DEFAULT_TOOL_MODEL)
+        model = str(settings.get("fallback_model") or DEFAULT_FALLBACK_MODEL)
+        threshold = settings.get("fallback_threshold")
         return {
             "meaning": bool(settings.get("fallback_meaning", True)),
             "llm": bool(settings.get("fallback_llm", True)),
-            "model": model if model in TOOL_MODELS else DEFAULT_TOOL_MODEL,
+            "model": model if model in TOOL_MODELS or model in GLINER_MODELS else DEFAULT_FALLBACK_MODEL,
             "top_k": int(settings.get("fallback_top_k") or DEFAULT_TOP_K),
+            "threshold": float(threshold) if threshold is not None else GLINER_THRESHOLD,
         }
 
     def _llm_wanted(self) -> bool:
-        """The LLM is turned on and some command is chosen for it."""
+        """The model step is turned on and some command is chosen for it."""
         compiled = self.engine.compiled if self.engine is not None else None
         return self.fallback_settings()["llm"] and compiled is not None and bool(chosen(compiled, "llm"))
 
@@ -506,9 +521,18 @@ class VoiceCallApp:
             status = "no commands chosen for it"
         else:
             status = self._llm_status or (fallback.status if fallback is not None else "off")
+        models = {
+            m: {"name": i.name, "mb": i.mb, "licence": i.licence, "kind": "gliner",
+                "installed": GlinerPicker.find_model(m, self.root) is not None}
+            for m, i in GLINER_MODELS.items()
+        }
+        models.update(
+            {m: {"name": i.name, "mb": i.mb, "licence": i.licence, "kind": "llm", "installed": llama_available()}
+             for m, i in TOOL_MODELS.items()}
+        )
         return {
             **settings,
-            "models": {m: {"name": i.name, "mb": i.mb, "licence": i.licence} for m, i in TOOL_MODELS.items()},
+            "models": models,
             "meaning_available": bool(self.engine and self.engine.embedder),
             "meaning_commands": len(chosen(compiled, "meaning")) if compiled is not None else 0,
             "llm_commands": len(llm_commands),
@@ -517,9 +541,9 @@ class VoiceCallApp:
         }
 
     async def configure_fallback(self) -> None:
-        """Apply the fallback settings. The LLM is downloaded the first time
-        it is needed -- turned on, with a command chosen for it -- and loaded
-        in the background."""
+        """Apply the fallback settings. GLiNER is loaded from models/ in the
+        background; an LLM is downloaded the first time it is needed --
+        turned on, with a command chosen for it -- then loaded."""
         if self.engine is None:
             return
         async with self._fallback_lock:
@@ -534,23 +558,37 @@ class VoiceCallApp:
         if not self._llm_wanted() or (llm is not None and llm.model != wanted["model"]):
             llm = None
         if llm is None and self._llm_wanted():
-            info = TOOL_MODELS[wanted["model"]]
-            name, size = info.name, info.mb
-            if not llama_available():
-                self._llm_status = "llama.cpp is not installed"
-            else:
-                self._llm_status = f"downloading {name} ({size} MB)"
-                path = await asyncio.to_thread(
-                    ToolModel.find_model, wanted["model"], self.options.downloads, self.store.data_dir / "models"
-                )
-                if path is None:
-                    self._llm_status = f"could not download {name}"
-                else:
-                    self._llm_status = None
-                    llm = ToolModel(path, n_threads=self.options.threads, model=wanted["model"])
+            llm = await self._fallback_model(wanted["model"])
+        if isinstance(llm, GlinerPicker):
+            llm.threshold = wanted["threshold"]
         fallback = Fallback(wanted["meaning"], llm, wanted["top_k"])
         self.engine.fallback = fallback
         fallback.prepare(self.engine)
+
+    async def _fallback_model(self, model: str) -> ToolModel | GlinerPicker | None:
+        """The model step's model, not loaded yet: GLiNER from models/, or an
+        LLM from the Hugging Face cache or downloaded into the data
+        directory. None (and why, in ``_llm_status``) when there is none."""
+        if model in GLINER_MODELS:
+            path = GlinerPicker.find_model(model, self.root)
+            if path is None:
+                directory = GLINER_MODELS[model].directory
+                self._llm_status = f"not found: models/{directory} (scripts/export_gliner.py)"
+                return None
+            return GlinerPicker(path, n_threads=self.options.threads, model=model)
+        info = TOOL_MODELS[model]
+        if not llama_available():
+            self._llm_status = "llama.cpp is not installed"
+            return None
+        self._llm_status = f"downloading {info.name} ({info.mb} MB)"
+        path = await asyncio.to_thread(
+            ToolModel.find_model, model, self.options.downloads, self.store.data_dir / "models"
+        )
+        if path is None:
+            self._llm_status = f"could not download {info.name}"
+            return None
+        self._llm_status = None
+        return ToolModel(path, n_threads=self.options.threads, model=model)
 
     # ----------------------------------------------------------- questions
 

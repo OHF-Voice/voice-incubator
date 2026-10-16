@@ -238,9 +238,15 @@ async def _scenario(tmp_path: Path) -> None:
             assert store_data["commands"]["lights_on"]["fallback"] == ["llm"]
             assert store_data["details"]["what_time"]["needs_said"] is False
             fallback = (await (await http.get("/api/status")).json())["fallback"]
-            assert fallback["meaning_commands"] == 1 and fallback["llm_commands"] == 1 and fallback["model"] == "granite-4.0-350m"
+            assert fallback["meaning_commands"] == 1 and fallback["llm_commands"] == 1
+            assert fallback["model"] == "gliner2.5-small-v1" and fallback["threshold"] == 0.3
+            assert fallback["models"]["gliner2.5-small-v1"]["kind"] == "gliner"
+            assert fallback["models"]["granite-4.0-350m"]["kind"] == "llm"
             assert (await http.put("/api/fallback", json={"llm": ["nope"]})).status == 400
             assert (await http.put("/api/settings", json={"fallback_model": "nope"})).status == 400
+            assert (await http.put("/api/settings", json={"fallback_threshold": 1.5})).status == 400
+            assert (await http.put("/api/settings", json={"fallback_threshold": 0.45})).status == 200
+            assert (await (await http.get("/api/status")).json())["fallback"]["threshold"] == 0.45
             assert (await http.put("/api/fallback", json={"meaning": [], "llm": []})).status == 200
 
             # A question no command takes is answered: exactly, or (not here:

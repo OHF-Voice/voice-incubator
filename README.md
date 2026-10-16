@@ -847,7 +847,7 @@ the Sendspin group when it plays and resumes it on the next press, through the
 Sendspin controller role (`media_player: platform: sendspin`), without Home
 Assistant.
 
-## When nothing matches: meaning, then an LLM
+## When nothing matches: meaning, then GLiNER or an LLM
 
 `voice_call/fallback.py`. After the CTC matcher (keywords and examples), in
 order, each only when the one before found nothing -- and each only for the
@@ -862,25 +862,52 @@ decided it may be.
    chosen or not, or an everyday request that is not one), and the command
    needs nothing said -- every slot fixed or optional. `settings.yaml`
    `fallback_meaning`, on by default.
-2. **The LLM** (`fallback_model`): Granite 4.0 350M by default -- Apache-2.0,
-   and already there as the question model -- or Hammer 2.1 0.5B (Qwen 2.5
-   0.5B tuned for function calling, CC-BY-NC-4.0). Q8_0, llama.cpp. It gets
-   the chosen commands as tools -- slots as parameters: names as an enum of
-   their spoken names, value lists as theirs, numbers, durations and free text
-   as text -- and the TDT transcript. Its call is checked like a match: the
-   command must be chosen and available on the satellite, names map back to
-   ids, list values to values, and a name, value, number, duration or free
-   text the sentence does not say is dropped (a small model fills in
-   arguments nobody gave: "kill the lights" came back with a bedroom and a
-   floor, "start the coffee maker" with a 5-minute timer). A required one that
-   is missing or wrong refuses the call, and the miss is hinted from the
-   command the LLM chose. `fallback_llm`, on by default (it loads nothing until
-   a command is chosen for it); `fallback_top_k`.
+2. **The model step** (`fallback_model`; the commands chosen for `llm`):
+   GLiNER2.5 small by default (below), or a small LLM -- Granite 4.0 350M
+   (Apache-2.0, already there as the question model) or Hammer 2.1 0.5B (Qwen
+   2.5 0.5B tuned for function calling, CC-BY-NC-4.0), Q8_0 in llama.cpp. What
+   it picks is checked like a match: the command must be chosen and available
+   on the satellite, names map back to ids, list values to values, and a
+   name, value, number, duration or free text the sentence does not say is
+   dropped (a small LLM fills in arguments nobody gave: "kill the lights"
+   came back with a bedroom and a floor, "start the coffee maker" with a
+   5-minute timer). A required one that is missing or wrong refuses it, and
+   the miss is hinted from the command picked. `fallback_llm`, on by default
+   (it loads nothing until a command is chosen for it); `fallback_top_k`.
 3. **The hint**, as before.
 
-Tools are the commands' descriptions plus how they are said (their examples,
-else the first keyword of each required group). The music commands'
-descriptions were sharpened for it ("play an artist, album, song, playlist or
+**GLiNER** (`voice_call/gliner.py`): GLiNER2.5 small (fastino, 74M
+parameters, Apache-2.0), an encoder that in one pass classifies a sentence
+among labels and finds spans of named types in it. The labels are the
+commands' descriptions plus "something else: a question, small talk or
+thanks"; the types are their parameters (a room, a device, music, something
+to buy, a duration, a percentage, a value from a list, ...). It takes only
+the commands that need something said -- meaning takes the rest, and with
+nothing to read from the sentence there would be nothing to check its pick
+by. It is given the 8 (`fallback_top_k`) of those closest in meaning to the
+sentence, *chosen or not*: alone, a command is taken for nearly anything
+("never mind" played music at 0.87), and the others are what it tells the
+chosen ones from. Its pick runs only when it is chosen, at least
+`fallback_threshold` sure (0.3), ahead of "something else", and given what
+it needs. There is no prompt prefix, so how many are chosen costs nothing.
+
+It runs without PyTorch: onnxruntime, numpy and the tokenizers library
+(about 50 ms a sentence on a desktop, 0.22-0.28 s on a Raspberry Pi 5 with 4
+threads; 424 MB at peak with it loaded, of which ~110 MB is the tokenizer).
+The networks are exported once by `scripts/export_gliner.py` (it needs
+torch and the gliner2 package, in a venv of its own) into
+`models/gliner2.5-small-v1-onnx` (70 MB), which `script/stage_build` copies
+into the image: the encoder with 4-bit weights (MatMulNBits; int8 with
+quantized activations breaks DeBERTa-v3 -- not a command right), and the
+boundary head split in two around the candidate spans, which are chosen in
+numpy (it branches on sizes and needs a stable sort, which ONNX lacks). The
+rest of what the gliner2 package does -- the prompt, word splitting,
+decoding -- is ported. Against the package, on 131 of the benchmark's inputs:
+identical tokens, positions and entities, probabilities within 3e-6.
+
+**An LLM instead.** Its tools are the commands' descriptions plus how they
+are said (their examples, else the first keyword of each required group).
+The music commands' descriptions were sharpened for it ("play an artist, album, song, playlist or
 genre", "play more music like what's playing"): Hammer could not tell
 "play music" from "play music like this".
 
@@ -923,13 +950,45 @@ that the satellite may run, evaluated each time.
 sentences the library's keywords mostly miss -- music, shopping and to-do
 lists, alarms, timers, lights and devices, covers and locks -- plus 10 that are
 not commands ("what's the capital of France", "thank you"), in a made-up home.
-The LLM alone, on the sentence as text (`--mode llm`), Raspberry Pi 5, 4
-threads.
 
-Eight commands chosen (`--chosen`: play music, add to and take off the
-shopping list, add to the to-do list, set an alarm, start a timer, lights on,
-lights off) -- the way it is meant to be used. 32 sentences are for one of
-them; the other 32 (for another command, or none) should be refused:
+The fallback as the app runs it (`--mode fallback`: meaning, then the model
+step, on the sentence as text), desktop. Eight commands chosen (`--chosen`:
+play music, add to and take off the shopping list, add to the to-do list,
+set an alarm, start a timer, lights on, lights off); 32 sentences are for one
+of them, and the other 32 (for another command, or none) should be refused:
+
+| model step | its commands right | refused when it should be | ran a wrong command | model step, median |
+|---|---|---|---|---|
+| GLiNER small, 0.3 | 17/32 | 32/32 | 0 | 0.05 s |
+| GLiNER small, 0.2 | 20/32 | 32/32 | 0 | 0.05 s |
+| GLiNER small, 0.5 | 12/32 | 32/32 | 0 | 0.05 s |
+| Granite 4.0 350M | 18/32 | 26/32 | 7 | 0.40 s |
+| Hammer 2.1 0.5B | 17/32 | 28/32 | 7 | 0.39 s |
+
+Every library command chosen (56):
+
+| model step | right | non-commands refused | ran a wrong command | model step, median |
+|---|---|---|---|---|
+| GLiNER small, 0.2 | 64% | 10/10 | 2 | 0.05 s |
+| GLiNER small, 0.3 | 59% | 10/10 | 2 | 0.05 s |
+| GLiNER small, 0.4 | 55% | 10/10 | 1 | 0.05 s |
+| Granite, closest 8 | 63% | 10/10 | 11 | 1.26 s |
+
+GLiNER gets about as many right and almost never runs a wrong command: with
+eight chosen, what it misses it refuses -- "not sure enough" ("give me ten
+minutes", 0.26), or a closer command that is not chosen ("count down five
+minutes for the eggs" is closest to taking time off a timer). With every
+command chosen, that one runs, and "dim the office to thirty percent" runs
+without the office (the right command; the room was not found). 0.2 would
+get more right here and run nothing more that is wrong -- tuned on these 64
+sentences, so the default stays at 0.3. Neither LLM tells commands apart as
+well: Granite ran lights on and off for "make the kitchen brighter", "shut
+off the bedroom fan" and "shut the garage". What none does well is infer:
+"we need milk", "it's too dark in here".
+
+The LLM alone, on the sentence as text (`--mode llm`: no meaning step, and
+no similarity check on its pick), Raspberry Pi 5, 4 threads. The same eight
+commands chosen:
 
 | | its commands right | refused when it should be | ran a wrong command | per sentence | once |
 |---|---|---|---|---|---|

@@ -726,11 +726,21 @@ class Api:
             settings["fallback_top_k"] = max(1, min(int(body["fallback_top_k"]), 64))
             fallback_changed = True
         if "fallback_model" in body:
-            from .fallback import TOOL_MODELS  # pylint: disable=import-outside-toplevel
+            from .fallback import GLINER_MODELS, TOOL_MODELS  # pylint: disable=import-outside-toplevel
 
-            if str(body["fallback_model"]) not in TOOL_MODELS:
-                raise ConfigError(f"fallback_model: one of {', '.join(TOOL_MODELS)}")
+            models = [*GLINER_MODELS, *TOOL_MODELS]
+            if str(body["fallback_model"]) not in models:
+                raise ConfigError(f"fallback_model: one of {', '.join(models)}")
             settings["fallback_model"] = str(body["fallback_model"])
+            fallback_changed = True
+        if "fallback_threshold" in body:
+            try:
+                threshold = float(body["fallback_threshold"])
+            except (TypeError, ValueError) as err:
+                raise ConfigError("fallback_threshold: a number from 0 to 1") from err
+            if not 0.0 <= threshold <= 1.0:
+                raise ConfigError("fallback_threshold: a number from 0 to 1")
+            settings["fallback_threshold"] = threshold
             fallback_changed = True
         if fallback_changed:
             self.app.store.save_settings()

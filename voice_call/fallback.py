@@ -684,6 +684,145 @@ def _context_size(tools: list[dict[str, Any]]) -> int:
     return ((chars // 3 + CONTEXT_OVERHEAD) // 256 + 1) * 256
 
 
+# ------------------------------------------------------------------ GLiNER
+
+
+@dataclass(frozen=True)
+class GlinerInfo:
+    name: str
+    directory: str
+    """Under models/: what scripts/export_gliner.py writes."""
+    mb: int
+    licence: str
+
+
+GLINER_MODELS = {
+    "gliner2.5-small-v1": GlinerInfo("GLiNER2.5 small, 4-bit", "gliner2.5-small-v1-onnx", 70, "Apache-2.0"),
+}
+DEFAULT_FALLBACK_MODEL = "gliner2.5-small-v1"
+GLINER_THRESHOLD = 0.3
+"""The least probability GLiNER's pick may have; it must also beat "not a
+command". Small, 4-bit, on the fallback benchmark with eight commands chosen
+and the closest eight in meaning to tell them from: 17 of 32 right and none
+wrong at 0.3, 12 at 0.5 (README "When nothing matches")."""
+GLINER_ENTITY_MIN = 0.5
+"""The least probability an argument GLiNER finds may have."""
+NOT_A_COMMAND_LABEL = "something else: a question, small talk or thanks"
+
+# What GLiNER looks for to fill a parameter: a label and a description, as on
+# the fallback benchmark.
+_ENTITY_NAMES = {
+    "area": ("room", "a room or area of the home, like the kitchen or the bedroom"),
+    "floor": ("floor", "a floor of the house, like upstairs or downstairs"),
+    "entity": ("device", "a device, appliance or other thing in the home, like the coffee maker, the bedroom fan or the front door"),
+}
+_ENTITY_TEXT = {
+    "query": ("music", "an artist, album, song, playlist or genre to play"),
+    "item": ("item", "something to buy, or a task to do, as said"),
+    "reminder": ("reminder", "what to be reminded of, like to call mom"),
+    "time": ("clock time", "a time of day, like seven thirty or 6 am"),
+    "timer": ("timer name", "the name of a timer, like pasta or eggs"),
+}
+_ENTITY_LISTS = {
+    "asked": ("state", "a state asked about, like locked, unlocked, open or closed"),
+    "color": ("color", "a color, like red or blue"),
+    "device_class": ("cover type", "a kind of window or door cover, like blinds, curtains, shades or garage door"),
+    "timer_name": ("timer name", "the name of a timer, like pasta or eggs"),
+}
+_ENTITY_NUMBERS = {
+    "percentage": ("percentage", "a percentage, like thirty percent"),
+    "temperature": ("temperature", "a temperature, like 72 degrees"),
+}
+_ARTICLE = re.compile(r"^(?:the|my|our|a|an)\s+", re.I)
+_NUMBER_UNITS = {"percent", "per", "cent", "degrees", "degree"}
+
+
+def entity_type(name: str, parameter: Parameter) -> tuple[str, str]:
+    """What GLiNER looks for to fill a tool parameter: label, description."""
+    spoken = name.replace("_", " ")
+    if parameter.kind == "name":
+        return _ENTITY_NAMES.get(parameter.slot, _ENTITY_NAMES["entity"])
+    if parameter.kind == "duration":
+        return "duration", "a length of time, like ten minutes or an hour and a half"
+    if parameter.kind == "number":
+        return _ENTITY_NUMBERS.get(name, (spoken, f"the {spoken}, a number"))
+    if parameter.kind == "list":
+        if name in _ENTITY_LISTS:
+            return _ENTITY_LISTS[name]
+        values = sorted(set(parameter.choices.values()))[:10]
+        return spoken, f"a {spoken}" + (f", like {', '.join(values)}" if values else "")
+    return _ENTITY_TEXT.get(name, (spoken, f"the {spoken}, as said"))
+
+
+def spoken_number(text: str) -> Any:
+    """A number GLiNER found, as a value: "thirty percent" -> 30."""
+    words = [w for w in re.sub(r"[^a-z0-9. ]", " ", str(text).lower()).split() if w not in _NUMBER_UNITS]
+    for end in range(len(words), 0, -1):
+        value = parse_num(" ".join(words[:end]))
+        if value is not None:
+            return value
+    return text
+
+
+class GlinerPicker:
+    """GLiNER2.5 picks a command (voice_call/gliner.py): one pass classifies
+    the sentence among commands, by their descriptions, and finds the
+    arguments they take. ``load`` and ``pick`` are slow-ish: call them from a
+    thread."""
+
+    kind = "gliner"
+    way_out = False
+
+    def __init__(
+        self, model_dir: Path | None, n_threads: int = 2, model: str = DEFAULT_FALLBACK_MODEL,
+        threshold: float = GLINER_THRESHOLD,
+    ) -> None:
+        self.model_dir = model_dir
+        self.n_threads = n_threads
+        self.model = model
+        self.threshold = threshold
+        self.runtime: Any = None
+        self.signature: str | None = None
+        self.load_seconds: float | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def name(self) -> str:
+        info = GLINER_MODELS.get(self.model)
+        return info.name if info else self.model
+
+    @staticmethod
+    def find_model(model: str, root: Path) -> Path | None:
+        """Its exported files under ``root``/models, if they are there."""
+        path = root / "models" / GLINER_MODELS[model].directory
+        return path if (path / "gliner2_onnx.json").is_file() else None
+
+    def load(self, _specs: Any = None, signature: str | None = None) -> None:
+        from .gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
+
+        with self._lock:
+            started = time.perf_counter()
+            if self.runtime is None:
+                if self.model_dir is None:
+                    raise RuntimeError(f"No {self.name} model")
+                self.runtime = GlinerOnnx(self.model_dir, threads=self.n_threads)
+                self.runtime.extract("warm up", {"item": "something"}, ("command", ["add", "remove"]))
+            self.signature = signature
+            self.load_seconds = time.perf_counter() - started
+            _LOGGER.info("%s ready (%.1f s)", self.name, self.load_seconds)
+
+    @property
+    def ready(self) -> bool:
+        return self.runtime is not None and self.signature is not None
+
+    def pick(self, text: str, labels: list[str], entities: dict[str, str]) -> tuple[dict[str, Any], float]:
+        """Every label's probability (multi-label) and the entities found."""
+        with self._lock:
+            started = time.perf_counter()
+            out = self.runtime.extract(text, entities or None, ("command", labels))
+            return out, time.perf_counter() - started
+
+
 # ---------------------------------------------------------------- the chain
 
 
@@ -694,7 +833,7 @@ class Found:
     command: Command | None = None
     slots: dict[str, Any] = field(default_factory=dict)
     by: str | None = None
-    """meaning | llm"""
+    """meaning | llm | gliner"""
     trace: dict[str, Any] = field(default_factory=dict)
 
 
@@ -744,10 +883,11 @@ class Fallback:
     (new commands are new tools); ``decide`` from the engine's thread."""
 
     def __init__(
-        self, embedding_accept: bool = False, llm: ToolModel | None = None, top_k: int | None = None
+        self, embedding_accept: bool = False, llm: ToolModel | GlinerPicker | None = None, top_k: int | None = None
     ) -> None:
         self.embedding_accept = embedding_accept
         self.llm = llm
+        """The model step: an LLM (ToolModel) or GLiNER (GlinerPicker)."""
         self.top_k = top_k
         """Give the LLM only the commands closest in meaning, this many --
         when more than this many are chosen for it."""
@@ -772,15 +912,14 @@ class Fallback:
         self.tools = tools
         self.chosen = chosen(compiled, "llm")
         everything = tools.subset(self.chosen)
-        self.closest_only = bool(self.top_k) and len(everything) > int(self.top_k or 0)
         llm = self.llm
-        way_out = bool(llm is not None and llm.way_out)
-        if self.closest_only:
-            longest = with_way_out(sorted(everything, key=lambda spec: -len(json.dumps(spec)))[: self.top_k], way_out)
-            specs, signature = longest, f"closest {self.top_k}, context {_context_size(longest)}"
+        if getattr(llm, "kind", "llm") == "gliner":
+            # No prefix: GLiNER is given the closest commands on every call.
+            self.closest_only = False
+            specs, signature = everything, llm.model
         else:
-            specs = with_way_out(everything, way_out)
-            signature = json.dumps(specs, sort_keys=True)
+            self.closest_only = bool(self.top_k) and len(everything) > int(self.top_k or 0)
+            specs, signature = self._tool_prefix(everything, bool(llm is not None and llm.way_out))
         self.signature = signature
         if llm is None:
             return
@@ -803,8 +942,19 @@ class Fallback:
         if wait:
             load()
         else:
-            self._thread = threading.Thread(target=load, name="fallback-llm", daemon=True)
+            self._thread = threading.Thread(target=load, name="fallback-model", daemon=True)
             self._thread.start()
+
+    def _tool_prefix(self, everything: list[dict[str, Any]], way_out: bool) -> tuple[list[dict[str, Any]], str]:
+        """An LLM's tools and what they are loaded as: every chosen command,
+        or room for the longest few."""
+        if self.closest_only:
+            longest = with_way_out(sorted(everything, key=lambda spec: -len(json.dumps(spec)))[: self.top_k], way_out)
+            specs, signature = longest, f"closest {self.top_k}, context {_context_size(longest)}"
+        else:
+            specs = with_way_out(everything, way_out)
+            signature = json.dumps(specs, sort_keys=True)
+        return specs, signature
 
     def decide(self, text: str, closest: Any, compiled: Any, satellite: Any, ranked: Any = None) -> Found:
         """``closest()`` is the closest command by meaning, ``ranked()`` every
@@ -823,11 +973,13 @@ class Fallback:
         llm = self.llm
         if llm is None or self.tools is None or not self.chosen or not text.strip():
             return found
+        gliner = getattr(llm, "kind", "llm") == "gliner"
+        by = "GLiNER" if gliner else "LLM"
         if not llm.ready or llm.signature != self.signature:
-            found.trace["llm"] = {"skipped": self.status}
+            found.trace["llm"] = {"by": by, "skipped": self.status}
             return found
         subset = None
-        trace: dict[str, Any] = {}
+        trace: dict[str, Any] = {"by": by}
         scores: dict[str, float] | None = None
 
         def by_similarity() -> dict[str, float]:
@@ -838,6 +990,9 @@ class Fallback:
                 scores = dict(ranked()) if ranked is not None else {}
             return scores
 
+        if gliner:
+            found.trace["llm"] = trace
+            return self._pick_with_gliner(found, trace, text, compiled, satellite, by_similarity)
         if self.closest_only and ranked is not None:
             allowed = set(self.chosen)
             order = [
@@ -845,7 +1000,7 @@ class Fallback:
                 if c in allowed and c in compiled.commands and satellite.available(compiled.commands[c])
             ]
             if not order:
-                found.trace["llm"] = {"skipped": "none of its commands is available here"}
+                found.trace["llm"] = {"by": by, "skipped": "none of its commands is available here"}
                 return found
             subset = with_way_out(self.tools.subset(order[: self.top_k]), llm.way_out)
             trace["candidates"] = order[: self.top_k]
@@ -882,3 +1037,93 @@ class Fallback:
                 return found
             return Found(command, slots, "llm", found.trace)
         return found
+
+    def _pick_with_gliner(
+        self, found: Found, trace: dict[str, Any], text: str, compiled: Any, satellite: Any, by_similarity: Any
+    ) -> Found:
+        """GLiNER takes the commands that need something said (meaning takes
+        the rest). It is given the closest ``top_k`` of them in meaning, chosen
+        or not -- with no others to tell it from, it would take anything for
+        the one there is ("never mind" played as music) -- and its pick runs
+        only when it was chosen, sure enough (``threshold``), ahead of "not a
+        command", available here, and given what it needs."""
+        llm, tools = self.llm, self.tools
+        assert tools is not None
+        takes = {
+            c.id for c in compiled.commands.values()
+            if not c.disabled and c.id in tools.parameters and needs_heard_slots(c)
+        }
+        mine = takes & set(self.chosen)
+        if not mine:
+            trace["skipped"] = "none of its commands needs something said (meaning takes those)"
+            return found
+        order = [c for c in by_similarity() if c in takes] or sorted(takes)
+        candidates = order[: self.top_k] if self.top_k else order
+        if not mine & set(candidates):
+            trace["skipped"] = "none of its commands is close in meaning"
+            return found
+        labels: dict[str, str] = {}
+        for command_id in candidates:
+            label = compiled.commands[command_id].description
+            labels[f"{label} ({command_id.replace('_', ' ')})" if label in labels else label] = command_id
+        types: dict[str, str] = {}
+        for command_id in candidates:
+            for name, parameter in tools.parameters[command_id].items():
+                label, description = entity_type(name, parameter)
+                types.setdefault(label, description)
+        out, seconds = llm.pick(text, [*labels, NOT_A_COMMAND_LABEL], types)
+        probabilities = dict(out["classification"])
+        none = probabilities.pop(NOT_A_COMMAND_LABEL)
+        scores = {labels[label]: p for label, p in probabilities.items()}
+        entities = out.get("entities") or {}
+        best = max(candidates, key=lambda c: scores[c])
+        trace.update(
+            candidates=candidates,
+            scores={c: round(p, 4) for c, p in scores.items()},
+            not_a_command=round(none, 4),
+            entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
+            seconds=round(seconds, 3),
+        )
+        trace["raw"] = f"{best} {scores[best]:.2f}, not a command {none:.2f}" + "".join(
+            f"; {k}: " + ", ".join(f"\u201c{e[0]}\u201d {e[1]:.2f}" for e in v) for k, v in entities.items() if v
+        )
+        if none >= scores[best]:
+            trace["said"] = "not a command"
+            return found
+        if scores[best] < llm.threshold:
+            trace["said"] = f"not sure enough ({scores[best]:.2f}, needs {llm.threshold:.2f})"
+            return found
+        command = compiled.commands[best]
+        if best not in mine:
+            trace["refused"] = {"command": best, "why": "not chosen for it"}
+            return found
+        arguments = self._gliner_arguments(best, entities)
+        trace["arguments"] = arguments
+        slots, problems = tools.slots(command, arguments, text)
+        trace["command"] = best
+        if problems:
+            trace["problems"] = problems
+            return found
+        if satellite.available(command) is None:
+            trace["problems"] = [satellite.why_unavailable(command)]
+            return found
+        return Found(command, slots, "gliner", found.trace)
+
+    def _gliner_arguments(self, command_id: str, entities: dict[str, list]) -> dict[str, Any]:
+        """A command's arguments from what GLiNER found: the surest of each
+        (or all, for many names); numbers as values, names without "the"."""
+        assert self.tools is not None
+        out: dict[str, Any] = {}
+        for name, parameter in self.tools.parameters[command_id].items():
+            label, _ = entity_type(name, parameter)
+            found = sorted((e for e in entities.get(label) or [] if e[1] >= GLINER_ENTITY_MIN), key=lambda e: -e[1])
+            texts = [_ARTICLE.sub("", e[0]) if parameter.kind == "name" else e[0] for e in found]
+            if not texts:
+                continue
+            if parameter.many:
+                out[name] = texts
+            elif parameter.kind == "number":
+                out[name] = spoken_number(texts[0])
+            else:
+                out[name] = texts[0]
+        return out

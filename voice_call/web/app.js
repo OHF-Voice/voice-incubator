@@ -323,14 +323,23 @@ function groupsPanel(store, sats) {
 // the LLM -- each only for the commands chosen for it.
 function fallbackPanel() {
   const status = (state.status && state.status.fallback) || {};
+  const models = status.models || {};
   const meaning = h("input", { type: "checkbox", checked: status.meaning !== false });
-  const llm = h("input", { type: "checkbox", checked: status.llm !== false, disabled: status.llm_installed === false });
-  const model = h("select", {}, Object.entries(status.models || {}).map(([id, m]) => h("option", { value: id, selected: status.model === id }, `${m.name} (${m.mb} MB, ${m.licence})`)));
+  const llm = h("input", { type: "checkbox", checked: status.llm !== false });
+  const model = h("select", {}, Object.entries(models).map(([id, m]) => h("option", { value: id, selected: status.model === id },
+    `${m.name} (${m.mb} MB, ${m.licence})${m.installed === false ? (m.kind === "gliner" ? " — not exported" : " — llama.cpp missing") : ""}`)));
   const topK = h("input", { type: "number", min: 1, max: 64, value: status.top_k || 8, style: "width:70px" });
+  const threshold = h("input", { type: "number", min: 0, max: 1, step: 0.05, value: status.threshold ?? 0.3, style: "width:80px" });
+  const isGliner = () => (models[model.value] || {}).kind === "gliner";
+  const thresholdField = field("Least sure it may be", threshold, "GLiNER's probability for the command it picks, which must also beat “not a command”. Higher refuses more.");
+  const showThreshold = () => { thresholdField.style.display = isGliner() ? "" : "none"; };
+  model.addEventListener("change", showThreshold);
+  showThreshold();
   const count = (n) => `${n || 0} command${n === 1 ? "" : "s"} chosen`;
   async function save() {
     try {
-      await api("PUT", "settings", { fallback_meaning: meaning.checked, fallback_llm: llm.checked, fallback_model: model.value, fallback_top_k: Number(topK.value) });
+      await api("PUT", "settings", { fallback_meaning: meaning.checked, fallback_llm: llm.checked, fallback_model: model.value,
+        fallback_top_k: Number(topK.value), fallback_threshold: Number(threshold.value) });
       toast("Saved"); await refreshStatus(); pageCommands();
     } catch (err) { toast(err.message); }
   }
@@ -341,19 +350,21 @@ function fallbackPanel() {
     h("label", {}, meaning, "Run the command closest in meaning, when it is very close and needs nothing said (“kill the lights”)",
       h("span", { class: "badge" }, count(status.meaning_commands)),
       status.meaning_available === false ? h("span", { class: "badge" }, "needs the embedding model") : null),
-    h("label", {}, llm, "Ask a small LLM to pick a command and fill in what it needs (“we're out of coffee”)",
+    h("label", {}, llm, "Let a small model pick a command and fill in what it needs (“I'm in the mood for jazz”)",
       h("span", { class: "badge" }, count(status.llm_commands)),
-      status.llm_installed === false ? h("span", { class: "badge" }, "llama.cpp is not installed") : h("span", { class: "badge" }, status.llm_status || "off")),
+      h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
-      field("LLM", model, "Granite is also the question model: no second download. Hammer is usually more careful, but is licensed for non-commercial use only."),
-      field("Commands it chooses from", topK, "When more are chosen, the closest in meaning. Fewer is faster and picks wrong less often; with no more than this many, they are read once and reused."),
-      h("button", { class: "primary", onclick: save }, "Save")),
-    h("p", { class: "muted small" }, "The LLM is downloaded the first time a command is chosen for it. On a Raspberry Pi 5 it adds a few seconds, only to what nothing else understood."));
+      field("Model", model, "GLiNER picks among commands that need something said — meaning takes the rest — in about a quarter of a second on a Raspberry Pi 5. An LLM takes any command but is slower and wrong more often; Granite is also the question model, Hammer is licensed for non-commercial use only."),
+      field("Commands it chooses from", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
+      thresholdField,
+      h("button", { class: "primary", onclick: save }, "Save")));
 }
 
 // Which commands the steps after keywords and examples may run.
 async function pageFallback() {
   const store = await loadStore();
+  const fallback = (state.status && state.status.fallback) || {};
+  const glinerModel = ((fallback.models || {})[fallback.model] || {}).kind === "gliner";
   const errors = h("div");
   const filter = h("input", { type: "search", placeholder: "Filter commands", style: "max-width:260px" });
   const rows = Object.entries(store.commands || {}).map(([cid, spec]) => {
@@ -361,11 +372,14 @@ async function pageFallback() {
     const needsSaid = !!(store.details[cid] || {}).needs_said;
     const meaning = h("input", { type: "checkbox", checked: steps.includes("meaning"), disabled: needsSaid && !steps.includes("meaning"),
       title: needsSaid ? "It needs something said (a name, number, value or text), which meaning can't hear" : "" });
-    const llm = h("input", { type: "checkbox", checked: steps.includes("llm") });
+    // GLiNER takes only commands that need something said: meaning takes the rest.
+    const glinerSkips = glinerModel && !needsSaid;
+    const llm = h("input", { type: "checkbox", checked: steps.includes("llm"), disabled: glinerSkips && !steps.includes("llm"),
+      title: glinerSkips ? "It needs nothing said: GLiNER leaves it to meaning" : "" });
     const row = h("div", { class: "item" }, icon(iconFor(spec || {}), "big"),
       h("div", { class: "grow" }, h("div", { class: "title" }, (spec && (spec.title || spec.description)) || cid),
         h("div", { class: "muted small" }, cid, needsSaid ? " · needs something said" : "")),
-      h("label", { title: meaning.title }, meaning, "meaning"), h("label", {}, llm, "LLM"));
+      h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
     return { cid, spec, meaning, llm, row };
   });
   filter.addEventListener("input", () => {
@@ -388,9 +402,9 @@ async function pageFallback() {
     errors,
     h("div", { class: "panel" },
       h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Commands"), filter,
-        h("button", { onclick: () => all("meaning", true) }, "All by meaning"), h("button", { onclick: () => all("llm", true) }, "All by LLM"),
+        h("button", { onclick: () => all("meaning", true) }, "All by meaning"), h("button", { onclick: () => all("llm", true) }, "All by model"),
         h("button", { onclick: () => { all("meaning", false); all("llm", false); } }, "None")),
-      h("p", { class: "muted small" }, "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (one that needs nothing said), and “LLM” lets the small LLM pick it and fill in what it needs. A command not chosen is never run by them."),
+      h("p", { class: "muted small" }, "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (one that needs nothing said), and “model” lets a small model pick it and fill in what it needs (GLiNER takes only commands that need something said). A command not chosen is never run by them."),
       h("div", { class: "list" }, rows.map((r) => r.row))),
     h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
   );
@@ -991,7 +1005,7 @@ async function pageCommand(id, prefill) {
             } }), (info && info.name) || g))),
           "A satellite limited to command groups runs only the commands in them (Satellites page).") : null,
         field("When nothing else matches", h("div", { class: "wake-list" },
-          [["meaning", "Run it when a sentence is very close in meaning"], ["llm", "Let the small LLM pick it"]].map(([step, label]) => h("label", {},
+          [["meaning", "Run it when a sentence is very close in meaning"], ["llm", "Let a small model pick it"]].map(([step, label]) => h("label", {},
             h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
               const now = asList(spec.fallback).filter((x) => x !== step);
               if (e.target.checked) now.push(step);
@@ -999,7 +1013,7 @@ async function pageCommand(id, prefill) {
               if (ordered.length) spec.fallback = ordered; else delete spec.fallback;
             } }), label))),
           (id && ((state.store.details || {})[id] || {}).needs_said)
-            ? "It needs something said (a name, number, value or text), so meaning won't run it: only the LLM can fill that in."
+            ? "It needs something said (a name, number, value or text), so meaning won't run it: only the model can fill that in."
             : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Commands page.")),
       h("div", { class: "panel" }, h("h2", {}, "Where"), scopeEditor(spec, "scope", true)),
       h("div", { class: "panel" }, h("h2", {}, "Target"),
@@ -1619,20 +1633,21 @@ function renderOutcome(record) {
       h("div", {}, rec.text_source === "typed" ? "Read as" : "Heard"), h("div", {}, rec.recognition.transcript || "—"),
       rec.recognition.tdt_transcript ? [h("div", {}, heardLabels(rec).text), h("div", {}, rec.recognition.tdt_transcript)] : null,
       rec.slots && Object.keys(rec.slots).length ? [h("div", {}, "Slots"), h("div", {}, h("code", {}, JSON.stringify(rec.slots)))] : null,
-      !rec.command && llmNote(rec.fallback) ? [h("div", {}, "LLM"), h("div", {}, llmNote(rec.fallback))] : null,
+      !rec.command && llmNote(rec.fallback) ? [h("div", {}, rec.fallback.llm.by || "Model"), h("div", {}, llmNote(rec.fallback))] : null,
       speech ? [h("div", {}, "Says"), h("div", {}, speech.text || h("span", { class: "muted" }, "(a short sound)"))] : null,
       action && action.error ? [h("div", {}, "Error"), h("div", { class: "notice bad" }, action.error)] : null));
 }
 
-// What the LLM fallback came to when it ran no command, in a line (as
-// engine.llm_note); null when it was not asked.
+// What the fallback's model step (GLiNER or an LLM) came to when it ran no
+// command, in a line (as engine.llm_note); null when it was not asked.
 function llmNote(fallback) {
   const llm = fallback && fallback.llm;
   if (!llm) return null;
   if (llm.skipped) return `skipped: ${llm.skipped}`;
-  if (llm.refused) return `picked ${llm.refused.command}, not close enough in meaning to run (${llm.refused.similarity.toFixed(2)}, needs ${llm.refused.floor.toFixed(2)})`;
+  if (llm.refused && llm.refused.similarity !== undefined) return `picked ${llm.refused.command}, not close enough in meaning to run (${llm.refused.similarity.toFixed(2)}, needs ${llm.refused.floor.toFixed(2)})`;
+  if (llm.refused) return `picked ${llm.refused.command}, not run: ${llm.refused.why}`;
   if (llm.problems) return `${llm.command ? `picked ${llm.command}` : "its pick"}, not run: ${llm.problems.join("; ")}`;
-  return "not a command";
+  return llm.said || "not a command";
 }
 
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT
@@ -1665,15 +1680,17 @@ function renderRecognition(rec) {
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
       h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
-    rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
+    rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "") : null,
-      rec.fallback.llm ? h("div", { class: "small" }, "LLM: ",
+      rec.fallback.llm ? h("div", { class: "small" }, `${rec.fallback.llm.by || "LLM"}: `,
         rec.fallback.llm.skipped ? `skipped (${rec.fallback.llm.skipped})` : [
           h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${Math.round((rec.fallback.llm.seconds || 0) * 1000)} ms`,
           rec.fallback.llm.candidates ? h("div", { class: "muted" }, "chose from ", rec.fallback.llm.candidates.join(", ")) : null,
           rec.fallback.llm.problems ? h("div", { class: "muted" }, "refused: ", rec.fallback.llm.problems.join("; ")) : null,
-          rec.fallback.llm.refused ? h("div", { class: "muted" }, `not run: ${rec.fallback.llm.refused.command} is not close enough in meaning to what was said (similarity ${rec.fallback.llm.refused.similarity}, needs ${rec.fallback.llm.refused.floor}). The sentence is compared with the command's description and examples: a fuller description helps.`) : null,
+          rec.fallback.llm.refused ? h("div", { class: "muted" }, rec.fallback.llm.refused.similarity !== undefined
+            ? `not run: ${rec.fallback.llm.refused.command} is not close enough in meaning to what was said (similarity ${rec.fallback.llm.refused.similarity}, needs ${rec.fallback.llm.refused.floor}). The sentence is compared with the command's description and examples: a fuller description helps.`
+            : `not run: ${rec.fallback.llm.refused.command} is ${rec.fallback.llm.refused.why}`) : null,
           rec.fallback.llm.said ? h("div", { class: "muted" }, `it said: ${rec.fallback.llm.said}`) : null,
         ]) : null) : null,
     rec.hint ? h("div", { class: "notice info" }, rec.hint.text, h("div", { class: "small muted" }, `hint from ${rec.hint.source || "nothing"}`, rec.hint.similarity !== undefined ? ` · similarity ${rec.hint.similarity} vs ${rec.hint.next_similarity} (${rec.hint.next})` : "")) : null,

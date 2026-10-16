@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Copy what the image needs but git does not carry into local/, for the
 # Dockerfile: the models (int8 Parakeet CTC and TDT, Piper, speaker ID, wake
-# words, the Kaldi verifier's model and tools) and wyoming-wake-kaldi, which
+# words, the Kaldi verifier's model and tools, GLiNER for the command
+# fallback) and wyoming-wake-kaldi, which
 # is not published. The Kaldi tools and its daemon are native binaries: stage
 # them on (or for) the architecture you build for.
 #
@@ -19,6 +20,12 @@ cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
 # sherpa-onnx release sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8, as is.
 if [[ -d models/parakeet-tdt-v3-int8 ]]; then
     cp -a models/parakeet-tdt-v3-int8 local/models/
+fi
+# The command fallback's default model (70 MB), from scripts/export_gliner.py.
+if [[ -d models/gliner2.5-small-v1-onnx ]]; then
+    cp -a models/gliner2.5-small-v1-onnx local/models/
+else
+    echo "no models/gliner2.5-small-v1-onnx: the command fallback has no model (scripts/export_gliner.py)" >&2
 fi
 
 mkdir -p local/wyoming-wake-kaldi

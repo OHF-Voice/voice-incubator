@@ -3,18 +3,23 @@
 (tests/fallback_utterances.yaml), with the library's commands in a made-up
 home (HOME).
 
-Two modes:
+Three modes:
 
 - ``--mode llm``: the sentence as text straight to the LLM. What the LLM step
   is worth on its own, and what it costs -- runs anywhere llama-cpp-python
   does (a Pi 5), no other model needed.
+- ``--mode fallback``: the sentence as text to the fallback as the app runs
+  it (``Fallback.decide``): meaning (EmbeddingGemma), then the model step --
+  GLiNER (the default) or an LLM.
 - ``--mode chain``: the whole chain as a call would run it -- Piper speaks the
-  sentence, the CTC matcher tries it, then meaning (EmbeddingGemma), then
-  the LLM -- and which step decided each one.
+  sentence, the CTC matcher tries it, then meaning, then the model step --
+  and which step decided each one.
 
-Every command is chosen for both steps (``fallback: [meaning, llm]``).
+Every command is chosen for both steps (``fallback: [meaning, llm]``), or
+only those given with ``--chosen``.
 
     scripts/bench_fallback.py --mode llm --llm hammer-2.1-0.5b --threads 4 --out /tmp/llm.json
+    scripts/bench_fallback.py --mode fallback --chosen play_music,lights_on --out /tmp/fallback.json
     scripts/bench_fallback.py --mode chain --embedding-accept --out /tmp/chain.json
 """
 
@@ -35,8 +40,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from voice_call.fallback import (  # noqa: E402
+    DEFAULT_FALLBACK_MODEL,
     DEFAULT_TOOL_MODEL,
+    GLINER_MODELS,
+    GLINER_THRESHOLD,
     NOT_A_COMMAND,
+    GlinerPicker,
     SYSTEM_PROMPT,
     TOOL_MODELS,
     ToolModel,
@@ -68,15 +77,17 @@ HOME = {
 }
 
 
-def library_store() -> dict[str, Any]:
-    """Every library command, with the value lists they use, in HOME."""
+def library_store(chosen: list[str] | None = None) -> dict[str, Any]:
+    """Every library command, with the value lists they use, in HOME: each
+    chosen for meaning and the model step, or only those in ``chosen``."""
     commands: dict[str, Any] = {}
     lists: dict[str, Any] = {}
     for path in sorted(LIBRARY.glob("*.yaml")):
         data = plain(_yaml().load(path.read_text()))  # YAML 1.2: "on" is a word
         lists.update(data.get("lists") or {})
         for command_id, spec in (data.get("commands") or {}).items():
-            commands[command_id] = {k: v for k, v in spec.items() if k != "needs"} | {"fallback": ["meaning", "llm"]}
+            steps = ["meaning", "llm"] if chosen is None or command_id in chosen else []
+            commands[command_id] = {k: v for k, v in spec.items() if k != "needs"} | {"fallback": steps}
     return {"names": HOME, "lists": lists, "commands": commands}
 
 
@@ -123,13 +134,24 @@ def rankings(args, compiled, utterances) -> dict[str, list[str]]:
     return out
 
 
+def _chosen(args) -> list[str] | None:
+    return [c.strip() for c in args.chosen.split(",") if c.strip()] if args.chosen else None
+
+
+def _for_chosen(utterances, chosen: list[str] | None) -> list[dict[str, Any]]:
+    """A sentence for a command not chosen should be refused."""
+    if chosen is None:
+        return utterances
+    return [u if u.get("expect") in chosen else {**u, "expect": None, "slots": {}} for u in utterances]
+
+
 def run_llm(args, compiled, utterances) -> dict[str, Any]:
     tools = Tools(compiled)
     if args.chosen:
-        # Only these are tools; a sentence for any other command should be refused.
-        chosen = [c.strip() for c in args.chosen.split(",") if c.strip()]
+        # Only these are tools.
+        chosen = _chosen(args)
         tools.specs = tools.subset(sorted(chosen))
-        utterances = [u if u.get("expect") in chosen else {**u, "expect": None, "slots": {}} for u in utterances]
+        utterances = _for_chosen(utterances, chosen)
     llm = _tool_model(args)
     ranked = rankings(args, compiled, utterances) if args.top_k else {}
 
@@ -181,7 +203,72 @@ def run_llm(args, compiled, utterances) -> dict[str, Any]:
     }
 
 
+def run_fallback(args, compiled, utterances) -> dict[str, Any]:
+    """Meaning, then the model step, on the sentence as text -- as
+    ``Engine._fall_back`` runs them, without speech or the CTC matcher."""
+    from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL  # pylint: disable=import-outside-toplevel
+
+    from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_call.fallback import Fallback  # pylint: disable=import-outside-toplevel
+
+    utterances = _for_chosen(utterances, _chosen(args))
+    ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
+    engine = Engine(ctc, None, DEFAULT_EMBEDDING_MODEL, threads=args.threads)
+    engine.build(compiled)
+    llm = None if args.no_llm else _model(args)
+    fallback = Fallback(embedding_accept=not args.no_meaning, llm=llm, top_k=args.top_k or 8)
+    fallback.prepare(engine, wait=True)
+    recognizer = engine.recognizer
+    satellite = Satellite("bench", "Bench", "kitchen", "Kitchen")
+    rows = []
+    for utterance in utterances:
+        texts = [utterance["text"]]
+        started = time.perf_counter()
+        found = fallback.decide(
+            utterance["text"], lambda texts=texts: recognizer.closest_by_meaning(texts), compiled, satellite,
+            lambda texts=texts: recognizer.rank_by_meaning(texts),
+        )
+        seconds = time.perf_counter() - started
+        command_id = found.command.id if found.command else None
+        slots = found.slots if found.command else {}
+        ok, why = expected(utterance, command_id, slots)
+        rows.append(
+            {"text": utterance["text"], "expect": utterance.get("expect"), "got": command_id, "slots": slots,
+             "by": found.by, "ok": ok, "why": why, "trace": found.trace, "seconds": round(seconds, 3)}
+        )
+        print(f"{'ok ' if ok else 'BAD'} {found.by or '-':7s} {seconds:5.2f}s {utterance['text']!r} -> {command_id} {slots} {why}", flush=True)
+    seconds = [r["seconds"] for r in rows]
+    model_seconds = [r["trace"]["llm"]["seconds"] for r in rows if "seconds" in r["trace"].get("llm", {})]
+    return {
+        "mode": "fallback",
+        "meaning": not args.no_meaning,
+        "llm": None if llm is None else llm.model,
+        "threshold": getattr(llm, "threshold", None),
+        "threads": args.threads,
+        "chosen": args.chosen,
+        "accuracy": sum(r["ok"] for r in rows) / len(rows),
+        "commands_ok": _rate([r for r in rows if r["expect"]]),
+        "non_commands_ok": _rate([r for r in rows if not r["expect"]]),
+        "wrong_command": sum(1 for r in rows if r["got"] and not r["ok"]),
+        "by_step": {by: sum(1 for r in rows if r["by"] == by) for by in ("meaning", "llm", "gliner")},
+        "median_seconds": statistics.median(seconds),
+        "model_median_seconds": statistics.median(model_seconds) if model_seconds else None,
+        "rows": rows,
+    }
+
+
+def _model(args) -> ToolModel | GlinerPicker:
+    if args.llm in GLINER_MODELS:
+        path = Path(args.model) if args.model else GlinerPicker.find_model(args.llm, ROOT)
+        if path is None:
+            raise SystemExit(f"no models/{GLINER_MODELS[args.llm].directory}: scripts/export_gliner.py")
+        return GlinerPicker(path, n_threads=args.threads, model=args.llm, threshold=args.threshold)
+    return _tool_model(args)
+
+
 def _tool_model(args) -> ToolModel:
+    if args.llm not in TOOL_MODELS:
+        raise SystemExit(f"--mode llm needs an LLM: {', '.join(sorted(TOOL_MODELS))}")
     path = Path(args.model) if args.model else ToolModel.find_model(args.llm, download=True)
     llm = ToolModel(path, n_threads=args.threads, model=args.llm)
     if args.no_way_out:
@@ -210,7 +297,7 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
     ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     engine = Engine(ctc, tdt_models(ROOT)["en"], DEFAULT_EMBEDDING_MODEL, threads=args.threads)
     engine.build(compiled)
-    llm = None if args.no_llm else _tool_model(args)
+    llm = None if args.no_llm else _model(args)
     engine.fallback = Fallback(embedding_accept=args.embedding_accept, llm=llm, top_k=args.top_k)
     engine.fallback.prepare(engine, wait=True)
     speech = Speech(ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx", ROOT / "sounds/acknowledge.mp3")
@@ -245,6 +332,7 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
         "accuracy": sum(r["ok"] for r in rows) / len(rows),
         "commands_ok": _rate([r for r in rows if r["expect"]]),
         "non_commands_ok": _rate([r for r in rows if not r["expect"]]),
+        "wrong_command": sum(1 for r in rows if r["got"] and not r["ok"]),
         "by_step": by_step,
         "median_seconds": statistics.median(r["seconds"] for r in rows),
         "rows": rows,
@@ -253,27 +341,35 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=("llm", "chain"), default="llm")
-    parser.add_argument("--llm", choices=sorted(TOOL_MODELS), default=DEFAULT_TOOL_MODEL)
-    parser.add_argument("--model", help="the LLM's GGUF (default: from the Hugging Face cache)")
+    parser.add_argument("--mode", choices=("llm", "fallback", "chain"), default="llm")
+    parser.add_argument(
+        "--llm", choices=sorted([*TOOL_MODELS, *GLINER_MODELS]),
+        help=f"the model step (default: {DEFAULT_TOOL_MODEL} for --mode llm, else {DEFAULT_FALLBACK_MODEL})",
+    )
+    parser.add_argument("--model", help="the LLM's GGUF (default: from the Hugging Face cache), or GLiNER's folder")
+    parser.add_argument("--threshold", type=float, default=GLINER_THRESHOLD, help="GLiNER's")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--embedding-accept", action="store_true")
     parser.add_argument("--top-k", type=int, help="give the LLM only the K commands closest in meaning")
     parser.add_argument("--ranking", help="per-sentence command ranking (JSON) instead of computing it")
     parser.add_argument("--save-ranking", help="write the ranking computed here")
     parser.add_argument("--no-llm", action="store_true")
+    parser.add_argument("--no-meaning", action="store_true", help="--mode fallback without the meaning step")
     parser.add_argument("--no-way-out", action="store_true", help="without the not_a_command tool (and its prompt) for a model that has it")
-    parser.add_argument("--chosen", help="only these commands (comma-separated) are tools, in --mode llm")
+    parser.add_argument("--chosen", help="only these commands (comma-separated) are chosen for the fallback")
     parser.add_argument("--only", help="only utterances containing this")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    args.llm = args.llm or (DEFAULT_TOOL_MODEL if args.mode == "llm" else DEFAULT_FALLBACK_MODEL)
 
-    compiled = compile_store(library_store())
+    compiled = compile_store(library_store(_chosen(args) if args.mode != "llm" else None))
     utterances = yaml.safe_load(UTTERANCES.read_text())["utterances"]
     if args.only:
         utterances = [u for u in utterances if args.only in u["text"]]
     if args.mode == "llm":
         result = run_llm(args, compiled, utterances)
+    elif args.mode == "fallback":
+        result = run_fallback(args, compiled, utterances)
     else:
         result = asyncio.run(run_chain(args, compiled, utterances))
     summary = {k: v for k, v in result.items() if k != "rows"}

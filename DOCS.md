@@ -266,29 +266,35 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
 ## When nothing matches
 
 Keywords and example sentences come first. When they find nothing, two more
-steps can run a command -- but only a command you chose for them: tick
-"meaning" or "LLM" on the command's page, or many at once with **Choose
-commands** under "When nothing matches" on the **Commands** page. Commands
+steps can run a command -- but only a command you chose for them: tick them
+on the command's page, or "meaning" and "model" for many at once with
+**Choose commands** under "When nothing matches" on the **Commands** page. Commands
 from the library are not chosen until you choose them.
 
 - **Meaning** runs the chosen command a sentence is very close to, when it
   needs nothing said: "kill the lights" for "turn off the lights". A command
   that needs a name, number, value or text can't be run this way.
-- **A small LLM** picks one of its chosen commands and fills in what it
-  needs: "throw on my workout playlist", "take milk off the list", "wake me
-  up at six". Granite 4.0 350M by default -- the same model that answers
-  questions, so nothing more to download -- or Hammer 2.1 0.5B, usually the
-  more careful of the two but licensed for non-commercial use only. With
-  more than 8 commands chosen (the number is a setting) it is given the 8
-  closest in meaning to the sentence. On a Raspberry Pi 5 it adds about a
-  second to what nothing else understood with a few commands chosen, several
-  with many. It can pick the wrong command, so choose the ones it would do
-  little harm to run by mistake. It only runs commands the satellite may
-  run, close enough in meaning to what was said, and never with a name,
-  value or number you didn't say. "Close in meaning" compares what was said
-  with the command's description and examples, so describe what it does in
-  full: "play an artist, album, song, playlist or genre", not "play music".
-  A call's trace says what the LLM picked, and why it was not run.
+- **A small model** picks one of its chosen commands and fills in what it
+  needs: "throw on my workout playlist", "take milk off the list", "give me
+  ten minutes for the pasta". By default it is GLiNER2.5 small, which comes
+  with the app: it takes only commands that need something said (a name,
+  number, value or text) -- meaning takes the rest -- and adds about a
+  quarter of a second on a Raspberry Pi 5, however many commands are chosen.
+  It compares the chosen commands with others close in meaning, chosen or
+  not, and runs nothing when it is not sure (**Least sure it may be**, 0.3:
+  lower runs more, and more by mistake), when the closest is one you did not
+  choose, or when the sentence is not a command at all. A small LLM can be
+  picked instead: Granite 4.0 350M -- the same model that answers questions
+  -- or Hammer 2.1 0.5B (non-commercial use only). An LLM takes any chosen
+  command but is slower (a second or more on a Pi 5) and runs the wrong
+  command more often; with more than 8 chosen (the number is a setting) it
+  is given the 8 closest in meaning to the sentence.
+
+  Whichever it is, it only runs commands the satellite may run, and never
+  with a name, value or number you didn't say. Commands are told apart by
+  their descriptions, so describe what each does in full: "play an artist,
+  album, song, playlist or genre", not "play music". A call's trace says what
+  was picked, how sure it was, and why it was not run.
 
 Both are on, and do nothing until a command is chosen for them. A call's trace
 shows what each step tried.

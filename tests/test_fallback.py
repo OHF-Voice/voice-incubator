@@ -298,3 +298,108 @@ def test_picks_must_be_close_in_meaning():
     assert fallback.decide("milk is a drink", far, compiled, KITCHEN, at(0.6)).command is None
     # No embedding model: no floor.
     assert fallback.decide("milk is a drink", far, compiled, KITCHEN, None).command.id == "add_item"
+
+
+class StubGliner:
+    """GLiNER's place: says the probabilities and entities it is told to, and
+    remembers the labels and entity types it was given."""
+
+    kind = "gliner"
+    way_out = False
+    model = "stub-gliner"
+    name = "Stub GLiNER"
+
+    def __init__(self, scores, entities=None, none=0.1):
+        self.scores, self.entities, self.none = scores, entities or {}, none
+        self.threshold = 0.3
+        self.ready = False
+        self.signature = None
+        self.labels = self.types = None
+
+    def load(self, specs=None, signature=None):
+        self.ready, self.signature = True, signature
+
+    def pick(self, text, labels, entities):
+        self.labels, self.types = labels, entities
+        probabilities = {label: self.scores.get(label, 0.01) for label in labels}
+        probabilities[labels[-1]] = self.none
+        return {"classification": probabilities, "entities": self.entities}, 0.02
+
+
+def gliner_fallback(stub, chosen_ids, store=STORE):
+    compiled = chosen_for(store, llm=chosen_ids)
+    fallback = Fallback(llm=stub, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    return fallback, compiled
+
+
+def everything():
+    """Every command, closest first: what an embedding would say."""
+    return [("add_item", 0.8), ("start_timer", 0.7), ("set_brightness", 0.6), ("lights_on", 0.5),
+            ("device_on", 0.4), ("light_color", 0.3), ("what_time", 0.2), ("set_alarm", 0.1)]
+
+
+def test_gliner_picks_among_the_closest_that_need_something_said():
+    stub = StubGliner({"add something to the shopping list": 0.8}, {"item": [("milk", 0.97, 8, 12)]})
+    fallback, compiled = gliner_fallback(stub, ["add_item"])
+    assert fallback.status == "ready" and stub.ready
+    found = fallback.decide("we need milk", far, compiled, KITCHEN, everything)
+    assert found.command.id == "add_item" and found.by == "gliner" and found.slots == {"item": "milk"}
+    # The chosen one among others to tell it from -- but not those that need
+    # nothing said (meaning's): lights_on, what_time.
+    assert stub.labels[:5] == [
+        "add something to the shopping list", "set a timer", "set the brightness of the lights", "turn on a device",
+        "change the color of the lights",
+    ]
+    assert stub.labels[-1] == "something else: a question, small talk or thanks"
+    assert stub.types["item"] == "something to buy, or a task to do, as said" and "duration" in stub.types
+    trace = found.trace["llm"]
+    assert trace["by"] == "GLiNER" and trace["candidates"][0] == "add_item" and trace["scores"]["add_item"] == 0.8
+
+
+def test_gliner_runs_only_a_chosen_command_it_is_sure_of():
+    picks_timer = StubGliner({"set a timer": 0.7, "add something to the shopping list": 0.5})
+    fallback, compiled = gliner_fallback(picks_timer, ["add_item"])
+    found = fallback.decide("give me ten minutes", far, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["llm"]["refused"] == {"command": "start_timer", "why": "not chosen for it"}
+    assert llm_note(found.trace) == "GLiNER picked start_timer, not run: not chosen for it"
+
+    unsure = StubGliner({"add something to the shopping list": 0.2}, {"item": [("milk", 0.97, 8, 12)]})
+    fallback, compiled = gliner_fallback(unsure, ["add_item"])
+    found = fallback.decide("milk", far, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["llm"]["said"] == "not sure enough (0.20, needs 0.30)"
+
+    not_a_command = StubGliner({"add something to the shopping list": 0.4}, none=0.6)
+    fallback, compiled = gliner_fallback(not_a_command, ["add_item"])
+    found = fallback.decide("thank you", far, compiled, KITCHEN, everything)
+    assert found.command is None and llm_note(found.trace) == "GLiNER: not a command"
+
+    # Sure, but what it needs was not found: not run, and hinted from it.
+    nothing_said = StubGliner({"add something to the shopping list": 0.9})
+    fallback, compiled = gliner_fallback(nothing_said, ["add_item"])
+    found = fallback.decide("we're out", far, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["llm"]["command"] == "add_item" and found.trace["llm"]["problems"] == ["no item"]
+
+
+def test_gliner_arguments():
+    # A number as said, a name without its article.
+    dim = StubGliner({"set the brightness of the lights": 0.9}, {"percentage": [("thirty percent", 0.9, 0, 14)]})
+    fallback, compiled = gliner_fallback(dim, ["set_brightness"])
+    found = fallback.decide("thirty percent please", far, compiled, KITCHEN, everything)
+    assert found.command.id == "set_brightness" and found.slots == {"percentage": 30}
+    coffee = StubGliner({"turn on a device": 0.9}, {"device": [("the coffee maker", 0.9, 6, 22)]})
+    fallback, compiled = gliner_fallback(coffee, ["device_on"])
+    found = fallback.decide("start the coffee maker", far, compiled, KITCHEN, everything)
+    assert found.command.id == "device_on" and found.slots == {"entity": ["switch.coffee_maker"]}
+
+
+def test_gliner_skips():
+    # Its commands are not among the closest: not asked.
+    stub = StubGliner({})
+    fallback, compiled = gliner_fallback(stub, ["set_alarm"])
+    found = fallback.decide("we need milk", far, compiled, KITCHEN, lambda: everything()[:5])
+    assert found.trace["llm"]["skipped"] == "none of its commands is close in meaning" and stub.labels is None
+    # Only commands that need nothing said: meaning's, not GLiNER's.
+    fallback, compiled = gliner_fallback(stub, ["lights_on"])
+    found = fallback.decide("some light please", far, compiled, KITCHEN, everything)
+    assert "meaning takes those" in found.trace["llm"]["skipped"]

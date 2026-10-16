@@ -41,10 +41,12 @@
   Assistant STT and TTS entities get a language, for every satellite or per
   satellite.
 - When nothing matches: the closest command by meaning runs when it is very
-  close and needs nothing said, and a small LLM (Granite 4.0 350M, or Hammer
-  2.1 0.5B) can pick a command and fill in its slots. Both only run the
-  commands chosen for them (`fallback: [meaning, llm]`, ticked per command or
-  many at once on the Commands page); none are chosen to begin with.
+  close and needs nothing said, and a small model can pick a command that
+  needs something said and fill in its slots -- GLiNER2.5 small (4-bit,
+  without PyTorch, about a quarter of a second on a Pi 5), or a small LLM
+  (Granite 4.0 350M, or Hammer 2.1 0.5B). Both only run the commands chosen
+  for them (`fallback: [meaning, llm]`, ticked per command or many at once on
+  the Commands page); none are chosen to begin with.
 - Questions no command takes are answered: exactly by skills (spelling,
   dates, clock arithmetic, unit conversions, math), "I can't look that up"
   for live ones, and the rest by a small LLM (Granite 4.0 350M, or Gemma 3
