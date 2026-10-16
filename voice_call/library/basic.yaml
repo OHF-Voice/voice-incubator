@@ -167,6 +167,9 @@ commands:
     description: set the temperature
     require: [[set, temperature, degrees]]
     optional: [[set], [temperature], [to, at], [degrees], [in]]
+    # A question about degrees is not a setting: "what's 20 degrees C in
+    # Fahrenheit" (the units skill).
+    exclude: [what, "what's", how, convert]
     names:
       entity: {count: 1, optional: true, domains: [climate]}
       area: {count: 1, optional: true}

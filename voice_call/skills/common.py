@@ -53,7 +53,7 @@ FRACTIONS = {"half": 0.5, "a half": 0.5, "one half": 0.5, "quarter": 0.25, "a qu
 ORDINAL_POW = {"square": 2, "squared": 2, "second": 2, "cube": 3, "cubed": 3, "third": 3, "fourth": 4, "fifth": 5,
                "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
 
-NUM_RE = r"-?\d[\d,]*(?:\.\d+)?|(?:(?:a|an|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|and|half|quarter|negative|minus)[\s-]*)+"
+NUM_RE = r"-?\d[\d,]*(?:\.\d+)?|(?:(?:a|an|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|and|half|quarter|negative|minus|point)\b[\s-]*)+"
 N = rf"({NUM_RE})"
 """A number in a grammar, as a group."""
 
@@ -69,7 +69,15 @@ def parse_num(s):
     neg = s.startswith(("negative ", "minus "))
     if neg:
         s = s.split(" ", 1)[1]
-    m = re.fullmatch(r"(.+?)\s+and\s+(a half|a quarter|three quarters)", s)
+    if m := re.fullmatch(r"(.*?)\s*\bpoint\s+(.+)", s):
+        # "ninety eight point six", "point five": digits after the point.
+        whole = parse_num(m.group(1)) if m.group(1) else 0
+        digits = [w if w.isdigit() else str(WORD_NUM.get(w, 0 if w == "oh" else -1)) for w in m.group(2).split()]
+        if whole is None or any(not d.isdigit() for d in digits):
+            return None
+        return (-1 if neg else 1) * (whole + float("0." + "".join(digits)))
+    # "one and a half"; a transcript may drop the "and".
+    m = re.fullmatch(r"(.+?)\s+(?:and\s+)?(a half|a quarter|three quarters)", s)
     if m:
         a = parse_num(m.group(1))
         return None if a is None else (-1 if neg else 1) * (a + FRACTIONS[m.group(2)])

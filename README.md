@@ -997,6 +997,14 @@ quarts", "5²", "10 m²", "√144", "$80", "100km" -- in the words the grammars
 read. A currency is live only when there are two ("how many euros is a
 dollar"); "15% of $80" is 12 dollars, and "3.5 kg in pounds" is a weight.
 
+They read both transcripts, TDT's then CTC's where it differs: on a Try of
+"What is 50°F in Celsius?" (Piper reads it "fifty degrees F") TDT heard
+"fifty degrees FN Celsius" and CTC "F in Celsius". Piper's audio differs from
+run to run, so the same question can be heard differently each time. The
+grammars take what the models make of short words: "F and C", "CNF" and "CN
+F" for "C in F", "one a half", "quartz", and spoken decimals ("ninety eight
+point six").
+
 Every skill is on unless turned off, for the whole home (`settings.yaml`
 `skills: {spelling: false}`) or one satellite (`satellites.yaml`, the same;
 its own setting wins). A skill is a `Skill` (`skills/common.py`: id, name,
@@ -1054,7 +1062,10 @@ in a pand", "leap year" as "leap here"); they went to the model, which got
 some of them anyway.
 
 Since: an ounce beside a volume is a fluid ounce ("how many ounces are in a
-cup" is 8; it was not answered).
+cup" is 8; it was not answered); and with normalization, both transcripts and
+the above, spoken again: benchmark 57 exact (one wrong: "definitely" heard
+as "Defimaty", and spelled), 26 live; held out 47 exact (46 graded, all
+right), 33 live.
 
 ## History: the sentence-trigger chain
 

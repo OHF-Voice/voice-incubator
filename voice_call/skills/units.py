@@ -35,7 +35,9 @@ ALIASES = {"mm": "millimeter", "cm": "centimeter", "m": "meter", "km": "kilomete
            "tbsp": "tablespoon", "oz": "ounce", "fl oz": "fluid ounce", "lb": "pound", "lbs": "pound", "g": "gram", "kg": "kilogram",
            "kilo": "kilogram", "kilos": "kilogram", "mg": "milligram", "sec": "second", "secs": "second", "min": "minute",
            "mins": "minute", "hr": "hour", "hrs": "hour", "centuries": "century", "square feet": "square foot",
-           "tonne": "metric ton", "tonnes": "metric ton"}
+           "tonne": "metric ton", "tonnes": "metric ton",
+           # As a transcript may write them.
+           "quartz": "quart"}
 
 
 def unit(s):
@@ -81,7 +83,7 @@ def plural(u, v):
 def solve(q):
     s = clean(q)
     s = re.sub(r"\s+(in us cooking|in cooking)$", "", s)
-    temp = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how hot is|how cold is)?\s*{N} (?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)\s+(?:in|to|into|as)\s+(?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)", s)
+    temp = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how hot is|how cold is)?\s*{N} (?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)(?:\s+(?:in|to|into|as|and)\s+|(?<=\b[cfk])n\s*)(?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)", s)
     if temp:
         v = parse_num(temp.group(1))
         a, b = temp.group(2)[0], temp.group(3)[0]
@@ -91,15 +93,17 @@ def solve(q):
         out = c * 9 / 5 + 32 if b == "f" else c + 273.15 if b == "k" else c
         name = {"f": "Fahrenheit", "c": "Celsius", "k": "kelvin"}[b]
         return f"{fmt(round(out, 1))} degrees {name}"
-    m = (re.fullmatch(r"how many (.+?) (?:are )?(?:there )?(?:in|per|make up|make|in a single) (?:a |an |one )?(.+)", s)
-         or re.fullmatch(r"how many (.+?) (?:is|are) (?:in )?(?:a |an |one )?(.+)", s))
+    m = (re.fullmatch(r"how many (.+?) (?:are )?(?:there )?(?:in|per|make up|make|in a single) (.+)", s)
+         or re.fullmatch(r"how many (.+?) (?:is|are) (?:in )?(.+)", s))
     if m:
         b, rest = m.group(1), m.group(2)
         n = 1.0
-        if mm := re.fullmatch(rf"{N}\s+(.+)", rest):
-            n2 = parse_num(mm.group(1))
-            if n2 is not None:
-                n, rest = n2, mm.group(2)
+        # "one and a half quarts", "2 quarts"; else "a quart", "one quart".
+        mm = re.fullmatch(rf"{N}\s*(.+)", rest)
+        if mm and parse_num(mm.group(1)) is not None and unit(mm.group(2)):
+            n, rest = parse_num(mm.group(1)), mm.group(2)
+        else:
+            rest = re.sub(r"^(?:a|an|one) ", "", rest)
         ua, ub = unit(rest), unit(b)
         if ua and ub:
             r = convert(n, ua, ub)

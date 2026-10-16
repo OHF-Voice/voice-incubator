@@ -96,6 +96,24 @@ def test_written_out(question, said, skill):
     assert skills.answer(question) == Answer("exact", said, skill)
 
 
+@pytest.mark.parametrize(
+    ("question", "said"),
+    [
+        # As the speech models transcribe them, "in" merged or misheard.
+        ("What is fifty degrees FN Celsius?", "It's 10 degrees Celsius."),
+        ("What's thirty CNF?", "It's 86 degrees Fahrenheit."),
+        ("What's thirty CN F.", "It's 86 degrees Fahrenheit."),
+        ("What is fifty? Degrees F and degrees C.", "It's 10 degrees Celsius."),
+        ("What is ninety eight point six degrees F in Celsius?", "It's 37 degrees Celsius."),
+        ("How many cups in one and a half quartz?", "It's 6."),
+        ("How many cups in one a half quarts?", "It's 6."),
+        ("What's three point five kG in pounds?", "It's 7.716 pounds."),
+    ],
+)
+def test_transcribed(question, said):
+    assert skills.answer(question).text == said
+
+
 def test_normalize():
     assert normalize("What’s 50°F in °C?") == "What's 50 degrees fahrenheit in degrees celsius?"
     assert normalize("½ cup, 1½ cups, 2 1/4 cups, 1/3 cup") == "a half cup, 1.5 cups, 2.25 cups, a third cup"

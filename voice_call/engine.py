@@ -517,7 +517,10 @@ class Engine:
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
                 recognition.timings[_timing(transcriber)] = time.perf_counter() - started
             text = recognition.tdt_transcript or recognition.transcript or ""
-            exact = skills.answer(text, satellite.skills)
+            # Each transcript, TDT's first: one may hear "fifty degrees F in
+            # Celsius" where the other heard "FN Celsius".
+            transcripts = dict.fromkeys(t for t in (recognition.tdt_transcript, recognition.transcript) if t)
+            exact = next(filter(None, (skills.answer(t, satellite.skills) for t in transcripts)), None)
             if exact is not None:
                 # Spelling, dates, units, arithmetic: exact, and instant.
                 decision.answer = exact.to_json()
