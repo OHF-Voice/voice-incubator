@@ -200,6 +200,27 @@ async def _scenario(tmp_path: Path) -> None:
             assert tried["dry_run"]
             assert len(hass.scripts) == scripts  # nothing ran since the debug session started
 
+            # Command groups: a satellite given "kids" runs only its commands.
+            async def tried_command(text):
+                record = await (await http.post("/api/try", json={"text": text, "satellite": MAC})).json()
+                return next(s for s in record["stages"] if s["stage"] == "recognition")
+
+            assert (await (await http.put("/api/groups/kids", json={"name": "Kids", "commands": ["what_time"]})).json())["ok"]
+            assert (await http.put(f"/api/satellites/{MAC}", json={"command_groups": ["kids"]})).status == 200
+            recognition = await tried_command("turn on the lights")
+            assert recognition["command"] is None
+            assert recognition["skipped"][0] == {"command": "lights_on", "why": "not in this satellite's command groups"}
+            assert (await tried_command("what time is it"))["command"] == "what_time"
+            # The home's groups, where a satellite has none of its own.
+            assert (await http.put(f"/api/satellites/{MAC}", json={"command_groups": None})).status == 200
+            assert (await http.put("/api/settings", json={"command_groups": ["kids"]})).status == 200
+            assert (await tried_command("turn on the lights"))["command"] is None
+            assert (await http.put("/api/settings", json={"command_groups": ["nope"]})).status == 400
+            # Deleting the group frees every satellite.
+            assert (await http.delete("/api/groups/kids")).status == 200
+            assert "command_groups" not in app.store.settings
+            assert (await tried_command("turn on the lights"))["command"] == "lights_on"
+
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
         timer_list = f"voice_timer_list.{MAC}_timers"

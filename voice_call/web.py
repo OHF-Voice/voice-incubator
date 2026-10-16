@@ -85,6 +85,8 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/names/{kind}/{id}", api.put_name),
             web.delete("/api/names/{kind}/{id}", api.delete_name),
             web.put("/api/lists/{name}", api.put_list),
+            web.put("/api/groups/{id}", api.put_group),
+            web.delete("/api/groups/{id}", api.delete_group),
             web.delete("/api/lists/{name}", api.delete_list),
             web.get("/api/library", api.library),
             web.post("/api/library/add", api.library_add),
@@ -222,6 +224,9 @@ class Api:
                 "details": details,
                 "names": {kind: (data.get("names") or {}).get(kind) or {} for kind in NAME_KINDS},
                 "lists": data.get("lists") or {},
+                "groups": data.get("groups") or {},
+                # Where each group is given: the whole home, and satellites.
+                "group_use": self._group_use(),
                 "error": error,
             }
         )
@@ -308,6 +313,63 @@ class Api:
 
     async def delete_list(self, request: web.Request) -> web.Response:
         return await self._saved(self.app.store.put_list(request.match_info["name"], None))
+
+    # ------------------------------------------------------- command groups
+
+    def _group_use(self) -> dict[str, Any]:
+        store = self.app.store
+        satellites = {
+            key: list(entry.get("command_groups") or [])
+            for key, entry in store.satellites.items()
+            if entry.get("command_groups")
+        }
+        return {"home": list(store.settings.get("command_groups") or []), "satellites": satellites}
+
+    def _group_ids(self, value: Any) -> list[str]:
+        if not value:
+            return []
+        if not isinstance(value, list):
+            raise ConfigError("command_groups: expected a list of group ids")
+        compiled = self.app.engine.compiled if self.app.engine else None
+        known = compiled.groups if compiled is not None else {}
+        unknown = [str(v) for v in value if str(v) not in known]
+        if unknown:
+            raise ConfigError(f"command_groups: no group {unknown[0]!r}")
+        return list(dict.fromkeys(str(v) for v in value))
+
+    async def put_group(self, request: web.Request) -> web.Response:
+        """A command group's name and description, and (``commands``, when
+        given) exactly which commands are in it."""
+        group_id = request.match_info["id"]
+        body = await request.json()
+        spec = {"name": str(body.get("name") or "").strip(), "description": str(body.get("description") or "").strip()}
+        members = body.get("commands")
+        if members is not None and not isinstance(members, list):
+            raise ConfigError("commands: expected a list of command ids")
+        compiled = self.app.store.put_group(group_id, spec, None if members is None else [str(m) for m in members])
+        return await self._saved(compiled)
+
+    async def delete_group(self, request: web.Request) -> web.Response:
+        """Delete a group: every command leaves it, and it is no longer given
+        to the home or any satellite."""
+        group_id = request.match_info["id"]
+        compiled = self.app.store.put_group(group_id, None)
+        store = self.app.store
+        if group_id in (store.settings.get("command_groups") or []):
+            store.settings["command_groups"] = [g for g in store.settings["command_groups"] if g != group_id]
+            if not store.settings["command_groups"]:
+                del store.settings["command_groups"]
+            store.save_settings()
+        changed = False
+        for entry in store.satellites.values():
+            if group_id in (entry.get("command_groups") or []):
+                entry["command_groups"] = [g for g in entry["command_groups"] if g != group_id]
+                if not entry["command_groups"]:
+                    del entry["command_groups"]
+                changed = True
+        if changed:
+            store.save_satellites()
+        return await self._saved(compiled)
 
     # -------------------------------------------------------------- library
 
@@ -414,6 +476,12 @@ class Api:
                     # Its own pick (absent: as every satellite), and what it
                     # listens for: what was pushed, or what will be.
                     "wake_words": stored.get("wake_words"),
+                    # Its own command groups (absent: every satellite's), and
+                    # what it is limited to (None: every command).
+                    "command_groups": stored.get("command_groups"),
+                    "command_groups_used": (
+                        sorted(satellite.command_groups) if satellite.command_groups is not None else None
+                    ),
                     "wake_words_used": (
                         session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
                     ),
@@ -467,6 +535,13 @@ class Api:
                     entry[option] = value
                 else:
                     entry.pop(option, None)
+        if "command_groups" in body:
+            # Empty: as every satellite.
+            picked = self._group_ids(body["command_groups"])
+            if picked:
+                entry["command_groups"] = picked
+            else:
+                entry.pop("command_groups", None)
         if "wake_words" in body:
             # Empty: as every satellite.
             picked = self._wake_word_ids(body["wake_words"])
@@ -544,6 +619,13 @@ class Api:
                     settings.pop(key, None)
         if "tts" in body and not settings.get("tts"):
             settings.pop("tts_voice", None)
+        if "command_groups" in body:
+            # Empty: every command, on satellites without groups of their own.
+            picked = self._group_ids(body["command_groups"])
+            if picked:
+                settings["command_groups"] = picked
+            else:
+                settings.pop("command_groups", None)
         if "wake_words" in body:
             picked = self._wake_word_ids(body["wake_words"])
             if picked:

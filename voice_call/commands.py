@@ -53,6 +53,17 @@ some satellites. ``overrides`` change what happens (and the fixed slots) in a
 narrower scope, or switch the command off there (``disabled: true``): an
 override for a satellite wins over one for its area, which wins over the
 command itself.
+
+``groups`` puts a command in command groups (defined at the top level of the
+store, ``groups: {kids: {name: Kids}}``). A group can be given to the whole
+home or to a satellite; a satellite with groups -- its own, else the home's --
+runs only the commands in them. Without any, every command is available::
+
+    groups:
+      kids: {name: Kids' room, description: what the kids may ask for}
+    commands:
+      lights_on:
+        groups: [kids]
 """
 
 from __future__ import annotations
@@ -94,9 +105,11 @@ COMMAND_KEYS = {
     "disabled",
     "title",
     "icon",
+    "groups",
     *LISTEN_KEYS,
     *DO_KEYS,
 }
+GROUP_KEYS = {"name", "description"}
 OVERRIDE_KEYS = {"scope", "slots", "response", "disabled", *DO_KEYS}
 
 # Shared settings for every home: the core intents' filler words and name
@@ -274,6 +287,13 @@ class Command:
     duration: bool = False
     disabled: bool = False
     title: str = ""
+    groups: tuple[str, ...] = ()
+    """The command groups it is in."""
+
+    def allowed(self, groups: frozenset[str] | None) -> bool:
+        """Whether a satellite limited to these command groups may run it
+        (None: not limited)."""
+        return groups is None or any(group in groups for group in self.groups)
 
     def resolve(self, satellite: str | None, area: str | None) -> tuple[Behavior, str] | None:
         """What happens on this satellite, and which scope decided it; None
@@ -388,7 +408,48 @@ def parse_command(command_id: str, spec: Any) -> Command:
         duration,
         bool(spec.get("disabled", False)),
         str(spec.get("title") or ""),
+        _group_ids(spec.get("groups"), f"{where}.groups"),
     )
+
+
+def _group_ids(value: Any, where: str) -> tuple[str, ...]:
+    if value in (None, []):
+        return ()
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: a list of command group ids")
+    out = []
+    for group in value:
+        group = str(group)
+        if not COMMAND_ID.match(group):
+            raise ConfigError(f"{where}: {group!r} -- group ids are lowercase letters, digits and underscores")
+        if group not in out:
+            out.append(group)
+    return tuple(out)
+
+
+def parse_groups(data: Any) -> dict[str, dict[str, str]]:
+    """Command groups from a store's ``groups`` mapping: id -> name and
+    description. Raises ConfigError."""
+    if data in (None, {}):
+        return {}
+    groups = _mapping(data, "groups")
+    out = {}
+    for group_id, spec in groups.items():
+        group_id = str(group_id)
+        where = f"groups.{group_id}"
+        if not COMMAND_ID.match(group_id):
+            raise ConfigError(f"{where}: ids are lowercase letters, digits and underscores")
+        spec = _mapping(spec if spec is not None else {}, where)
+        unknown = set(spec) - GROUP_KEYS
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)} (use name, description)")
+        out[group_id] = {
+            "name": str(spec.get("name") or group_id.replace("_", " ").capitalize()),
+            "description": str(spec.get("description") or ""),
+        }
+    return out
 
 
 def _behavior(spec: dict[str, Any], where: str) -> Behavior:

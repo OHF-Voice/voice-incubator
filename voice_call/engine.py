@@ -106,6 +106,8 @@ class Satellite:
     """Home Assistant STT and TTS entities, when not the built-in models."""
     device_media_player: str | None = None
     """Its own media player in Home Assistant (ESPHome's), where TTS speaks."""
+    command_groups: frozenset[str] | None = None
+    """It runs only the commands in these command groups; None: every one."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -118,7 +120,20 @@ class Satellite:
             "device_id": self.device_id,
             "timer_list": self.timer_list,
             "media_player": self.media_player,
+            "command_groups": sorted(self.command_groups) if self.command_groups is not None else None,
         }
+
+    def available(self, command: Command) -> tuple[Behavior, str] | None:
+        """What a command does here, and which scope decided it; None where it
+        is not available (its scope, or this satellite's command groups)."""
+        if not command.allowed(self.command_groups):
+            return None
+        return command.resolve(self.key, self.area_id)
+
+    def why_unavailable(self, command: Command) -> str:
+        if not command.allowed(self.command_groups):
+            return "not in this satellite's command groups"
+        return "not available on this satellite"
 
 
 @dataclass
@@ -430,11 +445,9 @@ class Engine:
             command = compiled.commands.get(result.intent)
             if command is None:
                 continue
-            resolved = command.resolve(satellite.key, satellite.area_id)
+            resolved = satellite.available(command)
             if resolved is None:
-                decision.skipped.append(
-                    {"command": command.id, "why": "not available on this satellite"}
-                )
+                decision.skipped.append({"command": command.id, "why": satellite.why_unavailable(command)})
                 continue
             decision.command = command
             decision.behavior, decision.decided_by = resolved
@@ -555,7 +568,7 @@ class Engine:
             candidates.append((rank, command, result))
         if candidates:
             _, command, result = min(candidates, key=lambda item: item[0])
-            available = command.resolve(satellite.key, satellite.area_id) is not None
+            available = satellite.available(command) is not None
             why = (
                 "but that isn't set up here"
                 if not available
@@ -584,10 +597,12 @@ class Engine:
                     and margin >= HINT_MARGIN
                 ):
                     hint["command"] = command.id
-                    hint["text"] = (
-                        f"It looks like you're trying to {command.description}, "
-                        "but I didn't understand all of it."
+                    why = (
+                        "but I didn't understand all of it"
+                        if satellite.available(command) is not None
+                        else "but that isn't set up here"
                     )
+                    hint["text"] = f"It looks like you're trying to {command.description}, {why}."
                     return hint
                 hint["text"] = "Sorry, I didn't understand that."
                 return hint

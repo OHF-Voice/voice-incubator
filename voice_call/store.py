@@ -22,11 +22,11 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from adapt_ctc.config import ConfigError, parse_config
 
-from .commands import Command, adapt_config, parse_commands
+from .commands import Command, adapt_config, parse_commands, parse_groups
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"commands", "names", "lists", "settings"}
+STORE_KEYS = {"commands", "names", "lists", "groups", "settings"}
 NAME_KINDS = ("entities", "areas", "floors")
 
 NEW_FILE = """\
@@ -35,6 +35,7 @@ NEW_FILE = """\
 #
 #   names:     what things are called, each pointing at one Home Assistant id
 #   lists:     value lists for slots ("red" -> red), shared by commands
+#   groups:    command groups, given to the whole home or a satellite
 #   commands:  what is listened for, where, and what happens
 names: {}
 lists: {}
@@ -96,6 +97,8 @@ class Compiled:
     commands: dict[str, Command]
     config: dict[str, Any] | None
     """None when no command is enabled."""
+    groups: dict[str, dict[str, str]] = field(default_factory=dict)
+    """Command groups: id -> name, description."""
 
 
 def compile_store(data: dict[str, Any]) -> Compiled:
@@ -110,10 +113,15 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     if unknown:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
     commands = parse_commands(data.get("commands") or {})
+    groups = parse_groups(data.get("groups"))
+    for command in commands.values():
+        unknown = [g for g in command.groups if g not in groups]
+        if unknown:
+            raise ConfigError(f"commands.{command.id}.groups: no group {unknown[0]!r} (add it under groups)")
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config)
+    return Compiled(data, commands, config, groups)
 
 
 @dataclass
@@ -206,6 +214,46 @@ class Store:
     def delete_command(self, command_id: str) -> Compiled:
         def edit(document: CommentedMap) -> None:
             document["commands"].pop(command_id, None)
+
+        return self.update(edit)
+
+    def put_group(
+        self, group_id: str, spec: dict[str, Any] | None, members: list[str] | None = None
+    ) -> Compiled:
+        """Add, change or (``spec`` None) delete a command group. ``members``,
+        when given, is exactly the commands in it; a deleted group leaves
+        every command."""
+
+        def edit(document: CommentedMap) -> None:
+            if document.get("groups") is None:
+                document["groups"] = CommentedMap()
+            groups = document["groups"]
+            if spec is None:
+                groups.pop(group_id, None)
+            else:
+                groups[group_id] = styled({k: v for k, v in spec.items() if v})
+            wanted = set(members or []) if spec is not None and members is not None else None
+            unknown = sorted((wanted or set()) - set(document["commands"]))
+            if unknown:
+                raise ConfigError(f"No command {unknown[0]!r}")
+            for command_id, command in document["commands"].items():
+                if not isinstance(command, dict):
+                    continue
+                current = [str(g) for g in (command.get("groups") or [])]
+                if spec is None or (wanted is not None and command_id not in wanted):
+                    keep = [g for g in current if g != group_id]
+                elif wanted is not None and group_id not in current:
+                    keep = [*current, group_id]
+                else:
+                    continue
+                if keep == current:
+                    continue
+                if keep:
+                    command["groups"] = styled(keep)
+                else:
+                    command.pop("groups", None)
+            if spec is None and not groups:
+                document.pop("groups", None)
 
         return self.update(edit)
 

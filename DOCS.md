@@ -121,6 +121,25 @@ command has:
 - **Overrides**: what happens differently in some areas or on some
   satellites, or "not available here". A satellite's override wins over its
   area's, which wins over the command.
+- **Command groups**: any number of the groups the command is in (below).
+
+### Command groups
+
+A command group is a set of commands -- "Kids", "Guests", "Night" -- made on
+the **Commands** page, where you tick the commands in it. A command can be in
+any number of groups; its editor has the same ticks.
+
+Groups are given on the **Satellites** page, to the whole home or to one
+satellite:
+
+- A satellite with groups of its own runs **only** the commands in them.
+- A satellite without its own uses the groups given to the whole home.
+- With no groups given anywhere, every command is available, as before.
+
+A command outside a satellite's groups is not run there: it says "It looks
+like you're trying to …, but that isn't set up here." `where` and overrides
+still apply inside a group. Deleting a group takes every command out of it and
+takes it away from the home and the satellites.
 
 ### What Home Assistant gets
 
@@ -267,6 +286,8 @@ names:
     kitchen: {name: Kitchen}
 lists:
   colors: {red: [red, crimson], blue: blue}
+groups:
+  kids: {name: Kids}
 commands:
   ecobee_warmer:
     description: warm up the house
@@ -280,6 +301,7 @@ commands:
     response: Warming up.
   lights_on:
     description: turn on the lights
+    groups: [kids]
     require: [[turn on, turn ... on], [light, lights]]
     names: {area: {count: 1, optional: true}}
     action: {action: light.turn_on, target: "{{ target }}"}

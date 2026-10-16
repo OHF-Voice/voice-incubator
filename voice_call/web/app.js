@@ -294,11 +294,37 @@ function listensText(spec) {
   return parts.join(" · ");
 }
 
+// Where a command group is given: "whole home", satellites by name.
+function groupUseText(groupId, use, sats) {
+  const parts = [];
+  if ((use.home || []).includes(groupId)) parts.push("whole home");
+  for (const [key, ids] of Object.entries(use.satellites || {})) if (ids.includes(groupId)) parts.push(sats[key] || key);
+  return parts.length ? `given to ${parts.join(", ")}` : "not given to anything yet";
+}
+
+function groupsPanel(store, sats) {
+  const groups = store.groups || {};
+  const use = store.group_use || {};
+  const ids = Object.keys(groups);
+  const members = (g) => Object.values(store.commands || {}).filter((spec) => asList(spec && spec.groups).includes(g)).length;
+  return h("div", { class: "panel" },
+    h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Command groups"),
+      h("button", { onclick: () => { location.hash = "#/group/"; } }, "New group")),
+    h("p", { class: "muted small" }, "A group given to the whole home or to a satellite limits it to the commands in the group. A satellite with groups of its own uses only those; without any groups, every command is available everywhere. Give groups on the Satellites page."),
+    ids.length ? h("div", { class: "list" }, ids.map((g) => h("div", { class: "item clickable", onclick: () => { location.hash = `#/group/${g}`; } },
+      icon("mdi:folder-outline", "big"),
+      h("div", { class: "grow" },
+        h("div", { class: "title" }, groups[g] && groups[g].name || g),
+        h("div", { class: "muted small" }, g, groups[g] && groups[g].description ? ` · ${groups[g].description}` : "", ` · ${groupUseText(g, use, sats)}`)),
+      h("span", { class: "badge" }, `${members(g)} command${members(g) === 1 ? "" : "s"}`)))) : null);
+}
+
 async function pageCommands() {
   const [store] = await Promise.all([loadStore(), loadSatellites()]);
   const areas = await areaLabels();
   const sats = satelliteLabels();
   const ids = Object.keys(store.commands || {});
+  const groupNames = Object.fromEntries(Object.entries(store.groups || {}).map(([g, spec]) => [g, (spec && spec.name) || g]));
   const groups = {};
   for (const id of ids) {
     const spec = store.commands[id] || {};
@@ -311,6 +337,7 @@ async function pageCommands() {
       h("button", { onclick: () => { location.hash = "#/library"; } }, "Add from library"),
       h("button", { class: "primary", onclick: () => { location.hash = "#/command/"; } }, "New command")),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
+    ids.length ? groupsPanel(store, sats) : null,
     ids.length ? null : h("div", { class: "panel" },
       h("p", {}, "No voice commands yet."),
       h("p", { class: "muted" }, "Start from the library, or make one: pick what it targets, give example sentences or keywords, and choose what happens.")),
@@ -324,9 +351,68 @@ async function pageCommands() {
           h("div", { class: "grow" },
             h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
             h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
+          ...asList(spec.groups).map((g) => h("span", { class: "badge", title: "command group" }, groupNames[g] || g)),
           detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
           detail.overrides ? h("span", { class: "badge" }, `${detail.overrides} override${detail.overrides > 1 ? "s" : ""}`) : null);
       })))),
+  );
+}
+
+// A command group: its name, and which commands are in it.
+async function pageGroup(id) {
+  const [store] = await Promise.all([loadStore(), loadSatellites()]);
+  const sats = satelliteLabels();
+  const isNew = !id;
+  const info = isNew ? { name: "", description: "" } : (store.groups || {})[id];
+  if (!info && !isNew) { fill($main, errorBox(`No command group ${id}`)); return; }
+  let groupId = id || "";
+  const name = h("input", { type: "text", value: (info && info.name) || "", placeholder: "Kids' room", oninput: (e) => { if (isNew && !idInput.dataset.touched) { groupId = slug(e.target.value); idInput.value = groupId; } } });
+  const idInput = h("input", { type: "text", value: groupId, disabled: !isNew, oninput: (e) => { idInput.dataset.touched = "1"; groupId = slug(e.target.value); } });
+  const description = h("input", { type: "text", value: (info && info.description) || "", style: "width:100%", placeholder: "what the kids may ask for" });
+  const errors = h("div");
+  const filter = h("input", { type: "search", placeholder: "Filter commands", style: "max-width:260px" });
+  const rows = Object.entries(store.commands || {}).map(([cid, spec]) => {
+    const box = h("input", { type: "checkbox", value: cid, checked: !isNew && asList(spec && spec.groups).includes(id) });
+    const row = h("label", { class: "item" }, box, icon(iconFor(spec || {}), "big"),
+      h("div", { class: "grow" }, h("div", { class: "title" }, (spec && (spec.title || spec.description)) || cid), h("div", { class: "muted small" }, cid)));
+    return { cid, spec, box, row };
+  });
+  filter.addEventListener("input", () => {
+    const text = filter.value.trim().toLowerCase();
+    for (const r of rows) r.row.style.display = !text || r.cid.includes(text) || String((r.spec && (r.spec.title || r.spec.description)) || "").toLowerCase().includes(text) ? "" : "none";
+  });
+  const all = (on) => rows.forEach((r) => { if (r.row.style.display !== "none") r.box.checked = on; });
+  async function save() {
+    fill(errors);
+    if (!groupId) { errors.append(errorBox("Give the group an id")); return; }
+    try {
+      await api("PUT", `groups/${groupId}`, { name: name.value, description: description.value, commands: rows.filter((r) => r.box.checked).map((r) => r.cid) });
+      toast("Saved"); refreshStatus();
+      if (isNew) location.hash = `#/group/${groupId}`; else pageGroup(groupId);
+    } catch (err) { errors.append(errorBox(err)); }
+  }
+  async function remove() {
+    if (!confirm(`Delete the command group ${name.value || id}? Its commands stay, in no group.`)) return;
+    try { await api("DELETE", `groups/${id}`); toast("Deleted"); location.hash = "#/commands"; }
+    catch (err) { errors.append(errorBox(err)); }
+  }
+  fill($main,
+    h("div", { class: "row" },
+      h("a", { href: "#/commands" }, "← Commands"),
+      h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command group" : (info.name || id)),
+      isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
+      h("button", { class: "primary", onclick: save }, "Save")),
+    errors,
+    h("div", { class: "panel" },
+      h("div", { class: "grid2" }, field("Name", name), field("Id", idInput, "Lowercase letters, digits and underscores.")),
+      field("Description", description),
+      isNew ? null : h("p", { class: "muted small" }, (([first, ...rest]) => first.toUpperCase() + rest.join(""))(groupUseText(id, store.group_use || {}, sats)), ". Give it on the Satellites page.")),
+    h("div", { class: "panel" },
+      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Commands in it"), filter,
+        h("button", { onclick: () => all(true) }, "All"), h("button", { onclick: () => all(false) }, "None")),
+      h("p", { class: "muted small" }, "A command can be in any number of groups."),
+      h("div", { class: "list" }, rows.map((r) => r.row))),
+    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
   );
 }
 
@@ -757,7 +843,15 @@ async function pageCommand(id, prefill) {
             field("What it does", description, "A verb phrase. It's also how a near miss is described: “It looks like you're trying to turn on the lights, but…”"),
             field("Id", idInput, "Lowercase letters, digits and underscores."))),
         h("div", { class: "row" },
-          h("label", {}, h("input", { type: "checkbox", checked: spec.disabled, onchange: (e) => { if (e.target.checked) spec.disabled = true; else delete spec.disabled; } }), "Turned off"))),
+          h("label", {}, h("input", { type: "checkbox", checked: spec.disabled, onchange: (e) => { if (e.target.checked) spec.disabled = true; else delete spec.disabled; } }), "Turned off")),
+        Object.keys(state.store.groups || {}).length ? field("Command groups", h("div", { class: "wake-list" },
+          Object.entries(state.store.groups || {}).map(([g, info]) => h("label", {},
+            h("input", { type: "checkbox", checked: asList(spec.groups).includes(g), onchange: (e) => {
+              const now = asList(spec.groups).filter((x) => x !== g);
+              if (e.target.checked) now.push(g);
+              if (now.length) spec.groups = now; else delete spec.groups;
+            } }), (info && info.name) || g))),
+          "A satellite limited to command groups runs only the commands in them (Satellites page).") : null),
       h("div", { class: "panel" }, h("h2", {}, "Where"), scopeEditor(spec, "scope", true)),
       h("div", { class: "panel" }, h("h2", {}, "Target"),
         h("p", { class: "muted small" }, "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
@@ -1027,6 +1121,28 @@ function wakeChooser(words, picked, slots, inherit) {
   return el;
 }
 
+// Command groups to tick. With `inherit` (a satellite), unticking "its own"
+// follows every satellite's. `.picked()` is the ids ticked, or null.
+function groupChooser(groups, picked, inherit) {
+  const ids = Object.keys(groups);
+  const own = h("input", { type: "checkbox", checked: !inherit || !!(picked && picked.length) });
+  const boxes = ids.map((g) => ({ g, box: h("input", { type: "checkbox", value: g, checked: (picked && picked.length ? picked : inherit || []).includes(g) }) }));
+  function update() {
+    const following = inherit && !own.checked;
+    for (const { g, box } of boxes) {
+      if (following) box.checked = (inherit || []).includes(g);
+      box.disabled = following;
+    }
+  }
+  own.addEventListener("change", update);
+  update();
+  const el = h("div", { class: "wake-words" },
+    inherit ? h("label", { class: "small" }, own, "Its own command groups (otherwise as every satellite)") : null,
+    h("div", { class: "wake-list" }, boxes.map(({ g, box }) => h("label", {}, box, (groups[g] && groups[g].name) || g))));
+  el.picked = () => (inherit && !own.checked ? null : boxes.filter((b) => b.box.checked).map((b) => b.g));
+  return el;
+}
+
 async function pageSatellites() {
   const [sats, voices, wake] = await Promise.all([
     loadSatellites(),
@@ -1039,6 +1155,11 @@ async function pageSatellites() {
   const globalTts = voiceSelect("tts", voices.tts, settings.tts);
   const globalVoice = voicePicker(globalTts, settings.tts_voice);
   const label = (value, kind) => value || (kind === "stt" ? "built-in" : "built-in");
+  const store = await loadStore();
+  const groups = store.groups || {};
+  const hasGroups = Object.keys(groups).length > 0;
+  const homeGroups = (store.group_use && store.group_use.home) || [];
+  const globalGroups = groupChooser(groups, homeGroups);
   const globalWake = wakeChooser(wake.wake_words, wake.default, wake.slots);
   const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
   const custom = wake.wake_words.filter((w) => w.custom);
@@ -1046,6 +1167,14 @@ async function pageSatellites() {
     h("h1", {}, "Satellites"),
     h("p", { class: "muted" }, "Each satellite's area is what “the lights” means there, and what commands scoped to an area follow. With the Voice Call integration it is the area of the satellite's own device in Home Assistant."),
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
+    hasGroups ? h("div", { class: "panel" },
+      h("h2", {}, "Command groups"),
+      h("p", { class: "muted small" }, "Given to the whole home, satellites without groups of their own run only the commands in these. None ticked: every command. ", h("a", { href: "#/commands" }, "Edit the groups"), "."),
+      globalGroups,
+      h("div", { class: "row" }, h("button", { class: "primary", onclick: async () => {
+        try { await api("PUT", "settings", { command_groups: globalGroups.picked() }); await refreshStatus(); toast("Saved"); pageSatellites(); }
+        catch (err) { toast(err.message); }
+      } }, "Save"))) : null,
     h("div", { class: "panel" },
       h("h2", {}, "Wake words"),
       h("p", { class: "muted small" }, "What every satellite listens for, unless it has its own below. ",
@@ -1103,6 +1232,7 @@ async function pageSatellites() {
         h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
         ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
       const wakeWords = wakeChooser(wake.wake_words, s.wake_words, s.model_slots ? s.model_slots - 2 : wake.slots, wake.default);
+      const commandGroups = hasGroups ? groupChooser(groups, s.command_groups, homeGroups) : null;
       const found = s.media_player_picked ? null : s.media_player;
       const player = h("select", {},
         h("option", { value: "" }, found ? `Its Sendspin player (${found})` : "Its Sendspin player (not found)"),
@@ -1118,6 +1248,7 @@ async function pageSatellites() {
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
           h("div", {}, "Wake words"), h("div", {}, (s.wake_words_used || []).map((id) => (wake.wake_words.find((w) => w.id === id) || { name: id }).name).join(", ") || "none", s.wake_words ? " (its own)" : ""),
+          h("div", {}, "Commands"), h("div", {}, s.command_groups_used ? ["only those in ", s.command_groups_used.map((g) => (groups[g] && groups[g].name) || g).join(", "), s.command_groups ? " (its own)" : ""] : "every command"),
           h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
           h("div", {}, "Listens with"), h("div", {}, used.stt ? h("code", {}, used.stt) : "the built-in TDT model", " after the built-in matcher"),
           h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice ? ` (${used.tts_voice})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in")),
@@ -1127,6 +1258,7 @@ async function pageSatellites() {
         h("div", { class: "row" },
           field("Name", name), field("Area", area), field("Music player", player)),
         field("Wake words", wakeWords),
+        commandGroups ? field("Command groups", commandGroups) : null,
         h("div", { class: "row" },
           field("Speech-to-text", stt), field("Text-to-speech", tts), field("Voice", voice),
           field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
@@ -1137,6 +1269,7 @@ async function pageSatellites() {
                 name: name.value, area: area.value || null, media_player: player.value || null,
                 stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
                 wake_words: wakeWords.picked(),
+                ...(commandGroups ? { command_groups: commandGroups.picked() } : {}),
               });
               toast("Saved"); pageSatellites();
             }
@@ -1477,11 +1610,12 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    link.classList.toggle("active", link.dataset.page === page || (page === "command" && link.dataset.page === "commands") || (page === "call" && link.dataset.page === "calls"));
+    link.classList.toggle("active", link.dataset.page === page || ((page === "command" || page === "group") && link.dataset.page === "commands") || (page === "call" && link.dataset.page === "calls"));
   }
   try {
     if (page === "commands") await pageCommands();
     else if (page === "command") await pageCommand(arg || null);
+    else if (page === "group") await pageGroup(arg || null);
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "satellites") await pageSatellites();

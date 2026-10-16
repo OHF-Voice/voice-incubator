@@ -3,7 +3,8 @@
 import pytest
 
 from adapt_ctc.config import ConfigError, parse_config
-from voice_call.commands import adapt_config, match_slots, parse_command, parse_commands
+from voice_call.commands import adapt_config, match_slots, parse_command, parse_commands, parse_groups
+from voice_call.engine import Satellite
 from voice_call.store import Store, compile_store
 
 LIGHTS = {
@@ -208,3 +209,59 @@ def test_on_and_off_stay_words(tmp_path):
     )
     compiled = store.load()
     assert compiled.commands["off"].intent["exclude"] == ["on"]
+
+
+def test_command_groups_limit_a_satellite():
+    lights = command(groups=["kids", "downstairs"])
+    other = command()
+    assert lights.groups == ("kids", "downstairs") and other.groups == ()
+    kids = Satellite("sat1", "Kids", "kids_room", command_groups=frozenset({"kids"}))
+    anywhere = Satellite("sat2", "Kitchen", "kitchen")
+    assert kids.available(lights) is not None and kids.available(other) is None
+    assert kids.why_unavailable(other) == "not in this satellite's command groups"
+    # Not limited: groups change nothing, scope still does.
+    assert anywhere.available(lights) is not None and anywhere.available(other) is not None
+    scoped = command(groups=["kids"], scope={"areas": ["kitchen"]})
+    assert kids.available(scoped) is None and kids.why_unavailable(scoped) == "not available on this satellite"
+    assert kids.as_dict()["command_groups"] == ["kids"] and anywhere.as_dict()["command_groups"] is None
+
+
+def test_command_group_errors():
+    with pytest.raises(ConfigError, match="group ids"):
+        command(groups=["Kids Room"])
+    with pytest.raises(ConfigError, match="no group 'kids'"):
+        compile_store({"commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
+    with pytest.raises(ConfigError, match="unknown key"):
+        parse_groups({"kids": {"name": "Kids", "commands": []}})
+    groups = parse_groups({"kids_room": None, "night": {"name": "Night", "description": "quiet"}})
+    assert groups == {"kids_room": {"name": "Kids room", "description": ""}, "night": {"name": "Night", "description": "quiet"}}
+    compiled = compile_store({"groups": {"kids": {"name": "Kids"}}, "commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
+    assert compiled.groups == {"kids": {"name": "Kids", "description": ""}}
+
+
+def test_store_edits_command_groups(tmp_path):
+    store = Store(tmp_path)
+    store.save_text(
+        "commands:\n"
+        "  lights:\n    description: turn on the lights\n    require: [[turn on], [lights]]\n    response: ok\n"
+        "  time:\n    description: tell the time\n    examples: [what time is it]\n    response: Noon.\n"
+    )
+    store.put_group("kids", {"name": "Kids", "description": ""}, ["time"])
+    compiled = store.load()
+    assert compiled.groups["kids"]["name"] == "Kids"
+    assert compiled.commands["time"].groups == ("kids",) and compiled.commands["lights"].groups == ()
+    # Exactly these commands; a rename alone keeps the members.
+    store.put_group("kids", {"name": "Kids", "description": ""}, ["lights"])
+    store.put_group("night", {"name": "Night"}, ["lights", "time"])
+    store.put_group("kids", {"name": "Children", "description": "upstairs"})
+    compiled = store.load()
+    assert compiled.commands["lights"].groups == ("kids", "night") and compiled.commands["time"].groups == ("night",)
+    assert compiled.groups["kids"] == {"name": "Children", "description": "upstairs"}
+    with pytest.raises(ConfigError, match="No command 'nope'"):
+        store.put_group("kids", {"name": "Kids"}, ["nope"])
+    # Deleting a group takes every command out of it.
+    store.put_group("night", None)
+    store.put_group("kids", None)
+    compiled = store.load()
+    assert compiled.groups == {} and all(not c.groups for c in compiled.commands.values())
+    assert "groups" not in (tmp_path / "commands.yaml").read_text()

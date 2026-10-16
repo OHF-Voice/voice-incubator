@@ -30,6 +30,10 @@
   own (low) cutoff. Custom microWakeWord models (Tater, ESPHome) can be
   uploaded or put in `wake_words/`; they run unverified at their manifest's
   cutoff. Firmware: six model slots, reported in `HELLO`.
+- Command groups: sets of commands given to the whole home or to a
+  satellite, which then runs only the commands in its groups (its own, else
+  the home's). Made and filled on the Commands page; a command's editor ticks
+  its groups too.
 - Every model in the Tater Wake Words catalog (851) runs on the satellite;
   `scripts/check_wake_words.py` checks a collection. A manifest cutoff of 1.0
   is run as 0.99.

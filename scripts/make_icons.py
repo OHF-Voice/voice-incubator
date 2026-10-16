@@ -27,6 +27,8 @@ DEFAULTS = [
     "mdi:palette",
     "mdi:timer-outline",
     "mdi:music",
+    # The command groups list.
+    "mdi:folder-outline",
 ]
 PICKER = [
     "mdi:lightbulb",

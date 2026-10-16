@@ -459,12 +459,25 @@ class VoiceCallApp:
             "media_player": media_player,
             "voice": choose(self.store.settings, stored),
             "device_media_player": self.hass.catalog.device_media_player(key) if key else None,
+            "command_groups": self.satellite_command_groups(key),
         }
         if link is not None and link.device_id:
             area = self.hass.catalog.device_areas.get(link.device_id)
             info = self.hass.catalog.area_info(area)
             return Satellite(key, name, **info, device_id=link.device_id, timer_list=link.timer_list, **extra)
         return Satellite(key, name, **self.hass.catalog.area_info(stored.get("area")), **extra)
+
+    def satellite_command_groups(self, key: str | None) -> frozenset[str] | None:
+        """The command groups a satellite is limited to: its own, else every
+        satellite's; None (every command) without any. Groups that no longer
+        exist are left out."""
+        compiled = self.engine.compiled if self.engine is not None else None
+        known = compiled.groups if compiled is not None else {}
+        for source in (self.store.satellite(key or "").get("command_groups"), self.store.settings.get("command_groups")):
+            picked = frozenset(str(g) for g in source or () if str(g) in known)
+            if picked:
+                return picked
+        return None
 
     def _remember_satellite(self, session: Session) -> None:
         entry = self.store.satellites.setdefault(session.satellite, {})
