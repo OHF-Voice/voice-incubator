@@ -167,9 +167,11 @@ added again. A command has:
   `{outcome: nobody_home}`. An outcome without a response of its own says the
   built-in sentence (a timer's, or the script's `speech`), never the done
   one.
-- **Overrides**: what happens differently in some areas or on some
-  satellites, or "not available here". A satellite's override wins over its
-  area's, which wins over the command.
+- **Duplicate** (at the top of its page) makes a copy to change: to have a
+  command do something else on some satellites, put the copy in a command
+  group given to them and leave the original out of that group -- the dialog
+  can do both. The copy says the same example sentences; each satellite runs
+  the one in its groups.
 - **Command groups**: any number of the groups the command is in (below).
 
 ### Command groups
@@ -190,9 +192,8 @@ To keep one to some satellites -- unlocking the front door, say -- put it in
 a group given only to them, and give the others groups without it.
 
 A command outside a satellite's groups is not run there: it says "It looks
-like you're trying to …, but that isn't set up here." Overrides still apply
-inside a group. Deleting a group takes every command out of it and
-takes it away from the home and the satellites.
+like you're trying to …, but that isn't set up here." Deleting a group takes
+every command out of it and takes it away from the home and the satellites.
 
 ### What Home Assistant gets
 
@@ -462,9 +463,6 @@ commands:
       done:
         brief: Turned on the lights.
         specific: Turned on the lights {{ place.said }}.
-    overrides:
-      - scope: {satellites: [aabbccddeeff]}
-        action: {action: light.turn_on, target: {entity_id: light.desk_lamp}}
   pause_timer:
     description: pause a timer
     require: [[pause], [timer]]

@@ -23,7 +23,7 @@ from adapt_ctc.config import ConfigError
 
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
-from .commands import DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, VERBOSITY, parse_command
+from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .skills import SKILLS
@@ -81,6 +81,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/commands/{id}", api.put_command),
             web.delete("/api/commands/{id}", api.delete_command),
             web.post("/api/commands/check", api.check_command),
+            web.post("/api/commands/{id}/duplicate", api.duplicate_command),
             web.get("/api/yaml", api.get_yaml),
             web.put("/api/yaml", api.put_yaml),
             web.post("/api/yaml/dump", api.yaml_dump),
@@ -227,7 +228,6 @@ class Api:
                 command = parse_command(command_id, spec)
                 details[command_id] = {
                     "does": command.behavior.does,
-                    "overrides": len(command.overrides),
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": needs_heard_slots(command),
                     # How much it says when done, and whether it only answers.
@@ -276,6 +276,30 @@ class Api:
         parse_command(command_id, spec)
         compiled = self.app.store.put_command(command_id, spec, body.get("old_id"))
         return await self._saved(compiled)
+
+    async def duplicate_command(self, request: web.Request) -> web.Response:
+        """A copy of a command (``new_id``, ``title``), in its groups, only in
+        ``group`` (``replace``: taking the original's place there), or only in
+        a group made for it (``new_group``: its name)."""
+        command_id = request.match_info["id"]
+        body = await _json_or_empty(request)
+        new_id = str(body.get("new_id") or f"{command_id}_copy").strip()
+        if not COMMAND_ID.match(new_id):
+            raise ConfigError("Id: lowercase letters, digits and underscores")
+        new_group = None
+        if str(body.get("new_group") or "").strip():
+            name = str(body["new_group"]).strip()
+            new_group = (SAFE_ID.sub("_", name.lower()).strip("_") or "group", name)
+        compiled = self.app.store.duplicate_command(
+            command_id,
+            new_id,
+            str(body.get("title") or "").strip() or None,
+            str(body["group"]) if body.get("group") else None,
+            new_group,
+            bool(body.get("replace")),
+        )
+        await self.app.apply(compiled)
+        return web.json_response({"ok": True, "id": new_id})
 
     async def check_command(self, request: web.Request) -> web.Response:
         """Validate a command without saving it."""
@@ -940,21 +964,13 @@ def _load(text: str) -> Any:
 
 
 def _from_form(spec: dict[str, Any]) -> dict[str, Any]:
-    """The editor sends actions as YAML text (``action_yaml``), for the
-    command and each override."""
+    """The editor sends the action as YAML text (``action_yaml``)."""
     spec = dict(spec)
-
-    def take(target: dict[str, Any]) -> None:
-        if "action_yaml" in target:
-            text = target.pop("action_yaml")
-            target.pop("action", None)
-            if str(text or "").strip():
-                target["action"] = _load(str(text))
-
-    take(spec)
-    spec["overrides"] = [dict(o) for o in spec.get("overrides") or []]
-    for override in spec["overrides"]:
-        take(override)
+    if "action_yaml" in spec:
+        text = spec.pop("action_yaml")
+        spec.pop("action", None)
+        if str(text or "").strip():
+            spec["action"] = _load(str(text))
     return spec
 
 

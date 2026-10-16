@@ -509,8 +509,7 @@ async function pageCommands() {
             h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
           ...asList(spec.groups).map((g) => h("span", { class: "badge", title: "command group" }, groupNames[g] || g)),
           asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
-          detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
-          detail.overrides ? h("span", { class: "badge" }, `${detail.overrides} override${detail.overrides > 1 ? "s" : ""}`) : null);
+          detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
       })))),
   );
 }
@@ -576,15 +575,13 @@ async function pageGroup(id) {
 // The command editor. `spec` is edited in place; fields it does not know
 // about are kept as loaded.
 async function pageCommand(id, prefill) {
-  await Promise.all([loadStore(), loadSatellites()]);
+  await loadStore();
   const areas = await areaLabels();
-  const sats = satelliteLabels();
   const isNew = !id;
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
   let commandId = id || slug(spec.description) || "";
   const actionYaml = { value: await yamlDump(spec.action) };
-  const overrideYaml = await Promise.all(asList(spec.overrides).map((o) => yamlDump(o.action)));
   const errors = h("div");
   let tab = "form";
 
@@ -612,7 +609,6 @@ async function pageCommand(id, prefill) {
   function formSpec() {
     const out = clone(spec);
     out.action_yaml = actionYaml.value;
-    out.overrides = asList(out.overrides).map((o, i) => ({ ...o, action_yaml: overrideYaml[i] || "" }));
     return out;
   }
 
@@ -639,43 +635,6 @@ async function pageCommand(id, prefill) {
     await api("DELETE", `commands/${id}`);
     toast("Deleted");
     location.hash = "#/commands";
-  }
-
-  function scopeEditor(target, key, allowEverywhere) {
-    const scope = target[key] && target[key] !== "all" ? target[key] : {};
-    const mode = scope.areas || scope.satellites ? "some" : (allowEverywhere ? "all" : "some");
-    const wrap = h("div");
-    function set(next) {
-      if (allowEverywhere && (!next.areas || !next.areas.length) && (!next.satellites || !next.satellites.length) && next._mode !== "some") {
-        delete target[key];
-      } else {
-        const clean = {};
-        if (next.areas && next.areas.length) clean.areas = next.areas;
-        if (next.satellites && next.satellites.length) clean.satellites = next.satellites;
-        target[key] = clean;
-      }
-    }
-    function render(currentMode) {
-      const current = target[key] && target[key] !== "all" ? target[key] : {};
-      const areaIds = asList(current.areas);
-      const satIds = asList(current.satellites);
-      fill(wrap, 
-        allowEverywhere ? h("div", { class: "row" },
-          h("label", {}, h("input", { type: "radio", name: `${key}-mode-${Math.random()}`, checked: currentMode === "all", onchange: () => { delete target[key]; render("all"); } }), "Every satellite"),
-          h("label", {}, h("input", { type: "radio", name: `${key}-mode2-${Math.random()}`, checked: currentMode === "some", onchange: () => { target[key] = {}; render("some"); } }), "Only some areas or satellites")) : null,
-        currentMode === "some" ? h("div", { class: "grid2" },
-          field("Areas", h("div", {},
-            idChips(areaIds, areas, (i) => { areaIds.splice(i, 1); set({ areas: areaIds, satellites: satIds, _mode: "some" }); render("some"); }),
-            hassPicker("area", (item) => { if (!areaIds.includes(item.id)) areaIds.push(item.id); areas[item.id] = item.name; set({ areas: areaIds, satellites: satIds, _mode: "some" }); render("some"); }))),
-          field("Satellites", h("div", {},
-            idChips(satIds, sats, (i) => { satIds.splice(i, 1); set({ areas: areaIds, satellites: satIds, _mode: "some" }); render("some"); }),
-            h("select", { onchange: (e) => { if (e.target.value && !satIds.includes(e.target.value)) satIds.push(e.target.value); set({ areas: areaIds, satellites: satIds, _mode: "some" }); render("some"); } },
-              h("option", { value: "" }, "Add a satellite…"),
-              ...state.satellites.map((s) => h("option", { value: s.key }, `${s.name} (${s.key})`)))))) : null,
-      );
-    }
-    render(mode);
-    return wrap;
   }
 
   // Fixed slots: the entity, area or floor the command targets.
@@ -707,13 +666,12 @@ async function pageCommand(id, prefill) {
   }
 
   // What happens: respond / script / scene / action YAML, and a response.
-  function behaviorEditor(target, yamlBox, allowInherit) {
+  function behaviorEditor(target, yamlBox) {
     const wrap = h("div");
-    const current = () => (target.script ? "script" : target.scene ? "scene" : target.timer ? "timer" : target.music ? "music" : (yamlBox.value || "").trim() ? "action" : (allowInherit && !("response" in target) ? "inherit" : "respond"));
+    const current = () => (target.script ? "script" : target.scene ? "scene" : target.timer ? "timer" : target.music ? "music" : (yamlBox.value || "").trim() ? "action" : "respond");
     let mode = current();
     function render() {
       const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["timer", "A timer"], ["music", "Music"]];
-      if (allowInherit) choices.unshift(["inherit", "Same as the command"]);
       const radios = h("div", { class: "row" }, ...choices.map(([value, label]) => h("label", {},
         h("input", { type: "radio", name: `do-${Math.random()}`, checked: mode === value, onchange: () => {
           // Responses for outcomes only the old kind had go (a script's own stay with an action).
@@ -750,7 +708,7 @@ async function pageCommand(id, prefill) {
         control = field("Action (Home Assistant script syntax; one action or a list)", area,
           "Templates see slots, satellite, speaker, target and command. target: \"{{ target }}\" is what was named, or else the satellite's area.");
       }
-      fill(wrap, radios, control, verbosityField(), mode === "inherit" ? null : responsesEditor());
+      fill(wrap, radios, control, verbosityField(), responsesEditor());
     }
 
     // How much it says when done: the command's level, or what it does by default.
@@ -759,7 +717,7 @@ async function pageCommand(id, prefill) {
       const kindDefault = mode === "music" && !["play", "add", "radio", "status"].includes(target.music) ? "beep" : "specific";
       const levels = LEVELS.filter(([value]) => !(question() && value === "beep"));
       const select = h("select", { onchange: (e) => { if (e.target.value) target.verbosity = e.target.value; else delete target.verbosity; render(); } },
-        h("option", { value: "", selected: !target.verbosity }, allowInherit ? "Same as the command" : `Default: ${levelName(kindDefault)}`),
+        h("option", { value: "", selected: !target.verbosity }, `Default (${levelName(kindDefault)})`),
         ...levels.map(([value, label]) => h("option", { value, selected: target.verbosity === value }, label)));
       const help = question()
         ? "A question always answers; with an answer written for each level, this picks which."
@@ -1069,28 +1027,6 @@ async function pageCommand(id, prefill) {
   }
   renderCombos();
 
-  function overridesEditor() {
-    const wrap = h("div");
-    function render() {
-      spec.overrides = asList(spec.overrides);
-      fill(wrap, 
-        ...spec.overrides.map((o, i) => {
-          const box = { get value() { return overrideYaml[i] || ""; }, set value(v) { overrideYaml[i] = v; } };
-          return h("div", { class: "panel" },
-            h("div", { class: "row" }, h("b", {}, `Override ${i + 1}`),
-              h("label", {}, h("input", { type: "checkbox", checked: o.disabled, onchange: (e) => { if (e.target.checked) o.disabled = true; else delete o.disabled; render(); } }), "not available here"),
-              h("button", { type: "button", class: "link right", onclick: () => { spec.overrides.splice(i, 1); overrideYaml.splice(i, 1); render(); } }, "remove")),
-            field("Where", scopeEditor(o, "scope", false)),
-            o.disabled ? null : field("Target (fixed slots)", targetEditor(o), "Leave empty to keep the command's."),
-            o.disabled ? null : behaviorEditor(o, box, true));
-        }),
-        h("button", { type: "button", onclick: () => { spec.overrides.push({ scope: {} }); overrideYaml.push(""); render(); } }, "Add an override"),
-      );
-    }
-    render();
-    return wrap;
-  }
-
   function renderForm() {
     const idInput = h("input", { type: "text", value: commandId, placeholder: "turn_on_the_lights", oninput: (e) => { commandId = slug(e.target.value); } });
     const description = h("input", { type: "text", value: spec.description || "", style: "width:100%", placeholder: "turn on the lights", oninput: (e) => { spec.description = e.target.value; if (isNew && !idInput.dataset.touched) { commandId = slug(e.target.value); idInput.value = commandId; } } });
@@ -1149,10 +1085,7 @@ async function pageCommand(id, prefill) {
         h("h3", {}, "Ways to say it"),
         h("p", { class: "muted small" }, "What it hears is never optional: each way below is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
         combosWrap),
-      h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml, false)),
-      h("div", { class: "panel" }, h("h2", {}, "Overrides"),
-        h("p", { class: "muted small" }, "Change what happens in some areas or on some satellites, or turn the command off there. A satellite's override wins over its area's, which wins over the command."),
-        overridesEditor()),
+      h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml)),
     );
   }
 
@@ -1173,6 +1106,7 @@ async function pageCommand(id, prefill) {
       h("a", { href: "#/commands" }, "← Commands"),
       h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command" : (spec.title || spec.description || id)),
       isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
+      isNew ? null : h("button", { onclick: () => duplicateDialog(id) }, "Duplicate"),
       h("button", { class: "primary", onclick: save }, "Save")),
     spec.needs ? h("div", { class: "notice info" }, asList(spec.needs).join(" ")) : null,
     errors, tabs, body,
@@ -1201,6 +1135,90 @@ function textToValues(text) {
   return out;
 }
 
+// ----------------------------------------------------------------- dialogs
+
+// A dialog over the page, closed by Escape, a click outside or Close.
+// `content` is put under its title; `cls` sizes it.
+function openDialog(title, content, cls) {
+  const previous = document.activeElement;
+  function close() {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+    if (previous && previous.focus) previous.focus();
+  }
+  function onKey(e) { if (e.key === "Escape") close(); }
+  const overlay = h("div", { class: "overlay", onclick: (e) => { if (e.target === overlay) close(); } },
+    h("div", { class: `dialog ${cls || ""}`, role: "dialog", "aria-modal": "true", "aria-label": title },
+      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, title),
+        h("button", { type: "button", class: "link", "aria-label": "Close", onclick: close }, "Close")),
+      content));
+  document.addEventListener("keydown", onKey);
+  document.body.append(overlay);
+  return close;
+}
+
+// Duplicate a command, as saved: a copy to change, put in a command group to
+// do something else on the satellites the group is given to.
+async function duplicateDialog(id) {
+  const store = await loadStore();
+  const spec = store.commands[id] || {};
+  const groups = store.groups || {};
+  const own = asList(spec.groups);
+  const use = store.group_use || {};
+  const given = (use.home || []).length > 0 || Object.keys(use.satellites || {}).length > 0;
+  let copyId = `${id}_copy`;
+  for (let n = 2; store.commands[copyId]; n++) copyId = `${id}_copy_${n}`;
+  const idInput = h("input", { type: "text", value: copyId, oninput: (e) => { idInput.dataset.touched = "1"; } });
+  const title = h("input", { type: "text", value: `${spec.title || spec.description || id} (copy)`, style: "width:100%" });
+  const NEW = "+new"; // never a group id
+  const group = h("select", {},
+    h("option", { value: "" }, own.length ? `Its groups (${own.map((g) => (groups[g] && groups[g].name) || g).join(", ")})` : "No group"),
+    ...Object.entries(groups).map(([g, info]) => h("option", { value: g }, `Only ${(info && info.name) || g}`)),
+    h("option", { value: NEW }, "Only a new group…"));
+  const groupName = h("input", { type: "text", placeholder: "Kids' room" });
+  const replace = h("input", { type: "checkbox", checked: true });
+  const replaceRow = h("label", { class: "small" }, replace, "");
+  const errors = h("div");
+  function update() {
+    groupName.parentElement.style.display = group.value === NEW ? "" : "none";
+    const g = group.value;
+    // The copy takes the original's place in a group they would share.
+    const shared = g && g !== NEW && own.includes(g);
+    replaceRow.style.display = shared ? "" : "none";
+    replaceRow.lastChild.textContent = shared ? ` Take ${spec.title || id}'s place in ${(groups[g] && groups[g].name) || g}: leave the original out of it` : "";
+  }
+  group.addEventListener("change", update);
+  async function create() {
+    fill(errors);
+    const body = { new_id: slug(idInput.value), title: title.value.trim() };
+    if (group.value === NEW) {
+      if (!groupName.value.trim()) { errors.append(errorBox("Name the new group")); return; }
+      body.new_group = groupName.value.trim();
+    } else if (group.value) {
+      body.group = group.value;
+      body.replace = replace.checked && own.includes(group.value);
+    }
+    try {
+      const result = await api("POST", `commands/${id}/duplicate`, body);
+      close();
+      toast(`Made ${result.id}`);
+      refreshStatus();
+      location.hash = `#/command/${result.id}`;
+    } catch (err) { errors.append(errorBox(err)); }
+  }
+  const close = openDialog(`Duplicate ${spec.title || spec.description || id}`, h("div", { class: "stack" },
+    h("p", { class: "muted small" }, "A copy of the command as it is saved, to change. To have it do something else on some satellites, put the copy in a command group given to them (Satellites page) and leave the original out of it."),
+    h("div", { class: "grid2" }, field("Id", idInput, "Lowercase letters, digits and underscores."), field("Title", title)),
+    field("Command groups", group),
+    field("New group's name", groupName),
+    replaceRow,
+    given ? null : h("p", { class: "notice warn small" }, "No groups are given to the home or a satellite yet, so every satellite runs every command — this copy and the original both — until they are."),
+    errors,
+    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { type: "button", onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: create }, "Duplicate"))), "compact");
+  update();
+  idInput.focus();
+}
+
 // ------------------------------------------------------------- new command
 
 // New command: the library's commands to start from -- searched, filtered by
@@ -1218,13 +1236,6 @@ async function newCommandDialog() {
   const search = h("input", { type: "search", placeholder: "Search the library: lights, timer, play…", "aria-label": "Search the library" });
   const list = h("div", { class: "list" });
   const chips = h("div", { class: "row filter-chips" });
-  const previous = document.activeElement;
-  function close() {
-    overlay.remove();
-    document.removeEventListener("keydown", onKey);
-    if (previous && previous.focus) previous.focus();
-  }
-  function onKey(e) { if (e.key === "Escape") close(); }
   const add = async (entry) => {
     try {
       const result = await api("POST", "library/add", { file: entry.file, id: entry.id });
@@ -1266,16 +1277,11 @@ async function newCommandDialog() {
     }), shown.length ? null : h("p", { class: "muted" }, "No library command matches. Start a custom one above."));
   }
   search.addEventListener("input", render);
-  const overlay = h("div", { class: "overlay", onclick: (e) => { if (e.target === overlay) close(); } },
-    h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": "New command" },
-      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "New command"),
-        h("button", { type: "button", class: "link", "aria-label": "Close", onclick: close }, "Close")),
-      custom,
-      h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it."),
-      search, chips,
-      h("div", { class: "dialog-list" }, list)));
-  document.addEventListener("keydown", onKey);
-  document.body.append(overlay);
+  const close = openDialog("New command", [
+    custom,
+    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it."),
+    search, chips,
+    h("div", { class: "dialog-list" }, list)]);
   render();
   search.focus();
 }

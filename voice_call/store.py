@@ -22,7 +22,7 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from adapt_ctc.config import ConfigError, parse_config
 
-from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_groups
+from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_groups, shared_examples
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,6 +99,9 @@ class Compiled:
     """None when no command is enabled."""
     groups: dict[str, dict[str, str]] = field(default_factory=dict)
     """Command groups: id -> name, description."""
+    twins: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    """Intents that say another's example sentences (a command's copy), by
+    the intent the sentences went to (``shared_examples``)."""
 
 
 def compile_store(data: dict[str, Any]) -> Compiled:
@@ -121,7 +124,7 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, groups)
+    return Compiled(data, commands, config, groups, shared_examples(commands)[1])
 
 
 @dataclass
@@ -208,6 +211,54 @@ class Store:
                 commands.insert(index, command_id, node)
             else:
                 commands[command_id] = node
+
+        return self.update(edit)
+
+    def duplicate_command(
+        self,
+        command_id: str,
+        new_id: str,
+        title: str | None = None,
+        group: str | None = None,
+        new_group: tuple[str, str] | None = None,
+        replace: bool = False,
+    ) -> Compiled:
+        """Copy a command, as saved, to ``new_id``, right after it. The copy
+        is in the original's command groups, or only in ``group`` -- or in
+        ``new_group`` (id, name), made for it. ``replace``: the original
+        leaves ``group``, where the copy takes its place."""
+
+        def edit(document: CommentedMap) -> None:
+            commands = document["commands"]
+            if command_id not in commands:
+                raise FileNotFoundError(f"No command {command_id}")
+            if new_id in commands:
+                raise ConfigError(f"There is already a command {new_id!r}")
+            spec = plain(commands[command_id])
+            if title:
+                spec["title"] = title
+            target = group
+            if new_group is not None:
+                if document.get("groups") is None:
+                    document["groups"] = CommentedMap()
+                group_id, name = new_group
+                if group_id in document["groups"]:
+                    raise ConfigError(f"There is already a command group {group_id!r}")
+                document["groups"][group_id] = styled({"name": name})
+                target = group_id
+            if target is not None:
+                if target not in (document.get("groups") or {}):
+                    raise ConfigError(f"No command group {target!r}")
+                spec["groups"] = [target]
+                original = commands[command_id]
+                current = [str(g) for g in (original.get("groups") or [])]
+                if replace and target in current:
+                    keep = [g for g in current if g != target]
+                    if keep:
+                        original["groups"] = styled(keep)
+                    else:
+                        original.pop("groups", None)
+            commands.insert(list(commands).index(command_id) + 1, new_id, styled(spec))
 
         return self.update(edit)
 

@@ -97,3 +97,39 @@ def test_typed_text_takes_an_example_only_typed_whole(engine):
         assert engine.recognize_text("skip this one", OFFICE).command.id == "next_track"  # its keywords
     finally:
         engine.build(compile_store(STORE))
+
+
+def test_a_copy_in_another_group_says_the_same_sentences(engine):
+    # Duplicated into the kids' group: the same example sentences and
+    # keywords, something else done there.
+    lights = {
+        "description": "turn on the lights", "examples": ["lights please"], "require": [["lights"], ["on"]],
+        "groups": ["home"], "response": "Lights.",
+    }
+    store = {
+        "groups": {"home": {"name": "Home"}, "kids": {"name": "Kids"}},
+        "commands": {
+            "lights": lights,
+            "kids_lights": {**lights, "groups": ["kids"], "response": "Night light."},
+            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "groups": ["kids"], "response": "Bedtime."},
+            "time": {"description": "tell the time", "examples": ["what time is it"], "groups": ["home"], "response": "Noon."},
+        },
+    }
+    compiled = compile_store(store)
+    assert compiled.twins == {"lights": ("kids_lights",), "kids_time": ("time",)}
+    # Only examples, all shared: only a twin.
+    assert "time" not in compiled.config["intents"] and "kids_lights" in compiled.config["intents"]
+    engine.build(compiled)
+    home = Satellite("h", "Kitchen", "kitchen", command_groups=frozenset({"home"}))
+    kids = Satellite("k", "Kids", "kids", command_groups=frozenset({"kids"}))
+    try:
+        for text, satellite, command in [
+            ("lights please", home, "lights"), ("lights please", kids, "kids_lights"),
+            ("turn the lights on", home, "lights"), ("turn the lights on", kids, "kids_lights"),
+            ("what time is it", home, "time"), ("what time is it", kids, "kids_time"),
+        ]:
+            decision = engine.recognize_text(text, satellite)
+            assert decision.command is not None and decision.command.id == command, (text, satellite.name)
+            assert decision.behavior is decision.command.behavior
+    finally:
+        engine.build(compile_store(STORE))

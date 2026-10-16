@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- Overrides are gone. **Duplicate** a command instead, into the command group
+  of the satellites where it should do something else: the copy can take the
+  original's place in that group, and says the same example sentences.
 - A command has no "Where" (`scope`) any more: command groups say where a
   command is available. A `scope` left in commands.yaml is an error that says
   so.

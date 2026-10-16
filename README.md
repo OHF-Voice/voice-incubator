@@ -161,8 +161,18 @@ satellite's own area. Elsewhere it says `beep_elsewhere` (settings.yaml,
 lights in the Office" says where, which "Turned on the lights" can't).
 Home Assistant's default does the same with the brief sentence. Templates see
 `place` too (`said`: "in the Kitchen", "upstairs"; `here`; `areas`), and a
-rendered response is tidied of the gap an empty variable leaves. Overrides can
-set a level per area or satellite.
+rendered response is tidied of the gap an empty variable leaves. A copy of the
+command in another command group can say more or less on its satellites.
+
+**Copies in other groups.** A command that should do something else on some
+satellites is a copy of it (Duplicate, on its page) in a command group given
+to them, with the original left out of that group; there are no per-area or
+per-satellite overrides. The copy says the same example sentences, which
+adapt-ctc gives to one intent only: `commands.shared_examples` leaves each
+sentence to the first command that has it and records the later ones as its
+twins (`Compiled.twins`), and `Engine._take` runs a twin where the first is
+not in the satellite's groups. Identical keywords need nothing of the kind:
+both match, and the first available is taken.
 
 ## Layout
 
@@ -176,7 +186,7 @@ set a level per area or satellite.
 | `voice_call/endpoint.py` | silero VAD endpointing |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, command groups, free text from TDT, hints |
-| `voice_call/commands.py` | the command schema: combinations, overrides, presets, what happens |
+| `voice_call/commands.py` | the command schema: combinations, presets, groups, what happens |
 | `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
 | `voice_call/actions.py` | variables, `execute_script`, the response, the `voice_call_command` event |
 | `voice_call/calls.py` | per-call traces, saved audio, debug sessions |

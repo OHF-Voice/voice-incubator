@@ -13,8 +13,7 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    matches. Then keyword intents; then, when nothing matched, the TDT
    transcript against the examples, word for word.
 3. **Where it is available.** Matches are taken best first, skipping commands
-   that are not available on this satellite (not in its command groups); the
-   most specific override decides what happens.
+   that are not available on this satellite (not in its command groups).
 4. **Free text** is re-read from the TDT transcript over the same stretch of
    audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
 5. **When nothing matched**, the closest command is named: from the keyword
@@ -128,18 +127,13 @@ class Satellite:
             "skills": sorted(self.skills) if self.skills is not None else None,
         }
 
-    def available(self, command: Command) -> tuple[Behavior, str] | None:
-        """What a command does here, and which override decided it; None
-        where it is not available (this satellite's command groups, or an
-        override that turns it off)."""
-        if not command.allowed(self.command_groups):
-            return None
-        return command.resolve(self.key, self.area_id)
+    def available(self, command: Command) -> Behavior | None:
+        """What a command does here; None where it is not available (not in
+        this satellite's command groups)."""
+        return command.behavior if command.allowed(self.command_groups) else None
 
     def why_unavailable(self, command: Command) -> str:
-        if not command.allowed(self.command_groups):
-            return "not in this satellite's command groups"
-        return "not available on this satellite"
+        return "not in this satellite's command groups"
 
 
 @dataclass
@@ -151,8 +145,6 @@ class Decision:
 
     command: Command | None = None
     behavior: Behavior | None = None
-    decided_by: str | None = None
-    """``command`` or ``override N``: which scope decided what happens."""
 
     intent: IntentResult | None = None
     slots: dict[str, Any] = field(default_factory=dict)
@@ -200,7 +192,6 @@ class Decision:
         return {
             "command": self.command.id if self.command else self.internal,
             "description": self.command.description if self.command else None,
-            "decided_by": self.decided_by,
             "does": self.behavior.does if self.behavior else None,
             "slots": self.slots,
             "skipped": self.skipped,
@@ -586,11 +577,11 @@ class Engine:
         decision.fallback = found.trace or None
         if found.command is None:
             return
-        resolved = satellite.available(found.command)
-        if resolved is None:
+        behavior = satellite.available(found.command)
+        if behavior is None:
             return
         decision.command = found.command
-        decision.behavior, decision.decided_by = resolved
+        decision.behavior = behavior
         decision.slots = {**decision.behavior.slots, **found.slots}
         decision.matched_by = found.by or "llm"
         refused = self.fit_devices(decision, compiled, satellite)
@@ -624,12 +615,25 @@ class Engine:
             command = compiled.commands.get(command_of(result.intent))
             if command is None:
                 continue
-            resolved = satellite.available(command)
-            if resolved is None:
+            behavior = satellite.available(command)
+            if behavior is None and result.example:
+                # A copy of it in this satellite's groups says the same sentence.
+                twin = next(
+                    (
+                        twin_command
+                        for twin_command in (compiled.commands.get(command_of(t)) for t in compiled.twins.get(result.intent, ()))
+                        if twin_command is not None and satellite.available(twin_command) is not None
+                    ),
+                    None,
+                )
+                if twin is not None:
+                    result.notes.append(f"{command.id} is not in this satellite's command groups: its copy {twin.id} says the same sentence")
+                    command, behavior = twin, satellite.available(twin)
+            if behavior is None:
                 decision.skipped.append({"command": command.id, "why": satellite.why_unavailable(command)})
                 continue
             decision.command = command
-            decision.behavior, decision.decided_by = resolved
+            decision.behavior = behavior
             decision.intent = result
             heard = match_slots(command, result.slots)
             # Fixed slots are the command's target; a name that was heard

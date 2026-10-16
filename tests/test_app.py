@@ -45,9 +45,6 @@ commands:
       action: light.turn_on
       target: "{{ target }}"
     response: Turned on the lights.
-    overrides:
-      - scope: {satellites: [nobody]}
-        disabled: true
   set_brightness:
     description: set the brightness of the lights
     require: [[brightness, percent]]

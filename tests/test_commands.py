@@ -1,4 +1,4 @@
-"""Commands: parsing, overrides, presets, slots, and the store."""
+"""Commands: parsing, presets, slots, groups, and the store."""
 
 import pytest
 
@@ -19,46 +19,18 @@ def command(**changes):
 
 
 def test_everywhere_by_default():
-    behavior, by = command().resolve("sat1", "kitchen")
-    assert by == "command" and behavior.does == "action"
+    behavior = Satellite("sat1", "Kitchen", "kitchen").available(command())
+    assert behavior.does == "action"
     assert behavior.sequence() == [{"action": "light.turn_on", "target": "{{ target }}"}]
 
 
-def test_scope_is_no_more():
-    # Where a command is available is its command groups'.
+def test_scope_and_overrides_are_no_more():
+    # Where a command is available is its command groups'; what it does
+    # elsewhere is a copy of it, in a group of its own.
     with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*command group"):
         command(scope={"areas": ["kitchen"]})
-
-
-def test_the_most_specific_override_wins():
-    lights = command(
-        overrides=[
-            {"scope": {"areas": ["office"]}, "scene": "scene.office"},
-            {"scope": {"satellites": ["desk"]}, "slots": {"entity": "light.desk"}, "response": "Desk."},
-            {"scope": {"areas": ["office"]}, "script": "script.second"},
-        ]
-    )
-    behavior, by = lights.resolve("desk", "office")
-    assert by == "override 2"
-    assert behavior.slots == {"entity": ["light.desk"]}
-    assert behavior.response == "Desk."
-    assert behavior.does == "action"  # what happens is not overridden
-    # An area override over the command; the first of two equals.
-    behavior, by = lights.resolve("other", "office")
-    assert (by, behavior.scene) == ("override 1", "scene.office")
-    assert lights.resolve("other", "kitchen")[1] == "command"
-
-
-def test_an_override_can_switch_a_command_off_or_extend_it():
-    lights = command(
-        overrides=[
-            {"scope": {"satellites": ["noisy"]}, "disabled": True},
-            {"scope": {"areas": ["office"]}, "response": "Office lights."},
-        ],
-    )
-    assert lights.resolve("noisy", "kitchen") is None
-    assert lights.resolve("quiet", "kitchen") is not None
-    assert lights.resolve("x", "office")[0].response == "Office lights."
+    with pytest.raises(ConfigError, match=r"commands\.lights\.overrides: no longer used: .*copy of the command"):
+        command(overrides=[{"scope": {"areas": ["office"]}, "scene": "scene.office"}])
 
 
 @pytest.mark.parametrize(
@@ -70,7 +42,6 @@ def test_an_override_can_switch_a_command_off_or_extend_it():
         ({"description": "x", "examples": ["a"], "script": "light.x"}, "script entity id"),
         ({"description": "x", "examples": ["a"], "script": "script.a", "scene": "scene.b"}, "give one of"),
         ({"description": "x", "examples": ["a"], "response": "ok", "bogus": 1}, "unknown key"),
-        ({"description": "x", "examples": ["a"], "response": "ok", "overrides": [{"response": "y"}]}, "needs areas or satellites"),
         ({"description": "x", "require": ["a"], "number": "nope", "response": "ok"}, "preset"),
     ],
 )
@@ -142,9 +113,6 @@ def test_responses_by_outcome():
         ({**PAUSE, "response": {"done": ["x"]}}, "template string"),
         ({**PAUSE, "response": ["x"]}, "templates by outcome"),
         ({"description": "x", "examples": ["a"], "response": {"failed": "Oops."}}, "needs a script, scene, action or response"),
-        # An override is checked as it resolves: a timer command's response
-        # outcomes with the override's own operation.
-        ({**PAUSE, "response": {"already": "x"}, "overrides": [{"scope": {"areas": ["a"]}, "timer": "cancel"}]}, r"overrides\[0\]\.response: already"),
     ],
 )
 def test_response_errors(spec, message):
@@ -287,6 +255,35 @@ def test_store_edits_command_groups(tmp_path):
     assert "groups" not in (tmp_path / "commands.yaml").read_text()
 
 
+def test_store_duplicates_a_command(tmp_path):
+    store = Store(tmp_path)
+    store.save_text(
+        "groups:\n  home: {name: Home}\n  kids: {name: Kids}\n"
+        "commands:\n"
+        "  lights:\n    description: turn on the lights\n    require: [[turn on], [lights]]\n"
+        "    response: ok  # said\n    groups: [home, kids]\n"
+        "  time:\n    description: tell the time\n    examples: [what time is it]\n    response: Noon.\n"
+    )
+    # In the original's groups, right after it.
+    compiled = store.duplicate_command("lights", "lights_copy", "Lights, again")
+    assert list(compiled.commands) == ["lights", "lights_copy", "time"]
+    assert compiled.commands["lights_copy"].groups == ("home", "kids") and compiled.commands["lights_copy"].title == "Lights, again"
+    # Only in one group, taking the original's place there.
+    compiled = store.duplicate_command("lights", "kids_lights", group="kids", replace=True)
+    assert compiled.commands["kids_lights"].groups == ("kids",) and compiled.commands["lights"].groups == ("home",)
+    # In a group made for it; the original keeps its own.
+    compiled = store.duplicate_command("time", "night_time", new_group=("night", "Night"))
+    assert compiled.groups["night"]["name"] == "Night" and compiled.commands["night_time"].groups == ("night",)
+    assert compiled.commands["time"].groups == ()
+    assert "# said" in (tmp_path / "commands.yaml").read_text()
+    with pytest.raises(ConfigError, match="already a command 'time'"):
+        store.duplicate_command("lights", "time")
+    with pytest.raises(ConfigError, match="No command group 'nope'"):
+        store.duplicate_command("lights", "x", group="nope")
+    with pytest.raises(FileNotFoundError):
+        store.duplicate_command("nope", "x")
+
+
 def test_verbosity_and_responses_by_level():
     from voice_call.commands import closest_text  # pylint: disable=import-outside-toplevel
 
@@ -300,9 +297,6 @@ def test_verbosity_and_responses_by_level():
     assert parse_command("q", {"description": "x", "examples": ["x"], "response": "Hi."}).behavior.question
     texts = {"brief": "b", "verbose": "v"}
     assert [closest_text(texts, level) for level in ("beep", "brief", "specific", "verbose")] == ["b", "b", "b", "v"]
-    # An override can change it.
-    command = parse_command("c", {**base, "response": "On.", "overrides": [{"scope": {"areas": ["den"]}, "verbosity": "beep"}]})
-    assert command.resolve(None, "den")[0].level == "beep" and command.resolve(None, "kitchen")[0].level == "specific"
 
 
 @pytest.mark.parametrize(

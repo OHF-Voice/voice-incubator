@@ -75,14 +75,14 @@ def load_commands(path: Path):
     (``intents:``) whose intents become commands that only respond."""
     from adapt_ctc.config import _read  # pylint: disable=import-outside-toplevel
 
-    from voice_call.commands import BASE_CONFIG, Behavior, Command, Scope
+    from voice_call.commands import BASE_CONFIG, Behavior, Command
     from voice_call.store import Compiled, compile_store
 
     data = _read(Path(path), ())
     if "commands" in data:
         return compile_store(data)
     commands = {
-        name: Command(name, (spec or {}).get("description") or name, Scope(), Behavior(response="ok"), [], spec or {})
+        name: Command(name, (spec or {}).get("description") or name, Behavior(response="ok"), spec or {})
         for name, spec in (data.get("intents") or {}).items()
     }
     config = {k: copy.deepcopy(v) for k, v in data.items() if k != "wake"}

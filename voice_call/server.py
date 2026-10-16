@@ -1471,7 +1471,7 @@ class VoiceCallApp:
         _LOGGER.info(
             "Matched %s (%s) slots=%s%s",
             decision.command.id,
-            decision.decided_by,
+            decision.matched_by,
             decision.slots,
             " [dry run]" if dry_run else "",
         )

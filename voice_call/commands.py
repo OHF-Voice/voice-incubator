@@ -10,9 +10,6 @@ A command is one adapt-ctc intent plus what to do when it matches::
         require: [[turn on, turn ... on], [ecobee, echo bee]]
         script: script.heat_up                   # or scene:, action:, or none
         response: "OK, {{ slots.entity[0] }} is on"
-        overrides:
-          - scope: {satellites: [aabbccddeeff]}
-            action: {action: climate.turn_on, target: {entity_id: climate.office}}
 
 ``title`` and ``icon`` (a Material Design Icon, ``mdi:lightbulb``) are only
 for the UI.
@@ -60,17 +57,13 @@ says the built-in sentence::
       done: Paused.
       no_timers: There's nothing to pause.
 
-``overrides`` change what happens (and the fixed slots) in some areas or on
-some satellites (``scope``), or switch the command off there (``disabled:
-true``): an override for a satellite wins over one for its area, which wins
-over the command itself.
-
 ``groups`` puts a command in command groups (defined at the top level of the
 store, ``groups: {kids: {name: Kids}}``). A group can be given to the whole
 home or to a satellite; a satellite with groups -- its own, else the home's --
 runs only the commands in them. Without any, every command is available
 everywhere. Groups are where a command is available: there is no ``scope``
-of its own::
+of its own, and no overrides -- a command that should do something else on
+some satellites is a copy of it, in a group given to them::
 
     groups:
       kids: {name: Kids' room, description: what the kids may ask for}
@@ -95,6 +88,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from adapt_ctc.config import ConfigError
+from adapt_ctc.text import sentence_key
 
 COMMAND_ID = re.compile(r"^[a-z0-9_]+$")
 ICON = re.compile(r"^mdi:[a-z0-9-]+$")
@@ -131,7 +125,6 @@ COMMAND_KEYS = {
     "slots",
     "response",
     "verbosity",
-    "overrides",
     "disabled",
     "title",
     "icon",
@@ -145,10 +138,11 @@ COMMAND_KEYS = {
 REMOVED_KEYS = {
     "scope": "a command is available wherever its command groups are given: put it in a group, "
     "and give the group to the satellites it is for (Satellites page)",
+    "overrides": "make a copy of the command that does the other thing (Duplicate, on its page) "
+    "in a command group given to those satellites, and leave the original out of that group",
 }
 GROUP_KEYS = {"name", "description"}
 FALLBACK_STEPS = ("meaning", "llm")
-OVERRIDE_KEYS = {"scope", "slots", "response", "verbosity", "disabled", *DO_KEYS}
 
 # Shared settings for every home: the core intents' filler words and name
 # cues, and examples that win when said word for word. The embedding names the
@@ -204,37 +198,6 @@ NUMBER_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-@dataclass(frozen=True)
-class Scope:
-    areas: tuple[str, ...] = ()
-    satellites: tuple[str, ...] = ()
-
-    @property
-    def everywhere(self) -> bool:
-        return not self.areas and not self.satellites
-
-    def specificity(self, satellite: str | None, area: str | None) -> int | None:
-        """How closely this scope fits a satellite: 2 by name, 1 by its area,
-        0 everywhere; None when it does not include it."""
-        if satellite is not None and satellite in self.satellites:
-            return 2
-        if area is not None and area in self.areas:
-            return 1
-        if self.everywhere:
-            return 0
-        return None
-
-    def to_data(self) -> Any:
-        if self.everywhere:
-            return "all"
-        out: dict[str, list[str]] = {}
-        if self.areas:
-            out["areas"] = list(self.areas)
-        if self.satellites:
-            out["satellites"] = list(self.satellites)
-        return out
-
-
 @dataclass
 class Behavior:
     """What happens when a command matches."""
@@ -255,8 +218,6 @@ class Behavior:
 
     verbosity: str | None = None
     """How much it says when done (VERBOSITY); None: ``default_verbosity``."""
-
-    disabled: bool = False
 
     def response_for(self, outcome: str, level: str | None = None) -> str | None:
         """The template for this outcome; a plain response is for ``done``.
@@ -353,7 +314,6 @@ class Command:
     id: str
     description: str
     behavior: Behavior
-    overrides: list[tuple[Scope, dict[str, Any]]]
     intent: dict[str, Any]
     """Everything it listens for: every slot, as one adapt-ctc intent (the
     fallback's tools are made from it)."""
@@ -395,40 +355,6 @@ class Command:
         """Whether a satellite limited to these command groups may run it
         (None: not limited)."""
         return groups is None or any(group in groups for group in self.groups)
-
-    def resolve(self, satellite: str | None, area: str | None) -> tuple[Behavior, str] | None:
-        """What happens on this satellite, and which scope decided it; None
-        where the command is not available."""
-        best: tuple[int, int, Behavior, str] | None = (0, -len(self.overrides) - 1, self.behavior, "command")
-        for index, (scope, changes) in enumerate(self.overrides):
-            fit = scope.specificity(satellite, area)
-            if fit is None:
-                continue
-            # Narrower wins; between equals an override wins over the command,
-            # and the first listed over the rest.
-            if best is None or (fit, -index) > (best[0], best[1]):
-                best = (fit, -index, _apply(self.behavior, changes), f"override {index + 1}")
-        if best is None or best[2].disabled:
-            return None
-        return best[2], best[3]
-
-
-def _apply(base: Behavior, changes: dict[str, Any]) -> Behavior:
-    behavior = copy.deepcopy(base)
-    if "slots" in changes:
-        behavior.slots = changes["slots"]
-    if any(key in changes for key in DO_KEYS):
-        behavior.script = changes.get("script")
-        behavior.scene = changes.get("scene")
-        behavior.action = changes.get("action")
-        behavior.timer = changes.get("timer")
-        behavior.music = changes.get("music")
-    if "response" in changes:
-        behavior.response = changes["response"]
-    if "verbosity" in changes:
-        behavior.verbosity = changes["verbosity"]
-    behavior.disabled = bool(changes.get("disabled", False))
-    return behavior
 
 
 def closest_text(texts: dict[str, str], level: str) -> str | None:
@@ -493,36 +419,10 @@ def parse_command(command_id: str, spec: Any) -> Command:
         raise ConfigError(f"{where}: needs a script, scene, action or response")
     _check_outcomes(behavior, f"{where}.response")
 
-    overrides = []
-    for index, override in enumerate(spec.get("overrides") or []):
-        at = f"{where}.overrides[{index}]"
-        override = _mapping(override, at)
-        unknown = set(override) - OVERRIDE_KEYS
-        if unknown:
-            raise ConfigError(f"{at}: unknown key(s) {sorted(unknown)}")
-        scope = _scope(override.get("scope"), f"{at}.scope")
-        if scope.everywhere:
-            raise ConfigError(f"{at}.scope: an override needs areas or satellites")
-        changes = {k: v for k, v in override.items() if k != "scope"}
-        _behavior(changes, at)  # validate
-        if sum(1 for key in DO_KEYS if changes.get(key)) > 1:
-            raise ConfigError(f"{at}: give one of {', '.join(DO_KEYS)}")
-        if "slots" in changes:
-            changes["slots"] = _fixed_slots(changes["slots"], f"{at}.slots")
-        if "action" in changes:
-            changes["action"] = _actions(changes["action"], f"{at}.action")
-        if "response" in changes:
-            changes["response"] = _response(changes["response"], f"{at}.response")
-        if "verbosity" in changes:
-            changes["verbosity"] = _verbosity(changes["verbosity"], f"{at}.verbosity")
-        _check_outcomes(_apply(behavior, changes), f"{at}.response")
-        overrides.append((scope, changes))
-
     return Command(
         command_id,
         description,
         behavior,
-        overrides,
         intent,
         number_slot,
         duration,
@@ -732,7 +632,6 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         music=music,
         response=response or None,
         verbosity=verbosity,
-        disabled=bool(spec.get("disabled", False)),
     )
 
 
@@ -814,23 +713,6 @@ def _fixed_slots(value: Any, where: str) -> dict[str, Any]:
     return slots
 
 
-def _scope(value: Any, where: str) -> Scope:
-    if value in (None, "all", "everywhere"):
-        return Scope()
-    value = _mapping(value, where)
-    unknown = set(value) - {"areas", "satellites"}
-    if unknown:
-        raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)} (use areas, satellites)")
-
-    def ids(key: str) -> tuple[str, ...]:
-        items = value.get(key) or []
-        if isinstance(items, str):
-            items = [items]
-        return tuple(str(i) for i in items)
-
-    return Scope(ids("areas"), ids("satellites"))
-
-
 def _number(value: Any, where: str) -> tuple[dict[str, Any], str, bool]:
     """An adapt-ctc number spec from a preset or a spec, with its slot name."""
     if isinstance(value, str):
@@ -875,9 +757,39 @@ def _mapping(value: Any, where: str) -> dict:
 # ---------------------------------------------------------------- compiling
 
 
+def shared_examples(commands: dict[str, Command]) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, ...]]]:
+    """Every enabled command's intents, with each example sentence left only
+    to the first that has it; and, for that one, the later intents that have
+    it too (its twins). A copy of a command in another group says the same
+    sentences: adapt-ctc gives a sentence one intent, and the engine runs the
+    twin where the first is not available. An intent left with nothing to
+    listen for is only a twin."""
+    intents: dict[str, dict[str, Any]] = {}
+    twins: dict[str, list[str]] = {}
+    owner: dict[str, str] = {}
+    for command in commands.values():
+        if command.disabled:
+            continue
+        for name, spec in command.intents.items():
+            kept = []
+            for text in spec.get("examples") or []:
+                key = sentence_key(str(text), BASE_CONFIG["language"])
+                first = owner.setdefault(key, name)
+                if first == name:
+                    kept.append(text)
+                elif name not in twins.setdefault(first, []):
+                    twins[first].append(name)
+            if len(kept) < len(spec.get("examples") or []):
+                spec = {**spec, "examples": kept} if kept else {k: v for k, v in spec.items() if k != "examples"}
+                if not kept and not any(spec.get(k) for k in ("require", "names", "number", "lists", "wildcard")):
+                    continue
+            intents[name] = spec
+    return intents, {name: tuple(others) for name, others in twins.items()}
+
+
 def adapt_config(store: dict[str, Any], commands: dict[str, Command]) -> dict[str, Any] | None:
     """The adapt-ctc config for every enabled command; None without any."""
-    intents = {name: spec for c in commands.values() if not c.disabled for name, spec in c.intents.items()}
+    intents, _twins = shared_examples(commands)
     if not intents:
         return None
     config = copy.deepcopy(BASE_CONFIG)
