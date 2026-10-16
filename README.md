@@ -674,7 +674,7 @@ capture is too quiet to use -- firmware still streaming it at gain 1.
 ## Recognition (adapt-ctc)
 
 Commands are recognized by adapt-ctc ([adapt_ctc/README.md](adapt_ctc/README.md)
-has how, and how well on the office-multicap corpus), with five additions made
+has how, and how well on the office-multicap corpus), with six additions made
 for this app:
 
 - **Where the command starts.** The call is decoded from half a second before
@@ -698,6 +698,19 @@ for this app:
   `required`; fillers may then sit inside it ("a bag of rice") but not at its
   edges. Its text is re-read from the TDT transcript over the same frames,
   which spells better than the CTC head.
+- **The transcript too.** When nothing matches in the audio, the same
+  keyword and name matcher runs on the TDT or STT transcript, as typed text
+  is matched on the Try page (`Engine._match_transcript`: evidence made from
+  its words, `Vocabulary.text_log_probs`), before skills and the fallback.
+  A strong speech model may hear plainly what the CTC evidence only half
+  did: "Unlock front door." from Home Assistant Cloud, where the CTC head
+  heard "unlock" at no cost but "front door" for a total of 10.88, past the
+  rejection threshold of 10. Keywords and names only: the transcript was
+  already looked up among the example sentences whole, and on clean text a
+  short example with words around it is no example said ("grab bananas
+  *next* time you shop" ran next_track until example search was left out of
+  this pass; `recognize_log_probs(examples=False)`). `matched_by:
+  transcript`; the call trace keeps what the pass found (`transcript_pass`).
 - **Rooms must fit** (`settings.places_must_fit`, on). An area or floor name
   heard that a match leaves unexplained rejects an intent that takes no name
   of that type -- keyword matches and example sentences alike. Before, a

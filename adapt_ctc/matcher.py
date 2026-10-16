@@ -544,8 +544,11 @@ class Recognizer:
         return found
 
     def recognize_log_probs(
-        self, log_probs: np.ndarray, frame_seconds: float
+        self, log_probs: np.ndarray, frame_seconds: float, examples: bool = True
     ) -> Recognition:
+        """Every intent against the evidence. ``examples``: also search it for
+        the example sentences (off for evidence made from a transcript that
+        was already looked up among them whole)."""
         settings = self.config.settings
         started = time.perf_counter()
         spotting = spot(
@@ -593,7 +596,7 @@ class Recognizer:
             timings={"spotting": spotted - started, "matching": finished - spotted},
             lead_in=None if lead_in is None else spotting.words[lead_in].text,
         )
-        if self._example_recognizer is not None and (
+        if examples and self._example_recognizer is not None and (
             not matches or settings.examples_first
         ):
             self._match_ctc_examples(recognition, log_probs, frame_seconds)

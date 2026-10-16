@@ -13,6 +13,10 @@
   outcome.
 - Pausing a paused timer (or resuming a running one) says it already is,
   instead of that there's no such timer.
+- When nothing matches in the audio, keywords and names are matched in the
+  speech model's transcript (TDT or Home Assistant STT) before anything
+  else: "unlock front door" ran from Home Assistant Cloud's transcript where
+  the audio's evidence fell just short.
 - "Turn on the fan in the office": a device named with a room is the one
   of that name there (names may repeat); none there, and the satellite says
   so. Without a room, a shared name is the one in the satellite's room.

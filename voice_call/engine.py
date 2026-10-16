@@ -176,8 +176,12 @@ class Decision:
     """What wrote the transcript: the TDT head, or an STT entity."""
 
     matched_by: str = "ctc"
-    """What found the command: the CTC matcher, or the fallback (``meaning``,
-    ``gliner``, ``llm``)."""
+    """What found the command: the CTC matcher on the audio (``ctc``), the
+    same matcher on the TDT or STT transcript (``transcript``), or the
+    fallback (``meaning``, ``gliner``, ``llm``)."""
+    transcript_pass: dict[str, Any] | None = None
+    """Nothing matched in the audio: what the keyword matcher made of the
+    transcript."""
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
@@ -201,6 +205,7 @@ class Decision:
             "skipped": self.skipped,
             "matched_by": self.matched_by if self.command else None,
             "fallback": self.fallback,
+            "transcript_pass": self.transcript_pass,
             "answer": self.answer,
             "hint": self.hint,
             "message": self.message,
@@ -503,48 +508,18 @@ class Engine:
         recognition = recognizer.match_examples(recognition, command_audio, transcriber)
         decision = Decision(recognition={}, text_source=getattr(transcriber, "source", "TDT"))
 
-        for result in recognition.matches:
-            if result.intent in self.internal:
-                decision.internal = result.intent
-                decision.intent = result
-                decision.slots = dict(result.slots)
-                spec = self.internal[result.intent]
-                if spec.get("wildcard"):
-                    self._reread_text(
-                        decision, recognition, command_audio, frame_seconds, spec["wildcard"], transcriber
-                    )
-                break
-            command = compiled.commands.get(command_of(result.intent))
-            if command is None:
-                continue
-            resolved = satellite.available(command)
-            if resolved is None:
-                decision.skipped.append({"command": command.id, "why": satellite.why_unavailable(command)})
-                continue
-            decision.command = command
-            decision.behavior, decision.decided_by = resolved
-            decision.intent = result
-            heard = match_slots(command, result.slots)
-            # Fixed slots are the command's target; a name that was heard
-            # is more specific.
-            decision.slots = {**decision.behavior.slots, **heard}
-            refused = self.fit_devices(decision, compiled, satellite)
-            if refused is not None:
-                decision.command, decision.behavior, decision.refused = None, None, refused
-                break
-            heard_intent = command.intents.get(result.intent) or command.intent
-            if heard_intent.get("wildcard"):
-                self._reread_text(
-                    decision, recognition, command_audio, frame_seconds,
-                    heard_intent["wildcard"], transcriber,
-                )
-            break
+        self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
 
         if decision.command is None and decision.internal is None and decision.refused is None:
             if transcriber is not None and recognition.tdt_transcript is None:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
                 recognition.timings[_timing(transcriber)] = time.perf_counter() - started
+            # The keywords and names, on the transcript: a strong speech model
+            # may have heard plainly what the CTC evidence only half did.
+            if recognition.tdt_transcript and getattr(transcriber, "source", "TDT") != "typed":
+                self._match_transcript(decision, recognition.tdt_transcript, compiled, recognizer, satellite)
+        if decision.command is None and decision.internal is None and decision.refused is None:
             text = recognition.tdt_transcript or recognition.transcript or ""
             # Each transcript, TDT's first: one may hear "fifty degrees F in
             # Celsius" where the other heard "FN Celsius".
@@ -615,6 +590,83 @@ class Engine:
         refused = self.fit_devices(decision, compiled, satellite)
         if refused is not None:
             decision.command, decision.behavior, decision.refused = None, None, refused
+
+    def _take(
+        self,
+        decision: Decision,
+        recognition: Recognition,
+        compiled: Compiled,
+        satellite: Satellite,
+        command_audio: np.ndarray,
+        frame_seconds: float,
+        transcriber: Any,
+    ) -> None:
+        """The first of ``recognition``'s matches this satellite may run:
+        its command, behavior and slots into ``decision`` (or an internal
+        command, or a refusal)."""
+        for result in recognition.matches:
+            if result.intent in self.internal:
+                decision.internal = result.intent
+                decision.intent = result
+                decision.slots = dict(result.slots)
+                spec = self.internal[result.intent]
+                if spec.get("wildcard"):
+                    self._reread_text(
+                        decision, recognition, command_audio, frame_seconds, spec["wildcard"], transcriber
+                    )
+                return
+            command = compiled.commands.get(command_of(result.intent))
+            if command is None:
+                continue
+            resolved = satellite.available(command)
+            if resolved is None:
+                decision.skipped.append({"command": command.id, "why": satellite.why_unavailable(command)})
+                continue
+            decision.command = command
+            decision.behavior, decision.decided_by = resolved
+            decision.intent = result
+            heard = match_slots(command, result.slots)
+            # Fixed slots are the command's target; a name that was heard
+            # is more specific.
+            decision.slots = {**decision.behavior.slots, **heard}
+            refused = self.fit_devices(decision, compiled, satellite)
+            if refused is not None:
+                decision.command, decision.behavior, decision.refused = None, None, refused
+                return
+            heard_intent = command.intents.get(result.intent) or command.intent
+            if heard_intent.get("wildcard"):
+                self._reread_text(
+                    decision, recognition, command_audio, frame_seconds,
+                    heard_intent["wildcard"], transcriber,
+                )
+            return
+
+    def _match_transcript(
+        self, decision: Decision, transcript: str, compiled: Compiled, recognizer: Recognizer, satellite: Satellite
+    ) -> None:
+        """Nothing matched in the audio: the same matcher on the TDT or STT
+        transcript, as typed text is matched ("Unlock front door." from Home
+        Assistant Cloud, where the CTC head heard "front door" too poorly)."""
+        started = time.perf_counter()
+        spellings = spoken_words(transcript, recognizer.config.language)
+        log_probs, unspellable = self.model.vocab.text_log_probs(spellings[0] if spellings else [])
+        # Keywords and names only: the transcript was looked up among the
+        # example sentences whole already, with the audio -- and on clean
+        # text, a short example with words around it ("grab bananas *next*
+        # time you shop") is no example said.
+        heard = recognizer.recognize_log_probs(log_probs, self.model.frame_seconds, examples=False)
+        before = (decision.command, decision.internal, decision.refused)
+        self._take(decision, heard, compiled, satellite, np.zeros(0, dtype=np.float32), self.model.frame_seconds, TypedText(transcript))
+        found = decision.command is not None and before[0] is None
+        if found:
+            decision.matched_by = "transcript"
+        decision.transcript_pass = {
+            "text": transcript,
+            "command": decision.command.id if found else None,
+            "matches": [{"intent": m.intent, "cost": round(m.cost, 2), "slots": m.slots} for m in heard.matches[:3]],
+            "unspellable": unspellable,
+            "seconds": round(time.perf_counter() - started, 4),
+        }
 
     def fit_devices(self, decision: Decision, compiled: Compiled, satellite: Satellite) -> dict[str, Any] | None:
         """The devices a command names, by where they are. Every device with

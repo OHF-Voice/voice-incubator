@@ -318,8 +318,11 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
 
 ## When nothing matches
 
-Keywords and example sentences come first. When they find nothing, two more
-steps can run a command -- but only a command you chose for them: tick them
+Keywords and example sentences come first: in the audio, then -- when
+nothing matched there -- in the transcript the speech model wrote (the
+built-in TDT, or your Home Assistant STT), so "unlock the front door" heard
+plainly by the speech model runs even when the keyword evidence in the audio
+was weak. When they find nothing, two more steps can run a command -- but only a command you chose for them: tick them
 on the command's page, or "meaning" and "model" for many at once with
 **Choose commands** under "When nothing matches" on the **Commands** page. Commands
 from the library are not chosen until you choose them.
