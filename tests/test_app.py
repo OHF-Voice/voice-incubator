@@ -353,6 +353,27 @@ async def _scenario(tmp_path: Path) -> None:
             assert "agent" not in app.store.settings and not app.engine.agent_answers
             assert (await http.put("/api/settings", json={"agent_keep_minutes": -1})).status == 400
 
+            # Listening live: the satellite streams its microphone while
+            # someone listens (and shows it), and its calls come through too.
+            async with http.ws_connect(f"/api/satellites/{MAC}/live") as live:
+                assert (await live.receive_json(timeout=5)) == {"type": "start", "sample_rate": 16000}
+                heard = await live.receive(timeout=5)
+                assert heard.type == aiohttp.WSMsgType.BINARY and len(heard.data) % 2 == 0 and heard.data
+                await wait_for(lambda: satellite.monitoring == [True])
+                listed = (await (await http.get("/api/satellites")).json())["satellites"]
+                assert listed[0]["can_listen"] and listed[0]["listeners"] == 1
+                placing = asyncio.ensure_future(satellite.call(read_call(CALLS / "call-15788.wav")))
+                calls_seen = []
+                while len(calls_seen) < 2:
+                    message = await live.receive(timeout=30)
+                    if message.type == aiohttp.WSMsgType.TEXT:
+                        calls_seen.append(json.loads(message.data))
+                assert calls_seen == [{"type": "call", "active": True, "wake_word": "okay_nabu"}, {"type": "call", "active": False}]
+                assert await placing == "done"
+            await wait_for(lambda: satellite.monitoring == [True, False])
+            async with http.ws_connect("/api/satellites/nobody/live") as live:
+                assert (await live.receive_json(timeout=5))["type"] == "error"
+
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
         timer_list = f"voice_timer_list.{MAC}_timers"

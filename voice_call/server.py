@@ -265,6 +265,9 @@ class Call:
     """Seconds from the start of the call to the start of the wake word, as
     Kaldi placed it."""
     record: CallRecord | None = None
+    live_bytes: int = 0
+    """How much of the AGC capture someone listening live has been given (or
+    skipped: the pre-roll, which they heard as it happened)."""
 
 
 @dataclass
@@ -315,7 +318,11 @@ class Session:
     announced: asyncio.Event = field(default_factory=asyncio.Event)
     wake_words: list[str] = field(default_factory=list)
     """The wake words last pushed to it, by id."""
-    """Its media player started and finished an announcement (Home Assistant TTS)."""
+    listeners: set[asyncio.Queue] = field(default_factory=set)
+    """Someone listening live (the Test page): each gets the microphone as it
+    comes, between calls (the device streams it while monitored) and in them."""
+    live_call: bool = False
+    """Listeners were told a call started, and not yet that it ended."""
 
     def __str__(self) -> str:
         return self.device_id
@@ -921,6 +928,12 @@ class VoiceCallApp:
                     session.call = None
                     session.writer = None
                     session.connected_at = None
+                    # Whoever listened hears the end: the device stopped streaming.
+                    for queue in session.listeners:
+                        while not queue.empty():
+                            queue.get_nowait()
+                        queue.put_nowait(None)
+                    session.listeners.clear()
                     writer.close()
                     with contextlib.suppress(Exception):
                         await writer.wait_closed()
@@ -998,7 +1011,13 @@ class VoiceCallApp:
 
     async def _handle(self, session: Session, msg_type: int, payload: bytes) -> None:
         if msg_type == Message.AUDIO_IN:
+            if session.listeners:
+                self._live_call_audio(session, payload)
             await self._on_audio(session, payload)
+            return
+
+        if msg_type == Message.AUDIO_MONITOR:
+            self._live(session, payload)
             return
 
         if msg_type == Message.AUDIO_IN_AEC:
@@ -1035,7 +1054,10 @@ class VoiceCallApp:
                 )
         elif msg_type == Message.CALL_START:
             self._on_call_start(session, info)
+            session.live_call = True
+            self._live(session, {"type": "call", "active": True, "wake_word": session.call.wake_word if session.call else None})
         elif msg_type == Message.CALL_END:
+            self._live_call_ended(session)
             _LOGGER.info("[%s] Device ended call: %s", session, info.get("reason"))
             call = session.call
             if call is not None and call.record is not None and call.record.finished is None:
@@ -1059,6 +1081,63 @@ class VoiceCallApp:
             _LOGGER.debug("[%s] status: %s", session, info)
         else:
             _LOGGER.warning("Unhandled message 0x%02X: %s", msg_type, info)
+
+    # ------------------------------------------------------------ listening
+
+    LIVE_QUEUE = 200
+    """Chunks a slow listener may fall behind by before chunks are dropped."""
+
+    def _live(self, session: Session, item: bytes | dict) -> None:
+        """Audio (or an event: a call starting, ending) for whoever listens."""
+        for queue in list(session.listeners):
+            try:
+                queue.put_nowait(item)
+            except asyncio.QueueFull:
+                pass  # a listener behind by seconds loses audio, not the app
+
+    def _live_call_ended(self, session: Session) -> None:
+        """Hung up, or ended by the device: once."""
+        if session.live_call:
+            session.live_call = False
+            self._live(session, {"type": "call", "active": False})
+
+    def _live_call_audio(self, session: Session, chunk: bytes) -> None:
+        """A call's audio for whoever listens, without its pre-roll, which
+        they heard as it happened."""
+        call = session.call
+        if call is not None:
+            seen = call.live_bytes
+            call.live_bytes += len(chunk)
+            chunk = chunk[max(0, min(len(chunk), call.preroll_bytes - seen)) :]
+        if chunk:
+            self._live(session, chunk)
+
+    async def listen(self, key: str) -> asyncio.Queue:
+        """Someone starts listening to a satellite live: its microphone from
+        now on (bytes), and its calls (``{"type": "call", "active": ...}``);
+        None when it disconnects. The device streams it between calls, and
+        shows that it does."""
+        session = self.sessions.get(key)
+        if session is None or session.writer is None:
+            raise ConnectionError("The satellite is not connected")
+        if not session.hello.get("monitor"):
+            raise ConfigError("This satellite's firmware can't stream outside calls: update it to listen live")
+        queue: asyncio.Queue = asyncio.Queue(maxsize=self.LIVE_QUEUE)
+        session.listeners.add(queue)
+        if len(session.listeners) == 1:
+            _LOGGER.info("[%s] Someone is listening live", session)
+            await self._send_json(session, Message.MONITOR, {"active": True})
+        return queue
+
+    async def stop_listening(self, key: str, queue: asyncio.Queue) -> None:
+        session = self.sessions.get(key)
+        if session is None or queue not in session.listeners:
+            return
+        session.listeners.discard(queue)
+        if not session.listeners:
+            _LOGGER.info("[%s] Nobody is listening live any more", session)
+            with contextlib.suppress(ConnectionError, OSError):
+                await self._send_json(session, Message.MONITOR, {"active": False})
 
     # ----------------------------------------------------------------- calls
 
@@ -1960,6 +2039,7 @@ class VoiceCallApp:
         _LOGGER.info("[%s] Hanging up: %s", session, reason)
         await self._send_json(session, Message.HANGUP, {"reason": reason})
         session.call = None
+        self._live_call_ended(session)
 
     def _save(self, session: Session, call: Call, prefix: str = "") -> None:
         if self.options.save_dir is None:

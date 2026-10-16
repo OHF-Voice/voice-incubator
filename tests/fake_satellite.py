@@ -22,7 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from voice_call.protocol import BYTE_RATE, HEADER, Message, encode, encode_json
+import numpy as np
+
+from voice_call.protocol import BYTE_RATE, HEADER, SAMPLE_RATE, Message, encode, encode_json
 
 _LOGGER = logging.getLogger("fake_satellite")
 
@@ -54,18 +56,26 @@ class FakeSatellite:
     model_slots: int | None = None
     """Said in HELLO, as newer firmware does."""
     model_headers: dict[str, dict] = field(default_factory=dict)
+    monitor: bool = True
+    """Says in HELLO that it can stream outside calls, as newer firmware does."""
+    monitoring: list[bool] = field(default_factory=list)
+    """Every MONITOR the app sent: streaming, or not."""
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()
         self._writer: asyncio.StreamWriter | None = None
         self._hangup = asyncio.Event()
         self._models = 0
+        self._streaming: asyncio.Task | None = None
+        self._in_call = False
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._writer = writer
         hello = {"name": self.name, "mac": self.mac}
         if self.model_slots is not None:
             hello["model_slots"] = self.model_slots
+        if self.monitor:
+            hello["monitor"] = True
         writer.write(encode_json(Message.HELLO, hello))
         await writer.drain()
         try:
@@ -78,6 +88,8 @@ class FakeSatellite:
             _LOGGER.info("App disconnected")
         finally:
             self._writer = None
+            if self._streaming is not None:
+                self._streaming.cancel()
 
     async def _on(self, msg_type: int, payload: bytes) -> None:
         assert self._writer is not None
@@ -106,11 +118,29 @@ class FakeSatellite:
             event = json.loads(payload)
             self.events.append(event)
             _LOGGER.info("event %s %s", event.get("type"), event.get("data"))
+        elif msg_type == Message.MONITOR:
+            active = bool(json.loads(payload).get("active"))
+            self.monitoring.append(active)
+            if active and self._streaming is None:
+                self._streaming = asyncio.ensure_future(self._stream())
+            elif not active and self._streaming is not None:
+                self._streaming.cancel()
+                self._streaming = None
         elif msg_type == Message.HANGUP:
             reason = json.loads(payload).get("reason") if payload else ""
             self.hangups.append(reason)
             _LOGGER.info("hang up: %s", reason)
             self._hangup.set()
+
+    async def _stream(self) -> None:
+        """The microphone between calls, while monitored: a quiet hum. A call
+        streams its own audio instead, as the device does."""
+        tone = (np.sin(np.arange(CHUNK // 2) * 2 * np.pi * 440 / SAMPLE_RATE) * 3000).astype("<i2").tobytes()
+        while self._writer is not None:
+            if not self._in_call:
+                self._writer.write(encode(Message.AUDIO_MONITOR, tone))
+                await self._writer.drain()
+            await asyncio.sleep(CHUNK / BYTE_RATE / self.speed)
 
     async def device_event(self, kind: str) -> None:
         """Something happened here (the media player's announcement started or
@@ -133,6 +163,14 @@ class FakeSatellite:
         if self.aec:
             info.update(aec=True, aec_preroll_bytes=preroll)
         self._writer.write(encode_json(Message.CALL_START, info))
+        self._in_call = True
+        try:
+            return await self._stream_call(pcm, timeout)
+        finally:
+            self._in_call = False
+
+    async def _stream_call(self, pcm: bytes, timeout: float) -> str:
+        assert self._writer is not None
         silence = bytes(CHUNK)
         offset = 0
         loop = asyncio.get_running_loop()

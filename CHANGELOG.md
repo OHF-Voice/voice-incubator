@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **Listen live** to a satellite on the Test page: its microphone, played
+  and drawn (level, waveform, spectrogram) as it comes. The satellite streams
+  only while someone listens, and the Voice PE's ring blinks red meanwhile
+  (new voice_call firmware: `MONITOR`, `AUDIO_MONITOR`).
 - Debugging a satellite moved from the Satellites page to the Test page,
   where a select picks the satellite.
 - A kept session's voice can be added to a speaker's, known or new ("Who

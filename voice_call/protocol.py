@@ -31,12 +31,18 @@ class Message(IntEnum):
     AUDIO_IN_AEC = 0x08
     DEVICE_EVENT = 0x09
     """Something happened on the device: {"type": "announcing" | "announced"}."""
+    AUDIO_MONITOR = 0x0A
+    """The microphone outside a call, while monitored (MONITOR)."""
 
     """App to device."""
     AUDIO_OUT = 0x10
     AUDIO_OUT_END = 0x11
     EVENT = 0x12
     HANGUP = 0x13
+    MONITOR = 0x14
+    """{"active": true | false}: stream the microphone outside calls, for
+    someone listening live; the device shows it (the VPE's ring blinks red).
+    Firmware that can says ``"monitor": true`` in HELLO."""
     MODEL_START = 0x20
     MODEL_DATA = 0x21
     MODEL_END = 0x22

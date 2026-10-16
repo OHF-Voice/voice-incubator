@@ -449,6 +449,11 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   answer -- with every stage: wake word verification, where the command was
   cut, the speaker, every command that matched or was rejected and why, what
   ran and what was said.
+- **Listen live** (Test page, under "A satellite") plays what the satellite's
+  microphone hears, as it hears it, and draws it: the level, the last few
+  seconds, and a spectrogram. The satellite streams only while you listen,
+  and the Voice PE's ring blinks red the whole time. It needs the voice_call
+  firmware from this version.
 - Turn on **debugging** on the Sessions page to keep every session's audio,
   or debug one satellite (Test page: pick it under "A satellite"). That keeps
   the satellite's audio and can be a **dry run**: nothing is executed, and

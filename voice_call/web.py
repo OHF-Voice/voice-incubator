@@ -29,6 +29,7 @@ from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .skills import SKILLS
 from .store import NAME_KINDS, compile_store, dump, plain
+from .protocol import SAMPLE_RATE
 from .voices import language_code
 from .wake_words import DEFAULT_MODEL_SLOTS, RESERVED_SLOTS, SPECIAL
 
@@ -103,6 +104,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.get("/api/satellites", api.satellites),
             web.put("/api/satellites/{key}", api.put_satellite),
             web.post("/api/satellites/{key}/debug", api.debug_session),
+            web.get("/api/satellites/{key}/live", api.live),
             web.get("/api/settings", api.get_settings),
             web.get("/api/wake_words", api.wake_words),
             web.post("/api/wake_words", api.add_wake_word),
@@ -655,6 +657,9 @@ class Api:
                     "connected": bool(session and session.writer is not None),
                     "host": session.host if session else None,
                     "in_call": bool(session and session.call is not None),
+                    # Its firmware can stream outside calls: it can be listened to live.
+                    "can_listen": bool(session and session.hello.get("monitor")),
+                    "listeners": len(session.listeners) if session else 0,
                     "debug": app.calls.sessions[key].to_json() if key in app.calls.sessions else None,
                 }
             )
@@ -726,6 +731,54 @@ class Api:
             return web.json_response({"ok": True, "session": session.to_json()})
         self.app.calls.stop_session(key)
         return web.json_response({"ok": True, "session": None})
+
+    async def live(self, request: web.Request) -> web.WebSocketResponse:
+        """Listen to a satellite live, over a WebSocket: its microphone as
+        16 kHz 16-bit mono PCM (binary messages, about a tenth of a second
+        each) and JSON for what happens -- ``start``, ``call`` (a call starts
+        or ends: the audio is the call's then), ``end``, ``error``. The
+        satellite streams while someone listens, and shows that it does."""
+        key = request.match_info["key"]
+        ws = web.WebSocketResponse(heartbeat=20)
+        await ws.prepare(request)
+        try:
+            queue = await self.app.listen(key)
+        except (ConnectionError, ConfigError) as err:
+            await ws.send_json({"type": "error", "error": str(err)})
+            await ws.close()
+            return ws
+
+        async def forward() -> None:
+            await ws.send_json({"type": "start", "sample_rate": SAMPLE_RATE})
+            while True:
+                # What has piled up goes at once, audio in one message.
+                batch = [await queue.get()]
+                while not queue.empty():
+                    batch.append(queue.get_nowait())
+                audio: list[bytes] = []
+                for item in [*batch, b""]:
+                    if isinstance(item, bytes):
+                        audio.append(item)
+                        if item:
+                            continue
+                    if any(audio):
+                        await ws.send_bytes(b"".join(audio))
+                    audio = []
+                    if item is None:
+                        await ws.send_json({"type": "end", "why": "The satellite disconnected"})
+                        await ws.close()
+                        return
+                    if isinstance(item, dict):
+                        await ws.send_json(item)
+
+        sender = asyncio.ensure_future(forward())
+        try:
+            async for _message in ws:
+                pass  # the page says nothing; it closes the socket to stop
+        finally:
+            sender.cancel()
+            await self.app.stop_listening(key, queue)
+        return ws
 
     async def voices(self, request: web.Request) -> web.Response:
         """Home Assistant's STT and TTS entities that work in English, and the

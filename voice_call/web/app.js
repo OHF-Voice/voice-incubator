@@ -9,6 +9,7 @@ const state = {
   satellites: [],
   catalog: {},
   pollers: [],
+  leaving: [],
 };
 
 // ------------------------------------------------------------------ helpers
@@ -111,6 +112,8 @@ function asList(value) {
 function stopPolling() {
   for (const id of state.pollers) clearInterval(id);
   state.pollers = [];
+  // What a page started that must not outlive it (listening live).
+  for (const fn of state.leaving.splice(0)) { try { fn(); } catch (_) { /* gone already */ } }
 }
 
 function poll(fn, ms) {
@@ -2134,6 +2137,7 @@ async function pageTest(query) {
     out,
     picked ? h("div", { class: "panel" },
       h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "A satellite"), satellite),
+      liveSection(picked),
       debugSection(picked)) : h("div", { class: "panel muted" }, "No satellite has connected yet: debugging one, and listening to it, wait for one."),
   );
   input.focus();
@@ -2142,16 +2146,18 @@ async function pageTest(query) {
 // Debugging a satellite: every session's audio and trace kept, and maybe a
 // dry run (nothing is executed; what would be said is said).
 function debugSection(s) {
+  const wrap = h("div");
   const dry = h("input", { type: "checkbox", checked: s.debug ? s.debug.dry_run : true });
   const set = async (active) => {
     try {
       await api("POST", `satellites/${s.key}/debug`, { active, dry_run: dry.checked });
       toast(active ? (s.debug ? "Updated" : "Debugging") : "Stopped");
-      await refreshStatus();
-      route();
+      await Promise.all([refreshStatus(), loadSatellites()]);
+      // Only this section: listening live goes on.
+      wrap.replaceWith(debugSection(state.satellites.find((x) => x.key === s.key) || s));
     } catch (err) { toast(err.message); }
   };
-  return h("div", {},
+  fill(wrap,
     h("h3", {}, "Debugging", s.debug ? h("span", { class: "badge warn", style: "margin-left:8px" }, `on${s.debug.dry_run ? " · dry run" : ""}`) : null),
     h("p", { class: "muted small" }, "Keeps the audio of every session on this satellite, from the pre-roll before the wake word to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
     h("div", { class: "row" },
@@ -2159,6 +2165,152 @@ function debugSection(s) {
       s.debug ? h("button", { onclick: () => set(false) }, "Stop debugging") : h("button", { class: "primary", onclick: () => set(true) }, "Start debugging"),
       s.debug ? h("button", { onclick: () => set(true) }, "Update") : null,
       h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")));
+  return wrap;
+}
+
+// Listening to a satellite live: its microphone, heard here and drawn as it
+// comes -- the level, the last seconds' waveform, and a spectrogram up to
+// 8 kHz. The satellite streams only while someone listens, and shows it (the
+// Voice PE's ring blinks red).
+const LIVE_RATE = 16000;
+const LIVE_SECONDS = 6;
+
+function liveSection(s) {
+  const button = h("button", { class: "primary" }, "Listen");
+  const play = h("input", { type: "checkbox", checked: true });
+  const note = h("span", { class: "muted small" });
+  const level = h("span", { class: "badge", title: "loudness of the last moment: RMS / peak, dB below full scale" }, "— dB");
+  const inCall = h("span", { class: "badge accent hidden" }, "in a call");
+  const wave = h("canvas", { class: "live-wave" });
+  const spectrogram = h("canvas", { class: "live-spectrogram" });
+  const view = h("div", { class: "live hidden" }, h("div", { class: "row small" }, level, inCall, h("span", { class: "grow" }), h("span", { class: "muted" }, `last ${LIVE_SECONDS} s · spectrogram to 8 kHz`)), wave, spectrogram);
+  let socket = null, audio = null, analyser = null, gain = null, drawing = 0, nextTime = 0, scrolled = 0, lastDrawn = 0;
+  const recent = new Float32Array(LIVE_RATE * LIVE_SECONDS);
+  let written = 0;
+
+  function stop(why) {
+    if (socket) { socket.onclose = null; socket.close(); socket = null; }
+    if (audio) { audio.close(); audio = null; analyser = null; gain = null; }
+    cancelAnimationFrame(drawing);
+    button.textContent = "Listen";
+    button.className = "primary";
+    inCall.classList.add("hidden");
+    note.textContent = why || "";
+  }
+  state.leaving.push(() => stop());
+
+  function heard(buffer) {
+    const pcm = new Int16Array(buffer);
+    const samples = new Float32Array(pcm.length);
+    let sum = 0, peak = 0;
+    for (let i = 0; i < pcm.length; i++) {
+      const v = pcm[i] / 32768;
+      samples[i] = v;
+      sum += v * v;
+      peak = Math.max(peak, Math.abs(v));
+      recent[written++ % recent.length] = v;
+    }
+    const db = (x) => (x > 0 ? Math.max(-96, 20 * Math.log10(x)) : -96).toFixed(0);
+    level.textContent = `${db(Math.sqrt(sum / Math.max(1, pcm.length)))} / ${db(peak)} dB`;
+    level.className = `badge ${peak > 0.98 ? "bad" : peak > 0.03 ? "ok" : ""}`;
+    // Played a little behind, so the network's jitter is not heard; never
+    // more than a second behind.
+    const chunk = audio.createBuffer(1, samples.length, LIVE_RATE);
+    chunk.copyToChannel(samples, 0);
+    const source = audio.createBufferSource();
+    source.buffer = chunk;
+    source.connect(analyser);
+    const now = audio.currentTime;
+    if (nextTime < now + 0.05 || nextTime > now + 1) nextTime = now + 0.2;
+    source.start(nextTime);
+    nextTime += chunk.duration;
+  }
+
+  function draw() {
+    drawing = requestAnimationFrame(draw);
+    const muted = getComputedStyle(document.documentElement).getPropertyValue("--muted");
+    // The waveform: the last seconds, newest on the right.
+    const W = wave.width = Math.round(wave.clientWidth * devicePixelRatio);
+    const H = wave.height = Math.round(wave.clientHeight * devicePixelRatio);
+    const g = wave.getContext("2d");
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = muted;
+    const per = recent.length / W;
+    for (let x = 0; x < W; x++) {
+      let lo = 0, hi = 0;
+      const from = written - recent.length + Math.floor(x * per);
+      for (let i = from; i < from + per; i++) {
+        if (i < 0) continue;
+        const v = recent[i % recent.length];
+        if (v < lo) lo = v; if (v > hi) hi = v;
+      }
+      g.fillRect(x, H / 2 - hi * H / 2, 1, Math.max(1, (hi - lo) * H / 2));
+    }
+    // The spectrogram: scrolling left as time passes, over the same seconds
+    // as the waveform, however often the page is drawn.
+    if (!analyser) return;
+    const S = spectrogram.getContext("2d");
+    const SW = spectrogram.width, SH = spectrogram.height;
+    const wanted = Math.round(spectrogram.clientWidth * devicePixelRatio);
+    if (SW !== wanted) { spectrogram.width = wanted; spectrogram.height = Math.round(spectrogram.clientHeight * devicePixelRatio); return; }
+    const now = performance.now();
+    scrolled += lastDrawn ? ((now - lastDrawn) / 1000) * SW / LIVE_SECONDS : 0;
+    lastDrawn = now;
+    const dx = Math.floor(scrolled);
+    if (dx < 1) return;
+    scrolled -= dx;
+    S.drawImage(spectrogram, -dx, 0);
+    const bins = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(bins);
+    const top = Math.min(bins.length, Math.round(bins.length * (LIVE_RATE / 2) / (audio.sampleRate / 2)));
+    for (let y = 0; y < SH; y++) {
+      const v = bins[Math.floor((1 - y / SH) * (top - 1))] / 255;
+      S.fillStyle = `hsl(${240 - v * 240}, 90%, ${v * 55}%)`;
+      S.fillRect(SW - dx, y, dx, 1);
+    }
+  }
+
+  function start() {
+    try {
+      audio = new AudioContext();
+    } catch (err) { note.textContent = `This browser can't play it: ${err.message}`; return; }
+    analyser = audio.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.2;
+    gain = audio.createGain();
+    gain.gain.value = play.checked ? 1 : 0;
+    analyser.connect(gain);
+    gain.connect(audio.destination);
+    nextTime = 0;
+    lastDrawn = 0;
+    const url = new URL(`api/satellites/${encodeURIComponent(s.key)}/live`, location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.hash = "";
+    socket = new WebSocket(url);
+    socket.binaryType = "arraybuffer";
+    button.textContent = "Stop listening";
+    button.className = "danger";
+    note.textContent = "Connecting…";
+    view.classList.remove("hidden");
+    socket.onmessage = (event) => {
+      if (typeof event.data !== "string") { if (audio) heard(event.data); return; }
+      const message = JSON.parse(event.data);
+      if (message.type === "start") note.textContent = `Listening: the ring of ${s.name} blinks red while you do.`;
+      else if (message.type === "call") inCall.classList.toggle("hidden", !message.active);
+      else if (message.type === "error" || message.type === "end") stop(message.error || message.why);
+    };
+    socket.onclose = () => stop("The connection closed.");
+    draw();
+  }
+  button.addEventListener("click", () => (socket ? stop() : start()));
+  play.addEventListener("change", () => { if (gain) gain.gain.value = play.checked ? 1 : 0; });
+  const why = !s.connected ? "It is offline." : s.can_listen === false ? "Its firmware can't stream outside calls: flash the newer voice_call firmware to listen live." : "";
+  if (why) button.disabled = true;
+  return h("div", {},
+    h("h3", {}, "Listen live"),
+    h("p", { class: "muted small" }, "Hear what its microphone hears, now, and see it. It streams only while you listen, and its ring blinks red the whole time; a call (after the wake word) comes through too. Near the satellite, use headphones or untick “Play it here”: it would hear itself."),
+    h("div", { class: "row" }, button, h("label", { class: "small" }, play, "Play it here"), why ? h("span", { class: "muted small" }, why) : note),
+    view);
 }
 
 // ---------------------------------------------------------------- settings

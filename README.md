@@ -861,6 +861,20 @@ announcement, and music is turned down while one plays.
 call ends at once. The acknowledgement sound (a command with nothing to say)
 is still streamed to the satellite.
 
+**Listening live.** The Test page's "Listen live" opens a WebSocket,
+`/api/satellites/{key}/live`: binary messages are the microphone (16 kHz
+16-bit mono, batched as they pile up), JSON says `start`, `call` (a call
+starts or ends) and `end`. While anyone listens the app sends the device
+`MONITOR` (0x14, `{"active": true}`; `false` when the last one leaves), and
+the firmware streams its microphone between calls as `AUDIO_MONITOR` (0x0A)
+-- a call streams its own audio, which listeners get without its pre-roll,
+already heard. The firmware says it can in HELLO (`"monitor": true`), stops
+on a disconnect, and fires its own `monitoring` event on every change, which
+the VPE config turns into a red blink on the ring: what the ring shows comes
+from the device's state, not from what the app says. The browser plays it
+through Web Audio (a fifth of a second behind, for the network's jitter) and
+draws the level, the last six seconds and a spectrogram to 8 kHz.
+
 ### The multilingual TDT model
 
 `settings.yaml` `tdt_model: multilingual` replaces the English TDT head
