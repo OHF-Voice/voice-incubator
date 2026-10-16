@@ -62,10 +62,12 @@ commands:
     optional: [[all], [up], [in, on]]
     exclude: [is, are]
     names:
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      area: {count: 1}
+      floor: {count: 1}
     lists:
       device_class: {list: cover_classes}
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[device_class], [area, device_class], [floor, device_class]]
     action:
       - variables:
           covers: >-
@@ -125,10 +127,12 @@ commands:
     optional: [[all], [down], [in, on]]
     exclude: [is, are]
     names:
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      area: {count: 1}
+      floor: {count: 1}
     lists:
       device_class: {list: cover_classes}
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[device_class], [area, device_class], [floor, device_class]]
     action:
       - variables:
           covers: >-
@@ -264,11 +268,13 @@ commands:
     require: [[is, are]]
     optional: [[any, all], [in, on]]
     names:
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      area: {count: 1}
+      floor: {count: 1}
     lists:
       device_class: {list: cover_classes}
       asked: {list: open_closed}
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[device_class, asked], [area, device_class, asked], [floor, device_class, asked]]
     response: >-
       {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
         'curtain': ['curtain', 'curtains'], 'door': ['door', 'doors'],

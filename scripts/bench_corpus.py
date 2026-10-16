@@ -256,8 +256,11 @@ def run_one(job: tuple) -> list[dict]:
         recognition = decision.recognition
         row["greedy"] = recognition.get("transcript", "")
         row["tdt"] = recognition.get("tdt_transcript")
+        from voice_call.commands import command_of  # pylint: disable=import-outside-toplevel
+
         got = decision.intent
-        row["text"] = got.intent if got is not None else ""
+        # A combination of a command (lights_off:area) is the command.
+        row["text"] = command_of(got.intent) if got is not None else ""
         row["slots"] = got.slots if got is not None else {}
         row["score"] = round(got.cost, 2) if got is not None and got.cost != float("inf") else None
         row["source"] = (got.example_source or "keywords") if got is not None else None
@@ -272,11 +275,11 @@ def run_one(job: tuple) -> list[dict]:
             verdict, detail = ("false accept", "") if got is not None else ("correct", "")
         elif got is None:
             wanted = next(
-                (r for r in recognition.get("rejected", []) if r["intent"] == expectation.intent), None
+                (r for r in recognition.get("rejected", []) if command_of(r["intent"]) == expectation.intent), None
             )
             verdict = "missed"
             detail = (wanted.get("reasons") or [""])[0] if wanted else "intent not in the commands"
-        elif got.intent != expectation.intent:
+        elif command_of(got.intent) != expectation.intent:
             verdict, detail = "wrong intent", ""
         elif expectation.slots is not None and _slots(got.slots) != _slots(expectation.slots):
             verdict, detail = "wrong slots", f"expected {expectation.slots}"

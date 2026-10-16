@@ -47,7 +47,7 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 from adapt_ctc.config import ConfigError, _phrase
 
 from . import skills
-from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, match_slots
+from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, command_of, match_slots
 from .store import Compiled
 from .voices import TypedText, VoiceChoice
 
@@ -358,8 +358,8 @@ class Engine:
         )
 
     def _fill_dynamic(self, config: dict[str, Any]) -> None:
-        """Put the app's own lists in, or take out what refers to an empty one:
-        an optional slot is dropped, an intent that needs the list is too."""
+        """Put the app's own lists in, or take out the intents (combinations)
+        that hear an empty one."""
         lists = config.setdefault("lists", {})
         empty = set()
         for name in DYNAMIC_LISTS:
@@ -379,13 +379,9 @@ class Engine:
             return
         for intent_name, intent in list(config["intents"].items()):
             slots = intent.get("lists") or {}
-            for slot, spec in list(slots.items()):
+            for spec in list(slots.values()):
                 listed = spec if isinstance(spec, str) else (spec or {}).get("list")
-                if listed not in empty:
-                    continue
-                if isinstance(spec, dict) and spec.get("optional"):
-                    del slots[slot]
-                else:
+                if listed in empty:
                     del config["intents"][intent_name]
                     break
 
@@ -512,7 +508,7 @@ class Engine:
                         decision, recognition, command_audio, frame_seconds, spec["wildcard"], transcriber
                     )
                 break
-            command = compiled.commands.get(result.intent)
+            command = compiled.commands.get(command_of(result.intent))
             if command is None:
                 continue
             resolved = satellite.available(command)
@@ -526,10 +522,11 @@ class Engine:
             # Fixed slots are the command's target; a name that was heard
             # is more specific.
             decision.slots = {**decision.behavior.slots, **heard}
-            if command.intent.get("wildcard"):
+            heard_intent = command.intents.get(result.intent) or command.intent
+            if heard_intent.get("wildcard"):
                 self._reread_text(
                     decision, recognition, command_audio, frame_seconds,
-                    command.intent["wildcard"], transcriber,
+                    heard_intent["wildcard"], transcriber,
                 )
             break
 
@@ -675,7 +672,7 @@ class Engine:
 
         candidates = []
         for result in recognition.rejected:
-            command = commands.get(result.intent)
+            command = commands.get(command_of(result.intent))
             if command is None or not result.missing:
                 continue
             groups = len(command_groups(command))
@@ -717,7 +714,7 @@ class Engine:
                 hint["similarity"] = round(closest["similarity"], 4)
                 if closest["next_similarity"] is not None:
                     hint["next_similarity"] = round(closest["next_similarity"], 4)
-                command = commands.get(closest["intent"])
+                command = commands.get(command_of(closest["intent"]))
                 if (
                     command is not None
                     and closest["similarity"] >= HINT_MIN_SIMILARITY
@@ -822,6 +819,10 @@ def llm_note(fallback: dict[str, Any] | None) -> str | None:
     """What the fallback's model step (GLiNER or an LLM) came to when it ran
     no command, in a line (None when it was not asked)."""
     llm = (fallback or {}).get("llm") or {}
+    meaning = (fallback or {}).get("meaning") or {}
+    if not llm and meaning.get("heard_by") and meaning.get("problems"):
+        # Meaning picked it; what the model heard in the sentence did not fit.
+        return f"meaning picked {meaning['command']}, not run: {'; '.join(meaning['problems'])}"
     if not llm:
         return None
     by = llm.get("by", "LLM")

@@ -33,6 +33,7 @@ from .fallback import (
     ToolModel,
     chosen,
     llama_available,
+    needs_model,
 )
 from .questions import DEFAULT_QA_MODEL, QA_MODELS, Answerer, Questions
 from .engine import LEARN_VOICE, Decision, Engine, Satellite, llm_note
@@ -130,7 +131,7 @@ TDT_MODELS = {
 DEFAULT_TDT = "en"
 DEFAULT_TOP_K = 8
 """How many commands the fallback's model chooses among. GLiNER: the closest
-this many in meaning among those that need something said, chosen or not (it
+this many in meaning among those that hear something, chosen or not (it
 needs others to tell the chosen ones from). An LLM: with more chosen than
 this, the closest this many of them; with no more, all of them, read once (a
 reused prefix)."""
@@ -507,9 +508,14 @@ class VoiceCallApp:
         }
 
     def _llm_wanted(self) -> bool:
-        """The model step is turned on and some command is chosen for it."""
+        """The model step is turned on, and some command is chosen for it -- or
+        chosen for meaning and hears something, which the model hears."""
         compiled = self.engine.compiled if self.engine is not None else None
-        return self.fallback_settings()["llm"] and compiled is not None and bool(chosen(compiled, "llm"))
+        return (
+            self.fallback_settings()["llm"]
+            and compiled is not None
+            and bool(chosen(compiled, "llm") or needs_model(compiled))
+        )
 
     def fallback_status(self) -> dict[str, Any]:
         fallback = self.engine.fallback if self.engine is not None else None
@@ -518,7 +524,7 @@ class VoiceCallApp:
         llm_commands = chosen(compiled, "llm") if compiled is not None else []
         if not settings["llm"]:
             status = "off"
-        elif not llm_commands:
+        elif not llm_commands and not (compiled is not None and needs_model(compiled)):
             status = "no commands chosen for it"
         else:
             status = self._llm_status or (fallback.status if fallback is not None else "off")

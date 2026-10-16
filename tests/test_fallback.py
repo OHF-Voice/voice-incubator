@@ -21,6 +21,7 @@ from voice_call.store import compile_store
 STORE = {
     "names": {
         "areas": {"kitchen": {"name": "Kitchen"}, "living_room": {"name": "Living Room", "aliases": ["Lounge"]}},
+        "floors": {"upstairs": {"name": "Upstairs"}},
         "entities": {"switch.coffee_maker": {"name": "Coffee Maker"}, "cover.garage_door": {"name": "Garage Door"}},
     },
     "lists": {"colors": {"red": ["red", "crimson"], "blue": "blue"}},
@@ -28,7 +29,8 @@ STORE = {
         "lights_on": {
             "description": "turn on the lights",
             "require": [["turn on"], ["lights"]],
-            "names": {"area": {"count": 1, "optional": True}},
+            "names": {"area": {"count": 1}, "floor": {"count": 1}},
+            "combinations": [[], ["area"], ["floor"]],
             "action": {"action": "light.turn_on", "target": "{{ target }}"},
         },
         "device_on": {
@@ -59,7 +61,7 @@ STORE = {
             "description": "add something to the shopping list",
             "require": [["add"], ["list"]],
             "optional": [["to"]],
-            "wildcard": {"slot": "item", "after": ["add"], "before": ["to"], "bounded": True, "required": True},
+            "wildcard": {"slot": "item", "after": ["add"], "before": ["to"], "bounded": True},
             "action": {"action": "todo.add_item", "target": {"entity_id": "todo.shopping_list"}},
         },
         "what_time": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
@@ -67,7 +69,7 @@ STORE = {
             "description": "set an alarm",
             "require": [["alarm"]],
             "optional": [["for", "at"]],
-            "wildcard": {"slot": "time", "after": ["for", "at"], "to_end": True, "required": True},
+            "wildcard": {"slot": "time", "after": ["for", "at"], "to_end": True},
             "timer": "alarm",
         },
     },
@@ -114,8 +116,13 @@ def test_arguments_become_slots(compiled):
     assert tools.slots(commands["lights_on"], {"area": "lounge"}, "lights on in the lounge") == ({"area": ["living_room"]}, [])
     # A name the sentence does not say is dropped: a small model makes them up.
     assert tools.slots(commands["lights_on"], {"area": "Kitchen"}, "kill the lights") == ({}, [])
-    # Not a name it may have: dropped when optional, a problem when required.
+    # Not a name it may have: dropped when some combination goes without it, a
+    # problem when every one needs it.
     assert tools.slots(commands["lights_on"], {"area": "Garage"}, "garage lights") == ({}, [])
+    # Slots that are no combination of it.
+    assert tools.slots(commands["lights_on"], {"area": "Kitchen", "floor": "Upstairs"}, "kitchen lights upstairs")[1] == [
+        "area and floor don't go together"
+    ]
     slots, problems = tools.slots(commands["device_on"], {"entity": "Garage Door"}, "turn on the garage door")
     assert problems and "no entity" in problems[0]
     assert tools.slots(commands["light_color"], {"color": "crimson"}, "make it crimson")[0] == {"color": "red"}
@@ -161,13 +168,15 @@ def test_parsing():
 
 def test_by_meaning(compiled):
     commands = compiled.commands
-    assert not needs_heard_slots(commands["what_time"]) and not needs_heard_slots(commands["lights_on"])
+    assert not needs_heard_slots(commands["what_time"])
+    assert needs_heard_slots(commands["lights_on"]) and commands["lights_on"].takes_nothing  # or an area, or a floor
     assert needs_heard_slots(commands["add_item"]) and needs_heard_slots(commands["start_timer"])
     near = {"intent": "what_time", "similarity": 0.86, "next": "'tell me a joke'", "next_similarity": 0.7}
     assert by_meaning(near, commands["what_time"])[0]
     assert not by_meaning({**near, "similarity": 0.75}, commands["what_time"])[0]
     assert not by_meaning({**near, "next_similarity": 0.83}, commands["what_time"])[0]
-    assert by_meaning({**near, "intent": "add_item"}, commands["add_item"])[1]["why"] == "needs something said"
+    # It picks the command; what was said in it is the model's to hear.
+    assert by_meaning({**near, "intent": "add_item"}, commands["add_item"])[0]
 
 
 class StubLLM:
@@ -325,6 +334,10 @@ class StubGliner:
         probabilities[labels[-1]] = self.none
         return {"classification": probabilities, "entities": self.entities}, 0.02
 
+    def hear(self, text, entities):
+        self.labels, self.types = None, entities
+        return {"entities": self.entities}, 0.01
+
 
 def gliner_fallback(stub, chosen_ids, store=STORE):
     compiled = chosen_for(store, llm=chosen_ids)
@@ -345,11 +358,11 @@ def test_gliner_picks_among_the_closest_that_need_something_said():
     assert fallback.status == "ready" and stub.ready
     found = fallback.decide("we need milk", far, compiled, KITCHEN, everything)
     assert found.command.id == "add_item" and found.by == "gliner" and found.slots == {"item": "milk"}
-    # The chosen one among others to tell it from -- but not those that need
-    # nothing said (meaning's): lights_on, what_time.
+    # The chosen one among others to tell it from -- but not those that hear
+    # nothing (meaning's): what_time.
     assert stub.labels[:5] == [
-        "add something to the shopping list", "set a timer", "set the brightness of the lights", "turn on a device",
-        "change the color of the lights",
+        "add something to the shopping list", "set a timer", "set the brightness of the lights", "turn on the lights",
+        "turn on a device",
     ]
     assert stub.labels[-1] == "something else: a question, small talk or thanks"
     assert stub.types["item"] == "something to buy, or a task to do, as said" and "duration" in stub.types
@@ -399,7 +412,55 @@ def test_gliner_skips():
     fallback, compiled = gliner_fallback(stub, ["set_alarm"])
     found = fallback.decide("we need milk", far, compiled, KITCHEN, lambda: everything()[:5])
     assert found.trace["llm"]["skipped"] == "none of its commands is close in meaning" and stub.labels is None
-    # Only commands that need nothing said: meaning's, not GLiNER's.
+    # Only commands that hear nothing: meaning's, not GLiNER's.
+    fallback, compiled = gliner_fallback(stub, ["what_time"])
+    found = fallback.decide("have you got the time", far, compiled, KITCHEN, everything)
+    assert "meaning takes those" in found.trace["llm"]["skipped"]
+
+
+def lights_near():
+    return {"intent": "lights_on", "similarity": 0.88, "next": "'tell me a joke'", "next_similarity": 0.7}
+
+
+def test_meaning_picks_the_command_and_gliner_hears_what_was_said():
+    compiled = chosen_for(STORE, meaning=["lights_on"])
+    heard_a_room = StubGliner({}, {"room": [("the lounge", 0.9, 13, 23)]})
+    fallback = Fallback(embedding_accept=True, llm=heard_a_room, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("lights up in the lounge", lights_near, compiled, KITCHEN, everything)
+    assert found.command.id == "lights_on" and found.by == "meaning" and found.slots == {"area": ["living_room"]}
+    assert found.trace["meaning"]["heard_by"] == "GLiNER" and found.trace["meaning"]["combination"] == ["area"]
+    assert heard_a_room.labels is None and set(heard_a_room.types) == {"room", "floor"}  # its slots only
+    # Nothing heard: the combination of nothing, the satellite's area.
+    fallback.llm.entities = {}
+    found = fallback.decide("lights up", lights_near, compiled, KITCHEN, everything)
+    assert found.command.id == "lights_on" and found.slots == {}
+    # The same words as a room and as a floor: the surer one, if it has it.
+    fallback.llm.entities = {"room": [("upstairs", 0.6, 10, 18)], "floor": [("upstairs", 0.8, 10, 18)]}
+    found = fallback.decide("lights up upstairs", lights_near, compiled, KITCHEN, everything)
+    assert found.slots == {"floor": ["upstairs"]}
+    fallback.llm.entities = {"room": [("lounge", 0.9, 14, 20)], "floor": [("lounge", 0.95, 14, 20)]}
+    found = fallback.decide("lights up, the lounge", lights_near, compiled, KITCHEN, everything)
+    assert found.slots == {"area": ["living_room"]}  # no floor of that name
+    # A room and a floor: no combination of it, so nothing runs.
+    fallback.llm.entities = {"room": [("kitchen", 0.9, 13, 20)], "floor": [("upstairs", 0.9, 21, 29)]}
+    found = fallback.decide("lights up in kitchen upstairs", lights_near, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["meaning"]["problems"] == ["area and floor don't go together"]
+    # Without a model to hear them, a command that hears something isn't run by meaning.
+    fallback = Fallback(embedding_accept=True, llm=None)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("lights up in the lounge", lights_near, compiled, KITCHEN, everything)
+    assert found.command is None and "no model to hear them" in found.trace["meaning"]["why"]
+
+
+def test_gliner_hearing_nothing_runs_only_what_meaning_puts_first():
+    stub = StubGliner({"turn on the lights": 0.8})
     fallback, compiled = gliner_fallback(stub, ["lights_on"])
     found = fallback.decide("some light please", far, compiled, KITCHEN, everything)
-    assert "meaning takes those" in found.trace["llm"]["skipped"]
+    assert found.command is None and "not what meaning puts first" in found.trace["llm"]["refused"]["why"]
+
+    def lights_first():
+        return [("lights_on", 0.9), *[c for c in everything() if c[0] != "lights_on"]]
+
+    found = fallback.decide("some light please", far, compiled, KITCHEN, lights_first)
+    assert found.command.id == "lights_on" and found.slots == {} and found.trace["llm"]["combination"] == []

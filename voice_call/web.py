@@ -967,10 +967,16 @@ def _language(value: Any, option: str) -> str:
 
 
 def _clean(value: Any) -> Any:
-    """Drop empty values the form sends for fields left blank."""
+    """Drop empty values the form sends for fields left blank -- but not a
+    combination of nothing said (``combinations: [[], [area]]``)."""
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
+            if key == "combinations" and isinstance(item, list):
+                out[key] = [list(c) for c in item if isinstance(c, list)] or None
+                if out[key] is None:
+                    del out[key]
+                continue
             item = _clean(item)
             if item in (None, "", [], {}):
                 continue

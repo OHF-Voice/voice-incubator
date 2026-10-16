@@ -145,7 +145,8 @@ COMMANDS = {
     "cancel_timer": {
         "description": "cancel a timer",
         "require": [["cancel"], ["timer"]],
-        "lists": {"timer_name": {"list": "running_timers", "optional": True}},
+        "lists": {"timer_name": {"list": "running_timers"}},
+        "combinations": [[], ["timer_name"]],
         "timer": "cancel",
     },
     "named_only": {
@@ -170,17 +171,16 @@ def test_running_timers_list_fills_in_or_drops_out():
 
     config = copy.deepcopy(compiled.config)
     engine._fill_dynamic(config)
-    # Nothing running: the optional slot is dropped, the command that needs it too.
+    # Nothing running: what hears a timer's name is dropped.
     assert "running_timers" not in config["lists"]
-    assert "lists" not in config["intents"]["cancel_timer"] or not config["intents"]["cancel_timer"]["lists"]
-    assert "named_only" not in config["intents"]
+    assert set(config["intents"]) == {"cancel_timer"}
     parse_config(config)
 
     engine.dynamic["running_timers"] = ["lasagna", "tea", "!!"]
     config = copy.deepcopy(compiled.config)
     engine._fill_dynamic(config)
     assert config["lists"]["running_timers"] == {"lasagna": ["lasagna"], "tea": ["tea"]}
-    assert set(config["intents"]) == {"cancel_timer", "named_only"}
+    assert set(config["intents"]) == {"cancel_timer", "cancel_timer:timer_name", "named_only"}
     parse_config(config)
 
 

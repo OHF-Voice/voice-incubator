@@ -100,8 +100,8 @@ def test_duration_adds_its_units_and_one_slot():
     sprinklers = parse_command(
         "s", {"description": "run the sprinklers", "require": [["sprinklers"]], "number": "duration", "response": "ok"}
     )
-    assert ["seconds", "second", "minutes", "minute", "hours", "hour"] in sprinklers.intent["require"]
-    parse_config({"intents": {"s": sprinklers.intent}})  # units are keywords of the intent
+    assert ["seconds", "second", "minutes", "minute", "hours", "hour"] in sprinklers.intents["s"]["require"]
+    parse_config({"intents": sprinklers.intents})  # units are keywords of the intent
     slots = match_slots(sprinklers, {"hours": 1, "minutes": 30})
     assert slots == {
         "duration": {"hours": 1, "minutes": 30, "seconds": 0, "total_seconds": 5400, "text": "01:30:00"}
@@ -322,3 +322,48 @@ def test_verbosity_and_responses_by_level():
 def test_verbosity_errors(spec, message):
     with pytest.raises(ConfigError, match=message):
         parse_command("c", {"description": "x", "examples": ["x"], "action": {"action": "light.turn_on"}, **spec})
+
+
+def test_combinations_are_intents_of_their_own():
+    from voice_call.commands import command_of  # pylint: disable=import-outside-toplevel
+
+    spec = {
+        "description": "turn off the lights", "examples": ["lights off"], "require": [["off"], ["lights"]],
+        "names": {"area": {"count": 1}, "floor": {"count": 1}}, "combinations": [[], ["area"], ["floor"]],
+        "action": {"action": "light.turn_off"},
+    }
+    command = parse_command("lights_off", spec)
+    assert list(command.intents) == ["lights_off", "lights_off:area", "lights_off:floor"]
+    assert command.takes_nothing and command.takes_something and command.heard_slots == ("area", "floor")
+    # The first has the examples and the description; each hears exactly its slots.
+    assert command.intents["lights_off"]["examples"] == ["lights off"] and "names" not in command.intents["lights_off"]
+    assert "examples" not in command.intents["lights_off:area"] and "description" not in command.intents["lights_off:area"]
+    assert set(command.intents["lights_off:area"]["names"]) == {"area"}
+    assert command.combination_for({"floor"}) == ("floor",) and command.combination_for({"area", "floor"}) is None
+    assert command_of("lights_off:floor") == "lights_off" and command_of("lights_off") == "lights_off"
+    parse_config({"intents": command.intents})
+    # Without combinations: everything it hears, together.
+    timer = parse_command("t", {"description": "x", "require": [["timer"]], "number": "duration", "timer": "start",
+                                "wildcard": {"slot": "timer", "before": ["timer"]}})
+    assert timer.combinations == (("duration", "timer"),) and timer.intents["t"]["wildcard"]["required"]
+    # A combination without the number doesn't need its units said.
+    cancel = parse_command("c", {"description": "x", "require": [["cancel"], ["timer"]], "number": "duration",
+                                 "combinations": [[], ["duration"]], "timer": "cancel"})
+    assert ["seconds", "second", "minutes", "minute", "hours", "hour"] not in cancel.intents["c"]["require"]
+    assert "number" in cancel.intents["c:duration"] and "number" not in cancel.intents["c"]
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ({"names": {"area": {"count": 1, "optional": True}}}, "never optional"),
+        ({"names": {"area": {"count": 1}}, "combinations": [["floor"]]}, "'floor' is not a slot it listens for"),
+        ({"names": {"area": {"count": 1}}, "combinations": [[]]}, "'area' is in no combination"),
+        ({"names": {"area": {"count": 1}}, "combinations": [["area"], ["area"]]}, "listed twice"),
+        ({"wildcard": {"slot": "x", "after": ["do"], "required": True}}, "never optional"),
+        ({"combinations": "area"}, "a list of slot lists"),
+    ],
+)
+def test_combination_errors(spec, message):
+    with pytest.raises(ConfigError, match=message):
+        parse_command("c", {"description": "x", "require": [["do"]], "action": {"action": "light.turn_on"}, **spec})

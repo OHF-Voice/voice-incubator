@@ -40,13 +40,17 @@
   languages) in place of the English one, switched while running. Home
   Assistant STT and TTS entities get a language, for every satellite or per
   satellite.
-- When nothing matches: the closest command by meaning runs when it is very
-  close and needs nothing said, and a small model can pick a command that
-  needs something said and fill in its slots -- GLiNER2.5 small (4-bit,
-  without PyTorch, about a quarter of a second on a Pi 5), or a small LLM
-  (Granite 4.0 350M, or Hammer 2.1 0.5B). Both only run the commands chosen
-  for them (`fallback: [meaning, llm]`, ticked per command or many at once on
-  the Commands page); none are chosen to begin with.
+- When nothing matches: meaning picks the command a sentence is very close
+  to, and a small model hears what was said in it -- or picks the command
+  itself when meaning isn't sure -- and fills in its slots: GLiNER2.5 small
+  (4-bit, without PyTorch, about a quarter of a second on a Pi 5), or a small
+  LLM (Granite 4.0 350M, or Hammer 2.1 0.5B). Both only run the commands
+  chosen for them (`fallback: [meaning, llm]`, ticked per command or many at
+  once on the Commands page); none are chosen to begin with.
+- Slots are never optional: a command lists the ways it may be said
+  (`combinations: [[], [area], [floor]]`), each heard whole, so it never
+  runs with something said left out ("kill the lights in the office" no
+  longer turns off the satellite's own area). The editor's "Ways to say it".
 - How much a command says when it's done: a beep, a brief fixed sentence
   (cached by text-to-speech), a specific one, or a verbose one -- set per
   command (and per area or satellite), with a response for each level.

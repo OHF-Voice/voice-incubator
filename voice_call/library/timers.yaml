@@ -24,6 +24,8 @@ commands:
     optional: [[set, start, create], [for], [named, called, name]]
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
+    # Each said whole.
+    combinations: [[duration], [duration, timer]]
     timer: start
     verbosity: specific
 
@@ -36,7 +38,7 @@ commands:
     # Without am or pm it is the next time that comes round.
     require: [[alarm, wake me up, wake me]]
     optional: [[set, make, create, an, a], [for, at]]
-    wildcard: {slot: time, after: [for, at], to_end: true, required: true, max_words: 7}
+    wildcard: {slot: time, after: [for, at], to_end: true, max_words: 7}
     timer: alarm
     verbosity: specific
     response:
@@ -49,9 +51,11 @@ commands:
     require: [[cancel, stop, delete], [timer, time]]
     optional: [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
     lists:
-      timer_name: {list: running_timers, optional: true}
+      timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
-    number: {preset: duration, optional: true}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
     timer: cancel
     verbosity: specific
 
@@ -70,9 +74,11 @@ commands:
     require: [[pause, hold], [timer, timers, time]]
     optional: [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
     lists:
-      timer_name: {list: running_timers, optional: true}
+      timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
-    number: {preset: duration, optional: true}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
     timer: pause
     verbosity: specific
 
@@ -84,9 +90,11 @@ commands:
     require: [[resume, unpause, un pause, continue], [timer, timers, time]]
     optional: [[minutes, minute, seconds, second, hours, hour], [named, called, name]]
     lists:
-      timer_name: {list: running_timers, optional: true}
+      timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
-    number: {preset: duration, optional: true}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
     timer: resume
     verbosity: specific
 
@@ -98,9 +106,11 @@ commands:
     require: [[how long, how much time], [left, remaining]]
     optional: [[is], [on], [timer, time], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
     lists:
-      timer_name: {list: running_timers, optional: true}
+      timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
-    number: {preset: duration, optional: true}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
     timer: status
 
   add_time:
@@ -110,9 +120,11 @@ commands:
     require: [[add], [timer, time]]
     optional: [[to], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
     lists:
-      timer_name: {list: running_timers, optional: true}
+      timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
     timer: add
     verbosity: specific
 
@@ -123,8 +135,10 @@ commands:
     require: [[decrease, reduce, subtract, remove, take off], [timer, time]]
     optional: [[by, from], [minutes, minute, seconds, second, hours, hour], [named, called, name]]
     lists:
-      timer_name: {list: running_timers, optional: true}
+      timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
     timer: subtract
     verbosity: specific

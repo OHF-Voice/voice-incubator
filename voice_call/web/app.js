@@ -369,14 +369,14 @@ function fallbackPanel() {
     h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "When nothing matches"),
       h("button", { onclick: () => { location.hash = "#/fallback"; } }, "Choose commands")),
     h("p", { class: "muted small" }, "Keywords and example sentences come first. When they find nothing, these can run a command — only one chosen for it, here or on the command's page:"),
-    h("label", {}, meaning, "Run the command closest in meaning, when it is very close and needs nothing said (“kill the lights”)",
+    h("label", {}, meaning, "Run the command closest in meaning, when it is very close (“kill the lights in the office”); the model hears the room",
       h("span", { class: "badge" }, count(status.meaning_commands)),
       status.meaning_available === false ? h("span", { class: "badge" }, "needs the embedding model") : null),
     h("label", {}, llm, "Let a small model pick a command and fill in what it needs (“I'm in the mood for jazz”)",
       h("span", { class: "badge" }, count(status.llm_commands)),
       h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
-      field("Model", model, "GLiNER picks among commands that need something said — meaning takes the rest — in about a quarter of a second on a Raspberry Pi 5. An LLM takes any command but is slower and wrong more often; Granite is also the question model, Hammer is licensed for non-commercial use only."),
+      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks among commands that hear something — meaning takes the rest — in about a quarter of a second on a Raspberry Pi 5. An LLM takes any command but is slower and wrong more often; Granite is also the question model, Hammer is licensed for non-commercial use only."),
       field("Commands it chooses from", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
       thresholdField,
       h("button", { class: "primary", onclick: save }, "Save")));
@@ -392,15 +392,15 @@ async function pageFallback() {
   const rows = Object.entries(store.commands || {}).map(([cid, spec]) => {
     const steps = asList(spec && spec.fallback);
     const needsSaid = !!(store.details[cid] || {}).needs_said;
-    const meaning = h("input", { type: "checkbox", checked: steps.includes("meaning"), disabled: needsSaid && !steps.includes("meaning"),
-      title: needsSaid ? "It needs something said (a name, number, value or text), which meaning can't hear" : "" });
-    // GLiNER takes only commands that need something said: meaning takes the rest.
+    const meaning = h("input", { type: "checkbox", checked: steps.includes("meaning"),
+      title: needsSaid ? "Meaning picks it; the model hears what was said in it (a name, number, value or text)" : "" });
+    // GLiNER picks only commands that hear something: meaning takes the rest.
     const glinerSkips = glinerModel && !needsSaid;
     const llm = h("input", { type: "checkbox", checked: steps.includes("llm"), disabled: glinerSkips && !steps.includes("llm"),
-      title: glinerSkips ? "It needs nothing said: GLiNER leaves it to meaning" : "" });
+      title: glinerSkips ? "It hears nothing: GLiNER leaves it to meaning" : "" });
     const row = h("div", { class: "item" }, icon(iconFor(spec || {}), "big"),
       h("div", { class: "grow" }, h("div", { class: "title" }, (spec && (spec.title || spec.description)) || cid),
-        h("div", { class: "muted small" }, cid, needsSaid ? " · needs something said" : "")),
+        h("div", { class: "muted small" }, cid, needsSaid ? " · hears something" : "")),
       h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
     return { cid, spec, meaning, llm, row };
   });
@@ -426,7 +426,7 @@ async function pageFallback() {
       h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Commands"), filter,
         h("button", { onclick: () => all("meaning", true) }, "All by meaning"), h("button", { onclick: () => all("llm", true) }, "All by model"),
         h("button", { onclick: () => { all("meaning", false); all("llm", false); } }, "None")),
-      h("p", { class: "muted small" }, "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (one that needs nothing said), and “model” lets a small model pick it and fill in what it needs (GLiNER takes only commands that need something said). A command not chosen is never run by them."),
+      h("p", { class: "muted small" }, "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (the model hears the names, numbers or text said in it), and “model” lets a small model pick it and fill in what it needs (GLiNER picks only commands that hear something). A command not chosen is never run by them."),
       h("div", { class: "list" }, rows.map((r) => r.row))),
     h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
   );
@@ -929,11 +929,10 @@ async function pageCommand(id, prefill) {
           spec.names[type] = merged;
         };
         return h("div", { class: "group", style: "align-items:flex-start" },
-          h("label", { style: "min-width:120px" }, h("input", { type: "checkbox", checked: on, onchange: (e) => { if (e.target.checked) spec.names[type] = { count: 1, optional: true }; else delete spec.names[type]; render(); } }), `Listen for ${type === "entity" ? "a device" : `a${type === "area" ? "n" : ""} ${type}`}`),
+          h("label", { style: "min-width:120px" }, h("input", { type: "checkbox", checked: on, onchange: (e) => { if (e.target.checked) spec.names[type] = { count: 1 }; else delete spec.names[type]; render(); slotsChanged(); } }), `Listen for ${type === "entity" ? "a device" : `a${type === "area" ? "n" : ""} ${type}`}`),
           on ? h("div", { class: "grow stack" },
             h("div", { class: "row" },
-              h("label", {}, "how many", h("input", { type: "number", min: 1, max: 3, value: r.count || 1, style: "width:60px", onchange: (e) => { update({ count: Number(e.target.value) || 1 }); } })),
-              h("label", {}, h("input", { type: "checkbox", checked: r.optional, onchange: (e) => { update({ optional: e.target.checked || undefined }); } }), "optional")),
+              h("label", {}, "how many", h("input", { type: "number", min: 1, max: 3, value: r.count || 1, style: "width:60px", onchange: (e) => { update({ count: Number(e.target.value) || 1 }); } }))),
             available.length ? h("div", {},
               h("div", { class: "small muted" }, `Only these ${plural} (none chosen: all of them):`),
               h("div", { class: "row" }, ...available.map(([nid, entry]) => h("label", { class: "small" },
@@ -962,12 +961,12 @@ async function pageCommand(id, prefill) {
         else if (v === "custom") spec.number = { min: 0, max: 100 };
         else spec.number = v;
         render();
+        slotsChanged();
       } }, ...["none", ...((state.status && state.status.number_presets) || []), "custom"].map((p) => h("option", { value: p, selected: p === preset }, p === "none" ? "No number" : p === "custom" ? "Custom range" : p)));
       const extra = [];
       if (preset !== "none") {
         const asObj = () => (typeof spec.number === "string" ? { preset: spec.number } : spec.number);
-        extra.push(h("label", {}, "slot name", h("input", { type: "text", value: obj.slot || "", placeholder: preset === "duration" ? "duration" : preset === "custom" ? "number" : preset, style: "width:120px", onchange: (e) => { spec.number = { ...asObj(), slot: e.target.value || undefined }; if (!spec.number.slot) delete spec.number.slot; } })));
-        extra.push(h("label", {}, h("input", { type: "checkbox", checked: obj.optional, onchange: (e) => { spec.number = { ...asObj(), optional: e.target.checked || undefined }; if (!spec.number.optional) delete spec.number.optional; } }), "optional"));
+        extra.push(h("label", {}, "slot name", h("input", { type: "text", value: obj.slot || "", placeholder: preset === "duration" ? "duration" : preset === "custom" ? "number" : preset, style: "width:120px", onchange: (e) => { spec.number = { ...asObj(), slot: e.target.value || undefined }; if (!spec.number.slot) delete spec.number.slot; slotsChanged(); } })));
       }
       if (preset === "custom") {
         for (const key of ["min", "max", "step"]) {
@@ -992,17 +991,16 @@ async function pageCommand(id, prefill) {
         ...Object.entries(lists).map(([slot, def]) => {
           const d = typeof def === "string" ? { list: def } : def;
           const valuesText = d.values ? valuesToText(d.values) : "";
-          const ta = h("textarea", { class: "code", placeholder: "red: red, crimson\nblue", style: "min-height:70px", onchange: (e) => { spec.lists[slot] = { ...(d.optional ? { optional: true } : {}), values: textToValues(e.target.value) }; } });
+          const ta = h("textarea", { class: "code", placeholder: "red: red, crimson\nblue", style: "min-height:70px", onchange: (e) => { spec.lists[slot] = { values: textToValues(e.target.value) }; } });
           ta.value = valuesText;
           return h("div", { class: "panel" },
             h("div", { class: "row" }, h("b", {}, `slots.${slot}`),
-              h("select", { onchange: (e) => { spec.lists[slot] = e.target.value ? { list: e.target.value, ...(d.optional ? { optional: true } : {}) } : { values: {} }; render(); } },
+              h("select", { onchange: (e) => { spec.lists[slot] = e.target.value ? { list: e.target.value } : { values: {} }; render(); } },
                 h("option", { value: "" }, "its own values"), ...sharedLists.map((n) => h("option", { value: n, selected: d.list === n }, dynamicLists[n] ? `${n}: ${dynamicLists[n]}` : `shared list: ${n}`))),
-              h("label", {}, h("input", { type: "checkbox", checked: d.optional, onchange: (e) => { spec.lists[slot] = { ...d, optional: e.target.checked || undefined }; if (!spec.lists[slot].optional) delete spec.lists[slot].optional; } }), "optional"),
-              h("button", { type: "button", class: "link right", onclick: () => { delete spec.lists[slot]; if (!Object.keys(spec.lists).length) delete spec.lists; render(); } }, "remove")),
+              h("button", { type: "button", class: "link right", onclick: () => { delete spec.lists[slot]; if (!Object.keys(spec.lists).length) delete spec.lists; render(); slotsChanged(); } }, "remove")),
             d.list ? null : field("Values", ta, "One value per line: value: phrase, other phrase. A line with only a phrase is its own value."));
         }),
-        h("button", { type: "button", onclick: () => { const name = prompt("Slot name (e.g. color)"); if (!name) return; spec.lists = spec.lists || {}; spec.lists[slug(name)] = { values: {} }; render(); } }, "Add a value list"),
+        h("button", { type: "button", onclick: () => { const name = prompt("Slot name (e.g. color)"); if (!name) return; spec.lists = spec.lists || {}; spec.lists[slug(name)] = { values: {} }; render(); slotsChanged(); } }, "Add a value list"),
       );
     }
     render();
@@ -1014,16 +1012,15 @@ async function pageCommand(id, prefill) {
     function render() {
       const w = spec.wildcard;
       if (!w) {
-        fill(wrap, h("button", { type: "button", onclick: () => { spec.wildcard = { slot: "text", after: [], max_words: 3 }; render(); } }, "Add free text"));
+        fill(wrap, h("button", { type: "button", onclick: () => { spec.wildcard = { slot: "text", after: [], max_words: 3 }; render(); slotsChanged(); } }, "Add free text"));
         return;
       }
       const mode = w.bounded ? "bounded" : w.to_end ? "to_end" : "either";
       fill(wrap, 
         h("div", { class: "row" },
-          h("label", {}, "slot", h("input", { type: "text", value: w.slot, style: "width:120px", onchange: (e) => { w.slot = slug(e.target.value) || "text"; } })),
+          h("label", {}, "slot", h("input", { type: "text", value: w.slot, style: "width:120px", onchange: (e) => { w.slot = slug(e.target.value) || "text"; slotsChanged(); } })),
           h("label", {}, "at most", h("input", { type: "number", min: 1, max: 12, value: w.max_words || 3, style: "width:60px", onchange: (e) => { w.max_words = Number(e.target.value) || 3; } }), "words"),
-          h("label", {}, h("input", { type: "checkbox", checked: w.required, onchange: (e) => { if (e.target.checked) w.required = true; else delete w.required; } }), "required"),
-          h("button", { type: "button", class: "link right", onclick: () => { delete spec.wildcard; render(); } }, "remove")),
+          h("button", { type: "button", class: "link right", onclick: () => { delete spec.wildcard; render(); slotsChanged(); } }, "remove")),
         h("div", { class: "row" },
           ...[["bounded", "between two keywords (add … to the list)"], ["to_end", "after a keyword, to the end (remind me to …)"], ["either", "right after or right before a keyword (the … timer)"]].map(([value, label]) =>
             h("label", { class: "small" }, h("input", { type: "radio", name: `wild-${Math.random()}`, checked: mode === value, onchange: () => { delete w.bounded; delete w.to_end; if (value === "bounded") w.bounded = true; if (value === "to_end") w.to_end = true; render(); } }), label))),
@@ -1036,6 +1033,59 @@ async function pageCommand(id, prefill) {
     render();
     return wrap;
   }
+
+  // What it listens for, by slot name, in the order the app uses.
+  function heardSlots() {
+    const out = Object.keys(spec.names || {});
+    out.push(...Object.keys(spec.lists || {}));
+    if (spec.number) {
+      const n = spec.number;
+      const obj = typeof n === "object" ? n : { preset: n };
+      out.push(obj.slot || (obj.preset === "duration" || obj.units ? "duration" : obj.preset || "number"));
+    }
+    if (spec.wildcard && spec.wildcard.slot) out.push(spec.wildcard.slot);
+    return [...new Set(out)];
+  }
+  // The ways it may be said: sets of slots, each heard whole. Kept in step
+  // with the slots: a removed one leaves every way, a new one joins them all.
+  const combosWrap = h("div");
+  let knownSlots = heardSlots();
+  function slotsChanged() {
+    const slots = heardSlots();
+    if (spec.combinations) {
+      const added = slots.filter((x) => !knownSlots.includes(x));
+      const seen = new Set();
+      spec.combinations = spec.combinations.map((c) => [...c.filter((x) => slots.includes(x)), ...added])
+        .map((c) => slots.filter((x) => c.includes(x)))
+        .filter((c) => { const key = c.join("+"); if (seen.has(key)) return false; seen.add(key); return true; });
+      if (spec.combinations.length === 1 && spec.combinations[0].length === slots.length) delete spec.combinations;
+    }
+    knownSlots = slots;
+    renderCombos();
+  }
+  function renderCombos() {
+    const slots = heardSlots();
+    if (!slots.length) { fill(combosWrap, h("p", { class: "muted small" }, "It listens for no names, number, values or text: there is one way to say it.")); return; }
+    const combos = spec.combinations || [slots];
+    const set = (next) => {
+      if (next.length === 1 && next[0].length === slots.length) delete spec.combinations;
+      else spec.combinations = next.map((c) => slots.filter((x) => c.includes(x)));
+      renderCombos();
+    };
+    const label = (slot) => ({ entity: "a device", area: "an area", floor: "a floor" }[slot] || slot.replace(/_/g, " "));
+    fill(combosWrap,
+      ...combos.map((combo, index) => h("div", { class: "row" },
+        h("span", { class: "small muted", style: "min-width:70px" }, index === 0 ? "First:" : "Or:"),
+        ...slots.map((slot) => h("label", { class: "small" }, h("input", { type: "checkbox", checked: combo.includes(slot), onchange: (e) => {
+          const next = combos.map((c) => [...c]);
+          next[index] = e.target.checked ? [...next[index], slot] : next[index].filter((x) => x !== slot);
+          set(next);
+        } }), label(slot))),
+        combo.length ? null : h("span", { class: "small muted" }, "nothing named: its fixed target, or the satellite's area"),
+        combos.length > 1 ? h("button", { type: "button", class: "link right", onclick: () => set(combos.filter((_, i) => i !== index)) }, "remove") : null)),
+      h("button", { type: "button", onclick: () => set([...combos, []]) }, "Add a way to say it"));
+  }
+  renderCombos();
 
   function overridesEditor() {
     const wrap = h("div");
@@ -1100,7 +1150,7 @@ async function pageCommand(id, prefill) {
               if (ordered.length) spec.fallback = ordered; else delete spec.fallback;
             } }), label))),
           (id && ((state.store.details || {})[id] || {}).needs_said)
-            ? "It needs something said (a name, number, value or text), so meaning won't run it: only the model can fill that in."
+            ? "It hears something (a name, number, value or text): meaning picks the command, and the model hears what was said in it."
             : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Commands page.")),
       h("div", { class: "panel" }, h("h2", {}, "Where"), scopeEditor(spec, "scope", true)),
       h("div", { class: "panel" }, h("h2", {}, "Target"),
@@ -1117,7 +1167,10 @@ async function pageCommand(id, prefill) {
         h("h3", {}, "Names"), namesEditor(),
         h("h3", {}, "Number"), numberEditor(),
         h("h3", {}, "Value lists"), listsEditor(),
-        h("h3", {}, "Free text"), wildcardEditor()),
+        h("h3", {}, "Free text"), wildcardEditor(),
+        h("h3", {}, "Ways to say it"),
+        h("p", { class: "muted small" }, "What it hears is never optional: each way below is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
+        combosWrap),
       h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml, false)),
       h("div", { class: "panel" }, h("h2", {}, "Overrides"),
         h("p", { class: "muted small" }, "Change what happens in some areas or on some satellites, or turn the command off there. A satellite's override wins over its area's, which wins over the command."),
@@ -1767,13 +1820,17 @@ function renderRecognition(rec) {
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
       h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
-    rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
+    rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
-      rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "") : null,
+      rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
+        rec.fallback.meaning.heard_by ? h("div", { class: "muted" }, `${rec.fallback.meaning.heard_by} heard `, h("code", {}, JSON.stringify(rec.fallback.meaning.arguments || {})),
+          rec.fallback.meaning.combination ? ` — said with ${rec.fallback.meaning.combination.length ? rec.fallback.meaning.combination.join(" and ") : "nothing"}` : "",
+          rec.fallback.meaning.problems ? ` — not run: ${rec.fallback.meaning.problems.join("; ")}` : "") : null) : null,
       rec.fallback.llm ? h("div", { class: "small" }, `${rec.fallback.llm.by || "LLM"}: `,
         rec.fallback.llm.skipped ? `skipped (${rec.fallback.llm.skipped})` : [
           h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${Math.round((rec.fallback.llm.seconds || 0) * 1000)} ms`,
           rec.fallback.llm.candidates ? h("div", { class: "muted" }, "chose from ", rec.fallback.llm.candidates.join(", ")) : null,
+          rec.fallback.llm.combination ? h("div", { class: "muted" }, `said with ${rec.fallback.llm.combination.length ? rec.fallback.llm.combination.join(" and ") : "nothing"}`) : null,
           rec.fallback.llm.problems ? h("div", { class: "muted" }, "refused: ", rec.fallback.llm.problems.join("; ")) : null,
           rec.fallback.llm.refused ? h("div", { class: "muted" }, rec.fallback.llm.refused.similarity !== undefined
             ? `not run: ${rec.fallback.llm.refused.command} is not close enough in meaning to what was said (similarity ${rec.fallback.llm.refused.similarity}, needs ${rec.fallback.llm.refused.floor}). The sentence is compared with the command's description and examples: a fuller description helps.`

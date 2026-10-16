@@ -112,6 +112,21 @@ Home Assistant's registries are watched only to offer suggestions -- names,
 aliases, areas -- and to know each satellite's floor. Nothing is taken from
 them into the vocabulary unless someone adds it.
 
+**Combinations, not optional slots.** What a command hears -- names, a
+number, value lists, free text -- is never optional. `combinations` lists the
+sets of slots that may be said together, each required whole
+(`[[], [area], [floor]]`: nothing named, an area, or a floor; without it, all
+of them together). Each combination compiles to an adapt-ctc intent of its
+own, `lights_off`, `lights_off:area`, `lights_off:floor`
+(`commands.command_of` maps them back), and only the first carries the
+examples and the description, so the embedding ranks commands, not
+combinations. With optional slots, a fallback that picked `lights_off` for
+"kill the lights in the office" ran it with the office left out -- in the
+satellite's own area; now nothing runs unless what was heard is exactly one
+combination. The library went from 56 intents to 92 (lights,
+covers, brightness and the thermostat by area or floor; timers by name,
+free-text name or length).
+
 **How much a command says** when it is done (`verbosity`,
 `commands.VERBOSITY`): `beep`, `brief` (a fixed sentence, so a TTS cache keeps
 it), `specific` (what was heard) or `verbose` (what it did, in full). The done
@@ -884,11 +899,17 @@ with, the library's included: a command is run this way only when someone
 decided it may be.
 
 1. **Meaning.** EmbeddingGemma (already loaded for hints) names the closest
-   command; it is *run* only when it is chosen for meaning, the similarity is
-   at least 0.80, at least 0.05 ahead of the runner-up (another command,
-   chosen or not, or an everyday request that is not one), and the command
-   needs nothing said -- every slot fixed or optional. `settings.yaml`
-   `fallback_meaning`, on by default.
+   command; it is *picked* only when it is chosen for meaning, the similarity
+   is at least 0.80, and at least 0.05 ahead of the runner-up (another
+   command, chosen or not, or an everyday request that is not one -- never
+   another combination of the same command: only a command's first
+   combination carries its description and examples). A command that hears
+   nothing runs; for one that hears something, the model hears what was said
+   in it (GLiNER: only that command's entity types, no classification; an
+   LLM: a call with that one tool), and that picks the combination --
+   nothing heard is the empty one, when it has it. Without the model, meaning
+   runs only commands that hear nothing. `settings.yaml` `fallback_meaning`,
+   on by default.
 2. **The model step** (`fallback_model`; the commands chosen for `llm`):
    GLiNER2.5 small by default (below), or a small LLM -- Granite 4.0 350M
    (Apache-2.0, already there as the question model) or Hammer 2.1 0.5B (Qwen
@@ -908,15 +929,21 @@ parameters, Apache-2.0), an encoder that in one pass classifies a sentence
 among labels and finds spans of named types in it. The labels are the
 commands' descriptions plus "something else: a question, small talk or
 thanks"; the types are their parameters (a room, a device, music, something
-to buy, a duration, a percentage, a value from a list, ...). It takes only
-the commands that need something said -- meaning takes the rest, and with
-nothing to read from the sentence there would be nothing to check its pick
-by. It is given the 8 (`fallback_top_k`) of those closest in meaning to the
-sentence, *chosen or not*: alone, a command is taken for nearly anything
-("never mind" played music at 0.87), and the others are what it tells the
-chosen ones from. Its pick runs only when it is chosen, at least
-`fallback_threshold` sure (0.3), ahead of "something else", and given what
-it needs. There is no prompt prefix, so how many are chosen costs nothing.
+to buy, a duration, a percentage, a value from a list, ...). One label per
+command, whatever its combinations: what it hears in the sentence picks the
+combination ("lights out in the bedroom": turn off the lights, with an
+area). It picks only among commands that hear something -- meaning takes
+the rest. It is given the 8 (`fallback_top_k`) of those closest in meaning
+to the sentence, *chosen or not*: alone, a command is taken for nearly
+anything ("never mind" played music at 0.87), and the others are what it
+tells the chosen ones from. Its pick runs only when it is chosen, at least
+`fallback_threshold` sure (0.3), ahead of "something else", and what it heard
+is exactly one of the command's combinations (a room and a floor for a
+command that takes either is refused). Hearing nothing in it ("lights out"),
+there is nothing to check the pick by, so it runs only when meaning puts the
+same command first. The same words found as two types ("living room" as a
+room and as a floor) count once, as the surer type the command can take.
+There is no prompt prefix, so how many are chosen costs nothing.
 
 It runs without PyTorch: onnxruntime, numpy and the tokenizers library
 (about 50 ms a sentence on a desktop, 0.22-0.28 s on a Raspberry Pi 5 with 4
@@ -986,32 +1013,35 @@ of them, and the other 32 (for another command, or none) should be refused:
 
 | model step | its commands right | refused when it should be | ran a wrong command | model step, median |
 |---|---|---|---|---|
-| GLiNER small, 0.3 | 17/32 | 32/32 | 0 | 0.05 s |
-| GLiNER small, 0.2 | 20/32 | 32/32 | 0 | 0.05 s |
-| GLiNER small, 0.5 | 12/32 | 32/32 | 0 | 0.05 s |
-| Granite 4.0 350M | 18/32 | 26/32 | 7 | 0.40 s |
-| Hammer 2.1 0.5B | 17/32 | 28/32 | 7 | 0.39 s |
+| GLiNER small, 0.3 | 19/32 | 32/32 | 0 | 0.05 s |
+| GLiNER small, 0.2 | 20/32 | 32/32 | 1 | 0.05 s |
+| GLiNER small, 0.5 | 13/32 | 32/32 | 0 | 0.05 s |
+| Granite 4.0 350M | 21/32 | 26/32 | 7 | 0.42 s |
+| Hammer 2.1 0.5B | 19/32 | 28/32 | 6 | 0.38 s |
 
 Every library command chosen (56):
 
 | model step | right | non-commands refused | ran a wrong command | model step, median |
 |---|---|---|---|---|
-| GLiNER small, 0.2 | 64% | 10/10 | 2 | 0.05 s |
-| GLiNER small, 0.3 | 59% | 10/10 | 2 | 0.05 s |
-| GLiNER small, 0.4 | 55% | 10/10 | 1 | 0.05 s |
-| Granite, closest 8 | 63% | 10/10 | 11 | 1.26 s |
+| GLiNER small, 0.2 | 67% | 10/10 | 3 | 0.05 s |
+| GLiNER small, 0.3 | 66% | 10/10 | 2 | 0.05 s |
+| GLiNER small, 0.4 | 63% | 10/10 | 2 | 0.05 s |
+| Granite, closest 8 | 63% | 10/10 | 9 | 1.51 s |
 
-GLiNER gets about as many right and almost never runs a wrong command: with
-eight chosen, what it misses it refuses -- "not sure enough" ("give me ten
-minutes", 0.26), or a closer command that is not chosen ("count down five
-minutes for the eggs" is closest to taking time off a timer). With every
-command chosen, that one runs, and "dim the office to thirty percent" runs
-without the office (the right command; the room was not found). 0.2 would
-get more right here and run nothing more that is wrong -- tuned on these 64
-sentences, so the default stays at 0.3. Neither LLM tells commands apart as
-well: Granite ran lights on and off for "make the kitchen brighter", "shut
-off the bedroom fan" and "shut the garage". What none does well is infer:
-"we need milk", "it's too dark in here".
+With optional slots instead of combinations, GLiNER at 0.3 got 17/32 and
+59%. Meaning now picks the command for slot-taking commands too, and the
+model hears the rest: "kill the lights in the office" is the office, "shut
+the lights off downstairs" the ground floor -- with optional slots, meaning
+ran both in the satellite's own area. GLiNER almost never runs a wrong
+command: with eight chosen, what it misses it refuses -- "not sure enough",
+or a closer command that is not chosen. With every command chosen, the two
+it gets wrong are timers: "give me ten minutes" and "let me know when twenty
+minutes are up" ran *how long is left* on a 10 and 20 minute timer. GLiNER
+reads any length of time as that label, however start and status are
+described; it is a question, so harmless, but wrong. 0.2 runs one more wrong
+command, so the default stays at 0.3. Neither LLM tells commands apart as
+well. What none does well is infer: "we need milk", "it's too dark in
+here".
 
 The LLM alone, on the sentence as text (`--mode llm`: no meaning step, and
 no similarity check on its pick), Raspberry Pi 5, 4 threads. The same eight

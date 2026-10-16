@@ -19,7 +19,7 @@ commands:
     # Questions: "who played Jack in Titanic", "how many players are on a
     # team", "what movies are playing near me" are not "play".
     exclude: [next, previous, played, players, playing]
-    wildcard: {slot: query, after: [play, put on, listen to], to_end: true, required: true, max_words: 8}
+    wildcard: {slot: query, after: [play, put on, listen to], to_end: true, max_words: 8}
     music: play
     verbosity: specific
 
@@ -29,7 +29,7 @@ commands:
     description: add an artist, album or song to the queue
     require: [[add], [queue]]
     optional: [[to]]
-    wildcard: {slot: query, after: [add], before: [to], bounded: true, required: true, max_words: 6}
+    wildcard: {slot: query, after: [add], before: [to], bounded: true, max_words: 6}
     music: add
     verbosity: specific
 
@@ -41,6 +41,8 @@ commands:
     require: [[like, similar]]
     optional: [[play], [more, music, songs, something, stuff]]
     wildcard: {slot: query, after: [like], to_end: true, max_words: 6}
+    # Each said whole.
+    combinations: [[], [query]]
     music: radio
     verbosity: specific
 

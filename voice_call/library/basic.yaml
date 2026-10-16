@@ -39,8 +39,10 @@ commands:
     require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
     optional: [[all], [in]]
     names:
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      area: {count: 1}
+      floor: {count: 1}
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[], [area], [floor]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -73,8 +75,10 @@ commands:
     require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
     optional: [[all], [in], [house, everywhere]]
     names:
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      area: {count: 1}
+      floor: {count: 1}
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[], [area], [floor]]
     action:
       action: light.turn_off
       target: "{{ target }}"
@@ -106,8 +110,10 @@ commands:
     optional: [[any], [in]]
     exclude: [turn, switch]
     names:
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      area: {count: 1}
+      floor: {count: 1}
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[], [area], [floor]]
     response: >-
       {%- set named = slots.area or slots.floor -%}
       {%- set ns = namespace(areas=slots.area or [], on=[]) -%}
@@ -182,10 +188,12 @@ commands:
     require: [[brightness, percent]]
     optional: [[set, change, make], [light, lights], [to], [in], [brightness], [percent]]
     names:
-      entity: {count: 1, optional: true, domains: [light]}
-      area: {count: 1, optional: true}
-      floor: {count: 1, optional: true}
+      entity: {count: 1, domains: [light]}
+      area: {count: 1}
+      floor: {count: 1}
     number: percentage
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[percentage], [entity, percentage], [area, percentage], [floor, percentage]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -206,10 +214,12 @@ commands:
     require: [[set, make, turn], [light, lights]]
     optional: [[color], [to], [in]]
     names:
-      area: {count: 1, optional: true}
+      area: {count: 1}
     lists:
       color:
         values: [red, orange, yellow, green, blue, purple, pink, white]
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[color], [area, color]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -231,9 +241,11 @@ commands:
     # Fahrenheit" (the units skill).
     exclude: [what, "what's", how, convert]
     names:
-      entity: {count: 1, optional: true, domains: [climate]}
-      area: {count: 1, optional: true}
+      entity: {count: 1, domains: [climate]}
+      area: {count: 1}
     number: temperature
+    # Each said whole; without a name, the satellite's own.
+    combinations: [[temperature], [entity, temperature], [area, temperature]]
     action:
       action: climate.set_temperature
       target: "{{ target }}"
@@ -273,7 +285,6 @@ commands:
       after: [add, put]
       before: [to, on]
       bounded: true
-      required: true
       max_words: 5
     action:
       action: todo.add_item
@@ -298,7 +309,6 @@ commands:
       after: [remove, take, delete, cross]
       before: [from, off]
       bounded: true
-      required: true
       max_words: 5
     action:
       action: todo.remove_item
@@ -323,7 +333,6 @@ commands:
       after: [add, put]
       before: [to, on]
       bounded: true
-      required: true
       max_words: 8
     action:
       action: todo.add_item
@@ -349,7 +358,6 @@ commands:
       slot: reminder
       after: [to]
       to_end: true
-      required: true
       max_words: 10
     action:
       action: todo.add_item

@@ -101,8 +101,8 @@ command has:
     any order, plus optional groups and words that must not be heard ("is",
     so "the door is locked" isn't "lock the door"). Write `turn ... on` for
     words that may be split: "turn the lights on".
-  - **Names**: a device, area or floor, from your names (see below), optional
-    or required, limited to some of them or (for devices) to some domains.
+  - **Names**: a device, area or floor, from your names (see below), limited
+    to some of them or (for devices) to some domains.
   - **Number**: a preset (`percentage`, `temperature`, `duration`, `count`)
     or a range. A duration is heard as "ten minutes" or "an hour and a half"
     and arrives as `slots.duration` with `hours`, `minutes`, `seconds`,
@@ -113,6 +113,13 @@ command has:
     keywords ("add … to the shopping list"), from a keyword to the end
     ("remind me to …"), or right before or after a keyword ("the … timer").
     It is spelled from the TDT transcript.
+  - **Ways to say it**: what is heard is never optional. Instead a command
+    lists the combinations that may be said, each whole: "turn off the
+    lights" with nothing named (the satellite's area), with an area, or with
+    a floor. Without any, everything it listens for is said together. A
+    command never runs with something you said left out: "turn off the
+    lights in the bedroom" is the area combination, never the satellite's
+    own area.
 - **What happens**: only respond, run a script, activate a scene, run an
   action (Home Assistant script syntax), a timer operation or a music
   operation (below), plus an
@@ -291,15 +298,20 @@ on the command's page, or "meaning" and "model" for many at once with
 **Choose commands** under "When nothing matches" on the **Commands** page. Commands
 from the library are not chosen until you choose them.
 
-- **Meaning** runs the chosen command a sentence is very close to, when it
-  needs nothing said: "kill the lights" for "turn off the lights". A command
-  that needs a name, number, value or text can't be run this way.
+- **Meaning** picks the chosen command a sentence is very close to: "kill
+  the lights in the office" for "turn off the lights". What was said in it
+  -- the room, a number, a name -- the model below hears, and that picks the
+  way of saying it (the office, or nothing named: the satellite's area). A
+  command that hears nothing runs at once. With the model turned off,
+  meaning runs only commands that hear nothing.
 - **A small model** picks one of its chosen commands and fills in what it
   needs: "throw on my workout playlist", "take milk off the list", "give me
   ten minutes for the pasta". By default it is GLiNER2.5 small, which comes
-  with the app: it takes only commands that need something said (a name,
+  with the app: it picks only among commands that hear something (a name,
   number, value or text) -- meaning takes the rest -- and adds about a
   quarter of a second on a Raspberry Pi 5, however many commands are chosen.
+  When it hears nothing in the sentence ("lights out"), its pick runs only if
+  meaning puts the same command first.
   It compares the chosen commands with others close in meaning, chosen or
   not, and runs nothing when it is not sure (**Least sure it may be**, 0.3:
   lower runs more, and more by mistake), when the closest is one you did not
@@ -409,7 +421,8 @@ commands:
     description: turn on the lights
     groups: [kids]
     require: [[turn on, turn ... on], [light, lights]]
-    names: {area: {count: 1, optional: true}}
+    names: {area: {count: 1}, floor: {count: 1}}
+    combinations: [[], [area], [floor]]  # nothing named: the satellite's area
     action: {action: light.turn_on, target: "{{ target }}"}
     verbosity: beep  # beep, brief, specific or verbose (or 1 to 4)
     response:
@@ -422,7 +435,8 @@ commands:
   pause_timer:
     description: pause a timer
     require: [[pause], [timer]]
-    lists: {timer_name: {list: running_timers, optional: true}}
+    lists: {timer_name: {list: running_timers}}
+    combinations: [[], [timer_name]]
     timer: pause
     response:
       done: Paused.

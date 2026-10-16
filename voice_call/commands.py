@@ -27,6 +27,19 @@ Listening is adapt-ctc's own vocabulary -- ``examples``, ``require``,
 entity, area or floor a command was made for, so the phrase can be anything
 while the target stays fixed.
 
+What is heard -- names, a number, value lists, free text -- is never
+optional. ``combinations`` lists the sets of them that may be said together,
+each required whole (the first is the one examples and the description belong
+to); without it, all of them, together::
+
+    names: {area: {count: 1}, floor: {count: 1}}
+    combinations: [[], [area], [floor]]    # nothing named: the satellite's area
+
+Each combination is an adapt-ctc intent of its own (``lights_off``,
+``lights_off:area``, ``lights_off:floor``; see ``command_of``), so a command
+never runs with something that was said left out: "turn off the lights in the
+bedroom" is the area combination, not the satellite's area.
+
 Exactly what happens is one of ``script`` (a script entity, run with the
 variables as its data), ``scene`` (activated), ``action`` (one Home Assistant
 action or a list of them, as in a script), ``timer`` (an operation on the
@@ -67,7 +80,7 @@ runs only the commands in them. Without any, every command is available::
 
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
-very close to it in meaning (for a command that needs nothing said), ``llm``
+very close to it in meaning (the model hears what was said in it), ``llm``
 when the small LLM picks it. Neither unless chosen::
 
     lights_off:
@@ -125,6 +138,7 @@ COMMAND_KEYS = {
     "icon",
     "groups",
     "fallback",
+    "combinations",
     *LISTEN_KEYS,
     *DO_KEYS,
 }
@@ -338,7 +352,8 @@ class Command:
     behavior: Behavior
     overrides: list[tuple[Scope, dict[str, Any]]]
     intent: dict[str, Any]
-    """The adapt-ctc intent."""
+    """Everything it listens for: every slot, as one adapt-ctc intent (the
+    fallback's tools are made from it)."""
 
     number_slot: str = "number"
     duration: bool = False
@@ -348,6 +363,30 @@ class Command:
     """The command groups it is in."""
     fallback: tuple[str, ...] = ()
     """The steps after keywords and examples that may run it (FALLBACK_STEPS)."""
+    combinations: tuple[tuple[str, ...], ...] = ((),)
+    """The sets of slots that may be heard together, each required whole."""
+    intents: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """One adapt-ctc intent for each combination, by name (``command_of``)."""
+
+    @property
+    def takes_nothing(self) -> bool:
+        """Whether it can run with nothing heard (a combination of no slots)."""
+        return () in self.combinations
+
+    @property
+    def takes_something(self) -> bool:
+        """Whether some combination needs a name, number, value or text heard."""
+        return any(self.combinations)
+
+    @property
+    def heard_slots(self) -> tuple[str, ...]:
+        """Every slot some combination hears, in order."""
+        return tuple(dict.fromkeys(slot for combination in self.combinations for slot in combination))
+
+    def combination_for(self, heard: set[str] | frozenset[str]) -> tuple[str, ...] | None:
+        """The combination these heard slots are, exactly; None if none is."""
+        wanted = set(heard)
+        return next((c for c in self.combinations if set(c) == wanted), None)
 
     def allowed(self, groups: frozenset[str] | None) -> bool:
         """Whether a satellite limited to these command groups may run it
@@ -436,8 +475,17 @@ def parse_command(command_id: str, spec: Any) -> Command:
     number_slot, duration = "number", False
     if "number" in intent:
         intent["number"], number_slot, duration = _number(intent["number"], f"{where}.number")
-        if duration:
-            _ensure_unit_keywords(intent)
+    _no_optional_slots(intent, where)
+    heard = _heard_slots(intent, number_slot)
+    combinations = _combinations(spec.get("combinations"), heard, f"{where}.combinations")
+    intents = {
+        combination_name(command_id, combination, index == 0): _combination_intent(
+            intent, combination, number_slot, duration, primary=index == 0
+        )
+        for index, combination in enumerate(combinations)
+    }
+    if duration:
+        _ensure_unit_keywords(intent)
     behavior = _behavior(spec, where)
     if behavior.does == "respond" and not behavior.response_for("done"):
         raise ConfigError(f"{where}: needs a script, scene, action or response")
@@ -481,7 +529,114 @@ def parse_command(command_id: str, spec: Any) -> Command:
         str(spec.get("title") or ""),
         _group_ids(spec.get("groups"), f"{where}.groups"),
         _fallback_steps(spec.get("fallback"), f"{where}.fallback"),
+        combinations,
+        intents,
     )
+
+
+COMBINATION_SEPARATOR = ":"
+
+
+def command_of(intent_name: str) -> str:
+    """The command an adapt-ctc intent is a combination of: ``lights_off``
+    for ``lights_off:area``."""
+    return intent_name.split(COMBINATION_SEPARATOR, 1)[0]
+
+
+def combination_name(command_id: str, combination: tuple[str, ...], primary: bool = False) -> str:
+    """The adapt-ctc intent of one combination: the command's id for the first
+    (its examples and description go with it), else ``id:area+floor``."""
+    if primary:
+        return command_id
+    return f"{command_id}{COMBINATION_SEPARATOR}{'+'.join(combination) or 'nothing'}"
+
+
+_REQUIRED_ONLY = (
+    "{where}: slots are never optional; list the ones that may be said together "
+    "in combinations ([[], [area]] for 'with or without an area')"
+)
+
+
+def _no_optional_slots(intent: dict[str, Any], where: str) -> None:
+    for kind, spec in (intent.get("names") or {}).items():
+        if isinstance(spec, dict) and (spec.get("optional") or spec.get("min") == 0):
+            raise ConfigError(_REQUIRED_ONLY.format(where=f"{where}.names.{kind}"))
+    for slot, spec in (intent.get("lists") or {}).items():
+        if isinstance(spec, dict) and "optional" in spec:
+            raise ConfigError(_REQUIRED_ONLY.format(where=f"{where}.lists.{slot}"))
+    number = intent.get("number")
+    if isinstance(number, dict) and "optional" in number:
+        raise ConfigError(_REQUIRED_ONLY.format(where=f"{where}.number"))
+    wildcard = intent.get("wildcard")
+    if isinstance(wildcard, dict) and ("required" in wildcard or "optional" in wildcard):
+        raise ConfigError(_REQUIRED_ONLY.format(where=f"{where}.wildcard"))
+
+
+def _heard_slots(intent: dict[str, Any], number_slot: str) -> tuple[str, ...]:
+    """The slots it listens for, in order: names, value lists, the number,
+    free text."""
+    slots = [str(kind) for kind in intent.get("names") or {}]
+    slots += [str(slot) for slot in intent.get("lists") or {}]
+    if "number" in intent:
+        slots.append(number_slot)
+    wildcard = intent.get("wildcard")
+    if isinstance(wildcard, dict) and wildcard.get("slot"):
+        slots.append(str(wildcard["slot"]))
+    return tuple(dict.fromkeys(slots))
+
+
+def _combinations(value: Any, heard: tuple[str, ...], where: str) -> tuple[tuple[str, ...], ...]:
+    """The combinations, each in the slots' own order; all of them together
+    when none are given."""
+    if value in (None, []):
+        return (heard,)
+    if not isinstance(value, list) or not all(isinstance(c, list) for c in value):
+        raise ConfigError(f"{where}: a list of slot lists, like [[], [area], [floor]]")
+    out: list[tuple[str, ...]] = []
+    for index, combination in enumerate(value):
+        unknown = [str(s) for s in combination if str(s) not in heard]
+        if unknown:
+            known = ", ".join(heard) or "none"
+            raise ConfigError(f"{where}[{index}]: {unknown[0]!r} is not a slot it listens for ({known})")
+        ordered = tuple(s for s in heard if s in {str(x) for x in combination})
+        if ordered in out:
+            raise ConfigError(f"{where}[{index}]: {list(ordered)} is listed twice")
+        out.append(ordered)
+    unused = [s for s in heard if not any(s in c for c in out)]
+    if unused:
+        raise ConfigError(f"{where}: {unused[0]!r} is in no combination; add one or stop listening for it")
+    return tuple(out)
+
+
+def _combination_intent(
+    intent: dict[str, Any], combination: tuple[str, ...], number_slot: str, duration: bool, primary: bool
+) -> dict[str, Any]:
+    """The adapt-ctc intent that hears exactly these slots."""
+    out = copy.deepcopy(intent)
+    if not primary:
+        out.pop("examples", None)
+        out.pop("description", None)
+    names = {k: v for k, v in (out.get("names") or {}).items() if k in combination}
+    if names:
+        out["names"] = names
+    else:
+        out.pop("names", None)
+    lists = {k: v for k, v in (out.get("lists") or {}).items() if k in combination}
+    if lists:
+        out["lists"] = lists
+    else:
+        out.pop("lists", None)
+    if "number" in out and number_slot not in combination:
+        del out["number"]
+    wildcard = out.get("wildcard")
+    if isinstance(wildcard, dict):
+        if wildcard.get("slot") in combination:
+            out["wildcard"] = {**wildcard, "required": True}
+        else:
+            del out["wildcard"]
+    if duration and "number" in out:
+        _ensure_unit_keywords(out)
+    return out
 
 
 def _fallback_steps(value: Any, where: str) -> tuple[str, ...]:
@@ -721,7 +876,7 @@ def _mapping(value: Any, where: str) -> dict:
 
 def adapt_config(store: dict[str, Any], commands: dict[str, Command]) -> dict[str, Any] | None:
     """The adapt-ctc config for every enabled command; None without any."""
-    intents = {c.id: c.intent for c in commands.values() if not c.disabled}
+    intents = {name: spec for c in commands.values() if not c.disabled for name, spec in c.intents.items()}
     if not intents:
         return None
     config = copy.deepcopy(BASE_CONFIG)

@@ -39,7 +39,8 @@ commands:
     require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
     optional: [[all], [in]]
     names:
-      area: {count: 1, optional: true}
+      area: {count: 1}
+    combinations: [[], [area]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -52,8 +53,9 @@ commands:
     require: [[brightness, percent]]
     optional: [[set, change, make], [light, lights], [to], [in], [brightness], [percent]]
     names:
-      area: {count: 1, optional: true}
+      area: {count: 1}
     number: percentage
+    combinations: [[percentage], [area, percentage]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -69,6 +71,7 @@ commands:
     optional: [[set, start, create], [for], [named, called, name]]
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
+    combinations: [[duration], [duration, timer]]
     timer: start
 """
 
@@ -353,7 +356,7 @@ commands:
   play_music:
     description: play music
     require: [[play]]
-    wildcard: {slot: query, after: [play], to_end: true, required: true, max_words: 8}
+    wildcard: {slot: query, after: [play], to_end: true, max_words: 8}
     music: play
 """
 

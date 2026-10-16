@@ -3,16 +3,21 @@
 The chain, in order, each step only when the one before found nothing:
 
 1. **CTC** (adapt-ctc): keywords and example sentences. Most commands end here.
-2. **Meaning** (EmbeddingGemma, already loaded for hints): the closest command
-   is taken only when it is very close (``EMBED_ACCEPT``), well ahead of the
-   runner-up (``EMBED_MARGIN``), and needs nothing heard -- a command whose
-   slots are all fixed or optional. Off unless ``embedding_accept`` is set.
-3. **LLM** (Granite 4.0 350M or Hammer 2.1 0.5B, llama.cpp): commands are
-   tools, their slots the parameters -- names as their spoken names, value
-   lists as their values, numbers, durations and free text as text. The call
-   is then checked like a match: the command must be available on the
-   satellite, names map back to ids, values to list values, and nothing
-   required may be missing.
+2. **Meaning** (EmbeddingGemma, already loaded for hints) picks the command:
+   the closest is taken only when it is very close (``EMBED_ACCEPT``) and
+   well ahead of the runner-up (``EMBED_MARGIN``) -- another command, not
+   another way of saying the same one (its combinations are one command).
+   What was said in it -- names, numbers, values, free text -- is heard by
+   the model (GLiNER: its slots' entities; an LLM: a call to it alone), and
+   picks the combination; a command that hears nothing runs at once. Off
+   unless ``embedding_accept`` is set.
+3. **The model** picks the command when meaning did not: GLiNER (one label
+   per command, among the closest few that hear something) or an LLM
+   (commands are tools, their slots the parameters -- names as their spoken
+   names, value lists as their values, numbers, durations and free text as
+   text). Either way it is checked like a match: the command must be
+   available on the satellite, names map back to ids, values to list values,
+   and what was heard must be one of its combinations, exactly.
 4. **Fail**: the hint, as before.
 
 Both steps are opt-in, per command (``fallback: [meaning, llm]``): a command
@@ -38,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .commands import Command, match_slots
+from .commands import Command, command_of, match_slots
 from .skills.common import FRACTIONS, SCALES, WORD_NUM, parse_num
 
 _LOGGER = logging.getLogger(__name__)
@@ -174,10 +179,12 @@ class Tools:
     # ---------------------------------------------------------------- out
 
     def _tool(self, command: Command) -> tuple[dict[str, Any], dict[str, Parameter], list[str]]:
+        """Its tool: every slot it hears is a parameter, required when every
+        combination has it."""
         intent = command.intent
         properties: dict[str, Any] = {}
         parameters: dict[str, Parameter] = {}
-        required: list[str] = []
+        always = set.intersection(*(set(c) for c in command.combinations)) if command.combinations else set()
         fixed = set(command.behavior.slots)
 
         for kind, spec in (intent.get("names") or {}).items():
@@ -195,8 +202,6 @@ class Tools:
                 else {**item, "description": f"which {kind}"}
             )
             parameters[kind] = Parameter(kind, "name", choices, many)
-            if not spec.get("optional") and int(spec.get("min", spec.get("count") or 0) or 0) > 0:
-                required.append(kind)
 
         if "number" in intent:
             number = intent["number"] if isinstance(intent["number"], dict) else {}
@@ -212,12 +217,9 @@ class Tools:
                     prop["maximum"] = number["max"]
                 properties[slot] = prop
                 parameters[slot] = Parameter(slot, "number")
-            if not number.get("optional"):
-                required.append(slot)
 
         for slot, spec in (intent.get("lists") or {}).items():
             listed = spec if isinstance(spec, str) else (spec or {}).get("list")
-            optional = isinstance(spec, dict) and spec.get("optional")
             choices = self._list_choices(str(listed))
             prop = {"type": "string"}
             if listed in self.dynamic:
@@ -227,17 +229,14 @@ class Tools:
                 prop["enum"] = sorted(set(choices.values()))
             properties[slot] = prop
             parameters[slot] = Parameter(slot, "list", choices, dynamic=listed in self.dynamic)
-            if not optional:
-                required.append(slot)
 
         wildcard = intent.get("wildcard")
         if wildcard and wildcard.get("slot") not in parameters:
             slot = wildcard["slot"]
             properties[slot] = {"type": "string", "description": _WILDCARD_HELP.get(slot, f"the {slot}, as said")}
             parameters[slot] = Parameter(slot, "text")
-            if wildcard.get("required"):
-                required.append(slot)
 
+        required = [slot for slot in parameters if slot in always]
         description = _description(command)
         spec = {
             "type": "function",
@@ -287,9 +286,9 @@ class Tools:
         self, command: Command, arguments: dict[str, Any], text: str | None = None
     ) -> tuple[dict[str, Any], list[str]]:
         """A tool call's arguments as the command's slots, and what was wrong
-        with them (unknown names or values, missing required ones). With the
-        sentence (``text``), names, values and free text it does not say are
-        dropped: a small model fills in arguments nobody gave."""
+        with them (unknown names or values; slots that are no combination of
+        it). With the sentence (``text``), names, values and free text it does
+        not say are dropped: a small model fills in arguments nobody gave."""
         parameters = self.parameters.get(command.id, {})
         required = set(self.required.get(command.id, []))
         heard: dict[str, Any] = {}
@@ -306,9 +305,20 @@ class Tools:
                 dropped.extend(problems[problems_before:])
                 del problems[problems_before:]
         slots = match_slots(command, heard)
-        missing = [r for r in required if r not in slots]
-        problems += [f"no {m}" for m in missing]
+        if not problems:
+            problems += combination_problems(command, set(slots))
         return slots, problems
+
+    def takes(self, command: Command, name: str, value: Any, text: str | None) -> bool:
+        """Whether this argument would be one of its slots: a name it has, a
+        value of its list, a number or text the sentence says."""
+        parameter = self.parameters.get(command.id, {}).get(name)
+        if parameter is None or value in (None, "", []):
+            return False
+        heard: dict[str, Any] = {}
+        problems: list[str] = []
+        self._convert(parameter, name, value, text, heard, problems)
+        return bool(heard) and not problems
 
     def _convert(
         self, parameter: Parameter, name: str, value: Any, text: str | None, heard: dict[str, Any], problems: list[str]
@@ -361,6 +371,19 @@ class Tools:
             elif text is not None and not _heard(value, text):
                 return
             heard[name] = value
+
+
+def combination_problems(command: Command, heard: set[str]) -> list[str]:
+    """Why these heard slots are no combination of the command: what the
+    closest one that has them all is missing, or that they don't go
+    together. Empty when they are one."""
+    if command.combination_for(heard) is not None:
+        return []
+    fits = [c for c in command.combinations if set(c) >= heard]
+    if fits:
+        closest = min(fits, key=len)
+        return [f"no {slot}" for slot in closest if slot not in heard]
+    return [f"{' and '.join(sorted(heard))} don't go together"]
 
 
 _DYNAMIC_HELP = {"running_timers": "a running timer's name"}
@@ -822,6 +845,13 @@ class GlinerPicker:
             out = self.runtime.extract(text, entities or None, ("command", labels))
             return out, time.perf_counter() - started
 
+    def hear(self, text: str, entities: dict[str, str]) -> tuple[dict[str, Any], float]:
+        """Only the entities: for a command already decided on."""
+        with self._lock:
+            started = time.perf_counter()
+            out = self.runtime.extract(text, entities, None)
+            return out, time.perf_counter() - started
+
 
 # ---------------------------------------------------------------- the chain
 
@@ -838,26 +868,14 @@ class Found:
 
 
 def needs_heard_slots(command: Command) -> bool:
-    """Whether running it needs something said: a required name, number,
-    value or free text that is not fixed."""
-    intent = command.intent
-    fixed = set(command.behavior.slots)
-    for kind, spec in (intent.get("names") or {}).items():
-        spec = spec if isinstance(spec, dict) else {"count": spec}
-        if kind not in fixed and not spec.get("optional") and int(spec.get("count") or 0) > 0:
-            return True
-    number = intent.get("number")
-    if number is not None and not (isinstance(number, dict) and number.get("optional")):
-        return True
-    for spec in (intent.get("lists") or {}).values():
-        if not (isinstance(spec, dict) and spec.get("optional")):
-            return True
-    wildcard = intent.get("wildcard")
-    return bool(wildcard and wildcard.get("required"))
+    """Whether some way of saying it needs something heard: a name, number,
+    value or free text (a combination that is not empty)."""
+    return command.takes_something
 
 
 def by_meaning(closest: dict[str, Any] | None, command: Command | None) -> tuple[bool, dict[str, Any]]:
-    """Whether the closest command by meaning may run, and why (not)."""
+    """Whether meaning is sure of the command, and why (not). It picks the
+    command only: what was said in it is heard by the model."""
     if closest is None or command is None:
         return False, {"why": "nothing close"}
     similarity = float(closest.get("similarity") or 0.0)
@@ -867,8 +885,6 @@ def by_meaning(closest: dict[str, Any] | None, command: Command | None) -> tuple
         return False, {**trace, "why": "not close enough"}
     if margin < EMBED_MARGIN:
         return False, {**trace, "why": f"too close to {closest.get('next')}"}
-    if needs_heard_slots(command):
-        return False, {**trace, "why": "needs something said"}
     return True, trace
 
 
@@ -876,6 +892,12 @@ def chosen(compiled: Any, step: str) -> list[str]:
     """The commands chosen for a fallback step (``meaning`` or ``llm``), in
     id order."""
     return sorted(c.id for c in compiled.commands.values() if step in c.fallback and not c.disabled)
+
+
+def needs_model(compiled: Any) -> list[str]:
+    """The commands chosen for meaning that hear something: the model step's
+    model hears it for them, even with none chosen for the model step."""
+    return [c for c in chosen(compiled, "meaning") if compiled.commands[c].takes_something]
 
 
 class Fallback:
@@ -893,7 +915,10 @@ class Fallback:
         when more than this many are chosen for it."""
         self.tools: Tools | None = None
         self.chosen: list[str] = []
-        """The commands chosen for the LLM."""
+        """The commands chosen for the model step."""
+        self.hearing: list[str] = []
+        """The commands chosen for meaning that hear something: the model
+        hears it for them."""
         self.closest_only = False
         """Whether it gets the closest ``top_k`` of them, not all."""
         self.signature: str | None = None
@@ -911,7 +936,8 @@ class Fallback:
         tools = Tools(compiled, engine.dynamic)
         self.tools = tools
         self.chosen = chosen(compiled, "llm")
-        everything = tools.subset(self.chosen)
+        self.hearing = needs_model(compiled)
+        everything = tools.subset(self.chosen or self.hearing)
         llm = self.llm
         if getattr(llm, "kind", "llm") == "gliner":
             # No prefix: GLiNER is given the closest commands on every call.
@@ -961,25 +987,7 @@ class Fallback:
         command by meaning (each costs an embedding, so only asked for when
         needed). Only commands chosen for a step are run by it."""
         found = Found()
-        if self.embedding_accept and chosen(compiled, "meaning"):
-            near = closest()
-            command = compiled.commands.get(near["intent"]) if near else None
-            accept, why = by_meaning(near, command)
-            if accept and command is not None and "meaning" not in command.fallback:
-                accept, why = False, {**why, "why": "not chosen for meaning"}
-            found.trace["meaning"] = why
-            if accept and command is not None and satellite.available(command) is not None:
-                return Found(command, {}, "meaning", found.trace)
         llm = self.llm
-        if llm is None or self.tools is None or not self.chosen or not text.strip():
-            return found
-        gliner = getattr(llm, "kind", "llm") == "gliner"
-        by = "GLiNER" if gliner else "LLM"
-        if not llm.ready or llm.signature != self.signature:
-            found.trace["llm"] = {"by": by, "skipped": self.status}
-            return found
-        subset = None
-        trace: dict[str, Any] = {"by": by}
         scores: dict[str, float] | None = None
 
         def by_similarity() -> dict[str, float]:
@@ -987,8 +995,31 @@ class Fallback:
             embedding, when first asked for)."""
             nonlocal scores
             if scores is None:
-                scores = dict(ranked()) if ranked is not None else {}
+                scores = {command_of(i): s for i, s in reversed(ranked())} if ranked is not None else {}
+                scores = dict(sorted(scores.items(), key=lambda item: -item[1]))
             return scores
+
+        if self.embedding_accept and chosen(compiled, "meaning"):
+            near = closest()
+            command = compiled.commands.get(command_of(near["intent"])) if near else None
+            accept, why = by_meaning(near, command)
+            if accept and command is not None and "meaning" not in command.fallback:
+                accept, why = False, {**why, "why": "not chosen for meaning"}
+            found.trace["meaning"] = why
+            if accept and command is not None and satellite.available(command) is not None:
+                if not command.takes_something:
+                    return Found(command, {}, "meaning", found.trace)
+                # Meaning picked the command; what was said in it, the model hears.
+                return self._fill(found, why, command, text, satellite)
+        if llm is None or self.tools is None or not self.chosen or not text.strip():
+            return found
+        gliner = getattr(llm, "kind", "llm") == "gliner"
+        by = "GLiNER" if gliner else "LLM"
+        if not self._model_ready():
+            found.trace["llm"] = {"by": by, "skipped": self.status}
+            return found
+        subset = None
+        trace: dict[str, Any] = {"by": by}
 
         if gliner:
             found.trace["llm"] = trace
@@ -1038,15 +1069,64 @@ class Fallback:
             return Found(command, slots, "llm", found.trace)
         return found
 
+    def _model_ready(self) -> bool:
+        llm = self.llm
+        return llm is not None and self.tools is not None and llm.ready and llm.signature == self.signature
+
+    def _fill(self, found: Found, trace: dict[str, Any], command: Command, text: str, satellite: Any) -> Found:
+        """Meaning picked a command that hears something: the model hears what
+        was said in it (GLiNER its slots' entities; an LLM a call to it
+        alone), and that picks the combination -- nothing said is one too,
+        when the command has it."""
+        llm, tools = self.llm, self.tools
+        if not self._model_ready() or not text.strip():
+            trace["why"] = "it hears names, numbers or text, and there is no model to hear them"
+            return found
+        assert llm is not None and tools is not None
+        if getattr(llm, "kind", "llm") == "gliner":
+            types = self._entity_types([command.id])
+            out, seconds = llm.hear(text, types) if types else ({"entities": {}}, 0.0)
+            entities = out.get("entities") or {}
+            arguments = self._gliner_arguments(command, entities, text)
+            trace.update(
+                heard_by="GLiNER",
+                entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
+                seconds=round(seconds, 3),
+            )
+        else:
+            calls, raw, seconds = llm.call(text, with_way_out(tools.subset([command.id]), llm.way_out))
+            arguments = next((a for n, a in calls if n == command.id), {})
+            trace.update(heard_by="LLM", raw=raw, seconds=round(seconds, 3))
+        slots, problems = tools.slots(command, arguments, text)
+        trace["arguments"] = arguments
+        if problems:
+            trace["problems"] = problems
+            return found
+        trace["combination"] = list(command.combination_for(set(slots) - set(command.behavior.slots)) or [])
+        return Found(command, slots, "meaning", found.trace)
+
+    def _entity_types(self, command_ids: list[str]) -> dict[str, str]:
+        """What GLiNER looks for, for these commands' slots: label -> description."""
+        assert self.tools is not None
+        types: dict[str, str] = {}
+        for command_id in command_ids:
+            for name, parameter in self.tools.parameters.get(command_id, {}).items():
+                label, description = entity_type(name, parameter)
+                types.setdefault(label, description)
+        return types
+
     def _pick_with_gliner(
         self, found: Found, trace: dict[str, Any], text: str, compiled: Any, satellite: Any, by_similarity: Any
     ) -> Found:
-        """GLiNER takes the commands that need something said (meaning takes
-        the rest). It is given the closest ``top_k`` of them in meaning, chosen
-        or not -- with no others to tell it from, it would take anything for
-        the one there is ("never mind" played as music) -- and its pick runs
-        only when it was chosen, sure enough (``threshold``), ahead of "not a
-        command", available here, and given what it needs."""
+        """GLiNER picks among the commands that hear something (one label
+        each, its description), and what it hears in the sentence picks the
+        combination. It is given the closest ``top_k`` of them in meaning,
+        chosen or not -- with no others to tell it from, it would take anything
+        for the one there is ("never mind" played as music) -- and its pick
+        runs only when it was chosen, sure enough (``threshold``), ahead of
+        "not a command", available here, and what it heard is a combination
+        of it. Hearing nothing in it, it runs only when meaning puts the same
+        command first: there is nothing else to check it by."""
         llm, tools = self.llm, self.tools
         assert tools is not None
         takes = {
@@ -1055,7 +1135,7 @@ class Fallback:
         }
         mine = takes & set(self.chosen)
         if not mine:
-            trace["skipped"] = "none of its commands needs something said (meaning takes those)"
+            trace["skipped"] = "none of its commands hears something (meaning takes those)"
             return found
         order = [c for c in by_similarity() if c in takes] or sorted(takes)
         candidates = order[: self.top_k] if self.top_k else order
@@ -1066,11 +1146,7 @@ class Fallback:
         for command_id in candidates:
             label = compiled.commands[command_id].description
             labels[f"{label} ({command_id.replace('_', ' ')})" if label in labels else label] = command_id
-        types: dict[str, str] = {}
-        for command_id in candidates:
-            for name, parameter in tools.parameters[command_id].items():
-                label, description = entity_type(name, parameter)
-                types.setdefault(label, description)
+        types = self._entity_types(candidates)
         out, seconds = llm.pick(text, [*labels, NOT_A_COMMAND_LABEL], types)
         probabilities = dict(out["classification"])
         none = probabilities.pop(NOT_A_COMMAND_LABEL)
@@ -1097,33 +1173,54 @@ class Fallback:
         if best not in mine:
             trace["refused"] = {"command": best, "why": "not chosen for it"}
             return found
-        arguments = self._gliner_arguments(best, entities)
+        arguments = self._gliner_arguments(command, entities, text)
         trace["arguments"] = arguments
         slots, problems = tools.slots(command, arguments, text)
         trace["command"] = best
         if problems:
             trace["problems"] = problems
             return found
+        combination = command.combination_for(set(slots) - set(command.behavior.slots))
+        trace["combination"] = list(combination or [])
+        if not combination and next(iter(by_similarity()), None) != best:
+            trace["refused"] = {"command": best, "why": "not what meaning puts first, and nothing was heard in it"}
+            return found
         if satellite.available(command) is None:
             trace["problems"] = [satellite.why_unavailable(command)]
             return found
         return Found(command, slots, "gliner", found.trace)
 
-    def _gliner_arguments(self, command_id: str, entities: dict[str, list]) -> dict[str, Any]:
-        """A command's arguments from what GLiNER found: the surest of each
-        (or all, for many names); numbers as values, names without "the"."""
-        assert self.tools is not None
-        out: dict[str, Any] = {}
-        for name, parameter in self.tools.parameters[command_id].items():
+    def _gliner_arguments(self, command: Command, entities: dict[str, list], text: str) -> dict[str, Any]:
+        """A command's arguments from what GLiNER found: for each slot the
+        surest it can take (a name it has, a value of its list, a number
+        the sentence says), or all of them for many names; numbers as values,
+        names without "the". The same words found as two slots ("living room"
+        as a room and as a floor) are the surer one."""
+        tools = self.tools
+        assert tools is not None
+        picked: list[tuple[float, int, int, str, Any]] = []
+        for name, parameter in tools.parameters[command.id].items():
             label, _ = entity_type(name, parameter)
             found = sorted((e for e in entities.get(label) or [] if e[1] >= GLINER_ENTITY_MIN), key=lambda e: -e[1])
-            texts = [_ARTICLE.sub("", e[0]) if parameter.kind == "name" else e[0] for e in found]
-            if not texts:
+            for entity in found:
+                said, confidence, start, end = entity[0], entity[1], entity[2], entity[3]
+                value = _ARTICLE.sub("", said) if parameter.kind == "name" else said
+                if parameter.kind == "number":
+                    value = spoken_number(value)
+                if not tools.takes(command, name, value, text):
+                    continue
+                picked.append((confidence, start, end, name, value))
+                if not parameter.many:
+                    break
+        kept: list[tuple[float, int, int, str, Any]] = []
+        for pick in sorted(picked, key=lambda p: -p[0]):
+            if any(pick[1] < other[2] and other[1] < pick[2] for other in kept if other[3] != pick[3]):
                 continue
-            if parameter.many:
-                out[name] = texts
-            elif parameter.kind == "number":
-                out[name] = spoken_number(texts[0])
+            kept.append(pick)
+        out: dict[str, Any] = {}
+        for _confidence, _start, _end, name, value in sorted(kept, key=lambda p: p[1]):
+            if tools.parameters[command.id][name].many:
+                out.setdefault(name, []).append(value)
             else:
-                out[name] = texts[0]
+                out[name] = value
         return out
