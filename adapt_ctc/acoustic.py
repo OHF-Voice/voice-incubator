@@ -8,6 +8,7 @@ of the exported ONNX graph.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,14 @@ _UNK_PIECES = ("<unk>", "<UNK>")
 _PUNCTUATION = frozenset(".,?!;:")
 """Pieces the model emits for sentence punctuation. They are not speech, so
 the recognizer treats them as equivalent to blank."""
+
+# Typed text as CTC evidence (``Vocabulary.text_log_probs``): frames per
+# piece, blank frames between words and before and after them, and the
+# logit of every token but the one heard.
+TYPED_PIECE_FRAMES = 2
+TYPED_WORD_GAP = 2
+TYPED_SILENCE = 4
+TYPED_OTHER = -20.0
 
 # Slaney's mel scale, as in librosa: linear below 1 kHz, logarithmic above.
 _F_SP = 200.0 / 3.0
@@ -178,6 +187,49 @@ class Vocabulary:
         )
         return text.replace(SPM_SPACE, " ").strip()
 
+    def word_pieces(self, word: str) -> list[int] | None:
+        """``word`` (lowercase) as few of this vocabulary's pieces as spell
+        it, the first one starting a word; None when no sequence does."""
+        best: list[list[int] | None] = [None] * (len(word) + 1)
+        best[0] = []
+        for start in range(len(word)):
+            if best[start] is None:
+                continue
+            for end in range(start + 1, min(len(word), start + self.max_piece_length) + 1):
+                ids = self.pieces.get((word[start:end], start == 0))
+                if ids is None:
+                    continue
+                candidate = best[start] + [ids[0]]
+                if best[end] is None or len(candidate) < len(best[end]):
+                    best[end] = candidate
+        return best[len(word)]
+
+    def text_log_probs(self, words: list[str]) -> tuple[np.ndarray, list[str]]:
+        """CTC evidence for ``words`` (spoken, lowercase) as if each had been
+        heard without a doubt: every piece certain for two frames, blanks
+        between pieces, longer between words and around them. Also the
+        words that no pieces spell (left out)."""
+        frames: list[int] = [self.blank_id] * TYPED_SILENCE
+        unspellable = []
+        for word in words:
+            pieces = self.word_pieces(word) or self.word_pieces(_plain_letters(word))
+            if pieces is None:
+                unspellable.append(word)
+                continue
+            for piece in pieces:
+                frames += [piece] * TYPED_PIECE_FRAMES + [self.blank_id]
+            frames += [self.blank_id] * (TYPED_WORD_GAP - 1)
+        frames += [self.blank_id] * TYPED_SILENCE
+        logits = np.full((len(frames), self.size), TYPED_OTHER, dtype=np.float32)
+        logits[np.arange(len(frames)), frames] = 0.0
+        log_probs = logits - np.log(np.exp(logits).sum(axis=1, keepdims=True))
+        return np.ascontiguousarray(log_probs, dtype=np.float32), unspellable
+
+
+def _plain_letters(word: str) -> str:
+    """"café" -> "cafe": the letters without their accents."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", word) if not unicodedata.combining(ch))
+
 
 class CtcModel:
     """A NeMo CTC model exported to ONNX (``model.onnx`` + ``tokens.txt``)."""
@@ -202,6 +254,14 @@ class CtcModel:
         self._signal_name = inputs[0].name
         self._length_name = inputs[1].name
         self._featurizer = MelFeaturizer()
+        self._frame_seconds: float | None = None
+
+    @property
+    def frame_seconds(self) -> float:
+        """Seconds per output frame (from a second of silence, once)."""
+        if self._frame_seconds is None:
+            self._frame_seconds = self.log_probs(np.zeros(SAMPLE_RATE, dtype=np.float32))[1]
+        return self._frame_seconds
 
     def log_probs(self, audio: np.ndarray) -> tuple[np.ndarray, float]:
         """``[T, V]`` natural-log probabilities and the seconds per output frame."""

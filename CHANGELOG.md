@@ -19,6 +19,8 @@
   satellite's player is its Sendspin client's, found by MAC. The volume
   commands moved from Basics to the new Music group.
 - Commands have icons, and the library marks the ones you already have.
+- Try reads the typed text as heard word for word, without speech
+  recognition; "Say it first" speaks it and recognizes the audio, as before.
 - Library: covers and locks (by name, or by type and area or floor), "are any
   lights on", "is the garage door open", "is the front door locked", "is
   everything locked". Adding a command adds the shared value lists it uses.

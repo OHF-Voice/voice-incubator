@@ -898,7 +898,10 @@ class Api:
         if not str(body.get("text") or "").strip():
             raise ConfigError("Type something to try")
         record = await self.app.try_text(
-            str(body.get("text") or ""), body.get("satellite") or None, bool(body.get("run_actions"))
+            str(body.get("text") or ""),
+            body.get("satellite") or None,
+            bool(body.get("run_actions")),
+            bool(body.get("speak")),
         )
         return web.json_response(record.to_json(), dumps=_dumps)
 

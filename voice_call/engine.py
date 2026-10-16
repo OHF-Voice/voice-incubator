@@ -41,6 +41,7 @@ from adapt_ctc.acoustic import CtcModel
 from adapt_ctc.config import WakeConfig, parse_config
 from adapt_ctc.matcher import IntentResult, Recognition, Recognizer
 from adapt_ctc.report import to_json
+from adapt_ctc.text import spoken_words
 from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
@@ -48,7 +49,7 @@ from adapt_ctc.config import ConfigError, _phrase
 from . import skills
 from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, match_slots
 from .store import Compiled
-from .voices import VoiceChoice
+from .voices import TypedText, VoiceChoice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -455,6 +456,27 @@ class Engine:
         decision.timings = {"acoustic": time.perf_counter() - started, **decision.timings}
         return decision
 
+    def recognize_text(self, text: str, satellite: Satellite) -> Decision:
+        """Typed text, as if it had been said and heard word for word: the
+        CTC matcher reads evidence made from its spoken words (no audio, no
+        speech recognition), and the text itself is the transcript."""
+        started = time.perf_counter()
+        with self._lock:
+            recognizer = self.recognizer
+        language = recognizer.config.language if recognizer is not None else BASE_CONFIG["language"]
+        spellings = spoken_words(text, language)
+        log_probs, unspellable = self.model.vocab.text_log_probs(spellings[0] if spellings else [])
+        built = time.perf_counter() - started
+        decision = self.decide(
+            log_probs, self.model.frame_seconds, np.zeros(0, dtype=np.float32), satellite, TypedText(text)
+        )
+        if decision.recognition.get("tdt_transcript") is None:
+            decision.recognition["tdt_transcript"] = text  # known, needed or not
+        if unspellable:
+            decision.recognition["unspellable"] = unspellable
+        decision.timings = {"evidence": built, **decision.timings}
+        return decision
+
     def decide(
         self,
         log_probs: np.ndarray,
@@ -622,8 +644,10 @@ class Engine:
             end = (use.hit.end + 1) * frame_seconds + frame_seconds
             inside = [w for w, s, e in words if s >= start and (s + e) / 2 <= end]
             text = " ".join(_strip(w) for w in inside).strip()
-        if text and slot in decision.slots and text.lower() != str(decision.slots[slot]).lower():
-            decision.text_from_tdt[slot] = str(decision.slots[slot])
+        if text and slot in decision.slots and text != str(decision.slots[slot]):
+            # The transcript's words, and its case ("Kind of Blue").
+            if text.lower() != str(decision.slots[slot]).lower():
+                decision.text_from_tdt[slot] = str(decision.slots[slot])
             decision.slots[slot] = text
 
     # --------------------------------------------------------------- hints
@@ -795,7 +819,8 @@ def _norm(value: str) -> str:
 
 
 def _timing(transcriber: Any) -> str:
-    return "tdt" if getattr(transcriber, "source", "TDT") == "TDT" else "stt"
+    source = getattr(transcriber, "source", "TDT")
+    return "tdt" if source == "TDT" else "typed" if source == "typed" else "stt"
 
 
 def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str | None:

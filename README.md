@@ -965,6 +965,25 @@ one.
 and the first one loaded serves both; only llama.cpp's has everything both
 need, so `voice_call/__init__.py` imports `llama_cpp` first.
 
+## Trying typed text
+
+The Try page (`/api/try`) skips speech recognition: the typed text is the
+transcript, and the CTC matcher reads evidence made from it
+(`Engine.recognize_text`, adapt-ctc `Vocabulary.text_log_probs`). Its spoken
+words (`adapt_ctc.text.spoken_words`: "10" is "ten", "&" is "and") are
+spelled in the model's own SentencePiece pieces (the fewest that spell each
+word), each piece certain for two frames, with blanks between pieces and
+words and around them. Keywords, names, numbers and example sentences then
+match as if the sentence had been heard perfectly, through the same code as
+audio; the text itself stands in for the TDT head (`TypedText`), so example
+lookups, free text ("Kind of Blue by Miles Davis", as typed), skills and
+questions read it as written. All 58 example sentences in the library match
+their own command this way. A word no pieces spell (outside the model's
+alphabet) is left out, and listed in the trace.
+
+With `speak` (the "Say it first" box), the old way: Piper says it, and it is
+recognized from the audio like a call -- to test speech recognition too.
+
 ## Skills and questions
 
 Ported from llama.cpp's smart-home-qa-bench (`router.py`, and its model
@@ -997,9 +1016,9 @@ quarts", "5²", "10 m²", "√144", "$80", "100km" -- in the words the grammars
 read. A currency is live only when there are two ("how many euros is a
 dollar"); "15% of $80" is 12 dollars, and "3.5 kg in pounds" is a weight.
 
-They read both transcripts, TDT's then CTC's where it differs: on a Try of
-"What is 50°F in Celsius?" (Piper reads it "fifty degrees F") TDT heard
-"fifty degrees FN Celsius" and CTC "F in Celsius". Piper's audio differs from
+They read both transcripts, TDT's then CTC's where it differs: on a spoken
+Try of "What is 50°F in Celsius?" (Piper reads it "fifty degrees F") TDT
+heard "fifty degrees FN Celsius" and CTC "F in Celsius". Piper's audio differs from
 run to run, so the same question can be heard differently each time. The
 grammars take what the models make of short words: "F and C", "CNF" and "CN
 F" for "C in F", "one a half", "quartz", and spoken decimals ("ninety eight

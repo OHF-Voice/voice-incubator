@@ -149,6 +149,26 @@ class HassTranscriber:
         }
 
 
+class TypedText:
+    """Typed text in place of speech recognition: what was typed is the
+    transcript, whatever the audio (there is none)."""
+
+    source = "typed"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        return self.text
+
+    def transcribe_words(self, audio: np.ndarray) -> tuple[str, list | None]:
+        """No word times: the engine finds free text by its keywords."""
+        return self.text, None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"typed": True, "text": self.text}
+
+
 class Voices:
     """The STT and TTS entities Home Assistant has, and their languages."""
 

@@ -3,6 +3,7 @@ edges, examples first, descriptions and structured rejections."""
 
 import copy
 
+import numpy as np
 import pytest
 
 from adapt_ctc.acoustic import SPM_SPACE, Vocabulary
@@ -254,3 +255,26 @@ def test_boolean_settings():
     data["settings"] = {"examples_first": True, "embedding_accept": False}
     settings = parse_config(data).settings
     assert settings.examples_first and not settings.embedding_accept
+
+
+def test_typed_text_as_evidence():
+    """Typed text as CTC evidence: each word in the fewest pieces that spell
+    it, heard without a doubt -- and the matcher takes it like speech."""
+    words = vocab()
+    piece = {p: i for i, p in words.id2piece.items()}
+    assert words.word_pieces("ecobee") == [piece[SPM_SPACE + "eco"], piece["bee"]]
+    assert words.word_pieces("lights") == [piece[SPM_SPACE + "lights"]]
+    assert words.word_pieces("zzz") is None
+
+    typed = ["add", "a", "bag", "of", "rice", "to", "the", "zzz", "shopping", "list"]
+    log_probs, unspellable = words.text_log_probs(typed)
+    assert unspellable == ["zzz"]
+    # Every frame is certain of one token, and the frames read back as the words.
+    assert np.allclose(np.exp(log_probs).max(axis=1), 1.0, atol=1e-6)
+    greedy = [int(t) for t in log_probs.argmax(axis=1)]
+    collapsed = [t for i, t in enumerate(greedy) if t != words.blank_id and (i == 0 or t != greedy[i - 1])]
+    assert words.ids_to_text(collapsed) == "add a bag of rice to the shopping list"
+
+    recognizer = Recognizer(parse_config(copy.deepcopy(CONFIG)), vocab=words)
+    result = recognizer.recognize_log_probs(log_probs, 0.08)
+    assert result.matches[0].intent == "AddItem" and result.matches[0].slots["item"] == "bag of rice"

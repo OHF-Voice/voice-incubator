@@ -28,7 +28,7 @@ from .engine import LEARN_VOICE, Decision, Engine, Satellite
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
-from .voices import Voices, choose
+from .voices import TypedText, Voices, choose
 from .mixednet import WakeModel
 from .protocol import (
     BYTE_RATE,
@@ -1481,29 +1481,38 @@ class VoiceCallApp:
 
     # ------------------------------------------------- try, replay (web UI)
 
-    async def try_text(self, text: str, satellite_key: str | None, run_actions: bool = False) -> CallRecord:
-        """Synthesize ``text`` with Piper and recognize it as a command said on
-        this satellite: the whole pipeline after the wake word."""
+    async def try_text(
+        self, text: str, satellite_key: str | None, run_actions: bool = False, speak: bool = False
+    ) -> CallRecord:
+        """``text`` as a command said on this satellite: as if heard word for
+        word (no speech recognition), or (``speak``) said by Piper and
+        recognized -- the whole pipeline after the wake word."""
         if satellite_key:
             satellite = self.satellite(satellite_key)
         else:
             satellite = Satellite("", "web", skills=self.satellite_skills(None))
         record = self.calls.begin("try", satellite.as_dict())
         record.dry_run = not run_actions
-        record.stage("typed", text=text)
-        transcriber = await self._transcriber(satellite)
-        async with self._model_lock:
-            pcm = await self.speech.say(text) if text.strip() else b""
-            assert self.engine is not None
-            decision = await asyncio.to_thread(
-                self.engine.recognize_command, _pcm_to_float(pcm), satellite, transcriber
-            )
+        record.stage("typed", text=text, spoken=speak)
+        assert self.engine is not None
+        pcm = b""
+        if speak:
+            transcriber = await self._transcriber(satellite)
+            async with self._model_lock:
+                pcm = await self.speech.say(text) if text.strip() else b""
+                decision = await asyncio.to_thread(
+                    self.engine.recognize_command, _pcm_to_float(pcm), satellite, transcriber
+                )
+        else:
+            transcriber = TypedText(text)
+            async with self._model_lock:
+                decision = await asyncio.to_thread(self.engine.recognize_text, text, satellite)
         record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         speech, outcome, summary = await self._carry_out(
             decision, satellite, {"name": None, "score": None}, not run_actions, record
         )
         record.stage("speech", text=speech)
-        self.calls.finish(record, outcome, summary, {"command": pcm})
+        self.calls.finish(record, outcome, summary, {"command": pcm} if pcm else None)
         return record
 
     async def replay(self, call_id: str, run_actions: bool = False) -> CallRecord:

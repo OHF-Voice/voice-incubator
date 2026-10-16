@@ -1023,7 +1023,7 @@ async function pageCommand(id, prefill) {
         overridesEditor()),
       isNew ? null : h("div", { class: "panel" }, h("h2", {}, "Try it"),
         h("div", { class: "row" }, tryInput, trySat, h("button", { onclick: async () => {
-          fill(tryOut, h("p", { class: "muted" }, "Synthesizing and recognizing…"));
+          fill(tryOut, h("p", { class: "muted" }, "Recognizing…"));
           try {
             const record = await api("POST", "try", { text: tryInput.value, satellite: trySat.value || null });
             fill(tryOut, renderOutcome(record));
@@ -1616,11 +1616,18 @@ function renderOutcome(record) {
       h("span", { class: `badge ${OUTCOME_CLASS[record.outcome] || ""}` }, record.outcome),
       rec.command ? h("span", {}, "Matched ", h("a", { href: `#/command/${rec.command}` }, rec.command), rec.decided_by && rec.decided_by !== "command" ? ` (${rec.decided_by})` : "") : h("span", { class: "muted" }, "No command matched")),
     h("div", { class: "kv" },
-      h("div", {}, "Heard"), h("div", {}, rec.recognition.transcript || "—"),
-      rec.recognition.tdt_transcript ? [h("div", {}, "TDT heard"), h("div", {}, rec.recognition.tdt_transcript)] : null,
+      h("div", {}, rec.text_source === "typed" ? "Read as" : "Heard"), h("div", {}, rec.recognition.transcript || "—"),
+      rec.recognition.tdt_transcript ? [h("div", {}, heardLabels(rec).text), h("div", {}, rec.recognition.tdt_transcript)] : null,
       rec.slots && Object.keys(rec.slots).length ? [h("div", {}, "Slots"), h("div", {}, h("code", {}, JSON.stringify(rec.slots)))] : null,
       speech ? [h("div", {}, "Says"), h("div", {}, speech.text || h("span", { class: "muted" }, "(a short sound)"))] : null,
       action && action.error ? [h("div", {}, "Error"), h("div", { class: "notice bad" }, action.error)] : null));
+}
+
+// What the transcripts are called: heard by the CTC and TDT heads (or an STT
+// entity), or typed on the Try page and read as spoken words.
+function heardLabels(rec) {
+  if (rec.text_source === "typed") return { ctc: "Read as", text: "Typed" };
+  return { ctc: "CTC heard", text: `${rec.text_source && rec.text_source !== "TDT" ? rec.text_source : "TDT"} heard` };
 }
 
 function renderRecognition(rec) {
@@ -1637,8 +1644,9 @@ function renderRecognition(rec) {
   const rejected = (r.rejected || []).slice().sort((a, b) => (b.heard_groups || 0) - (a.heard_groups || 0));
   return h("div", {},
     h("div", { class: "kv" },
-      h("div", {}, "CTC heard"), h("div", {}, r.transcript || "—"),
-      h("div", {}, "TDT heard"), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run")),
+      h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
+      h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run")),
+      r.unspellable ? [h("div", {}, "Not in the model's pieces"), h("div", {}, r.unspellable.join(", "))] : null,
       r.lead_in ? [h("div", {}, "Lead-in ignored"), h("div", {}, r.lead_in)] : null,
       h("div", {}, "Timing"), h("div", { class: "small" }, Object.entries(rec.timings || {}).map(([k, v]) => `${k} ${Math.round(v * 1000)} ms`).join(" · "))),
     rec.skipped && rec.skipped.length ? h("div", { class: "notice warn" }, "Passed over: ", rec.skipped.map((s) => `${s.command} (${s.why})`).join(", ")) : null,
@@ -1767,11 +1775,12 @@ async function pageTry() {
   const input = h("input", { type: "text", class: "grow", placeholder: "turn on the kitchen lights" });
   const sat = h("select", {}, h("option", { value: "" }, "no satellite"), ...state.satellites.map((s) => h("option", { value: s.key }, `${s.name}${s.area_name ? ` (${s.area_name})` : ""}`)));
   const run = h("input", { type: "checkbox" });
+  const speak = h("input", { type: "checkbox" });
   const out = h("div");
   async function go() {
-    fill(out, h("p", { class: "muted" }, "Synthesizing and recognizing…"));
+    fill(out, h("p", { class: "muted" }, speak.checked ? "Synthesizing and recognizing…" : "Recognizing…"));
     try {
-      const record = await api("POST", "try", { text: input.value, satellite: sat.value || null, run_actions: run.checked });
+      const record = await api("POST", "try", { text: input.value, satellite: sat.value || null, run_actions: run.checked, speak: speak.checked });
       fill(out, h("div", { class: "panel" }, renderOutcome(record), h("p", {}, h("a", { href: `#/call/${record.id}` }, "Full trace"))),
         h("div", { class: "panel" }, ...(record.stages || []).filter((s) => s.stage === "recognition" || s.stage === "action").map(renderStage)));
     } catch (err) { fill(out, errorBox(err)); }
@@ -1779,10 +1788,11 @@ async function pageTry() {
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   fill($main, 
     h("h1", {}, "Try a command"),
-    h("p", { class: "muted" }, "What you type is spoken by the app's voice and recognized like a command said on that satellite, after the wake word. Synthesized speech is cleaner than a room, so treat a match here as necessary, not sufficient."),
+    h("p", { class: "muted" }, "What you type is recognized like a command said on that satellite, after the wake word, as if every word had been heard exactly as typed: no speech recognition. Commands, skills and questions all read your text as it is."),
     h("div", { class: "panel" },
       h("div", { class: "row" }, input, sat, h("button", { class: "primary", onclick: go }, "Try")),
-      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run)")),
+      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run)"),
+      h("label", { class: "small" }, speak, "Say it first: spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient.")),
     out,
   );
   input.focus();

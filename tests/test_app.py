@@ -197,6 +197,15 @@ async def _scenario(tmp_path: Path) -> None:
             tried = await (await http.post("/api/try", json={"text": "turn on the lights", "satellite": MAC})).json()
             speech = next(s for s in tried["stages"] if s["stage"] == "speech")
             assert speech["text"] == "Lights on in Kitchen."
+            # Typed: read as heard word for word, no speech recognition, no audio.
+            recognition = next(s for s in tried["stages"] if s["stage"] == "recognition")
+            assert recognition["text_source"] == "typed" and recognition["recognition"]["tdt_transcript"] == "turn on the lights"
+            assert recognition["recognition"]["transcript"] == "turn on the lights" and not tried["audio"]
+            record = await app.try_text("What is 50°F in Celsius?", MAC)
+            assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "It's 10 degrees Celsius."
+            # Said, when asked to be.
+            spoken_try = await (await http.post("/api/try", json={"text": "turn on the lights", "satellite": MAC, "speak": True})).json()
+            assert next(s for s in spoken_try["stages"] if s["stage"] == "recognition")["text_source"] == "TDT"
             assert tried["dry_run"]
             assert len(hass.scripts) == scripts  # nothing ran since the debug session started
 
@@ -398,10 +407,11 @@ async def _voices(tmp_path: Path) -> None:
         assert speech["started"] is not None and speech["ended"] >= speech["started"]
         assert satellite.played == played  # nothing streamed: the satellite fetched it
 
-        # Free text comes from the STT entity.
+        # Free text comes from the STT entity (said by Piper, so there is audio
+        # for it to hear).
         hass.stt_text = "Please play the album Kind of Blue."
         # (Piper's "play" at the very start is often heard as "they".)
-        record = await app.try_text("please play kind of blue", MAC)
+        record = await app.try_text("please play kind of blue", MAC, speak=True)
         recognition = next(s for s in record.stages if s["stage"] == "recognition")
         assert recognition["command"] == "play_music", recognition["recognition"].get("transcript")
         assert recognition["slots"]["query"] == "the album Kind of Blue"
@@ -416,7 +426,7 @@ async def _voices(tmp_path: Path) -> None:
 
         # Languages: German for this satellite's STT and TTS.
         stored.update(stt_language="de", tts_language="de-DE")
-        await app.try_text("please play kind of blue", MAC)
+        await app.try_text("please play kind of blue", MAC, speak=True)
         assert hass.stt_requests[-1]["header"].endswith("language=de-DE")
         assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
         assert spoken[-1]["language"] == "de-DE"
@@ -429,7 +439,7 @@ async def _voices(tmp_path: Path) -> None:
             assert [m["loaded"] for m in app.tdt_models()] == [False, True]
             stored.pop("stt", None)  # back to the built-in TDT for text
             app.store.settings.pop("stt", None)
-            record = await app.try_text("please play kind of blue", MAC)
+            record = await app.try_text("please play kind of blue", MAC, speak=True)
             recognition = next(s for s in record.stages if s["stage"] == "recognition")
             assert recognition["command"] == "play_music" and recognition["text_source"] == "TDT"
             app.store.settings["tdt_model"] = "en"

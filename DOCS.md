@@ -335,8 +335,11 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
 
 ## Trying, calls and debugging
 
-- **Try** speaks a sentence with the app's voice and recognizes it as if said
-  on a satellite, without running anything unless you ask.
+- **Try** recognizes a sentence as if said on a satellite and heard word for
+  word -- no speech recognition, so commands, skills and questions read
+  exactly what you typed -- without running anything unless you ask. Tick
+  "Say it first" to have the app's voice speak it and recognize the audio
+  instead, to test speech recognition too.
 - **Calls** lists recent calls with every stage: wake word verification, where
   the command was cut, the speaker, every command that matched or was
   rejected and why, what ran and what was said.

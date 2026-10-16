@@ -418,7 +418,8 @@ class Recognizer:
         if transcriber is not None:
             started = time.perf_counter()
             transcript = transcriber.transcribe(audio)
-            recognition.timings["tdt" if source == "TDT" else "stt"] = time.perf_counter() - started
+            label = "tdt" if source == "TDT" else "typed" if source == "typed" else "stt"
+            recognition.timings[label] = time.perf_counter() - started
             recognition.tdt_transcript = transcript
             found = self._find_example(transcript, skip_first=recognition.lead_in is not None)
             if found is not None:
