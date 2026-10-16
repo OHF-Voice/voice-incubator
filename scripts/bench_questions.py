@@ -6,8 +6,8 @@ library's commands in the bench home (scripts/bench_fallback.py) -- or, with
 ``--text``, handed to the question step as written. What each comes to:
 
 - a command (it should not: these are questions),
-- an exact answer (graded against ``expected_answer``),
-- the live notice (graded against the CSV's ``online_required``),
+- an exact answer, a skill's (graded against ``expected_answer``),
+- the live notice, the live skill's (graded against the CSV's ``online_required``),
 - the question model's answer (shown, timed; grading a free answer is the
   benchmark's own business: llama.cpp's smart-home-qa-bench),
 - nothing (the hint).
@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from bench_fallback import library_store  # noqa: E402
 
+from voice_call import skills  # noqa: E402
 from voice_call.questions import Answerer, Questions  # noqa: E402
 from voice_call.store import compile_store  # noqa: E402
 
@@ -44,7 +45,7 @@ def _norm(text: str) -> str:
 
 def exact_right(answer: dict, expected: str) -> bool:
     got = answer.get("text") or ""
-    if answer.get("solver") == "spelling":
+    if answer.get("skill") == "spelling":
         return re.sub(r"[^A-Z]", "", got.split(" is spelled ")[-1]) == re.sub(r"[^A-Z]", "", expected.upper())
     want, said = _norm(expected), _norm(got)
     if want and want in said:
@@ -93,8 +94,7 @@ async def main() -> int:
         question = row["question"]
         started = time.perf_counter()
         if args.text:
-            exact = questions.exact(question)
-            answer = exact or questions.answer(question)
+            answer = skills.answer(question) or skills.answer(question, last=True) or questions.answer(question)
             heard, command = question, None
             answer = answer.to_json() if answer else None
         else:

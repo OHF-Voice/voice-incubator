@@ -43,9 +43,11 @@
   2.1 0.5B) can pick a command and fill in its slots. Both only run the
   commands chosen for them (`fallback: [meaning, llm]`, ticked per command or
   many at once on the Commands page); none are chosen to begin with.
-- Questions no command takes are answered: exactly (arithmetic, units, dates
-  and times, spelling), "I can't look that up" for live ones, and the rest by
-  a small LLM (Granite 4.0 350M, or Gemma 3 1B), downloaded on first start.
+- Questions no command takes are answered: exactly by skills (spelling,
+  dates, clock arithmetic, unit conversions, math), "I can't look that up"
+  for live ones, and the rest by a small LLM (Granite 4.0 350M, or Gemma 3
+  1B), downloaded on first start. Each skill is turned on or off on the new
+  Skills tab, for the whole home or per satellite.
 - Library: set an alarm (a timer that rings at a clock time: "wake me up at
   half past six"), take something off the shopping list, add to the to-do
   list.

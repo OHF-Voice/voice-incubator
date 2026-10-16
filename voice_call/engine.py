@@ -45,6 +45,7 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
 
+from . import skills
 from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, match_slots
 from .store import Compiled
 from .voices import VoiceChoice
@@ -108,6 +109,8 @@ class Satellite:
     """Its own media player in Home Assistant (ESPHome's), where TTS speaks."""
     command_groups: frozenset[str] | None = None
     """It runs only the commands in these command groups; None: every one."""
+    skills: frozenset[str] | None = None
+    """The skills that answer here (voice_call/skills/); None: every one."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +124,7 @@ class Satellite:
             "timer_list": self.timer_list,
             "media_player": self.media_player,
             "command_groups": sorted(self.command_groups) if self.command_groups is not None else None,
+            "skills": sorted(self.skills) if self.skills is not None else None,
         }
 
     def available(self, command: Command) -> tuple[Behavior, str] | None:
@@ -174,7 +178,8 @@ class Decision:
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
     answer: dict[str, Any] | None = None
-    """No command: a question, answered (voice_call/questions.py)."""
+    """No command: a question, answered by a skill (voice_call/skills/) or the
+    question model (voice_call/questions.py)."""
 
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -277,7 +282,8 @@ class Engine:
         self.fallback: Any = None
         """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
         self.questions: Any = None
-        """When no command is meant: questions answered (voice_call/questions.py)."""
+        """When no command or skill answered: the question model
+        (voice_call/questions.py)."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
 
@@ -511,16 +517,17 @@ class Engine:
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
                 recognition.timings[_timing(transcriber)] = time.perf_counter() - started
             text = recognition.tdt_transcript or recognition.transcript or ""
-            questions = self.questions
-            exact = questions.exact(text) if questions is not None else None
+            exact = skills.answer(text, satellite.skills)
             if exact is not None:
-                # Arithmetic, units, the calendar, spelling: exact, and instant.
+                # Spelling, dates, units, arithmetic: exact, and instant.
                 decision.answer = exact.to_json()
             elif self.fallback is not None and compiled.commands:
                 self._fall_back(decision, recognition, compiled, satellite)
-            if decision.command is None and decision.answer is None and questions is not None:
+            if decision.command is None and decision.answer is None:
                 started = time.perf_counter()
-                answer = questions.answer(text)
+                answer = skills.answer(text, satellite.skills, last=True)
+                if answer is None and self.questions is not None:
+                    answer = self.questions.answer(text)
                 if answer is not None:
                     recognition.timings["question"] = time.perf_counter() - started
                     decision.answer = answer.to_json()

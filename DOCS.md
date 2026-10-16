@@ -290,24 +290,35 @@ from the library are not chosen until you choose them.
 Both are on, and do nothing until a command is chosen for them. A call's trace
 shows what each step tried.
 
+## Skills
+
+The **Skills** tab: questions no command takes, answered exactly and at once,
+without an LLM. Each is computed, never guessed -- a question a skill can't
+read whole is left to the next step:
+
+- **Spelling**: "how do you spell necessary".
+- **Dates**: "what day is Christmas", "is 2028 a leap year", "how many days
+  until Halloween".
+- **Clock arithmetic**: "what time is 90 minutes after 2 pm".
+- **Unit conversions**: "how many cups in a quart", "100 Fahrenheit in
+  Celsius", "5 miles in kilometers".
+- **Math**: "what's twelve times eight", "15 percent of 80".
+- **Can't look it up**: questions about now or here -- the weather, news,
+  scores, prices, what's open -- get "Sorry, I can't look that up" (unless a
+  command of yours answers them, like the library's weather command).
+
+Each is on unless you turn it off, for the whole home or for one satellite:
+a satellite set "on" or "off" for a skill keeps that whatever the home's
+setting.
+
 ## Questions
 
-When no command is meant, a question still gets an answer (Commands page,
-"Questions"):
-
-- **Exactly**: arithmetic ("what's twelve times eight"), unit conversions
-  ("how many cups in a quart", "100 Fahrenheit in Celsius"), dates and times
-  ("what day is Christmas", "is 2028 a leap year", "what time is 90 minutes
-  after 2 pm"), spelling ("how do you spell necessary"). These are computed,
-  never guessed.
-- Questions about **now or here** -- the weather, news, scores, prices,
-  what's open -- get "Sorry, I can't look that up" (unless a command of yours
-  answers them, like the library's weather command).
-- **The rest** goes to a small LLM, answered in one sentence: Granite 4.0 350M
-  (downloaded on first start, 370 MB; about half a second on a Raspberry Pi
-  5), or Gemma 3 1B on a faster machine. It answers about 9 in 10 everyday
-  questions right, and can be confidently wrong. Only what reads as a
-  question is asked.
+What no command or skill answers, when it reads as a question, goes to a
+small LLM (Commands page, "Questions"), answered in one sentence: Granite 4.0
+350M (downloaded on first start, 370 MB; about half a second on a Raspberry
+Pi 5), or Gemma 3 1B on a faster machine. It answers about 9 in 10 everyday
+questions right, and can be confidently wrong. Questions about now or here
+are never asked.
 
 ## Names
 

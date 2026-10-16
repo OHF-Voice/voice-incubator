@@ -242,6 +242,27 @@ async def _scenario(tmp_path: Path) -> None:
             record = await app.try_text("what are the top news headlines", MAC)
             assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, I can't look that up."
 
+            # Skills, on or off for the home and per satellite.
+            async def said(text, satellite=MAC):
+                record = await app.try_text(text, satellite)
+                return next(s for s in record.stages if s["stage"] == "speech")["text"]
+
+            listed = await (await http.get("/api/skills")).json()
+            assert [s["id"] for s in listed["skills"]] == ["spelling", "dates", "clock", "units", "arithmetic", "live"]
+            assert (await http.put("/api/skills/arithmetic", json={"satellites": {MAC: False}})).status == 200
+            assert app.store.satellites[MAC]["skills"] == {"arithmetic": False}
+            assert await said("what is twelve times eight") != "It's 96."
+            assert await said("what is twelve times eight", None) == "It's 96."  # the home's: on
+            assert (await http.put("/api/skills/arithmetic", json={"home": False, "satellites": {MAC: True}})).status == 200
+            assert await said("what is twelve times eight") == "It's 96."  # its own: on
+            assert await said("what is twelve times eight", None) != "It's 96."
+            satellites = (await (await http.get("/api/satellites")).json())["satellites"]
+            assert next(s for s in satellites if s["key"] == MAC)["skills"] == {"arithmetic": True}
+            assert (await http.put("/api/skills/arithmetic", json={"home": True, "satellites": {MAC: None}})).status == 200
+            assert "skills" not in app.store.settings and "skills" not in app.store.satellites[MAC]
+            assert (await http.put("/api/skills/nope", json={"home": False})).status == 404
+            assert (await http.put("/api/skills/live", json={"satellites": {MAC: "off"}})).status == 400
+
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
         timer_list = f"voice_timer_list.{MAC}_timers"

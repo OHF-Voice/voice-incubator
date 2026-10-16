@@ -26,6 +26,7 @@ from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .commands import DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
+from .skills import SKILLS
 from .store import NAME_KINDS, compile_store, dump, plain
 from .voices import language_code
 from .wake_words import DEFAULT_MODEL_SLOTS, RESERVED_SLOTS, SPECIAL
@@ -89,6 +90,8 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/lists/{name}", api.put_list),
             web.put("/api/groups/{id}", api.put_group),
             web.put("/api/fallback", api.put_fallback),
+            web.get("/api/skills", api.skills),
+            web.put("/api/skills/{id}", api.put_skill),
             web.delete("/api/groups/{id}", api.delete_group),
             web.delete("/api/lists/{name}", api.delete_list),
             web.get("/api/library", api.library),
@@ -370,6 +373,55 @@ class Api:
                 steps[step] = [str(c) for c in body[step]]
         return await self._saved(self.app.store.put_fallback(steps))
 
+    # --------------------------------------------------------------- skills
+
+    async def skills(self, request: web.Request) -> web.Response:
+        """Every skill, the home's settings (absent: on), and each satellite's
+        own (absent: as the home)."""
+        store = self.app.store
+        return web.json_response(
+            {
+                "skills": [skill.to_json() for skill in SKILLS.values()],
+                "home": store.settings.get("skills") or {},
+                "satellites": {key: entry.get("skills") or {} for key, entry in store.satellites.items()},
+            }
+        )
+
+    async def put_skill(self, request: web.Request) -> web.Response:
+        """Turn a skill on or off: ``home`` (true or false), and ``satellites``
+        (``{key: true | false | null}``, null: as the home)."""
+        skill_id = request.match_info["id"]
+        if skill_id not in SKILLS:
+            raise FileNotFoundError(f"No skill {skill_id}")
+        body = await request.json()
+        store = self.app.store
+        if "home" in body:
+            home = store.settings.setdefault("skills", {})
+            if body["home"] is False:
+                home[skill_id] = False
+            else:
+                home.pop(skill_id, None)
+            if not home:
+                store.settings.pop("skills")
+            store.save_settings()
+        satellites = body.get("satellites") or {}
+        if not isinstance(satellites, dict):
+            raise ConfigError("satellites: expected {satellite: true, false or null}")
+        for key, on in satellites.items():
+            if on is not None and not isinstance(on, bool):
+                raise ConfigError(f"satellites.{key}: true, false or null")
+            entry = store.satellites.setdefault(str(key), {})
+            own = entry.setdefault("skills", {})
+            if on is None:
+                own.pop(skill_id, None)
+            else:
+                own[skill_id] = on
+            if not own:
+                entry.pop("skills")
+        if satellites:
+            store.save_satellites()
+        return web.json_response({"ok": True})
+
     async def delete_group(self, request: web.Request) -> web.Response:
         """Delete a group: every command leaves it, and it is no longer given
         to the home or any satellite."""
@@ -503,6 +555,10 @@ class Api:
                     "command_groups_used": (
                         sorted(satellite.command_groups) if satellite.command_groups is not None else None
                     ),
+                    # Its own skill settings (the rest as the home's), and the
+                    # skills that answer on it.
+                    "skills": stored.get("skills") or {},
+                    "skills_used": sorted(satellite.skills or ()),
                     "wake_words_used": (
                         session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
                     ),
@@ -680,7 +736,7 @@ class Api:
             self.app.store.save_settings()
             asyncio.ensure_future(self.app.configure_fallback())
         questions_changed = False
-        for option in ("questions", "questions_llm"):
+        for option in ("questions_llm",):
             if option in body:
                 settings[option] = bool(body[option])
                 questions_changed = True

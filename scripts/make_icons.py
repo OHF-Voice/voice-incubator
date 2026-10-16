@@ -1,8 +1,8 @@
 """Write voice_call/web/icons.js: the Material Design Icons the web UI shows.
 
-Only the icons used are shipped: every ``icon:`` in the library, the defaults
-for each kind of command (DEFAULTS in app.js), and the editor's choices
-(PICKER below). Paths come from @mdi/js (Apache-2.0), e.g. the Home Assistant
+Only the icons used are shipped: every ``icon:`` in the library, each
+skill's (voice_call/skills/), the defaults for each kind of command (DEFAULTS
+in app.js), and the editor's choices (PICKER below). Paths come from @mdi/js (Apache-2.0), e.g. the Home Assistant
 frontend's node_modules:
 
     .venv/bin/python scripts/make_icons.py ~/opt/frontend/node_modules/@mdi/js/mdi.js
@@ -105,6 +105,14 @@ def library_icons() -> list[str]:
     return icons
 
 
+def skill_icons() -> list[str]:
+    """Read, not imported: ``icon="mdi:..."`` in each skill's module."""
+    icons = []
+    for path in sorted((ROOT / "voice_call/skills").glob("*.py")):
+        icons += re.findall(r'icon="(mdi:[a-z0-9-]+)"', path.read_text("utf-8"))
+    return icons
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("mdi_js", type=Path, help="@mdi/js/mdi.js")
@@ -112,7 +120,7 @@ def main() -> None:
     source = args.mdi_js.read_text("utf-8")
     version = re.search(r"Material Design Icons v([\d.]+)", source)
     paths = dict(re.findall(r'export var (mdi\w+) = "([^"]+)"', source))
-    wanted = list(dict.fromkeys(library_icons() + DEFAULTS + PICKER))
+    wanted = list(dict.fromkeys(library_icons() + skill_icons() + DEFAULTS + PICKER))
     missing = [i for i in wanted if camel(i) not in paths]
     if missing:
         raise SystemExit(f"Not in @mdi/js: {', '.join(missing)}")

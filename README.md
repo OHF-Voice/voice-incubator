@@ -138,7 +138,8 @@ them into the vocabulary unless someone adds it.
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then a small LLM (Granite 4.0 350M or Hammer 2.1 0.5B) with the commands as tools -- each only for the commands chosen for it |
-| `voice_call/questions.py` | questions no command took: exact answers, the live notice, a small LLM |
+| `voice_call/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live), on or off for the home or a satellite |
+| `voice_call/questions.py` | questions no command or skill took: a small LLM |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
@@ -964,27 +965,37 @@ one.
 and the first one loaded serves both; only llama.cpp's has everything both
 need, so `voice_call/__init__.py` imports `llama_cpp` first.
 
-## Questions
+## Skills and questions
 
-`voice_call/questions.py`, ported from llama.cpp's smart-home-qa-bench
-(`router.py`, and its model results). When no command is meant -- after the
-CTC matcher, and around the command fallback -- a question still gets an
-answer:
+Ported from llama.cpp's smart-home-qa-bench (`router.py`, and its model
+results). When no command is meant -- after the CTC matcher, and around the
+command fallback -- a question still gets an answer:
 
-1. **Exact**: spelling, arithmetic, unit conversions, calendar and clock
-   arithmetic, by grammars that must parse the whole question *and* compute
-   an answer. Before the command fallback: they are instant and never wrong
-   when they answer. `settings.yaml` `questions`, on by default.
-2. **Live**: anything about now or here (weather, news, scores, prices,
-   opening hours, "tonight", "last night") gets "Sorry, I can't look that up."
-   After the command fallback, so "do I need an umbrella" can still be the
-   weather command.
-3. **Knowledge**: the rest, only when it reads as a question (a question
-   word first, or a question mark) -- "thank you" and "I'm cold" are not
-   asked -- goes to a small LLM, answered in one short sentence.
-   `questions_llm`, on by default; `questions_model`: Granite 4.0 350M
-   (Apache-2.0, 370 MB, downloaded on first start) or Gemma 3 1B (for a
-   faster machine). The same llama.cpp as the command fallback.
+1. **Skills** (`voice_call/skills/`, one module each, the Skills tab): spelling,
+   dates, clock arithmetic, unit conversions, arithmetic -- grammars that
+   must parse the whole question *and* compute an answer, or let it fall
+   through. Before the command fallback: they are instant and never wrong
+   when they answer. Spelling first ("how do you spell weather" is not about
+   the weather); the others only for a question that is not about now or
+   here.
+2. **The live skill**: anything about now or here (weather, news, scores,
+   prices, opening hours, "tonight", "last night") gets "Sorry, I can't look
+   that up." After the command fallback, so "do I need an umbrella" can
+   still be the weather command.
+3. **The question model**: the rest, only when it reads as a question (a
+   question word first, or a question mark) -- "thank you" and "I'm cold"
+   are not asked, nor is a live question, with the live skill off or on --
+   goes to a small LLM, answered in one short sentence. `questions_llm`, on
+   by default; `questions_model`: Granite 4.0 350M (Apache-2.0, 370 MB,
+   downloaded on first start) or Gemma 3 1B (for a faster machine). The same
+   llama.cpp as the command fallback.
+
+Every skill is on unless turned off, for the whole home (`settings.yaml`
+`skills: {spelling: false}`) or one satellite (`satellites.yaml`, the same;
+its own setting wins). A skill is a `Skill` (`skills/common.py`: id, name,
+description, examples, icon, `answer(text) -> sentence | None`) in a module
+named after its id, listed in `SKILLS` (`skills/__init__.py`) in the order
+they are asked.
 
 From the benchmark (Q8_0, the "plain" prompt the app uses), on the 148
 knowledge questions its router hands to a model: Granite 4.0 350M 128 right,
@@ -1034,6 +1045,9 @@ The exact questions that were not answered exactly when spoken were
 mis-transcribed ("how many ounces are in a pound" heard as "how many ants are
 in a pand", "leap year" as "leap here"); they went to the model, which got
 some of them anyway.
+
+Since: an ounce beside a volume is a fluid ounce ("how many ounces are in a
+cup" is 8; it was not answered).
 
 ## History: the sentence-trigger chain
 

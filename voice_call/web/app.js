@@ -396,27 +396,62 @@ async function pageFallback() {
   );
 }
 
-// Questions no command took: exact answers, and a small LLM for the rest.
+// Questions no command or skill took: a small LLM.
 function questionsPanel() {
   const status = (state.status && state.status.questions) || {};
-  const exact = h("input", { type: "checkbox", checked: status.exact !== false });
   const llm = h("input", { type: "checkbox", checked: status.llm !== false, disabled: status.llm_installed === false });
   const model = h("select", {}, Object.entries(status.models || {}).map(([id, m]) => h("option", { value: id, selected: status.model === id }, `${m.name} (${m.mb} MB)`)));
   async function save() {
     try {
-      await api("PUT", "settings", { questions: exact.checked, questions_llm: llm.checked, questions_model: model.value });
+      await api("PUT", "settings", { questions_llm: llm.checked, questions_model: model.value });
       toast("Saved"); await refreshStatus(); pageCommands();
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
     h("h2", {}, "Questions"),
-    h("p", { class: "muted small" }, "When no command is meant, a question still gets an answer."),
-    h("label", {}, exact, "Answer exactly: arithmetic, unit conversions, dates and times, spelling (“what's twelve times eight”, “how many cups in a quart”, “how do you spell necessary”). Questions about now or here — the weather, news, scores, prices — get “I can't look that up”."),
+    h("p", { class: "muted small" }, "When no command is meant, a question still gets an answer: exactly, from a ", h("a", { href: "#/skills" }, "skill"), " (arithmetic, unit conversions, dates, spelling), and otherwise from a small LLM."),
     h("label", {}, llm, "Answer the rest with a small LLM, in one sentence (“who wrote The Odyssey?”)",
       status.llm_installed === false ? h("span", { class: "badge" }, "llama.cpp is not installed") : h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" }, field("Model", model, "Granite answers about 9 in 10 of these in under half a second on a Raspberry Pi 5. Gemma 3 1B gets a few more right, for a faster machine."),
       h("button", { class: "primary", onclick: save }, "Save")),
-    h("p", { class: "muted small" }, "A small model can be wrong, and says so with confidence. Only what reads as a question is asked."));
+    h("p", { class: "muted small" }, "A small model can be wrong, and says so with confidence. Only what reads as a question is asked, and never one about now or here (the weather, news, scores)."));
+}
+
+// Skills: questions answered without an LLM, each on or off for the whole
+// home, and per satellite.
+async function pageSkills() {
+  const [data] = await Promise.all([api("GET", "skills"), loadSatellites()]);
+  const sats = state.satellites || [];
+  async function put(id, body) {
+    try { await api("PUT", `skills/${id}`, body); toast("Saved"); await pageSkills(); }
+    catch (err) { toast(err.message); }
+  }
+  const card = (skill) => {
+    const homeOn = (data.home || {})[skill.id] !== false;
+    const home = h("input", { type: "checkbox", checked: homeOn, onchange: (e) => put(skill.id, { home: e.target.checked }) });
+    const perSatellite = sats.map((sat) => {
+      const own = ((data.satellites || {})[sat.key] || {})[skill.id];
+      const choice = h("select", { onchange: (e) => put(skill.id, { satellites: { [sat.key]: e.target.value === "" ? null : e.target.value === "on" } }) },
+        h("option", { value: "", selected: own === undefined }, `As the home (${homeOn ? "on" : "off"})`),
+        h("option", { value: "on", selected: own === true }, "On"),
+        h("option", { value: "off", selected: own === false }, "Off"));
+      return h("label", { class: "skill-satellite" }, h("span", { class: "grow" }, sat.name), choice);
+    });
+    return h("div", { class: "panel" },
+      h("div", { class: "row", style: "align-items:flex-start" },
+        icon(skill.icon, "big"),
+        h("div", { class: "grow" },
+          h("h2", { style: "margin:0" }, skill.name),
+          h("div", { class: "muted small" }, skill.description),
+          h("div", { class: "small" }, skill.examples.map((e) => `“${e}”`).join(" · "))),
+        h("label", {}, home, "Whole home")),
+      sats.length ? h("div", { class: "skill-satellites" }, perSatellite) : null);
+  };
+  fill($main,
+    h("h1", {}, "Skills"),
+    h("p", { class: "muted" }, "Questions no command takes, answered exactly and at once, without an LLM: a skill parses the whole question and computes the answer, or leaves it to the next step. Turn each on or off for the whole home, and give a satellite its own setting where it should differ."),
+    h("p", { class: "muted small" }, "They answer before the steps after keywords and examples (meaning, the LLM) — except “Can't look it up”, which comes after them, so “do I need an umbrella” can still be your weather command. What no skill answers goes to the question model (Commands page, “Questions”)."),
+    ...data.skills.map(card));
 }
 
 async function pageCommands() {
@@ -1609,7 +1644,7 @@ function renderRecognition(rec) {
     rec.skipped && rec.skipped.length ? h("div", { class: "notice warn" }, "Passed over: ", rec.skipped.map((s) => `${s.command} (${s.why})`).join(", ")) : null,
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
-      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
+      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
     rec.matched_by && rec.matched_by !== "ctc" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : "Found by meaning: nothing matched on keywords or examples, and this command was very close.") : null,
     rec.fallback ? h("details", {}, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "") : null,
@@ -1789,6 +1824,7 @@ async function route() {
     else if (page === "command") await pageCommand(arg || null);
     else if (page === "group") await pageGroup(arg || null);
     else if (page === "fallback") await pageFallback();
+    else if (page === "skills") await pageSkills();
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "satellites") await pageSatellites();

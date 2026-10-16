@@ -18,7 +18,7 @@ import numpy as np
 
 from adapt_ctc.config import ConfigError
 
-from . import actions, timers
+from . import actions, skills, timers
 from .calls import CallLog, CallRecord
 from .discover import Device, Discovery
 from .endpoint import Endpointer
@@ -555,13 +555,12 @@ class VoiceCallApp:
     # ----------------------------------------------------------- questions
 
     def question_settings(self) -> dict[str, Any]:
-        """``settings.yaml``: answer questions no command took -- exactly
-        (``questions``), and with a small LLM (``questions_llm``). Both on
-        unless turned off."""
+        """``settings.yaml``: answer questions no command or skill took with a
+        small LLM (``questions_llm``, on unless turned off; ``questions_model``).
+        Exact answers are skills (``satellite_skills``)."""
         settings = self.store.settings
         model = str(settings.get("questions_model") or DEFAULT_QA_MODEL)
         return {
-            "exact": bool(settings.get("questions", True)),
             "llm": bool(settings.get("questions_llm", True)),
             "model": model if model in QA_MODELS else DEFAULT_QA_MODEL,
         }
@@ -582,10 +581,6 @@ class VoiceCallApp:
         if self.engine is None:
             return
         wanted = self.question_settings()
-        if not wanted["exact"]:
-            self.engine.questions = None
-            self._qa_status = None
-            return
         current = self.engine.questions
         answerer = current.answerer if current is not None and wanted["llm"] else None
         if answerer is not None and answerer.model != wanted["model"]:
@@ -645,6 +640,7 @@ class VoiceCallApp:
             "voice": choose(self.store.settings, stored),
             "device_media_player": self.hass.catalog.device_media_player(key) if key else None,
             "command_groups": self.satellite_command_groups(key),
+            "skills": self.satellite_skills(key),
         }
         if link is not None and link.device_id:
             area = self.hass.catalog.device_areas.get(link.device_id)
@@ -702,6 +698,12 @@ class VoiceCallApp:
             if picked:
                 return picked
         return None
+
+    def satellite_skills(self, key: str | None) -> frozenset[str]:
+        """The skills that answer on a satellite: each as its own setting says,
+        else the home's, else on (voice_call/skills/)."""
+        own = self.store.satellite(key).get("skills") if key else None
+        return skills.enabled(self.store.settings.get("skills"), own)
 
     def _remember_satellite(self, session: Session) -> None:
         entry = self.store.satellites.setdefault(session.satellite, {})
@@ -1482,7 +1484,10 @@ class VoiceCallApp:
     async def try_text(self, text: str, satellite_key: str | None, run_actions: bool = False) -> CallRecord:
         """Synthesize ``text`` with Piper and recognize it as a command said on
         this satellite: the whole pipeline after the wake word."""
-        satellite = self.satellite(satellite_key) if satellite_key else Satellite("", "web")
+        if satellite_key:
+            satellite = self.satellite(satellite_key)
+        else:
+            satellite = Satellite("", "web", skills=self.satellite_skills(None))
         record = self.calls.begin("try", satellite.as_dict())
         record.dry_run = not run_actions
         record.stage("typed", text=text)

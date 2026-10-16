@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from .commands import Command, match_slots
+from .skills.common import FRACTIONS, SCALES, WORD_NUM, parse_num
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -424,8 +425,6 @@ def _number(value: Any) -> float | int | None:
 def said_numbers(text: str) -> set[float]:
     """Every number a sentence says, in digits or words, and every run of
     words within one ("two hundred and fifty" is 250, and 2, 200, 50)."""
-    from .questions import FRACTIONS, SCALES, WORD_NUM, parse_num  # pylint: disable=import-outside-toplevel
-
     numeric = set(WORD_NUM) | set(SCALES) | {"and", "a", "an", "half", "quarter"} | set(FRACTIONS)
     out: set[float] = set()
     run: list[str] = []
