@@ -74,17 +74,24 @@ async def main() -> None:
         "--wake-model",
         action="append",
         metavar="NAME",
-        help="wake word model to push to the device, by file stem in "
-        "models/wake (repeatable; default: okay_nabu and vad)",
+        help="a satellite's wake word when none is picked in the UI, by id "
+        "(repeatable; default: okay_nabu). The VAD gate is always pushed",
+    )
+    parser.add_argument(
+        "--wake-words-dir",
+        metavar="DIR",
+        help="custom wake words: microWakeWord manifests (.json) and models "
+        "(.tflite) (default wake_words/, or /config/wake_words as an app)",
     )
     parser.add_argument(
         "--wake-cutoff",
         type=float,
         metavar="P",
-        help="override the wake word models' probability cutoff (default 0.2; "
-        "the VAD gate keeps its own). The manifests ship 0.85, which expects a "
-        "voice at the device; the verifier is what refuses what a lower cutoff "
-        "lets through",
+        help="override the first-stage cutoff of every verified wake word "
+        "(default: each its own -- okay_nabu 0.2; custom wake words and the VAD "
+        "gate keep their manifests'). The manifests ship 0.85 and up, which "
+        "expects a voice at the device; the verifier is what refuses what a "
+        "lower cutoff lets through",
     )
     parser.add_argument(
         "--wake-tail",
@@ -193,6 +200,11 @@ async def main() -> None:
             embedding_dir=embedding,
             threads=args.threads,
             wake_models=tuple(args.wake_model) if args.wake_model else ("okay_nabu", "vad"),
+            wake_words_dir=(
+                Path(args.wake_words_dir)
+                if args.wake_words_dir
+                else (Path("/config/wake_words") if supervisor_token else None)
+            ),
             **({} if args.wake_cutoff is None else {"wake_probability_cutoff": args.wake_cutoff}),
             wake_ratio=args.wake_ratio,
             **({} if args.wake_tail is None else {"wake_tail": args.wake_tail}),

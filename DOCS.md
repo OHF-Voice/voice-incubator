@@ -32,6 +32,24 @@ that is the area of its device in Home Assistant, and can be changed in either
 place). The area is what "the lights" means there, and what commands scoped to
 an area follow. The floor comes from the area.
 
+### Wake words
+
+Each satellite listens for one or more wake words: picked for every satellite
+at the top of the Satellites page, and per satellite below it. A satellite
+holds up to four (two with firmware from before this version).
+
+- **Okay Nabu, Hey Jarvis, Hey Mycroft** are built in. Every time the
+  satellite thinks it heard one, the app checks again against words that
+  sound like it ("hey travis", "hey microsoft"), so the satellite can listen
+  eagerly and still hear you across the room.
+- **Custom wake words**: a microWakeWord model (`.tflite`) and its manifest
+  (`.json`), as ESPHome and the Tater Wake Words catalog share them. Upload
+  both together on the Satellites page, or copy them into `wake_words/` in
+  the app's configuration folder (`addon_configs/..._voice_call` over Samba).
+  They are not checked a second time, so they run at the cutoff in their
+  manifest -- the one they were trained for. A model the satellite cannot run
+  is refused when uploaded, and marked "can't run" when copied.
+
 ### Listening and speaking
 
 The app listens and speaks with models of its own, or with Home Assistant's
@@ -281,8 +299,10 @@ commands:
 
 ## Options
 
-- `wake_cutoff`: the satellite detector's probability cutoff (default 0.2).
-  Every detection is verified again here, so it can be generous.
+- `wake_cutoff`: the satellite detector's probability cutoff for the built-in
+  wake words (default: each its own -- 0.2 for Okay Nabu, 0.5 for Hey Jarvis,
+  0.7 for Hey Mycroft). Every detection of these is verified again here, so it
+  can be generous. Custom wake words keep their own.
 - `speaker_threshold`: how closely a voice must match to be identified.
 - `silence_seconds`: silence that ends a command.
 - `debug_logging`: verbose logs.

@@ -25,6 +25,11 @@
 - The VPE's light ring flashes while a timer rings and otherwise shows the time
   left on the timer that finishes soonest. The timer alarm is the stock VPE's
   sound, and "stop" -- or the center button -- now stops it at once.
+- Wake words per satellite, several at once: "Hey Jarvis" and "Hey Mycroft"
+  join "Okay Nabu", each verified against its own confusables and run at its
+  own (low) cutoff. Custom microWakeWord models (Tater, ESPHome) can be
+  uploaded or put in `wake_words/`; they run unverified at their manifest's
+  cutoff. Firmware: six model slots, reported in `HELLO`.
 - Home Assistant STT and TTS entities, for every satellite or per satellite.
   STT writes what TDT would (examples, free text, hints) and only when needed;
   TTS speaks on the satellite's own media player or on another one.

@@ -75,9 +75,8 @@ async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--negatives", type=Path, required=True)
     parser.add_argument("--wake-binary", type=Path, required=True)
-    parser.add_argument(
-        "--wake-manifest", type=Path, default=ROOT / "models/wake/okay_nabu.json"
-    )
+    parser.add_argument("--wake-word", default="okay_nabu", help="the wake word to verify as")
+    parser.add_argument("--wake-manifest", type=Path, help="default: models/wake/<wake word>.json")
     parser.add_argument("--config", type=Path, action="append",
                         help="a wake.yaml to verify with; repeat to compare")
     parser.add_argument("--channels", nargs="*")
@@ -91,10 +90,11 @@ async def main() -> int:
     index = json.loads((args.negatives / "index.json").read_text())
     channels = args.channels or [c for c in sorted(index["files"]) if "vpe" in c]
 
-    wake = WakeWord(args.wake_binary, args.wake_manifest, args.scratch / "fa.bin")
+    manifest = args.wake_manifest or ROOT / "models/wake" / f"{args.wake_word}.json"
+    wake = WakeWord(args.wake_binary, manifest, args.scratch / f"fa-{args.wake_word}.bin")
     verifiers = []
     for path in configs:
-        verifier = WakeVerifier(Path(path))
+        verifier = WakeVerifier(Path(path), args.wake_word)
         await verifier.start()
         verifiers.append((Path(path).stem, verifier))
 

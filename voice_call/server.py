@@ -10,7 +10,7 @@ import re
 import socket
 import time
 import wave
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
 from .voices import Voices, choose
-from .mixednet import WakeModel, load as load_wake_model
+from .mixednet import WakeModel
 from .protocol import (
     BYTE_RATE,
     BYTES_PER_SAMPLE,
@@ -42,8 +42,9 @@ from .protocol import (
 from .speaker import Enrollment, Identification, SpeakerId
 from .store import Compiled, Store
 from .tts import Speech
-from .wake import WakeVerifier
+from .wake import VerifyResult, WakeVerifier
 from .wake_ratio import WakeRatio
+from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, VAD, WakeWords
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ STORE_POLL_SECONDS = 2.0
 TIMER_LIST_DEBOUNCE = 0.3
 
 # The microWakeWord model the satellite listens with while a timer rings.
-STOP_MODEL = "stop"
+STOP_MODEL = STOP
 
 # Outside a call, how far audio may run ahead of the device playing it: enough
 # to ride out network jitter, little enough that a call cutting in is heard at
@@ -105,8 +106,9 @@ def _pcm_to_float(pcm: bytes) -> np.ndarray:
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
-# Shipped lower than the models' own manifests. See Options below, and the
-# "Two stages" section of the README for the measurements behind it.
+# Shipped lower than the models' own manifests, per wake word (see
+# wake_words.VERIFIED_CUTOFF, and the "Two stages" and "Wake words" sections of
+# the README for the measurements behind them).
 DEFAULT_WAKE_CUTOFF = 0.2
 
 # How much audio from after the detection to add when the wake word ran into
@@ -148,9 +150,13 @@ class Options:
     max_reconnect_seconds: float = 60.0
     """Ceiling for the backoff after short-lived connections."""
     wake_models: tuple[str, ...] = ("okay_nabu", "vad")
-    """Wake word models pushed to the device when it connects, by file stem in
-    models/wake. Nothing is compiled into the firmware, so an empty list leaves
-    the device unable to detect anything. A model named ``vad`` gates the rest."""
+    """The wake words of a satellite that has none picked, when none are picked
+    for every satellite either, by id (``vad`` here is ignored: the VAD gate is
+    always pushed when it is there). Nothing is compiled into the firmware: the
+    models are pushed when the device connects."""
+    wake_words_dir: Path | None = None
+    """Custom wake words: microWakeWord manifests and models (default:
+    wake_words/ beside models/)."""
     wake_tail: float = DEFAULT_WAKE_TAIL
     """Seconds of audio from after the detection to add before verifying again,
     when the first attempt put the end of the wake phrase at the end of the
@@ -165,8 +171,10 @@ class Options:
     wake_ratio: float | None = None
     """Per-frame threshold for the second opinion on a rejected wake word.
     Negative disables it."""
-    wake_probability_cutoff: float | None = DEFAULT_WAKE_CUTOFF
-    """Overrides the wake word models' manifest cutoff, never the VAD gate's.
+    wake_probability_cutoff: float | None = None
+    """Overrides the first-stage cutoff of every verified wake word (each has
+    its own: okay_nabu's is DEFAULT_WAKE_CUTOFF), never the VAD gate's or a
+    custom word's, which run at their manifests'.
 
     The manifests ship 0.85, which assumes a voice at the device. Across a room
     that costs most of the recall, and the detections it refuses are ones the
@@ -262,6 +270,8 @@ class Session:
     timer_progress_at: float = 0.0
     announcing: asyncio.Event = field(default_factory=asyncio.Event)
     announced: asyncio.Event = field(default_factory=asyncio.Event)
+    wake_words: list[str] = field(default_factory=list)
+    """The wake words last pushed to it, by id."""
     """Its media player started and finished an announcement (Home Assistant TTS)."""
 
     def __str__(self) -> str:
@@ -278,6 +288,12 @@ class VoiceCallApp:
             options.hass_url, options.hass_token, options.hass_websocket_url
         )
         self.wake = WakeVerifier(root / "wake.yaml")
+        self.wake_words = WakeWords(
+            root / "models/wake",
+            options.wake_words_dir or root / "wake_words",
+            self.wake.knows,
+            options.wake_probability_cutoff,
+        )
         # The fp32 encoder is 862 MB resident, which is most of a 2 GB Pi.
         # Prefer the int8 build when it has been produced.
         ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -292,11 +308,8 @@ class VoiceCallApp:
         self.engine: Engine | None = None
         # A second opinion on the two Kaldi tests that are about "is this the
         # wake word or just speech". Its `confusable` test is left alone.
-        self.wake_ratio = (
-            WakeRatio(threshold=options.wake_ratio)
-            if options.wake_ratio is not None
-            else WakeRatio()
-        )
+        self.wake_ratios: dict[str, WakeRatio] = {}
+        """The second opinion, per verified wake word (built at start)."""
         self.speech = Speech(
             root / "models/piper/en_GB-jenny_dioco-medium.onnx",
             root / "sounds/acknowledge.mp3",
@@ -320,10 +333,8 @@ class VoiceCallApp:
         self.music = Music(self.hass)
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
-        self._stop_model: WakeModel | None = None
         self._timer_rebuild: asyncio.Task | None = None
         self.store_error: str | None = None
-        self._wake_models: list[WakeModel] = []
         self._tasks: set[asyncio.Task] = set()
         self._sessions: dict[str, asyncio.Task] = {}
         self.sessions: dict[str, Session] = {}
@@ -345,8 +356,9 @@ class VoiceCallApp:
             self.integration.want(key, entry.get("name") or key)
         await self.hass.start()
 
-        self._load_wake_models()
-        await self.wake.start()
+        await self.wake.start(tuple(w for w in self._wake_words_in_use() if self.wake.knows(w)))
+        if self.wake_words.model(STOP) is None:
+            _LOGGER.warning("No %s model: a ringing timer can only be stopped by a call", STOP)
         self.engine = await asyncio.to_thread(
             Engine,
             self._ctc_dir,
@@ -357,11 +369,20 @@ class VoiceCallApp:
         )
         await self.reload_commands()
         if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
-            try:
-                # Shares the recognizer's loaded net.
-                await asyncio.to_thread(self.wake_ratio.train, self.engine.model)
-            except Exception:  # noqa: BLE001 - a missing second opinion is not fatal
-                _LOGGER.exception("Wake word second opinion unavailable")
+            for word in self.wake_words.scan().values():
+                if not word.verified:
+                    continue
+                ratio = WakeRatio(
+                    word.phrases[0],
+                    threshold=self.options.wake_ratio if self.options.wake_ratio is not None else RATIO_THRESHOLD.get(word.id),
+                )
+                try:
+                    # Shares the recognizer's loaded net.
+                    await asyncio.to_thread(ratio.train, self.engine.model)
+                except Exception:  # noqa: BLE001 - a missing second opinion is not fatal
+                    _LOGGER.exception("Wake word second opinion unavailable for %s", word.id)
+                    continue
+                self.wake_ratios[word.id] = ratio
         await self.speech.start()
         if self.speakers is not None:
             await self.speakers.start()
@@ -464,46 +485,87 @@ class VoiceCallApp:
 
     # ---------------------------------------------------------- wake models
 
-    def _load_wake_models(self) -> None:
-        """Lower each configured .tflite into the blob the device executes.
+    @property
+    def default_wake_words(self) -> tuple[str, ...]:
+        """The app's own default, when nothing is picked anywhere."""
+        return tuple(w for w in self.options.wake_models if w not in SPECIAL)
 
-        The device has no TFLite interpreter and no flatbuffer parser, so the
+    def satellite_wake_words(self, key: str) -> list[str]:
+        """What this satellite listens for: its own pick, else every
+        satellite's, else the app's default."""
+        return self.wake_words.chosen(
+            self.store.settings, self.store.satellite(key), self.default_wake_words
+        )
+
+    def _wake_words_in_use(self) -> list[str]:
+        keys = dict.fromkeys([*self.store.satellites, *self.sessions])
+        used = [w for key in keys for w in self.satellite_wake_words(key)]
+        used += self.wake_words.chosen(self.store.settings, {}, self.default_wake_words)
+        return list(dict.fromkeys(used))
+
+    def _wake_models_for(self, session: Session) -> list[WakeModel]:
+        """The VAD gate and the satellite's wake words, as many as fit beside
+        "stop" in the device's model slots.
+
+        The device has no TFLite interpreter and no flatbuffer parser, so each
         graph is walked here and sent as a flat op table plus weights.
         """
-        self._wake_models = []
-        for stem in self.options.wake_models:
-            path = self.root / "models/wake" / f"{stem}.tflite"
-            if not path.exists():
-                _LOGGER.error("Wake model %s not found", path)
-                continue
-            model = load_wake_model(path)
-            if (
-                self.options.wake_probability_cutoff is not None
-                and not model.is_vad
-            ):
-                model = replace(
-                    model, probability_cutoff=self.options.wake_probability_cutoff
-                )
-            self._wake_models.append(model)
+        slots = int(session.hello.get("model_slots") or DEFAULT_MODEL_SLOTS)
+        vad = self.wake_words.model(VAD)
+        room = max(1, slots - RESERVED_SLOTS)
+        wanted = self.satellite_wake_words(session.satellite)
+        models = [m for m in (self.wake_words.model(w) for w in wanted) if m is not None]
+        if len(models) > room:
+            _LOGGER.warning(
+                "[%s] Only %d wake word(s) fit on this device; not listening for %s",
+                session,
+                room,
+                ", ".join(m.model_id for m in models[room:]),
+            )
+            models = models[:room]
+        if not models:
+            _LOGGER.warning("[%s] No wake word model loaded; the device cannot wake", session)
+        return ([vad] if vad is not None else []) + models
+
+    async def _push_wake_models(self, session: Session) -> None:
+        """Send the satellite's models. The device keeps none across a reboot,
+        and may still hold another set from before a reconnect, so they are
+        cleared first -- which stops its microphone, so never during a call."""
+        while session.call is not None and session.writer is not None:
+            await asyncio.sleep(0.5)
+        if session.writer is None:
+            return
+        models = self._wake_models_for(session)
+        session.wake_words = [m.model_id for m in models if not m.is_vad]
+        for model in models:
             _LOGGER.info(
-                "Wake model %r: %d bytes, cutoff %.2f, window %d%s",
-                model.wake_word,
+                "[%s] Wake model %r: %d bytes, cutoff %.2f, window %d%s",
+                session,
+                model.model_id,
                 len(model.blob),
                 model.probability_cutoff,
                 model.sliding_window_size,
                 " (VAD gate)" if model.is_vad else "",
             )
-        if not any(not m.is_vad for m in self._wake_models):
-            _LOGGER.warning("No wake word model loaded; the device cannot wake")
-        stop = self.root / "models/wake" / f"{STOP_MODEL}.tflite"
-        if stop.exists():
-            self._stop_model = load_wake_model(stop)
-        else:
-            _LOGGER.warning("No %s model: a ringing timer can only be stopped by a call", stop)
+        verified = [w for w in session.wake_words if self.wake.knows(w)]
+        if verified:
+            # Its graphs and decoders, before the first call needs them.
+            self._spawn(self.wake.ensure(verified))
+        await self._send(session, Message.MODEL_CLEAR)
+        await self._push_models(session, models)
 
-    async def _push_wake_models(self, session: Session) -> None:
-        """Send every model to the device. It keeps none across a reboot."""
-        await self._push_models(session, self._wake_models)
+    def wake_words_changed(self, key: str | None = None) -> None:
+        """A satellite's pick (or every satellite's) changed: push again where
+        it changes what the device listens for. A ringing satellite gets them
+        when the ring ends."""
+        for session in list(self.sessions.values()):
+            if key is not None and session.satellite != key:
+                continue
+            if session.writer is None or (session.ringing and not session.ringing.done()):
+                continue
+            wanted = [m.model_id for m in self._wake_models_for(session) if not m.is_vad]
+            if wanted != session.wake_words:
+                self._spawn(self._push_wake_models(session))
 
     async def _push_models(self, session: Session, models: list[WakeModel], first_slot: int = 0) -> None:
         for slot, model in enumerate(models, start=first_slot):
@@ -738,9 +800,11 @@ class VoiceCallApp:
     # ----------------------------------------------------------------- calls
 
     def _on_call_start(self, session: Session, info: dict) -> None:
+        heard = str(info.get("wake_word", ""))
         session.call = Call(
             preroll_bytes=int(info.get("preroll_bytes", 0)),
-            wake_word=info.get("wake_word", ""),
+            # The id it was pushed with; older firmware or models report a name.
+            wake_word=self.wake_words.resolve(heard) or heard,
             aec_preroll_bytes=int(info.get("aec_preroll_bytes", 0)),
         )
         session.drained.clear()
@@ -846,7 +910,8 @@ class VoiceCallApp:
     ) -> tuple[Any, bytes]:
         """Verify the pre-roll-sized window that starts ``offset`` bytes in."""
         window = bytes(call.audio[offset : offset + call.preroll_bytes])
-        result = await self.wake.verify(window)
+        result = await self.wake.verify(window, call.wake_word or None)
+        assert result is not None
         _LOGGER.info(
             "[%s] Wake verification%s: accepted=%s rejected_by=%s split=%s "
             "decode=%.0fms",
@@ -865,7 +930,13 @@ class VoiceCallApp:
 
     async def _verify_wake(self, label: str, call: Call) -> WakeVerdict:
         """Kaldi on the pre-roll, retried with a tail when the wake word ran
-        off its end, and the second opinion on a `last`/`prefix` rejection."""
+        off its end, and the second opinion on a `last`/`prefix` rejection.
+        A wake word with no verifier (a custom one) stands as detected."""
+        if call.wake_word and not self.wake.knows(call.wake_word):
+            window = bytes(call.audio[: call.preroll_bytes])
+            if call.record is not None:
+                call.record.stage("wake_unverified", wake_word=call.wake_word)
+            return WakeVerdict(True, VerifyResult(call.wake_word, accepted=True), 0, window)
         offset = 0
         result, window = await self._verify_at(label, call, offset)
         verdict = WakeVerdict(result.accepted, result, 0, window)
@@ -889,8 +960,11 @@ class VoiceCallApp:
             # already loaded, whether the window is the wake word at all --
             # but never about `confusable`, which is the one decision it gets
             # wrong far more often than Kaldi does.
-            overturned, score = self.wake_ratio.would_accept(
-                verdict.result.rejected_by, verdict.window
+            ratio = self.wake_ratios.get(verdict.result.wake_word_id)
+            overturned, score = (
+                ratio.would_accept(verdict.result.rejected_by, verdict.window)
+                if ratio is not None
+                else (False, None)
             )
             verdict.ratio = score
             verdict.overturned = overturned
@@ -1028,6 +1102,7 @@ class VoiceCallApp:
                 call.split_bytes / BYTE_RATE,
                 satellite,
                 transcriber,
+                self.wake_words.phrases(call.wake_word),
             )
         if record is not None:
             record.stage("split", **split.to_json())
@@ -1197,7 +1272,11 @@ class VoiceCallApp:
         record = self.calls.begin("replay", satellite.as_dict())
         record.dry_run = not run_actions
         record.stage("replay_of", call=call_id)
-        call = Call(preroll_bytes=ms_to_bytes(preroll * 1000), wake_word="", record=record)
+        heard = next(
+            (s.get("wake_word") for s in old.stages if s.get("stage") == "call_start"), ""
+        )
+        wake_word = self.wake_words.resolve(str(heard or "")) or self.wake.wake_word
+        call = Call(preroll_bytes=ms_to_bytes(preroll * 1000), wake_word=wake_word, record=record)
         call.audio = bytearray(pcm)
         record.marks["detection"] = preroll
         verdict = await self._verify_wake(f"replay {call_id}", call)
@@ -1215,6 +1294,7 @@ class VoiceCallApp:
                 call.split_bytes / BYTE_RATE,
                 satellite,
                 transcriber,
+                self.wake_words.phrases(call.wake_word),
             )
         record.stage("split", **split.to_json())
         record.marks["cut"] = split.cut
@@ -1301,8 +1381,9 @@ class VoiceCallApp:
             # Not over someone's command.
             while session.call is not None and time.monotonic() < deadline:
                 await asyncio.sleep(0.2)
-            if self._stop_model is not None:
-                await self._push_models(session, [self._stop_model], first_slot=len(self._wake_models))
+            stop = self.wake_words.model(STOP)
+            if stop is not None:
+                await self._push_models(session, [stop], first_slot=len(session.wake_words) + 1)
             names = [t.get("name") for t in session.ringing_timers]
             record.stage("timer_ringing", timers=session.ringing_timers)
             await self._event(session, "timer_ringing", timers=len(names), name=names[-1] or "")
@@ -1326,8 +1407,7 @@ class VoiceCallApp:
         if session.writer is None:
             return
         await self._event(session, "timer_stopped")
-        if self._stop_model is not None:
-            await self._send(session, Message.MODEL_CLEAR)
+        if self.wake_words.model(STOP) is not None:
             await self._push_wake_models(session)
 
     # ------------------------------------------------------------ speaker ID

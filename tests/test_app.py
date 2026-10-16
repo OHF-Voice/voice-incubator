@@ -215,12 +215,13 @@ async def _scenario(tmp_path: Path) -> None:
             for e in satellite.events
         ))
         played = satellite.played
+        clears = satellite.clears  # once on connecting
         await hass.finish_timer(timer_list, timer_id)
         await wait_for(lambda: "stop" in satellite.models and satellite.played > played + 32000)
         assert any(e["type"] == "timer_ringing" for e in satellite.events)
         assert [e for e in satellite.events if e["type"] == "timer_progress"][-1]["data"] == {"shown": 0}
         assert await satellite.detect("Stop") == "timer_stopped"
-        await wait_for(lambda: satellite.clears == 1 and satellite.models == ["okay_nabu", "vad"])
+        await wait_for(lambda: satellite.clears == clears + 1 and satellite.models == ["vad", "okay_nabu"])
         outcomes = [r.outcome for r in app.calls.recent]
         assert outcomes[-2:] == ["timer stopped", "timer stopped"] or outcomes[-1] == "timer stopped"
 
@@ -238,7 +239,7 @@ async def _scenario(tmp_path: Path) -> None:
         session = app.sessions[MAC]
         await wait_for(lambda: session.ringing is not None and not session.ringing.done() and "stop" in satellite.models)
         await satellite.device_event("stop_timer")
-        await wait_for(lambda: session.ringing.done() and satellite.models == ["okay_nabu", "vad"])
+        await wait_for(lambda: session.ringing.done() and satellite.models == ["vad", "okay_nabu"])
         stopped = next(s for s in app.calls.recent[-1].stages if s["stage"] == "timer_stopped")
         assert stopped["by"] == "button" and app.calls.recent[-1].outcome == "timer stopped"
 

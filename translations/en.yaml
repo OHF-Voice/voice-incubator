@@ -3,9 +3,10 @@ configuration:
   wake_cutoff:
     name: Wake word cutoff
     description: >-
-      Probability at which the satellite's own detector fires. Lower is more
-      generous; the app verifies every detection with a second, stricter
-      stage, so 0.2 is the tested default.
+      Probability at which the satellite's own detector fires, for every
+      verified wake word (empty: each its own, as measured -- 0.2 for "Okay
+      Nabu"). Lower is more generous; the app verifies each detection with a
+      second, stricter stage. Custom wake words run at their own cutoff.
   speaker_threshold:
     name: Speaker threshold
     description: >-

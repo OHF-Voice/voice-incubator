@@ -252,9 +252,8 @@ class Engine:
                 _LOGGER.warning("tokenizers is not installed; no hints by meaning")
         elif embedding_dir is not None:
             _LOGGER.info("No embedding model at %s; hints come from keywords only", embedding_dir)
-        self.placer = WakeVerifier(
-            WakeConfig(WAKE_PHRASES, scoring="best"), self.model.vocab, "en"
-        )
+        self._placers: dict[tuple[str, ...], WakeVerifier] = {}
+        self.placer = self.placer_for(WAKE_PHRASES)
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
 
@@ -328,16 +327,31 @@ class Engine:
 
     # ---------------------------------------------------------- recognizing
 
+    def placer_for(self, phrases: tuple[str, ...]) -> WakeVerifier:
+        """Finds one wake word's phrases in the CTC evidence. Placement only,
+        so no confusables: the wake word was already decided on."""
+        placer = self._placers.get(phrases)
+        if placer is None:
+            placer = WakeVerifier(WakeConfig(phrases, scoring="best"), self.model.vocab, "en")
+            self._placers[phrases] = placer
+        return placer
+
     def place_command(
-        self, audio: np.ndarray, wake_start: float | None, kaldi_split: float
+        self,
+        audio: np.ndarray,
+        wake_start: float | None,
+        kaldi_split: float,
+        phrases: tuple[str, ...] | None = None,
     ) -> tuple[np.ndarray, float, Split]:
         """Log-probabilities of the command, their frame length, and where it
-        starts: after the wake phrase as the CTC evidence places it."""
+        starts: after the wake phrase (``phrases``, default "okay nabu") as the
+        CTC evidence places it."""
         anchor = wake_start if wake_start is not None else max(0.0, kaldi_split - 1.0)
         offset = max(0.0, anchor - LEAD)
         log_probs, frame_seconds = self.model.log_probs(audio[int(offset * SAMPLE_RATE) :])
         bound = int((kaldi_split - offset + SPLIT_BOUND) / frame_seconds)
-        wake = self.placer.verify_log_probs(log_probs, frame_seconds, max_end=bound)
+        placer = self.placer_for(tuple(phrases)) if phrases else self.placer
+        wake = placer.verify_log_probs(log_probs, frame_seconds, max_end=bound)
         split = Split(offset, kaldi_split, kaldi_split)
         if wake.phrase is not None:
             end = wake.end
@@ -357,12 +371,13 @@ class Engine:
         kaldi_split: float,
         satellite: Satellite,
         transcriber: Any = None,
+        wake_phrases: tuple[str, ...] | None = None,
     ) -> tuple[Decision, Split]:
         """A whole call, from the start of its pre-roll, after Kaldi accepted
         the wake word. ``transcriber`` stands in for the TDT head (an STT
-        entity, see voice_call/speech.py)."""
+        entity, see voice_call/voices.py)."""
         started = time.perf_counter()
-        log_probs, frame_seconds, split = self.place_command(audio, wake_start, kaldi_split)
+        log_probs, frame_seconds, split = self.place_command(audio, wake_start, kaldi_split, wake_phrases)
         placed = time.perf_counter() - started
         command_audio = audio[int(split.cut * SAMPLE_RATE) :]
         decision = self.decide(log_probs, frame_seconds, command_audio, satellite, transcriber)

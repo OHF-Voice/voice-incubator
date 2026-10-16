@@ -119,6 +119,7 @@ them into the vocabulary unless someone adds it.
 | `voice_call/mixednet.py` | lowers a wake word `.tflite` into the device's blob |
 | `voice_call/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
 | `voice_call/wake.py` | Kaldi wake verification and split point |
+| `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
 | `voice_call/endpoint.py` | silero VAD endpointing |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, scope, free text from TDT, hints |
@@ -149,6 +150,8 @@ them into the vocabulary unless someone adds it.
 | `voice_call/wake_ratio.py` | the second opinion on a rejected wake word |
 | `scripts/align_sessions.py` | where the wake word is in every prompt of a session |
 | `scripts/false_accepts.py` | how often the chain fires on audio with no wake word in it |
+| `scripts/synth_wake_words.py` | wake words and near misses spoken by every Piper English voice, in rooms and noise |
+| `scripts/bench_wake_words.py` | a wake word through both stages on labeled clips, at several cutoffs; sweeps thresholds afterwards |
 | `tests/alignments/` | wake word spans and word boundaries, one JSONL per session |
 | `tests/corpus_corrections.csv` | what was actually said, where it differs from the prompt list |
 | `corpus/positives/` | 32 VPE captures of in-vocabulary commands, for threshold work |
@@ -339,7 +342,7 @@ No model is compiled into the firmware. The device runs
 [mixednet-executor](https://github.com/synesthesiam/mixednet-executor) -- the
 microWakeWord streaming graph without a TFLite interpreter -- and the app pushes
 it a model over the same socket right after `HELLO`. Changing the wake word is
-`--wake-model`, not a reflash.
+a pick in the UI (see "Wake words" below), not a reflash.
 
 The device cannot read a `.tflite`: lowering the graph means walking flatbuffers
 and proving every convolution emits exactly one frame, which is the work
@@ -357,7 +360,7 @@ settings travel with it as JSON, read from the model's microWakeWord manifest:
 
 | field | |
 |---|---|
-| `probability_cutoff` | per-slice threshold, 0.0--1.0; `--wake-cutoff` overrides |
+| `probability_cutoff` | per-slice threshold, 0.0--1.0; per wake word (below); `--wake-cutoff` overrides the verified ones |
 | `sliding_window_size` | slices averaged before a detection counts |
 | `feature_step_size` | must match the device's frontend, or the model is refused |
 | `kind` | `vad` makes the model a gate on the others rather than a wake word |
@@ -375,6 +378,105 @@ random features.
 The stock cutoff of 0.85 assumes a voice at the device. Across a room from a
 loudspeaker this bench sees peaks around 0.5--0.9 depending on volume, which is
 what `--wake-cutoff 0.5` is for.
+
+## Wake words
+
+Each satellite listens for one or more wake words: its own pick (Satellites
+page, `satellites.yaml`: `wake_words: [...]`), else every satellite's
+(`settings.yaml`), else `--wake-model` (default `okay_nabu`). The app pushes
+the VAD gate and the picked models on `HELLO`, clearing whatever the device
+held first, and again when a pick changes -- never during a call, since
+clearing stops the detector's microphone. The firmware has six model slots and
+says so in `HELLO` (`model_slots`): the VAD gate, "stop" while a timer rings,
+and up to four wake words. Older firmware has four, so two.
+
+The device reports the model's id as the wake word, which decides which
+verifier, second opinion and placement phrases apply (`voice_call/wake_words.py`).
+
+| | built in, verified | custom |
+|---|---|---|
+| where | `models/wake`, entry in `wake.yaml` | `wake_words/` (as an app: `/config/wake_words`), or uploaded in the UI |
+| first stage | low cutoff, per word | the manifest's cutoff |
+| Kaldi verifier | yes, with confusables | no: the detection stands |
+| second opinion | yes, per-word threshold | no |
+| where the command starts | wake phrase found in the CTC evidence | the same, from the manifest's `wake_word` text |
+
+Each verified wake word in use costs its Kaldi graphs and two resident
+decoder processes, about 200 MB, so they start when a satellite first listens
+for the word, not at startup.
+
+### "Hey Jarvis" and "Hey Mycroft"
+
+The models are microWakeWord's own (v2, as ESPHome ships them). Their
+`wake.yaml` entries were built the way "okay nabu"'s was: neighbours of the
+last word as confusables, then measured and pruned.
+
+- **"Hey Mycroft"** has real recordings: the Mycroft community data
+  (`/media/cache/12tb/en-us/hey-mycroft`), clips Precise fired on and people
+  labeled -- 66k wake words and 40k false wakes, 1,500 of each sampled. These
+  were very likely in the detector's training data, so its numbers on them are
+  flattering; the verifier's are not.
+- **"Hey Jarvis"** has none, so 1,000 wake words and 1,200 near misses (60
+  phrases) were synthesized with every Piper English voice and speaker (598),
+  at varied speed, half in a simulated room and most under noise
+  (`scripts/synth_wake_words.py`), plus 500 held out (20 phrases, half of
+  them never used for tuning).
+
+Everything goes through the chain as the app runs it, at several cutoffs:
+detector, 1.5 s window, Kaldi with the tail retry, second opinion
+(`scripts/bench_wake_words.py`, which keeps every score so the thresholds can
+be swept afterwards).
+
+"Hey Mycroft" first lost 42% of real wake words to the verifier, nearly all
+on confusables: "micro", "my crop", "my cough", "mike", "macro" and "my craft"
+were each the closest rival of three or more times as many wake words as false
+wakes. Dropping those twelve and adding the two ways "mycroft" is mostly said
+("my-craft", and "my-croft" with the vowel of "cot") as pronunciations, then
+loosening its prefix test and confusable margin (`theta_prefix` 1.2,
+`theta_competitor` 0.15) and its second opinion (1.2):
+
+| hey_mycroft, cutoff 0.7 | wake words | false wakes |
+|---|---|---|
+| detector | 99.5% | 14.9% |
+| first confusable list | 58.9% | 2.1% |
+| pruned, pronunciations | 85.7% | 2.9% |
+| + thresholds | **88.7%** | **3.0%** |
+| synthetic: 500 wake words / 1,000 near misses | 92.0% | 44.0% |
+
+The synthetic near misses say the pruning has a price: "hey microphone", "hey
+my cross", "hey minecraft", "hey micro" get through nearly every time the
+detector fires on them (and did at the stricter settings too: 34% at the
+defaults with no second opinion). The recorded false wakes -- what actually
+sets the detector off in a home -- are what the list was tuned on.
+
+"Hey Jarvis" kept 97% of the synthetic wake words it detected from the start.
+Its leaks were phrases not on the list -- "janice", "jealous", "drivers",
+"darkness", "jockey", "jar", "jarred", "guys" -- which were added, and its
+second opinion is tighter (1.0: the same recall, fewer near misses through):
+
+| hey_jarvis, cutoff 0.5 | wake words | near misses (tuning) | near misses (held out) |
+|---|---|---|---|
+| detector | 91.0% | 37.9% | 64.8% |
+| verified | **88.3%** | **6.5%** | **10.1%** |
+
+Phrases that contain "jarvis" ("hi jarvis", "okay jarvis", "a jarvis") are
+accepted, and are not counted as near misses. The ones that still get through
+most are "hey chavez" (14 of 18 detected), "hey jervis", and the made-up
+"hey charvis".
+
+**Cutoffs.** The detector's own false firings on 12 hours of speech and music
+at the Voice PE (`scripts/false_accepts.py --wake-word ...`), per hour:
+
+| cutoff | 0.2 | 0.35 | 0.5 | 0.7 | 0.95 |
+|---|---|---|---|---|---|
+| okay_nabu | 0.25 | | | | |
+| hey_jarvis | 2.6 | 1.5 | **0.8** | 0.2 | 0 |
+| hey_mycroft | 16.7 | 9.4 | 5.1 | **2.7** | 0.9 |
+
+The verifier accepted none of them at any cutoff, but each firing lights the
+ring and ducks the music until it is refused, so the cutoffs are 0.2, 0.5 and
+0.7. "Hey Mycroft" is the trigger-happy one: at 0.7 it still finds 95% of the
+synthetic wake words against 90% at 0.9.
 
 ## Two captures per call
 

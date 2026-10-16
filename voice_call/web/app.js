@@ -978,18 +978,89 @@ function voicePicker(ttsSelect, value, inherit) {
   return select;
 }
 
+// Wake words to tick, at most `slots` of them. With `inherit` (a satellite),
+// unticking "its own" follows every satellite's pick. `.picked()` is the ids
+// ticked, or null for "as every satellite".
+function wakeChooser(words, picked, slots, inherit) {
+  const own = h("input", { type: "checkbox", checked: !inherit || !!(picked && picked.length) });
+  const boxes = words.map((w) => {
+    const box = h("input", { type: "checkbox", value: w.id, checked: (picked && picked.length ? picked : inherit || []).includes(w.id), disabled: !w.runs });
+    return { word: w, box };
+  });
+  const note = h("span", { class: "help" });
+  function update() {
+    const following = inherit && !own.checked;
+    for (const { word, box } of boxes) {
+      if (following) box.checked = inherit.includes(word.id);
+      box.disabled = following || !word.runs;
+    }
+    const n = boxes.filter((b) => b.box.checked).length;
+    note.textContent = n > slots ? `Only ${slots} fit on a satellite: the first ${slots} ticked are used.` : n ? "" : "Pick at least one.";
+  }
+  own.addEventListener("change", update);
+  boxes.forEach((b) => b.box.addEventListener("change", update));
+  update();
+  const el = h("div", { class: "wake-words" },
+    inherit ? h("label", { class: "small" }, own, "Its own wake words (otherwise as every satellite)") : null,
+    h("div", { class: "wake-list" }, boxes.map(({ word, box }) => h("label", { title: word.error || "" }, box, word.name,
+      word.verified ? h("span", { class: "badge ok", title: `Checked by the verifier; the detector runs at ${word.cutoff}` }, "verified")
+        : h("span", { class: "badge", title: "No verifier: runs at its own manifest's cutoff" }, `custom · ${word.cutoff}`),
+      word.runs ? null : h("span", { class: "badge bad" }, "can't run")))),
+    note);
+  el.picked = () => (inherit && !own.checked ? null : boxes.filter((b) => b.box.checked).map((b) => b.word.id));
+  return el;
+}
+
 async function pageSatellites() {
-  const [sats, voices] = await Promise.all([loadSatellites(), api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] }))]);
+  const [sats, voices, wake] = await Promise.all([
+    loadSatellites(),
+    api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
+    api("GET", "wake_words").catch(() => ({ wake_words: [], default: [], slots: 2 })),
+  ]);
   const areas = await areaLabels();
   const settings = (state.status && state.status.settings) || {};
   const globalStt = voiceSelect("stt", voices.stt, settings.stt);
   const globalTts = voiceSelect("tts", voices.tts, settings.tts);
   const globalVoice = voicePicker(globalTts, settings.tts_voice);
   const label = (value, kind) => value || (kind === "stt" ? "built-in" : "built-in");
+  const globalWake = wakeChooser(wake.wake_words, wake.default, wake.slots);
+  const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
+  const custom = wake.wake_words.filter((w) => w.custom);
   fill($main, 
     h("h1", {}, "Satellites"),
     h("p", { class: "muted" }, "Each satellite's area is what “the lights” means there, and what commands scoped to an area follow. With the Voice Call integration it is the area of the satellite's own device in Home Assistant."),
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
+    h("div", { class: "panel" },
+      h("h2", {}, "Wake words"),
+      h("p", { class: "muted small" }, "What every satellite listens for, unless it has its own below. ",
+        h("b", {}, "Verified"), " wake words are checked a second time here, against words that sound like them, so the satellite can listen for them more eagerly. ",
+        h("b", {}, "Custom"), " ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — are not: they run at the cutoff they were trained for.",
+        wake.custom_dir ? [" They can also be put in ", h("code", {}, wake.custom_dir), "."] : null),
+      globalWake,
+      h("div", { class: "row" },
+        h("button", { class: "primary", onclick: async () => {
+          try { await api("PUT", "settings", { wake_words: globalWake.picked() }); await refreshStatus(); toast("Saved"); pageSatellites(); }
+          catch (err) { toast(err.message); }
+        } }, "Save"),
+        h("span", { class: "grow" }),
+        field("Add a custom wake word", upload, "Pick its .json and .tflite together."),
+        h("button", { onclick: async () => {
+          if (!upload.files.length) return toast("Pick the .json and the .tflite");
+          const form = new FormData();
+          for (const file of upload.files) form.append(file.name.endsWith(".json") ? "manifest" : "model", file, file.name);
+          try {
+            const response = await fetch("api/wake_words", { method: "POST", body: form });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) throw new Error(data.error || response.statusText);
+            toast(`Added ${data.id}`); pageSatellites();
+          } catch (err) { toast(err.message); }
+        } }, "Upload")),
+      custom.length ? h("div", { class: "small" }, "Custom: ", custom.map((w) => h("span", { class: "chip" }, w.name,
+        h("button", { class: "link", title: `Delete ${w.id}`, onclick: async () => {
+          if (!confirm(`Delete the wake word ${w.name}?`)) return;
+          try { await api("DELETE", `wake_words/${encodeURIComponent(w.id)}`); toast("Deleted"); pageSatellites(); }
+          catch (err) { toast(err.message); }
+        } }, "×")))) : null),
     h("div", { class: "panel" },
       h("h2", {}, "Listening and speaking"),
       h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own below). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
@@ -1015,6 +1086,7 @@ async function pageSatellites() {
       const speakOn = h("select", {},
         h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
         ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
+      const wakeWords = wakeChooser(wake.wake_words, s.wake_words, s.model_slots ? s.model_slots - 2 : wake.slots, wake.default);
       const found = s.media_player_picked ? null : s.media_player;
       const player = h("select", {},
         h("option", { value: "" }, found ? `Its Sendspin player (${found})` : "Its Sendspin player (not found)"),
@@ -1029,6 +1101,7 @@ async function pageSatellites() {
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
+          h("div", {}, "Wake words"), h("div", {}, (s.wake_words_used || []).map((id) => (wake.wake_words.find((w) => w.id === id) || { name: id }).name).join(", ") || "none", s.wake_words ? " (its own)" : ""),
           h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
           h("div", {}, "Listens with"), h("div", {}, used.stt ? h("code", {}, used.stt) : "the built-in TDT model", " after the built-in matcher"),
           h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice ? ` (${used.tts_voice})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in")),
@@ -1037,6 +1110,7 @@ async function pageSatellites() {
         s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
         h("div", { class: "row" },
           field("Name", name), field("Area", area), field("Music player", player)),
+        field("Wake words", wakeWords),
         h("div", { class: "row" },
           field("Speech-to-text", stt), field("Text-to-speech", tts), field("Voice", voice),
           field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
@@ -1046,13 +1120,14 @@ async function pageSatellites() {
               await api("PUT", `satellites/${s.key}`, {
                 name: name.value, area: area.value || null, media_player: player.value || null,
                 stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
+                wake_words: wakeWords.picked(),
               });
               toast("Saved"); pageSatellites();
             }
             catch (err) { toast(err.message); }
           } }, "Save")),
         h("h3", {}, "Debugging"),
-        h("p", { class: "muted small" }, "A debug session keeps the audio of every call on this satellite, from the pre-roll before “okay nabu” to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
+        h("p", { class: "muted small" }, "A debug session keeps the audio of every call on this satellite, from the pre-roll before the wake word to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
         h("div", { class: "row" },
           h("label", {}, dry, "Dry run (don't run commands)"),
           s.debug ? h("button", { onclick: async () => { await api("POST", `satellites/${s.key}/debug`, { active: false }); pageSatellites(); refreshStatus(); } }, "Stop session") :

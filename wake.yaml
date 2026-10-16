@@ -258,3 +258,97 @@ wake_words:
       - okay nugget
       - okay number
       - okay taboo
+
+  hey_jarvis:
+    model: en_US-rhasspy
+    description: Hey Jarvis
+    names:
+      - hey jarvis
+    phrases:
+      - hey jarvis
+    # Neighbours of "jarvis", plus what the detector fired on and Kaldi still
+    # accepted in synthetic speech (scripts/synth_wake_words.py, README "Wake
+    # words"): "janice", "jealous", "drivers", "darkness", "jockey", "jar",
+    # "jarred" and "guys".
+    confusables:
+      - hey artist
+      - hey avis
+      - hey car keys
+      - hey carpet
+      - hey carver
+      - hey charles
+      - hey charlie
+      - hey chavez
+      - hey darkness
+      - hey davis
+      - hey drivers
+      - hey garlic
+      - hey garvey
+      - hey guys
+      - hey harvest
+      - hey harvey
+      - hey jackson
+      - hey janice
+      - hey jar
+      - hey jarred
+      - hey jars
+      - hey jasmine
+      - hey jasper
+      - hey java
+      - hey jaws
+      - hey jealous
+      - hey jersey
+      - hey jockey
+      - hey lavish
+      - hey marvel
+      - hey marvin
+      - hey mavis
+      - hey nervous
+      - hey parsley
+      - hey service
+      - hey starving
+      - hey travel
+      - hey travis
+
+  hey_mycroft:
+    model: en_US-rhasspy
+    description: Hey Mycroft
+    names:
+      - hey mycroft
+    phrases:
+      - hey mycroft
+    # The lexicon's "mycroft" plus how it is mostly said: "my-craft" and, in
+    # the US, "my-croft" with the vowel of "cot".
+    pronunciations:
+      mycroft:
+        - m ˈaɪ k ɹ ɔ f t
+        - m ˈaɪ k ɹ æ f t
+        - m ˈaɪ k ɹ ɑ f t
+    # Measured on the Mycroft community recordings (README "Wake words"):
+    # "micro", "my crop", "my cough", "mike", "macro", "my car", "my cat",
+    # "my boss", "my raft", "my craft", "my clock" and "my crush" were each
+    # the closest rival of three or more times as many real wake words as of
+    # recorded false wakes, so they cost recall and caught almost nothing.
+    confusables:
+      - hey mickey
+      - hey microphone
+      - hey microsoft
+      - hey microwave
+      - hey mighty
+      - hey my aircraft
+      - hey my credit
+      - hey my crowd
+      - hey my draft
+      - hey my friend
+      - hey my gift
+      - hey my loft
+      - hey my shift
+      - hey my soft
+      - hey nike
+    # Real wake words often say "hey" quickly or under noise: a looser prefix
+    # test and confusable margin keep 88.7% of the recorded wake words the
+    # detector found, against 85.7% at the defaults, for 3.0% of recorded false
+    # wakes accepted against 2.9%.
+    thresholds:
+      theta_prefix: 1.2
+      theta_competitor: 0.15

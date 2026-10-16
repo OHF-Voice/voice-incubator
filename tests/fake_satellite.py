@@ -51,6 +51,9 @@ class FakeSatellite:
     models: list[str] = field(default_factory=list)
     """Model ids loaded, in order; MODEL_CLEAR empties it."""
     clears: int = 0
+    model_slots: int | None = None
+    """Said in HELLO, as newer firmware does."""
+    model_headers: dict[str, dict] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()
@@ -60,7 +63,10 @@ class FakeSatellite:
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._writer = writer
-        writer.write(encode_json(Message.HELLO, {"name": self.name, "mac": self.mac}))
+        hello = {"name": self.name, "mac": self.mac}
+        if self.model_slots is not None:
+            hello["model_slots"] = self.model_slots
+        writer.write(encode_json(Message.HELLO, hello))
         await writer.drain()
         try:
             while True:
@@ -76,7 +82,9 @@ class FakeSatellite:
     async def _on(self, msg_type: int, payload: bytes) -> None:
         assert self._writer is not None
         if msg_type == Message.MODEL_START:
-            self.models.append(json.loads(payload).get("id"))
+            header = json.loads(payload)
+            self.models.append(header.get("id"))
+            self.model_headers[header.get("id")] = header
         elif msg_type == Message.MODEL_CLEAR:
             self.models.clear()
             self.clears += 1

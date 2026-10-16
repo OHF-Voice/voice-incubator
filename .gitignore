@@ -13,3 +13,4 @@
 /tests/bench_*.jsonl
 # Staged for the image by script/stage_build.
 /local/
+/wake_words/

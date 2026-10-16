@@ -12,16 +12,19 @@ homeassistant_api: true
 # mDNS discovery of satellites, and connecting to them.
 host_network: true
 ingress: true
+# /config: custom wake words (wake_words/), reachable from the Samba and file
+# editor apps as addon_configs/<slug>_voice_call.
+map:
+  - addon_config:rw
 ingress_port: 8099
 panel_icon: mdi:account-voice
 panel_title: Voice Call
 options:
-  wake_cutoff: 0.2
   speaker_threshold: 0.45
   silence_seconds: 1.0
   debug_logging: false
 schema:
-  wake_cutoff: float(0.05,1)
+  wake_cutoff: float(0.05,1)?
   speaker_threshold: float(0,1)
   silence_seconds: float(0.3,5)
   debug_logging: bool

@@ -9,6 +9,7 @@ Assistant with an admin token.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import re
 from pathlib import Path
@@ -24,6 +25,7 @@ from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .commands import DYNAMIC_LISTS, NUMBER_PRESETS, parse_command
 from .hass import VOICE_DOMAINS, HassError
 from .store import NAME_KINDS, compile_store, dump, plain
+from .wake_words import DEFAULT_MODEL_SLOTS, RESERVED_SLOTS, SPECIAL
 
 if TYPE_CHECKING:
     from .server import VoiceCallApp
@@ -90,6 +92,9 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/satellites/{key}", api.put_satellite),
             web.post("/api/satellites/{key}/debug", api.debug_session),
             web.get("/api/settings", api.get_settings),
+            web.get("/api/wake_words", api.wake_words),
+            web.post("/api/wake_words", api.add_wake_word),
+            web.delete("/api/wake_words/{id}", api.delete_wake_word),
             web.get("/api/voices", api.voices),
             web.get("/api/voices/{entity_id}", api.tts_voices),
             web.put("/api/settings", api.put_settings),
@@ -173,7 +178,7 @@ class Api:
                 "embedding": bool(engine and engine.embedder),
                 "commands": len(engine.compiled.commands) if engine and engine.compiled else 0,
                 "speakers": app.speakers is not None,
-                "wake_ratio": bool(getattr(app.wake_ratio, "available", False)),
+                "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
                 "settings": app.store.settings,
                 "debug_sessions": {k: s.to_json() for k, s in app.calls.sessions.items()},
@@ -405,6 +410,13 @@ class Api:
                     "timer_list": satellite.timer_list,
                     "timers": app.integration.running(key),
                     "media_player": satellite.media_player,
+                    # Its own pick (absent: as every satellite), and what it
+                    # listens for: what was pushed, or what will be.
+                    "wake_words": stored.get("wake_words"),
+                    "wake_words_used": (
+                        session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
+                    ),
+                    "model_slots": (session.hello.get("model_slots") if session else None),
                     # As stored (absent: as every satellite) and as it comes out.
                     "voice": {k: stored.get(k) for k in ("stt", "tts", "tts_voice", "speak_on") if k in stored},
                     "voice_used": satellite.voice.__dict__,
@@ -445,15 +457,23 @@ class Api:
                 entry.pop("area", None)
         # STT and TTS of its own: an entity, "builtin", or empty for what every
         # satellite uses. speak_on: a media player for its responses.
-        for key, domain in (("stt", "stt."), ("tts", "tts."), ("tts_voice", ""), ("speak_on", "media_player.")):
-            if key in body:
-                value = str(body[key] or "")
+        for option, domain in (("stt", "stt."), ("tts", "tts."), ("tts_voice", ""), ("speak_on", "media_player.")):
+            if option in body:
+                value = str(body[option] or "")
                 if value and value != "builtin" and not value.startswith(domain):
-                    raise ConfigError(f"{key}: expected a {domain.rstrip('.')} entity")
+                    raise ConfigError(f"{option}: expected a {domain.rstrip('.')} entity")
                 if value:
-                    entry[key] = value
+                    entry[option] = value
                 else:
-                    entry.pop(key, None)
+                    entry.pop(option, None)
+        if "wake_words" in body:
+            # Empty: as every satellite.
+            picked = self._wake_word_ids(body["wake_words"])
+            if picked:
+                entry["wake_words"] = picked
+            else:
+                entry.pop("wake_words", None)
+            self.app.wake_words_changed(key)
         if "media_player" in body:
             # Empty: the player found for its Sendspin client.
             if body["media_player"]:
@@ -523,8 +543,99 @@ class Api:
                     settings.pop(key, None)
         if "tts" in body and not settings.get("tts"):
             settings.pop("tts_voice", None)
+        if "wake_words" in body:
+            picked = self._wake_word_ids(body["wake_words"])
+            if picked:
+                settings["wake_words"] = picked
+            else:
+                settings.pop("wake_words", None)
+            self.app.wake_words_changed()
         self.app.store.save_settings()
         return web.json_response(settings)
+
+    # ----------------------------------------------------------- wake words
+
+    def _wake_word_ids(self, value: Any) -> list[str]:
+        if not value:
+            return []
+        if not isinstance(value, list):
+            raise ConfigError("wake_words: expected a list of ids")
+        known = self.app.wake_words.scan()
+        unknown = [str(v) for v in value if str(v) not in known]
+        if unknown:
+            raise ConfigError(f"wake_words: unknown {unknown}")
+        return list(dict.fromkeys(str(v) for v in value))
+
+    async def wake_words(self, request: web.Request) -> web.Response:
+        app = self.app
+        catalog = app.wake_words
+        words = []
+        for word in catalog.scan().values():
+            item = word.to_json()
+            # Lowered now, so a model the device cannot run says so here.
+            item["runs"] = catalog.model(word.id) is not None
+            item["error"] = catalog.errors.get(word.id)
+            words.append(item)
+        return web.json_response(
+            {
+                "wake_words": words,
+                "default": app.wake_words.chosen(app.store.settings, {}, app.default_wake_words),
+                "picked": app.store.settings.get("wake_words"),
+                "custom_dir": str(catalog.custom_dir) if catalog.custom_dir else None,
+                "slots": DEFAULT_MODEL_SLOTS - RESERVED_SLOTS,
+            }
+        )
+
+    async def add_wake_word(self, request: web.Request) -> web.Response:
+        """A custom wake word: its microWakeWord manifest and model, uploaded
+        together. Saved in the custom directory, and refused if it cannot run
+        on the device."""
+        catalog = self.app.wake_words
+        if catalog.custom_dir is None:
+            raise ConfigError("No directory for custom wake words")
+        manifest: dict[str, Any] | None = None
+        model: bytes | None = None
+        model_name = ""
+        reader = await request.multipart()
+        async for part in reader:
+            data = await part.read(decode=False)
+            name = part.filename or part.name or ""
+            if name.endswith(".json"):
+                try:
+                    manifest = json.loads(data)
+                except ValueError as err:
+                    raise ConfigError(f"{name}: not JSON ({err})") from err
+            elif name.endswith(".tflite"):
+                model, model_name = bytes(data), Path(name).name
+        if not isinstance(manifest, dict) or manifest.get("type") != "micro" or "micro" not in manifest:
+            raise ConfigError("Expected a microWakeWord manifest (.json with \"type\": \"micro\")")
+        if model is None:
+            raise ConfigError("Expected the wake word's .tflite model too")
+        word_id = re.sub(r"[^a-z0-9_]+", "_", Path(model_name).stem.lower()).strip("_")
+        if not word_id or word_id in SPECIAL or word_id in {w.id for w in catalog.scan().values() if not w.custom}:
+            raise ConfigError(f"{word_id or model_name!r} cannot be used as a wake word id")
+        catalog.custom_dir.mkdir(parents=True, exist_ok=True)
+        tflite = catalog.custom_dir / f"{word_id}.tflite"
+        manifest_path = catalog.custom_dir / f"{word_id}.json"
+        tflite.write_bytes(model)
+        manifest_path.write_text(json.dumps({**manifest, "model": tflite.name}, indent=2), "utf-8")
+        if catalog.model(word_id) is None:
+            error = catalog.errors.get(word_id, "unknown error")
+            tflite.unlink(missing_ok=True)
+            manifest_path.unlink(missing_ok=True)
+            raise ConfigError(f"This model cannot run on the satellite: {error}")
+        return web.json_response({"ok": True, "id": word_id})
+
+    async def delete_wake_word(self, request: web.Request) -> web.Response:
+        catalog = self.app.wake_words
+        word = catalog.get(request.match_info["id"])
+        if word is None or not word.custom:
+            raise ConfigError("Only a custom wake word can be deleted")
+        word.tflite.unlink(missing_ok=True)
+        word.manifest_path.unlink(missing_ok=True)
+        # Satellites listening for it fall back to every satellite's pick.
+        self.app.wake_words_changed()
+        return web.json_response({"ok": True})
 
     # ---------------------------------------------------------------- calls
 
@@ -617,6 +728,4 @@ async def _json_or_empty(request: web.Request) -> dict[str, Any]:
 
 
 def _dumps(data: Any) -> str:
-    import json  # pylint: disable=import-outside-toplevel
-
     return json.dumps(data, default=str)
