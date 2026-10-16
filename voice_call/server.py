@@ -20,6 +20,7 @@ from adapt_ctc.config import ConfigError
 
 from . import actions, skills, timers
 from .calls import CallLog, CallRecord
+from .commands import VERBOSITY
 from .discover import Device, Discovery
 from .endpoint import Endpointer
 from .fallback import (
@@ -591,6 +592,13 @@ class VoiceCallApp:
         return ToolModel(path, n_threads=self.options.threads, model=model)
 
     # ----------------------------------------------------------- questions
+
+    def beep_elsewhere(self) -> str:
+        """``settings.yaml`` ``beep_elsewhere``: what a command that beeps
+        says when it acted out of the satellite's area (actions.BEEP_ELSEWHERE
+        unless set)."""
+        value = self.store.settings.get("beep_elsewhere")
+        return value if value in VERBOSITY else actions.BEEP_ELSEWHERE
 
     def question_settings(self) -> dict[str, Any]:
         """``settings.yaml``: answer questions no command or skill took with a
@@ -1455,7 +1463,7 @@ class VoiceCallApp:
             " [dry run]" if dry_run else "",
         )
         outcome = await actions.run(
-            self.hass, decision, satellite, speaker, dry_run, self.integration, self.music
+            self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere()
         )
         if record is not None:
             record.stage("action", **outcome.to_json())

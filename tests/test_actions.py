@@ -125,3 +125,106 @@ def test_a_dry_run_says_what_would_be_said():
     outcome = run(PAUSE, hass, integration=StubTimers([]), dry_run=True)
     assert (outcome.name, outcome.speech) == ("no_timers", "Nothing to pause.")
     assert not hass.events and not hass.services
+
+
+LIGHTS = {
+    "action": {"action": "light.turn_on", "target": "{{ target }}"},
+    "verbosity": "beep",
+    "response": {"done": {"brief": "Turned on the lights.", "specific": "Turned on the lights {{ place.said }}."}},
+}
+
+
+class StubCatalog:
+    """Areas, floors and where devices are, as Home Assistant's catalog has them."""
+
+    def __init__(self) -> None:
+        from voice_call.hass import Area, Entity, Floor  # pylint: disable=import-outside-toplevel
+
+        self.areas = {
+            "kitchen": Area("kitchen", "Kitchen", floor_id="ground"),
+            "office": Area("office", "Office", floor_id="first"),
+            "den": Area("den", "Den", floor_id="den_floor"),
+        }
+        self.floors = {"ground": Floor("ground", "Ground Floor"), "first": Floor("first", "Upstairs"), "den_floor": Floor("den_floor", "Basement")}
+        self.entities = {
+            "switch.kettle": Entity("switch.kettle", "Kettle", area_id="kitchen"),
+            "fan.desk": Entity("fan.desk", "Desk Fan", area_id="office"),
+            "switch.porch": Entity("switch.porch", "Porch"),
+        }
+
+
+def say(spec, slots=None, elsewhere=actions.BEEP_ELSEWHERE, hass=None, integration=None):
+    hass = hass or StubHass()
+    command = parse_command("c", {"description": "do it", "examples": ["do it"], **spec})
+    decision = Decision({"transcript": "do it"}, command, command.behavior, "command", slots=slots or {})
+    return asyncio.run(actions.run(hass, decision, SATELLITE, None, False, integration, None, elsewhere))
+
+
+def test_a_beep_is_for_what_happens_here():
+    here = say(LIGHTS)
+    assert here.speech == "" and here.verbosity["level"] == "beep" and here.verbosity["place"]["here"]
+    named_here = say(LIGHTS, {"area": ["kitchen"]})
+    assert named_here.speech == ""
+    # Out of sight: the elsewhere level (specific unless set), or a beep anyway.
+    office = say(LIGHTS, {"area": ["office"]})
+    assert office.speech == "Turned on the lights in the Office."
+    assert office.verbosity == {"level": "specific", "why": "it acted out of the satellite's area",
+                                "place": {"here": False, "said": "in the Office", "areas": ["office"]}}
+    assert say(LIGHTS, {"area": ["office"]}, elsewhere="brief").speech == "Turned on the lights."
+    assert say(LIGHTS, {"area": ["office"]}, elsewhere="beep").speech == ""
+    # What went wrong is always said.
+    hass = StubHass()
+    hass.fail = True
+    assert say(LIGHTS, hass=hass).speech == actions.FAILED
+
+
+def test_the_closest_written_level_is_said():
+    spec = {**LIGHTS, "verbosity": "verbose"}
+    assert say(spec).speech == "Turned on the lights in the Kitchen."  # no verbose one: specific
+    only_brief = {**LIGHTS, "verbosity": "verbose", "response": {"done": {"brief": "Done."}}}
+    assert say(only_brief).speech == "Done."
+    only_verbose = {**LIGHTS, "verbosity": 2, "response": {"done": {"verbose": "All of them."}}}
+    assert say(only_verbose).speech == "All of them."  # nothing less: the next more
+    # A plain response is for every level; without a level, it is said as before.
+    assert say({**LIGHTS, "verbosity": "brief", "response": "On."}).speech == "On."
+    assert say({"action": {"action": "light.turn_on"}, "response": "On."}).speech == "On."
+    assert say({"action": {"action": "light.turn_on"}}).speech == ""  # nothing to say: a beep
+
+
+def test_a_question_always_answers():
+    outcome = say({"verbosity": "beep", "response": "It's late."})
+    assert outcome.speech == "It's late." and outcome.verbosity["why"] == "a question always answers"
+
+
+def test_where_it_acted():
+    catalog = StubCatalog()
+    place = lambda slots: actions.place(slots, SATELLITE, catalog)  # noqa: E731
+    assert place({}) == {"here": True, "said": "in the Kitchen", "areas": ["kitchen"]}
+    assert place({"entity": ["switch.kettle"]}) == {"here": True, "said": "in the Kitchen", "areas": ["kitchen"]}
+    assert place({"entity": ["fan.desk"]})["said"] == "in the Office" and not place({"entity": ["fan.desk"]})["here"]
+    # A device in no area could be anywhere: not here.
+    assert place({"entity": ["switch.porch"]}) == {"here": False, "said": "", "areas": []}
+    assert place({"floor": ["first"]}) == {"here": False, "said": "upstairs", "areas": ["office"]}
+    assert place({"floor": ["ground"]}) == {"here": True, "said": "on the Ground Floor", "areas": ["kitchen"]}
+    assert place({"floor": ["den_floor"]})["said"] == "in the Basement"
+    assert place({"area": ["kitchen", "office"]})["said"] == "in the Kitchen and in the Office"
+    assert actions.place({"area": ["office"]}, SATELLITE)["said"] == "in the Office"  # no catalog
+    assert actions._in_area("Sam's Room") == "in Sam's Room"  # pylint: disable=protected-access
+
+
+def test_timers_say_as_much_as_their_level():
+    running = StubTimers([])
+    start = {"timer": "start"}
+    slots = {"duration": {"total_seconds": 300}}
+    assert say(start, slots, integration=running).speech == "The 5 minute timer started."
+    assert say({**start, "verbosity": "brief"}, slots, integration=running).speech == "Timer started."
+    assert say({**start, "verbosity": "verbose"}, slots, integration=running).speech.startswith(
+        "The 5 minute timer started, finishing at "
+    )
+    assert say({**start, "verbosity": "beep"}, slots, integration=running).speech == ""
+    # A response of its own for one level; the built-in sentence for the rest.
+    mine = {**start, "verbosity": "brief", "response": {"done": {"verbose": "Off it goes."}}}
+    assert say(mine, slots, integration=running).speech == "Off it goes."
+    # A question: a status answers at any level.
+    status = {"timer": "status", "verbosity": "beep"}
+    assert say(status, {}, integration=StubTimers([TEA])).speech == "The tea timer is paused with 1 minute and 30 seconds left."

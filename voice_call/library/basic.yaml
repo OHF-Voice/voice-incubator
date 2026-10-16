@@ -44,6 +44,24 @@ commands:
     action:
       action: light.turn_on
       target: "{{ target }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Turned on the lights.
+        specific: Turned on the lights {{ place.said }}.
+        verbose: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for a in place.areas -%}
+          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
+          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {%- set n = ns.names | count -%}
+          {%- if n == 0 or n > 4 -%}
+          Turned on {{ n if n else 'the' }} lights {{ place.said }}.
+          {%- else -%}
+          Turned on {{ (ns.names[:-1] | join(', ') ~ ' and ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }}.
+          {%- endif -%}
     needs:
       - Lights in the satellite's area are used unless an area or floor is named.
         Add names for areas and floors to say them.
@@ -60,6 +78,24 @@ commands:
     action:
       action: light.turn_off
       target: "{{ target }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Turned off the lights.
+        specific: Turned off the lights {{ place.said }}.
+        verbose: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for a in place.areas -%}
+          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
+          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {%- set n = ns.names | count -%}
+          {%- if n == 0 or n > 4 -%}
+          Turned off {{ n if n else 'the' }} lights {{ place.said }}.
+          {%- else -%}
+          Turned off {{ (ns.names[:-1] | join(', ') ~ ' and ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }}.
+          {%- endif -%}
 
   any_lights_on:
     title: Are any lights on
@@ -110,6 +146,12 @@ commands:
     action:
       action: homeassistant.turn_on
       target: "{{ target }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Turned it on.
+        specific: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }}.
+        verbose: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
     needs:
       - Add names for the devices it may turn on (Names page).
 
@@ -124,6 +166,12 @@ commands:
     action:
       action: homeassistant.turn_off
       target: "{{ target }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Turned it off.
+        specific: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }}.
+        verbose: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
     needs:
       - Add names for the devices it may turn off (Names page).
 
@@ -143,6 +191,13 @@ commands:
       target: "{{ target }}"
       data:
         brightness_pct: "{{ slots.percentage }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Set the brightness.
+        specific: >-
+          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the lights ' ~ place.said }} to {{ slots.percentage }}%.
 
   light_color:
     title: Set the light color
@@ -160,6 +215,11 @@ commands:
       target: "{{ target }}"
       data:
         color_name: "{{ slots.color }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Changed the color.
+        specific: Turned the lights {{ place.said }} {{ slots.color }}.
 
   set_temperature:
     title: Set the temperature
@@ -179,6 +239,14 @@ commands:
       target: "{{ target }}"
       data:
         temperature: "{{ slots.temperature }}"
+    # Not seen at once, and a misheard number matters: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Set the temperature.
+        specific: >-
+          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the temperature ' ~ place.said }} to {{ slots.temperature }} degrees.
 
   weather:
     title: What's the weather
@@ -213,7 +281,11 @@ commands:
         entity_id: todo.shopping_list
       data:
         item: "{{ slots.item }}"
-    response: "Added {{ slots.item }} to the shopping list."
+    verbosity: specific
+    response:
+      done:
+        brief: Added it to the shopping list.
+        specific: "Added {{ slots.item }} to the shopping list."
 
   shopping_list_remove:
     title: Take off the shopping list
@@ -234,7 +306,11 @@ commands:
         entity_id: todo.shopping_list
       data:
         item: "{{ slots.item }}"
-    response: "Took {{ slots.item }} off the shopping list."
+    verbosity: specific
+    response:
+      done:
+        brief: Took it off the shopping list.
+        specific: "Took {{ slots.item }} off the shopping list."
 
   todo_add:
     title: Add to the to-do list
@@ -255,7 +331,11 @@ commands:
         entity_id: todo.to_do
       data:
         item: "{{ slots.item }}"
-    response: "Added {{ slots.item }} to the to-do list."
+    verbosity: specific
+    response:
+      done:
+        brief: Added it to the to-do list.
+        specific: "Added {{ slots.item }} to the to-do list."
     needs:
       - Point it at your to-do list (todo.to_do here).
 
@@ -277,7 +357,11 @@ commands:
         entity_id: todo.reminders
       data:
         item: "{{ slots.reminder }}"
-    response: "I'll remind you to {{ slots.reminder }}."
+    verbosity: specific
+    response:
+      done:
+        brief: I'll remind you.
+        specific: "I'll remind you to {{ slots.reminder }}."
     needs:
       - Point it at a to-do list (todo.reminders here).
 
@@ -287,6 +371,10 @@ commands:
     description: start movie time
     examples: [movie time, start movie time]
     scene: scene.movie_time
+    verbosity: beep
+    response:
+      done:
+        brief: Done.
     needs:
       - Pick the scene, and change the examples to what you want to say.
 

@@ -25,6 +25,7 @@ commands:
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
     timer: start
+    verbosity: specific
 
   set_alarm:
     title: Set an alarm
@@ -37,6 +38,7 @@ commands:
     optional: [[set, make, create, an, a], [for, at]]
     wildcard: {slot: time, after: [for, at], to_end: true, required: true, max_words: 7}
     timer: alarm
+    verbosity: specific
     response:
       missing_time: What time should the alarm be for?
 
@@ -51,6 +53,7 @@ commands:
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: {preset: duration, optional: true}
     timer: cancel
+    verbosity: specific
 
   cancel_all_timers:
     title: Cancel every timer
@@ -58,6 +61,7 @@ commands:
     description: cancel all the timers
     require: [[cancel, stop, delete], [all], [timers, timer]]
     timer: cancel_all
+    verbosity: specific
 
   pause_timer:
     title: Pause a timer
@@ -70,6 +74,7 @@ commands:
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: {preset: duration, optional: true}
     timer: pause
+    verbosity: specific
 
   resume_timer:
     title: Resume a timer
@@ -83,6 +88,7 @@ commands:
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: {preset: duration, optional: true}
     timer: resume
+    verbosity: specific
 
   timer_status:
     title: How long is left
@@ -108,6 +114,7 @@ commands:
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
     timer: add
+    verbosity: specific
 
   subtract_time:
     title: Take time off a timer
@@ -120,3 +127,4 @@ commands:
     wildcard: {slot: timer, before: [timer, time], after: [named, called, name]}
     number: duration
     timer: subtract
+    verbosity: specific

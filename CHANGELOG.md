@@ -47,6 +47,12 @@
   (Granite 4.0 350M, or Hammer 2.1 0.5B). Both only run the commands chosen
   for them (`fallback: [meaning, llm]`, ticked per command or many at once on
   the Commands page); none are chosen to begin with.
+- How much a command says when it's done: a beep, a brief fixed sentence
+  (cached by text-to-speech), a specific one, or a verbose one -- set per
+  command (and per area or satellite), with a response for each level.
+  Library commands come with theirs: lights beep, timers say what they did.
+  A command that beeps but acted in another area says the specific sentence
+  instead (Commands page, "Responses").
 - Questions no command takes are answered: exactly by skills (spelling,
   dates, clock arithmetic, unit conversions, math), "I can't look that up"
   for live ones, and the rest by a small LLM (Granite 4.0 350M, or Gemma 3

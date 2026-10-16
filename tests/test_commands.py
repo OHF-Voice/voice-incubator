@@ -290,3 +290,35 @@ def test_store_edits_command_groups(tmp_path):
     compiled = store.load()
     assert compiled.groups == {} and all(not c.groups for c in compiled.commands.values())
     assert "groups" not in (tmp_path / "commands.yaml").read_text()
+
+
+def test_verbosity_and_responses_by_level():
+    from voice_call.commands import closest_text  # pylint: disable=import-outside-toplevel
+
+    base = {"description": "x", "examples": ["x"], "action": {"action": "light.turn_on"}}
+    command = parse_command("c", {**base, "verbosity": 1, "response": {"done": {"brief": "On.", "verbose": "All on."}}})
+    assert command.behavior.verbosity == "beep" and command.behavior.texts("done") == {"brief": "On.", "verbose": "All on."}
+    assert command.behavior.response_for("done", "specific") == "On."  # less said first
+    assert parse_command("c", {**base, "response": "On."}).behavior.level == "specific"
+    music = parse_command("m", {"description": "x", "examples": ["x"], "music": "pause"}).behavior
+    assert music.level == "beep" and not music.question
+    assert parse_command("q", {"description": "x", "examples": ["x"], "response": "Hi."}).behavior.question
+    texts = {"brief": "b", "verbose": "v"}
+    assert [closest_text(texts, level) for level in ("beep", "brief", "specific", "verbose")] == ["b", "b", "b", "v"]
+    # An override can change it.
+    command = parse_command("c", {**base, "response": "On.", "overrides": [{"scope": {"areas": ["den"]}, "verbosity": "beep"}]})
+    assert command.resolve(None, "den")[0].level == "beep" and command.resolve(None, "kitchen")[0].level == "specific"
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ({"verbosity": "loud"}, "one of beep, brief, specific, verbose"),
+        ({"verbosity": 5}, "one of beep"),
+        ({"response": {"done": {"loud": "x"}}}, "by level, one of brief, specific, verbose"),
+        ({"response": {"failed": {"brief": "x"}}}, "by level only when done"),
+    ],
+)
+def test_verbosity_errors(spec, message):
+    with pytest.raises(ConfigError, match=message):
+        parse_command("c", {"description": "x", "examples": ["x"], "action": {"action": "light.turn_on"}, **spec})

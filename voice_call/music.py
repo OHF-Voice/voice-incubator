@@ -301,6 +301,61 @@ def control(operation: str, slots: dict[str, Any], players: list[Player]) -> tup
     raise ValueError(f"not a control: {operation}")
 
 
+# What a control that worked says, brief (fixed, for the text-to-speech cache)
+# and specific; verbose adds the players. By default controls beep.
+CONTROL_SAID = {
+    "pause": "Paused.",
+    "resume": "Resumed.",
+    "stop": "Stopped.",
+    "next": "Next track.",
+    "previous": "Previous track.",
+    "volume_up": "Volume up.",
+    "volume_down": "Volume down.",
+    "volume_set": "Volume set.",
+    "mute": "Muted.",
+    "unmute": "Unmuted.",
+    "shuffle_on": "Shuffle on.",
+    "shuffle_off": "Shuffle off.",
+    "repeat_all": "Repeating everything.",
+    "repeat_one": "Repeating this track.",
+    "repeat_off": "Repeat off.",
+}
+FOUND_SAID = {"play": "Playing music.", "add": "Added it to the queue.", "radio": "Playing similar music."}
+
+
+def control_said(operation: str, slots: dict[str, Any], players: list[Player]) -> dict[str, str]:
+    """A control that worked, by level of verbosity."""
+    brief = CONTROL_SAID.get(operation, "Done.")
+    specific = brief
+    volume = volume_level(slots) if operation == "volume_set" else None
+    if operation in ("volume_up", "volume_down") and players and players[0].volume is not None:
+        step = VOLUME_STEP if operation == "volume_up" else -VOLUME_STEP
+        volume = round(min(1.0, max(0.0, players[0].volume + step)), 2)
+    if volume is not None:
+        specific = f"Volume at {round(volume * 100)}%."
+    elif operation in ("pause", "resume", "stop") and players and players[0].media:
+        specific = f"{brief[:-1]} {players[0].media}."
+    return {"brief": brief, "specific": specific, "verbose": _on_players(specific, players)}
+
+
+def found_said(operation: str, item: Item, players: list[Player]) -> dict[str, str]:
+    """What playing (or queueing) a search result says, by level of
+    verbosity."""
+    specific = {"add": f"Added {item.spoken} to the queue.", "radio": f"Playing music like {item.spoken}."}.get(
+        operation, f"Playing {item.spoken}."
+    )
+    return {"brief": FOUND_SAID.get(operation, "Playing."), "specific": specific, "verbose": _on_players(specific, players)}
+
+
+def _on_players(sentence: str, players: list[Player]) -> str:
+    """"Paused So What by Miles Davis on Kitchen Speaker."."""
+    names = [p.name or p.entity_id for p in players]
+    if not names:
+        return sentence
+    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    return f"{sentence[:-1]} on {joined}."
+
+
 def volume_level(slots: dict[str, Any]) -> float | None:
     """0..1 from the percentage heard (``slots.percentage``, ``volume`` or
     ``number``)."""
@@ -562,3 +617,19 @@ class Music:
 
     def forget_paused(self, satellite: str) -> None:
         self._paused.pop(satellite, None)
+
+
+def level_examples() -> dict[str, dict[str, str]]:
+    """operation -> level -> what done says, for the UI (status answers;
+    it has no levels)."""
+    player = Player("media_player.kitchen", "Kitchen Speaker", "playing", "So What", "Miles Davis", volume=0.4)
+    out: dict[str, dict[str, str]] = {}
+    for operation in OUTCOMES:
+        if operation == "status":
+            continue
+        if operation in FIND:
+            item = Item("Kind of Blue", "", "album", "Miles Davis") if operation == "play" else Item("So What", "", "track", "Miles Davis")
+            out[operation] = found_said(operation, item, [player])
+        else:
+            out[operation] = control_said(operation, {"percentage": 30}, [player])
+    return out

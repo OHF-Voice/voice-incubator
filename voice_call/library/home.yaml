@@ -24,7 +24,12 @@ commands:
     action:
       action: cover.open_cover
       target: "{{ target }}"
-    response: "Opening {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Opening it.
+        specific: "Opening {{ state_attr(slots.entity[0], 'friendly_name') }}."
     needs:
       - Add names for the covers it may open (Names page).
 
@@ -40,7 +45,12 @@ commands:
     action:
       action: cover.close_cover
       target: "{{ target }}"
-    response: "Closing {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Closing it.
+        specific: "Closing {{ state_attr(slots.entity[0], 'friendly_name') }}."
     needs:
       - Add names for the covers it may close (Names page).
 
@@ -88,6 +98,7 @@ commands:
             count: "{{ covers | count }}"
       - stop: Opening
         response_variable: result
+    verbosity: specific
     response:
       done: >-
         {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
@@ -150,6 +161,7 @@ commands:
             count: "{{ covers | count }}"
       - stop: Closing
         response_variable: result
+    verbosity: specific
     response:
       done: >-
         {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
@@ -179,7 +191,12 @@ commands:
     action:
       action: lock.lock
       target: "{{ target }}"
-    response: "Locking {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Locking it.
+        specific: "Locking {{ state_attr(slots.entity[0], 'friendly_name') }}."
     needs:
       - Add names for the locks it may lock (Names page).
 
@@ -194,7 +211,12 @@ commands:
     action:
       action: lock.unlock
       target: "{{ target }}"
-    response: "Unlocking {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Unlocking it.
+        specific: "Unlocking {{ state_attr(slots.entity[0], 'friendly_name') }}."
     needs:
       - Add names for the locks it may unlock (Names page). Anyone the satellite
         hears can unlock them; scope it to the satellites that should.
@@ -211,6 +233,7 @@ commands:
       action: lock.lock
       target:
         entity_id: all
+    verbosity: specific
     response: Locking all the doors.
 
   is_cover_open:

@@ -23,7 +23,7 @@ from adapt_ctc.config import ConfigError
 
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
-from .commands import DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, parse_command
+from .commands import DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .skills import SKILLS
@@ -204,7 +204,11 @@ class Api:
                     "timer_failed": TIMERS_NEED_INTEGRATION,
                     "timer": timers.outcome_examples(),
                     "music": music.EXAMPLES,
+                    # ... and when done, by level of verbosity.
+                    "timer_levels": timers.level_examples(),
+                    "music_levels": music.level_examples(),
                 },
+                "verbosity": {"levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere()},
             }
         )
 
@@ -227,6 +231,10 @@ class Api:
                     "overrides": len(command.overrides),
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": needs_heard_slots(command),
+                    # How much it says when done, and whether it only answers.
+                    "verbosity": command.behavior.level,
+                    "default_verbosity": command.behavior.default_verbosity,
+                    "question": command.behavior.question,
                 }
             except ConfigError as err:
                 details[command_id] = {"error": str(err)}
@@ -742,6 +750,11 @@ class Api:
                 raise ConfigError("fallback_threshold: a number from 0 to 1")
             settings["fallback_threshold"] = threshold
             fallback_changed = True
+        if "beep_elsewhere" in body:
+            if body["beep_elsewhere"] not in VERBOSITY:
+                raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY)}")
+            settings["beep_elsewhere"] = body["beep_elsewhere"]
+            self.app.store.save_settings()
         if fallback_changed:
             self.app.store.save_settings()
             asyncio.ensure_future(self.app.configure_fallback())

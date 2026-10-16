@@ -30,7 +30,7 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 OPERATIONS = ("start", "alarm", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status")
@@ -83,10 +83,15 @@ class Plan:
     calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     """Extra service calls (cancelling all)."""
 
+    levels: dict[str, str] = field(default_factory=dict)
+    """When done: what it says by level of verbosity (``speech`` is the
+    specific one); none for a status, which answers."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "outcome": self.outcome,
             "speech": self.speech,
+            "levels": self.levels,
             "service": self.service,
             "data": self.data,
             "timer": self.timer,
@@ -99,8 +104,9 @@ def plan(
 ) -> Plan:
     """Decide what ``operation`` does with these slots and running timers.
     ``now`` (local time) is for an alarm."""
+    now = now or datetime.now()
     if operation == "alarm":
-        return _alarm(slots, now or datetime.now())
+        return _alarm(slots, now)
     duration = _seconds(slots.get("duration"))
     if operation == "start":
         if not duration:
@@ -110,7 +116,10 @@ def plan(
         if name:
             data["name"] = name
         timer = {"name": name, "created_duration": duration}
-        return Plan(f"{_describe(timer, capital=True)} started.", "done", "create_timer", data, timer)
+        specific = f"{_describe(timer, capital=True)} started."
+        ends = now + timedelta(seconds=duration)
+        levels = _levels("Timer started.", specific, f"{specific[:-1]}, finishing at {_clock_text(ends.hour, ends.minute)}.")
+        return Plan(specific, "done", "create_timer", data, timer, levels=levels)
 
     if not running:
         return Plan("There are no timers.", "no_timers")
@@ -118,10 +127,13 @@ def plan(
     if operation == "cancel_all":
         calls = [("cancel_timer", {"timer_id": t["timer_id"]}) for t in running]
         count = len(running)
+        specific = "Cancelled the timer." if count == 1 else f"Cancelled {count} timers."
+        verbose = f"Cancelled {_join([_describe(t) for t in running])}."
         return Plan(
-            "Cancelled the timer." if count == 1 else f"Cancelled {count} timers.",
+            specific,
             calls=calls,
             timers=running,
+            levels=_levels("Cancelled the timers." if count > 1 else "Cancelled the timer.", specific, verbose),
         )
 
     # Which timers were meant, whatever their state; then which of them the
@@ -158,15 +170,22 @@ def plan(
         data["duration"] = duration
         verb = "Added" if operation == "add" else "Took"
         prep = "to" if operation == "add" else "off"
-        return Plan(
-            f"{verb} {_spoken_duration(duration)} {prep} {_describe(timer)}.",
-            "done",
-            SERVICES[operation],
-            data,
-            timer,
-        )
+        specific = f"{verb} {_spoken_duration(duration)} {prep} {_describe(timer)}."
+        left = float(timer.get("remaining") or 0) + (duration if operation == "add" else -duration)
+        verbose = f"{specific[:-1]}; {_spoken_duration(max(0.0, left))} left."
+        brief = "Added the time." if operation == "add" else "Took the time off."
+        return Plan(specific, "done", SERVICES[operation], data, timer, levels=_levels(brief, specific, verbose))
     done = {"cancel": "cancelled", "pause": "paused", "resume": "resumed"}[operation]
-    return Plan(f"{_describe(timer, capital=True)} {done}.", "done", SERVICES[operation], data, timer)
+    specific = f"{_describe(timer, capital=True)} {done}."
+    left = _spoken_duration(float(timer.get("remaining") or 0))
+    verbose = f"{specific[:-1]}, with {left} left." if operation != "resume" else f"{specific[:-1]}; {left} left."
+    return Plan(
+        specific, "done", SERVICES[operation], data, timer, levels=_levels(f"Timer {done}.", specific, verbose)
+    )
+
+
+def _levels(brief: str, specific: str, verbose: str) -> dict[str, str]:
+    return {"brief": brief, "specific": specific, "verbose": verbose}
 
 
 def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
@@ -195,7 +214,9 @@ def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
     data: dict[str, Any] = {"duration": int(round(seconds)), "name": name}
     timer = {"name": name, "created_duration": data["duration"]}
     said = _clock_text(hour24, minute)
-    return Plan(f"Alarm set for {said}.", "done", "create_timer", data, timer)
+    specific = f"Alarm set for {said}."
+    verbose = f"{specific[:-1]}, {_spoken_duration(round(seconds / 60) * 60)} from now."
+    return Plan(specific, "done", "create_timer", data, timer, levels=_levels("Alarm set.", specific, verbose))
 
 
 _SMALL = {
@@ -327,6 +348,20 @@ def outcome_examples() -> dict[str, dict[str, str]]:
             result = plan(operation, slots, running)
             said.setdefault(result.outcome, result.speech)
         out[operation] = {outcome: said[outcome] for outcome in outcomes}
+    return out
+
+
+def level_examples() -> dict[str, dict[str, str]]:
+    """operation -> level -> what done says, for the UI (status answers; it
+    has no levels)."""
+    evening = datetime(2026, 1, 1, 21, 55)  # noqa: DTZ001 - local time, as plan takes it
+    out: dict[str, dict[str, str]] = {}
+    for operation in OPERATIONS:
+        for slots, running in _SCENARIOS:
+            result = plan(operation, slots, running, evening)
+            if result.outcome == "done" and result.levels:
+                out[operation] = result.levels
+                break
     return out
 
 

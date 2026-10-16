@@ -247,6 +247,13 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/settings", json={"fallback_threshold": 1.5})).status == 400
             assert (await http.put("/api/settings", json={"fallback_threshold": 0.45})).status == 200
             assert (await (await http.get("/api/status")).json())["fallback"]["threshold"] == 0.45
+            # What a command that beeps says when it acted out of sight.
+            status = await (await http.get("/api/status")).json()
+            assert status["verbosity"] == {"levels": ["beep", "brief", "specific", "verbose"], "beep_elsewhere": "specific"}
+            assert status["outcomes"]["timer_levels"]["start"]["brief"] == "Timer started."
+            assert (await http.put("/api/settings", json={"beep_elsewhere": "loud"})).status == 400
+            assert (await http.put("/api/settings", json={"beep_elsewhere": "brief"})).status == 200
+            assert (await (await http.get("/api/status")).json())["verbosity"]["beep_elsewhere"] == "brief"
             assert (await http.put("/api/fallback", json={"meaning": [], "llm": []})).status == 200
 
             # A question no command takes is answered: exactly, or (not here:

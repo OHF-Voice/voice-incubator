@@ -104,11 +104,21 @@ OUTCOME_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 # Every command is done or failed; a timer command also has its operation's
 # outcomes (timers.OUTCOMES), and a script or action whatever it returns.
 BASE_OUTCOMES = ("done", "failed")
+# How much a command says when it is done. A beep is the acknowledgement sound
+# (a question still answers); brief is a fixed sentence ("Turned on the
+# lights.", which text-to-speech caches); specific says what was heard
+# ("... in the Kitchen", "the 5 minute timer"); verbose what it did, in full
+# ("Turned on Ceiling, Lamp and Strip in the Kitchen."). Other outcomes always
+# say what went wrong.
+VERBOSITY = ("beep", "brief", "specific", "verbose")
+SPOKEN = VERBOSITY[1:]
+"""The levels with something to say, which a done response can be written for."""
 COMMAND_KEYS = {
     "description",
     "scope",
     "slots",
     "response",
+    "verbosity",
     "overrides",
     "disabled",
     "title",
@@ -120,7 +130,7 @@ COMMAND_KEYS = {
 }
 GROUP_KEYS = {"name", "description"}
 FALLBACK_STEPS = ("meaning", "llm")
-OVERRIDE_KEYS = {"scope", "slots", "response", "disabled", *DO_KEYS}
+OVERRIDE_KEYS = {"scope", "slots", "response", "verbosity", "disabled", *DO_KEYS}
 
 # Shared settings for every home: the core intents' filler words and name
 # cues, and examples that win when said word for word. The embedding names the
@@ -221,16 +231,53 @@ class Behavior:
     music: str | None = None
     """A music operation, done by the app on a Music Assistant player."""
 
-    response: str | dict[str, str] | None = None
-    """A template, or one for each outcome (see ``response_for``)."""
+    response: str | dict[str, Any] | None = None
+    """A template, or one for each outcome (see ``response_for``); done's may
+    be one for each level of verbosity (SPOKEN)."""
+
+    verbosity: str | None = None
+    """How much it says when done (VERBOSITY); None: ``default_verbosity``."""
 
     disabled: bool = False
 
-    def response_for(self, outcome: str) -> str | None:
-        """The template for this outcome; a plain response is for ``done``."""
-        if isinstance(self.response, dict):
-            return self.response.get(outcome) or None
-        return self.response if outcome == "done" else None
+    def response_for(self, outcome: str, level: str | None = None) -> str | None:
+        """The template for this outcome; a plain response is for ``done``.
+        Written by level, done's is the one for ``level`` (the command's own,
+        unless given), else the closest written: less said, then more."""
+        texts = self.texts(outcome)
+        if not texts:
+            return None
+        return closest_text(texts, level or self.level)
+
+    def texts(self, outcome: str) -> dict[str, str]:
+        """The templates for this outcome by level; one written for every
+        level is under each."""
+        value = self.response.get(outcome) if isinstance(self.response, dict) else (
+            self.response if outcome == "done" else None
+        )
+        if not value:
+            return {}
+        if isinstance(value, dict):
+            return {level: value[level] for level in SPOKEN if value.get(level)}
+        return dict.fromkeys(SPOKEN, value)
+
+    @property
+    def question(self) -> bool:
+        """Whether it only answers (a response, or a timer's or music's
+        status): it never just beeps."""
+        return self.does == "respond" or self.timer == "status" or self.music == "status"
+
+    @property
+    def default_verbosity(self) -> str:
+        """Music controls (pause, next, volume ...) beep; the rest say their
+        response (an action without one still beeps)."""
+        if self.music and self.music not in ("play", "add", "radio", "status"):
+            return "beep"
+        return "specific"
+
+    @property
+    def level(self) -> str:
+        return self.verbosity or self.default_verbosity
 
     def outcomes(self) -> tuple[str, ...] | None:
         """The outcomes a response may be given for; None when any may be
@@ -339,8 +386,18 @@ def _apply(base: Behavior, changes: dict[str, Any]) -> Behavior:
         behavior.music = changes.get("music")
     if "response" in changes:
         behavior.response = changes["response"]
+    if "verbosity" in changes:
+        behavior.verbosity = changes["verbosity"]
     behavior.disabled = bool(changes.get("disabled", False))
     return behavior
+
+
+def closest_text(texts: dict[str, str], level: str) -> str | None:
+    """The text for ``level`` (a beep counts as brief), else the closest:
+    less said first, then more."""
+    index = max(1, VERBOSITY.index(level)) if level in VERBOSITY else SPOKEN.index("specific") + 1
+    order = list(VERBOSITY[index:0:-1]) + list(VERBOSITY[index + 1 :])
+    return next((texts[lvl] for lvl in order if texts.get(lvl)), None)
 
 
 # ------------------------------------------------------------------ parsing
@@ -406,6 +463,8 @@ def parse_command(command_id: str, spec: Any) -> Command:
             changes["action"] = _actions(changes["action"], f"{at}.action")
         if "response" in changes:
             changes["response"] = _response(changes["response"], f"{at}.response")
+        if "verbosity" in changes:
+            changes["verbosity"] = _verbosity(changes["verbosity"], f"{at}.verbosity")
         _check_outcomes(_apply(behavior, changes), f"{at}.response")
         overrides.append((scope, changes))
 
@@ -507,6 +566,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         if music not in MUSIC_OPERATIONS:
             raise ConfigError(f"{where}.music: one of {', '.join(MUSIC_OPERATIONS)}")
     response = _response(spec.get("response"), f"{where}.response")
+    verbosity = _verbosity(spec.get("verbosity"), f"{where}.verbosity")
     return Behavior(
         slots=_fixed_slots(spec.get("slots"), f"{where}.slots"),
         script=script,
@@ -515,27 +575,52 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         timer=timer,
         music=music,
         response=response or None,
+        verbosity=verbosity,
         disabled=bool(spec.get("disabled", False)),
     )
 
 
-def _response(value: Any, where: str) -> str | dict[str, str] | None:
-    """A template, or templates by outcome."""
+def _verbosity(value: Any, where: str) -> str | None:
+    """A level by name, or 1 to 4."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= len(VERBOSITY):
+        return VERBOSITY[value - 1]
+    if str(value) in VERBOSITY:
+        return str(value)
+    raise ConfigError(f"{where}: one of {', '.join(VERBOSITY)} (or 1 to {len(VERBOSITY)})")
+
+
+def _response(value: Any, where: str) -> str | dict[str, Any] | None:
+    """A template, or templates by outcome; done's may be templates by level."""
     if value in (None, "", {}):
         return None
     if isinstance(value, str):
         return value
     if not isinstance(value, dict):
         raise ConfigError(f"{where}: expected a template, or templates by outcome (done: …, failed: …)")
-    out = {}
+    out: dict[str, Any] = {}
     for outcome, template in value.items():
         outcome = str(outcome)
         if not OUTCOME_NAME.match(outcome):
             raise ConfigError(f"{where}.{outcome}: outcomes are lowercase letters, digits and underscores")
-        if template in (None, ""):
+        if template in (None, "", {}):
+            continue
+        if outcome == "done" and isinstance(template, dict):
+            levels = {str(k): v for k, v in template.items() if v not in (None, "")}
+            unknown = [k for k in levels if k not in SPOKEN]
+            if unknown:
+                raise ConfigError(f"{where}.done.{unknown[0]}: by level, one of {', '.join(SPOKEN)}")
+            if any(not isinstance(v, str) for v in levels.values()):
+                raise ConfigError(f"{where}.done: expected a template string for each level")
+            if levels:
+                out[outcome] = {level: levels[level] for level in SPOKEN if level in levels}
             continue
         if not isinstance(template, str):
-            raise ConfigError(f"{where}.{outcome}: expected a template string")
+            raise ConfigError(
+                f"{where}.{outcome}: expected a template string"
+                + (" (by level only when done)" if isinstance(template, dict) else "")
+            )
         out[outcome] = template
     return out or None
 

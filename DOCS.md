@@ -118,6 +118,25 @@ command has:
   operation (below), plus an
   optional **response** template that is spoken. Nothing to say plays a short
   sound.
+- **How much it says** when it's done, one of four levels:
+  1. **Beep**: the acknowledgement sound. A question still answers.
+  2. **Brief**: a fixed sentence, "Turned on the lights." -- the same every
+     time, so text-to-speech caches it.
+  3. **Specific**: what was heard, "Turned on the lights in the Kitchen.",
+     "The 5 minute timer started."
+  4. **Verbose**: everything it did, "Turned on Ceiling, Lamp and Strip in
+     the Kitchen.", "The 5 minute timer started, finishing at 10:05 PM."
+
+  A beep is for what you can see happen. A command set to beep that acted
+  somewhere else -- another area, a floor, a device in no area -- says what
+  the **Responses** panel on the Commands page says instead: the specific
+  sentence unless you change it (Home Assistant's own says the brief one).
+  The done response can be written once, for every level, or once for each;
+  a level without one says the closest written, less before more. Timers
+  and music have built-in sentences for each level. Library commands come
+  with theirs: lights, devices, scenes and music controls beep; timers,
+  music to play, lists, the thermostat, covers and locks say what they did.
+  Only "done" has levels: what went wrong is always said.
 - **Responses by outcome**: what is said can depend on how it went. Every
   command has **done** (the response above) and **failed** (Home Assistant
   refused; "Sorry, that didn't work." unless you say otherwise). Timer
@@ -160,6 +179,7 @@ The action, the script and the response template all see:
 | `speaker` | `name` of the enrolled voice (or none) and `score` |
 | `target` | `entity_id`/`area_id`/`floor_id` from the slots, or else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
+| `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 
 A script is called with these as its data, so its fields see them. If it
@@ -391,6 +411,11 @@ commands:
     require: [[turn on, turn ... on], [light, lights]]
     names: {area: {count: 1, optional: true}}
     action: {action: light.turn_on, target: "{{ target }}"}
+    verbosity: beep  # beep, brief, specific or verbose (or 1 to 4)
+    response:
+      done:
+        brief: Turned on the lights.
+        specific: Turned on the lights {{ place.said }}.
     overrides:
       - scope: {satellites: [aabbccddeeff]}
         action: {action: light.turn_on, target: {entity_id: light.desk_lamp}}

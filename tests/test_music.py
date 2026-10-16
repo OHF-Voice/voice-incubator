@@ -260,3 +260,16 @@ def test_browse_items():
         ("Chill", None, "playlist"),
     ]
     assert [i.media_type for i in music.browse_items([{"title": "KEXP", "media_content_id": "library://radio/2"}], ["album"])] == []
+
+
+def test_what_music_says_by_level():
+    own = Player(OWN, "Kitchen Speaker", "playing", "So What", "Miles Davis", volume=0.5)
+    assert music.control_said("pause", {}, [own]) == {
+        "brief": "Paused.", "specific": "Paused So What by Miles Davis.", "verbose": "Paused So What by Miles Davis on Kitchen Speaker.",
+    }
+    assert music.control_said("volume_up", {}, [own])["specific"] == "Volume at 60%."
+    assert music.control_said("next", {}, [own])["brief"] == "Next track."
+    item = music.Item("Kind of Blue", "library://album/1", "album", "Miles Davis")
+    said = music.found_said("play", item, [own])
+    assert said["brief"] == "Playing music." and said["specific"] == "Playing Kind of Blue by Miles Davis."
+    assert set(music.level_examples()) == set(music.OUTCOMES) - {"status"}

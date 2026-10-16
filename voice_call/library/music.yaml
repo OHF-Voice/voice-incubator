@@ -21,6 +21,7 @@ commands:
     exclude: [next, previous, played, players, playing]
     wildcard: {slot: query, after: [play, put on, listen to], to_end: true, required: true, max_words: 8}
     music: play
+    verbosity: specific
 
   add_to_queue:
     title: Add to the queue
@@ -30,6 +31,7 @@ commands:
     optional: [[to]]
     wildcard: {slot: query, after: [add], before: [to], bounded: true, required: true, max_words: 6}
     music: add
+    verbosity: specific
 
   play_similar:
     title: Play music like it
@@ -40,6 +42,7 @@ commands:
     optional: [[play], [more, music, songs, something, stuff]]
     wildcard: {slot: query, after: [like], to_end: true, max_words: 6}
     music: radio
+    verbosity: specific
 
   pause_music:
     title: Pause the music
@@ -50,6 +53,7 @@ commands:
     optional: [[music, song, it, playback]]
     exclude: [timer, timers]
     music: pause
+    verbosity: beep
 
   resume_music:
     title: Resume the music
@@ -60,6 +64,7 @@ commands:
     optional: [[music, it, playing, playback]]
     exclude: [timer, timers]
     music: resume
+    verbosity: beep
 
   stop_music:
     title: Stop the music
@@ -68,6 +73,7 @@ commands:
     require: [[stop], [music, song, playing, playback]]
     exclude: [timer, timers]
     music: stop
+    verbosity: beep
 
   next_track:
     title: Next track
@@ -77,6 +83,7 @@ commands:
     require: [[next, skip]]
     optional: [[song, track, this, it, one]]
     music: next
+    verbosity: beep
 
   previous_track:
     title: Previous track
@@ -86,6 +93,7 @@ commands:
     require: [[previous, go back, last song, last track]]
     optional: [[song, track]]
     music: previous
+    verbosity: beep
 
   volume_up:
     title: Turn it up
@@ -96,6 +104,7 @@ commands:
     optional: [[volume, music, sound, a bit, a little]]
     exclude: [light, lights, brightness, heat, temperature]
     music: volume_up
+    verbosity: beep
 
   volume_down:
     title: Turn it down
@@ -106,6 +115,7 @@ commands:
     optional: [[volume, music, sound, a bit, a little]]
     exclude: [light, lights, brightness, heat, temperature]
     music: volume_down
+    verbosity: beep
 
   set_volume:
     title: Set the volume
@@ -115,6 +125,7 @@ commands:
     optional: [[set, change, make], [to], [percent]]
     number: percentage
     music: volume_set
+    verbosity: beep
 
   mute_music:
     title: Mute
@@ -124,6 +135,7 @@ commands:
     require: [[mute]]
     optional: [[music, it, sound]]
     music: mute
+    verbosity: beep
 
   unmute_music:
     title: Unmute
@@ -133,6 +145,7 @@ commands:
     require: [[unmute]]
     optional: [[music, it, sound]]
     music: unmute
+    verbosity: beep
 
   shuffle_on:
     title: Shuffle
@@ -143,6 +156,7 @@ commands:
     optional: [[music, songs, playlist, turn on, on]]
     exclude: [off, stop, don't]
     music: shuffle_on
+    verbosity: beep
 
   shuffle_off:
     title: Stop shuffling
@@ -151,6 +165,7 @@ commands:
     examples: [stop shuffling, turn off shuffle, shuffle off]
     require: [[shuffle, shuffling], [off, stop, don't]]
     music: shuffle_off
+    verbosity: beep
 
   repeat_one:
     title: Repeat this song
@@ -160,6 +175,7 @@ commands:
     require: [[repeat, again], [this song, this track, this one]]
     optional: [[play]]
     music: repeat_one
+    verbosity: beep
 
   repeat_all:
     title: Repeat
@@ -170,6 +186,7 @@ commands:
     optional: [[all, turn on, on, music, playlist, album]]
     exclude: [off, stop, song, track, this]
     music: repeat_all
+    verbosity: beep
 
   repeat_off:
     title: Stop repeating
@@ -178,6 +195,7 @@ commands:
     examples: [stop repeating, turn off repeat, repeat off]
     require: [[repeat, repeating], [off, stop, don't]]
     music: repeat_off
+    verbosity: beep
 
   whats_playing:
     title: What's playing

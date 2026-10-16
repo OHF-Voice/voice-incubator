@@ -31,7 +31,8 @@ one call at a time:
 6. **speech** — its response template for how it went (`done`, `failed`, a
    timer operation's or a script's own outcome), rendered by Home Assistant,
    is spoken with Piper (`en_GB-jenny_dioco`); without one, the built-in
-   sentence. A command with nothing to say plays `sounds/acknowledge.mp3`.
+   sentence -- when done, at the command's level of verbosity (below). A
+   command with nothing to say plays `sounds/acknowledge.mp3`.
 
 Commands, names, satellites and debugging are described for users in
 [DOCS.md](DOCS.md).
@@ -110,6 +111,32 @@ matched) rather than changing what the others compete with.
 Home Assistant's registries are watched only to offer suggestions -- names,
 aliases, areas -- and to know each satellite's floor. Nothing is taken from
 them into the vocabulary unless someone adds it.
+
+**How much a command says** when it is done (`verbosity`,
+`commands.VERBOSITY`): `beep`, `brief` (a fixed sentence, so a TTS cache keeps
+it), `specific` (what was heard) or `verbose` (what it did, in full). The done
+response may be written for each level (`response: {done: {brief: …,
+specific: …}}`); a level without one says the closest written, less before
+more (`commands.closest_text`), then the built-in sentences for that level
+(`timers.Plan.levels`, `music.control_said`/`found_said`). Without a
+`verbosity`, music controls beep and the rest say their response, as they
+did before levels -- an action with none still beeps. Other outcomes always
+say theirs; a question (only a response, a timer's or music's status) never
+beeps.
+
+A level is a property of the command because the same number means
+different things for different commands: a beep confirms a light you can see
+come on, not a timer you can't. What a global setting would get wrong is
+"can you see it": `actions.place` works out where the command acted -- the
+areas, floors and devices it names (a device's area from the registry) or
+else the satellite's area -- and a beep is said only when that is the
+satellite's own area. Elsewhere it says `beep_elsewhere` (settings.yaml,
+"Responses" on the Commands page; `specific` unless set: "Turned on the
+lights in the Office" says where, which "Turned on the lights" can't).
+Home Assistant's default does the same with the brief sentence. Templates see
+`place` too (`said`: "in the Kitchen", "upstairs"; `here`; `areas`), and a
+rendered response is tidied of the gap an empty variable leaves. Overrides can
+set a level per area or satellite.
 
 ## Layout
 
