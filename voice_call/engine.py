@@ -179,8 +179,7 @@ class Decision:
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
     answer: dict[str, Any] | None = None
-    """No command: a question, answered by a skill (voice_call/skills/) or the
-    question model (voice_call/questions.py)."""
+    """No command: a question, answered by a skill (voice_call/skills/)."""
 
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -282,9 +281,9 @@ class Engine:
         self.placer = self.placer_for(WAKE_PHRASES)
         self.fallback: Any = None
         """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
-        self.questions: Any = None
-        """When no command or skill answered: the question model
-        (voice_call/questions.py)."""
+        self.agent_answers = False
+        """A Home Assistant conversation agent gets what nothing here took
+        (the server asks it, voice_call/agent.py): the live skill waits for it."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
         self.entity_area: Any = None
@@ -527,13 +526,11 @@ class Engine:
                 decision.answer = exact.to_json()
             elif self.fallback is not None and compiled.commands:
                 self._fall_back(decision, recognition, compiled, satellite)
-            if decision.command is None and decision.answer is None and decision.refused is None:
-                started = time.perf_counter()
+            if decision.command is None and decision.answer is None and decision.refused is None and not self.agent_answers:
+                # Last, so the fallback could still take "do I need an
+                # umbrella" -- and after the agent, when there is one.
                 answer = skills.answer(text, satellite.skills, last=True)
-                if answer is None and self.questions is not None:
-                    answer = self.questions.answer(text)
                 if answer is not None:
-                    recognition.timings["question"] = time.perf_counter() - started
                     decision.answer = answer.to_json()
         if decision.refused is not None:
             decision.hint = decision.refused

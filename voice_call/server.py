@@ -19,6 +19,7 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 
 from . import actions, skills, timers
+from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
 from .discover import Device, Discovery
@@ -35,7 +36,6 @@ from .fallback import (
     llama_available,
     needs_model,
 )
-from .questions import DEFAULT_QA_MODEL, QA_MODELS, Answerer, Questions
 from .engine import LEARN_VOICE, Decision, Engine, Satellite, llm_note
 from .hass import HassError, HomeAssistant
 from .integration import Integration
@@ -348,8 +348,6 @@ class VoiceCallApp:
         """What became of the last change of TDT model, for the UI."""
         self._llm_status: str | None = None
         """Getting the LLM, when it is not the fallback's to say."""
-        self._qa_status: str | None = None
-        """Getting the question model."""
         self.engine: Engine | None = None
         # A second opinion on the two Kaldi tests that are about "is this the
         # wake word or just speech". Its `confusable` test is left alone.
@@ -376,6 +374,8 @@ class VoiceCallApp:
         self.calls = CallLog(self.store.calls_dir, self.store.settings)
         self.integration = Integration(self.hass, self._timer_finished, self._timers_changed)
         self.music = Music(self.hass)
+        self.agent = Agent(self.hass)
+        """What nothing here understood goes to, when one is chosen."""
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
         self._timer_rebuild: asyncio.Task | None = None
@@ -417,7 +417,7 @@ class VoiceCallApp:
         self.engine.entity_area = self._entity_area
         await self.reload_commands()
         self._spawn(self.configure_fallback())
-        self._spawn(self.configure_questions())
+        self.configure_agent()
         if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
             for word in self.wake_words.scan().values():
                 if not word.verified:
@@ -598,7 +598,7 @@ class VoiceCallApp:
         self._llm_status = None
         return ToolModel(path, n_threads=self.options.threads, model=model)
 
-    # ----------------------------------------------------------- questions
+    # ------------------------------------------------- devices, responses, agent
 
     def _entity_area(self, entity_id: str) -> str | None:
         """A device's area in Home Assistant (its own, else its device's)."""
@@ -613,62 +613,27 @@ class VoiceCallApp:
         value = self.store.settings.get("beep_elsewhere")
         return value if value in VERBOSITY else actions.BEEP_ELSEWHERE
 
-    def question_settings(self) -> dict[str, Any]:
-        """``settings.yaml``: answer questions no command or skill took with a
-        small LLM (``questions_llm``, on unless turned off; ``questions_model``).
-        Exact answers are skills (``satellite_skills``)."""
+    def agent_settings(self) -> dict[str, Any]:
+        """``settings.yaml``: the Home Assistant conversation agent that gets
+        what nothing here understood (``agent``; none unless chosen), and how
+        long a satellite's conversation with it is kept (``agent_keep_minutes``,
+        five as on the Voice PE)."""
         settings = self.store.settings
-        model = str(settings.get("questions_model") or DEFAULT_QA_MODEL)
-        return {
-            "llm": bool(settings.get("questions_llm", True)),
-            "model": model if model in QA_MODELS else DEFAULT_QA_MODEL,
-        }
-
-    def question_status(self) -> dict[str, Any]:
-        questions = self.engine.questions if self.engine is not None else None
-        loaded = bool(questions is not None and questions.answerer is not None)
-        return {
-            **self.question_settings(),
-            "models": {m: {"name": n, "mb": mb} for m, (n, _r, _f, mb) in QA_MODELS.items()},
-            "llm_installed": llama_available(),
-            "llm_status": self._qa_status or ("ready" if loaded else "off"),
-        }
-
-    async def configure_questions(self) -> None:
-        """Apply the question settings. The LLM (Granite 4.0 350M, 370 MB) is
-        downloaded the first time and loaded in the background."""
-        if self.engine is None:
-            return
-        wanted = self.question_settings()
-        current = self.engine.questions
-        answerer = current.answerer if current is not None and wanted["llm"] else None
-        if answerer is not None and answerer.model != wanted["model"]:
-            answerer = None
-        self.engine.questions = Questions(answerer)
-        if not wanted["llm"] or answerer is not None:
-            self._qa_status = None
-            return
-        if not llama_available():
-            self._qa_status = "llama.cpp is not installed"
-            return
-        name, _repo, _file, size = QA_MODELS[wanted["model"]]
-        self._qa_status = f"downloading {name} ({size} MB)"
-        path = await asyncio.to_thread(
-            Answerer.find_model, wanted["model"], self.options.downloads, self.store.data_dir / "models"
-        )
-        if path is None:
-            self._qa_status = f"could not download {name}"
-            return
-        self._qa_status = "loading"
         try:
-            answerer = await asyncio.to_thread(Answerer, path, self.options.threads, wanted["model"])
-        except Exception as err:  # noqa: BLE001 - questions work without it
-            _LOGGER.exception("Question model could not be loaded")
-            self._qa_status = f"not available: {err}"
-            return
-        self._qa_status = None
-        if self.question_settings()["llm"] and self.engine.questions is not None:
-            self.engine.questions.answerer = answerer
+            minutes = float(settings.get("agent_keep_minutes", KEEP_SECONDS / 60))
+        except (TypeError, ValueError):
+            minutes = KEEP_SECONDS / 60
+        return {"agent": settings.get("agent") or None, "keep_minutes": minutes}
+
+    def configure_agent(self) -> None:
+        wanted = self.agent_settings()
+        self.agent.configure(wanted["agent"], wanted["keep_minutes"] * 60)
+        if self.engine is not None:
+            # The live skill ("can't look that up") waits for the agent.
+            self.engine.agent_answers = wanted["agent"] is not None
+
+    def agent_status(self) -> dict[str, Any]:
+        return {**self.agent_settings(), "conversations": self.agent.status()}
 
     async def _watch_store(self) -> None:
         while True:
@@ -1460,6 +1425,21 @@ class VoiceCallApp:
     ) -> tuple[str, str, str]:
         """Run (or show) the decided command. Returns what to say, the
         outcome, and a one-line summary."""
+        if (
+            decision.command is None
+            and decision.answer is None
+            and decision.refused is None
+            and decision.internal is None
+            and self.agent.agent_id
+            and decision.transcript.strip()
+        ):
+            said = await self._ask_agent(decision, satellite, dry_run, record)
+            if said:
+                return said, "answered", f"{decision.transcript!r}: {self.agent.agent_id}'s answer"
+            # "Can't look that up", which waited for the agent.
+            late = skills.answer(decision.transcript, satellite.skills, last=True)
+            if late is not None:
+                decision.answer = late.to_json()
         if decision.command is None and decision.answer is not None and decision.answer.get("text"):
             answer = decision.answer
             return answer["text"], "answered", f"{decision.transcript!r}: {answer['kind']} answer"
@@ -1491,6 +1471,25 @@ class VoiceCallApp:
             record.stage("action", **outcome.to_json())
         state = "error" if outcome.error else ("dry run" if dry_run else "done")
         return outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
+
+    async def _ask_agent(
+        self, decision: Decision, satellite: Satellite, dry_run: bool, record: CallRecord | None
+    ) -> str | None:
+        """What the conversation agent answers, in the satellite's
+        conversation with it; None when it understood nothing, could not be
+        asked, or (a dry run) was not: it could act in the home."""
+        if dry_run:
+            if record is not None:
+                record.stage("agent", agent=self.agent.agent_id, asked=False, text=decision.transcript)
+            return None
+        reply = await self.agent.ask(satellite.key, decision.transcript, satellite.device_id)
+        if record is not None:
+            record.stage("agent", asked=True, asked_text=decision.transcript, **reply.to_json())
+        _LOGGER.info(
+            "Agent %s on %r: %r (%s%s, %.2fs)", reply.agent, decision.transcript, reply.text,
+            reply.response_type or reply.error, " in a kept conversation" if reply.continued else "", reply.seconds,
+        )
+        return reply.text if reply.understood and reply.text else None
 
     async def _say(
         self, session: Session, text: str, record: CallRecord | None = None, paced: bool = False

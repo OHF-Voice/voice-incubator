@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- What nothing here understood can go to a Home Assistant **conversation
+  agent** (Settings page), in a conversation kept on each satellite for 5
+  minutes after its last answer, as on the Voice PE. It takes the place of
+  the small question LLM of earlier builds (`questions_llm`,
+  `questions_model`).
 - An **Unknown command**, always at the top of the Commands page: a response
   template for when nothing understood a sentence ("Sorry, I couldn't
   understand the sentence {{ transcript }}."), with the near miss as `hint`
@@ -16,7 +21,7 @@
   command is available. A `scope` left in commands.yaml is an error that says
   so.
 - A **Settings** page holds what the Commands page had besides commands and
-  command groups: when nothing matches, responses, questions -- and, under
+  command groups: when nothing matches, the conversation agent, responses -- and, under
   Advanced, commands.yaml (the YAML tab is gone).
 - The web UI's Try page is now **Test**, and Calls is now **Sessions**. A
   command's page no longer has its own "Try it"; per-satellite choices that
@@ -90,12 +95,11 @@
   command (and per area or satellite), with a response for each level.
   Library commands come with theirs: lights beep, timers say what they did.
   A command that beeps but acted in another area says the specific sentence
-  instead (Commands page, "Responses").
-- Questions no command takes are answered: exactly by skills (spelling,
-  dates, clock arithmetic, unit conversions, math), "I can't look that up"
-  for live ones, and the rest by a small LLM (Granite 4.0 350M, or Gemma 3
-  1B), downloaded on first start. Each skill is turned on or off on the new
-  Skills tab, for the whole home or per satellite.
+  instead (Settings page, "Responses").
+- Questions no command takes are answered exactly by skills (spelling,
+  dates, clock arithmetic, unit conversions, math), and "I can't look that
+  up" for live ones. Each skill is turned on or off on the new Skills tab,
+  for the whole home or per satellite.
   Skills read questions as typed or formatted ("50°F", "12 × 8", "½ cup",
   "$80").
 - Library: set an alarm (a timer that rings at a clock time: "wake me up at

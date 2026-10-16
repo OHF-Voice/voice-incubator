@@ -108,6 +108,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.post("/api/wake_words", api.add_wake_word),
             web.delete("/api/wake_words/{id}", api.delete_wake_word),
             web.get("/api/voices", api.voices),
+            web.get("/api/agents", api.agents),
             web.get("/api/voices/{entity_id}", api.tts_voices),
             web.put("/api/settings", api.put_settings),
             web.get("/api/calls", api.calls),
@@ -215,7 +216,7 @@ class Api:
                 "speakers": app.speakers is not None,
                 "tdt_models": app.tdt_models(),
                 "fallback": app.fallback_status(),
-                "questions": app.question_status(),
+                "agent": app.agent_status(),
                 "tdt_status": app.tdt_status,
                 "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
@@ -752,6 +753,13 @@ class Api:
             return web.json_response({"voices": [], "error": str(err)})
         return web.json_response({"voices": [{"id": v.get("voice_id"), "name": v.get("name")} for v in voices]})
 
+    async def agents(self, request: web.Request) -> web.Response:
+        """Home Assistant's conversation agents, for the Settings page."""
+        try:
+            return web.json_response({"agents": await self.app.agent.agents()})
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            return web.json_response({"agents": [], "error": str(err) or type(err).__name__})
+
     async def get_settings(self, request: web.Request) -> web.Response:
         return web.json_response(self.app.store.settings)
 
@@ -818,21 +826,27 @@ class Api:
         if fallback_changed:
             self.app.store.save_settings()
             asyncio.ensure_future(self.app.configure_fallback())
-        questions_changed = False
-        for option in ("questions_llm",):
-            if option in body:
-                settings[option] = bool(body[option])
-                questions_changed = True
-        if "questions_model" in body:
-            from .questions import QA_MODELS  # pylint: disable=import-outside-toplevel
-
-            if str(body["questions_model"]) not in QA_MODELS:
-                raise ConfigError(f"questions_model: one of {', '.join(QA_MODELS)}")
-            settings["questions_model"] = str(body["questions_model"])
-            questions_changed = True
-        if questions_changed:
-            self.app.store.save_settings()
-            asyncio.ensure_future(self.app.configure_questions())
+        # The Home Assistant conversation agent: what nothing here understood.
+        if "agent" in body:
+            agent = str(body["agent"] or "").strip()
+            if len(agent) > 255 or any(c.isspace() for c in agent):
+                raise ConfigError("agent: a conversation agent's id")
+            if agent:
+                settings["agent"] = agent
+            else:
+                settings.pop("agent", None)
+        if "agent_keep_minutes" in body:
+            try:
+                minutes = float(body["agent_keep_minutes"])
+            except (TypeError, ValueError) as err:
+                raise ConfigError("agent_keep_minutes: minutes, from 0 to 1440") from err
+            if not 0 <= minutes <= 1440:
+                raise ConfigError("agent_keep_minutes: minutes, from 0 to 1440")
+            settings["agent_keep_minutes"] = minutes
+        if "agent" in body or "agent_keep_minutes" in body:
+            for old in ("questions_llm", "questions_model"):
+                settings.pop(old, None)  # the question model's, before the agent
+            self.app.configure_agent()
         if "tdt_model" in body:
             from .server import DEFAULT_TDT, TDT_MODELS  # pylint: disable=import-outside-toplevel
 

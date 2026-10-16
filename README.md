@@ -202,8 +202,8 @@ both match, and the first available is taken.
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then a small LLM (Granite 4.0 350M or Hammer 2.1 0.5B) with the commands as tools -- each only for the commands chosen for it |
 | `voice_call/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live), on or off for the home or a satellite |
-| `voice_call/questions.py` | questions no command or skill took: a small LLM |
-| `scripts/bench_questions.py` | the smart-home quick-questions benchmark through the app, spoken or as text |
+| `voice_call/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per satellite |
+| `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
 | `custom_components/voice_call/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_call.timer_*` triggers |
@@ -968,7 +968,7 @@ decided it may be.
    on by default.
 2. **The model step** (`fallback_model`; the commands chosen for `llm`):
    GLiNER2.5 small by default (below), or a small LLM -- Granite 4.0 350M
-   (Apache-2.0, already there as the question model) or Hammer 2.1 0.5B (Qwen
+   (Apache-2.0) or Hammer 2.1 0.5B (Qwen
    2.5 0.5B tuned for function calling, CC-BY-NC-4.0), Q8_0 in llama.cpp. What
    it picks is checked like a match: the command must be chosen and available
    on the satellite, names map back to ids, list values to values, and a
@@ -1186,13 +1186,18 @@ command fallback -- a question still gets an answer:
    prices, opening hours, "tonight", "last night") gets "Sorry, I can't look
    that up." After the command fallback, so "do I need an umbrella" can
    still be the weather command.
-3. **The question model**: the rest, only when it reads as a question (a
-   question word first, or a question mark) -- "thank you" and "I'm cold"
-   are not asked, nor is a live question, with the live skill off or on --
-   goes to a small LLM, answered in one short sentence. `questions_llm`, on
-   by default; `questions_model`: Granite 4.0 350M (Apache-2.0, 370 MB,
-   downloaded on first start) or Gemma 3 1B (for a faster machine). The same
-   llama.cpp as the command fallback.
+3. **A Home Assistant conversation agent** (`voice_call/agent.py`;
+   `settings.yaml` `agent`, none unless chosen): everything else -- not only
+   questions -- through `conversation/process`, with the satellite's
+   `device_id` (Home Assistant 2026.10 and later; sent without it to an older
+   one) and its `conversation_id`, kept for `agent_keep_minutes` (5, the
+   Voice PE's `conversation_timeout`) after the agent's last answer on that
+   satellite. With an agent, the live skill waits for it (`Engine.agent_answers`:
+   the server asks the agent, then the live skill). An answer that is Home
+   Assistant's `no_intent_match` counts as none. A dry run never asks it: an
+   agent can act. This replaced a small question LLM (Granite 4.0 350M or
+   Gemma 3 1B in llama.cpp, for what read as a question); the benchmark
+   numbers below are from then.
 
 Each gets the question normalized first (`skills/common.py` `normalize`):
 what a typed question, or a speech-to-text that formats what it hears (Home

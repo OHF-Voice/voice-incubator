@@ -125,6 +125,11 @@ class FakeHass:
         Assistant leaves an album's ``favorite`` empty."""
         self.queues: dict[str, dict[str, Any]] = {}
         """Music player -> the item it plays (Music Assistant's queue, in short)."""
+        self.conversations: list[dict[str, Any]] = []
+        """What conversation/process was sent: a conversation agent says
+        "<agent> heard <text>", understands nothing with "nonsense" in it,
+        and keeps a conversation id given."""
+        self._conversation_ids = itertools.count(1)
         self._env = jinja2.Environment(undefined=jinja2.ChainableUndefined)
         self._env.globals.update(
             now=datetime.datetime.now,
@@ -224,6 +229,24 @@ class FakeHass:
                     for e in MUSIC_PLAYERS
                 ]
             )
+        elif kind == "conversation/agent/list":
+            await result({"agents": [
+                {"id": "conversation.home_assistant", "name": "Home Assistant", "supported_languages": ["en"]},
+                {"id": "conversation.chatty", "name": "Chatty", "supported_languages": "*"},
+            ]})
+        elif kind == "conversation/process":
+            self.conversations.append(message)
+            conversation_id = message.get("conversation_id") or f"conversation-{next(self._conversation_ids)}"
+            if "nonsense" in message["text"]:
+                speech, response_type, data = "Sorry, I couldn't understand that", "error", {"code": "no_intent_match"}
+            else:
+                speech, response_type, data = f"{message['agent_id']} heard {message['text']}", "query_answer", {"success": [], "failed": []}
+            await result({
+                "response": {"speech": {"plain": {"speech": speech, "extra_data": None}}, "card": {}, "language": "en",
+                             "response_type": response_type, "data": data},
+                "conversation_id": conversation_id,
+                "continue_conversation": False,
+            })
         elif kind == "render_template":
             await result()
             try:

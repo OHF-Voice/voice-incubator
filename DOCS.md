@@ -354,10 +354,9 @@ from the library are not chosen until you choose them.
   not, and runs nothing when it is not sure (**Least sure it may be**, 0.3:
   lower runs more, and more by mistake), when the closest is one you did not
   choose, or when the sentence is not a command at all. A small LLM can be
-  picked instead: Granite 4.0 350M -- the same model that answers questions
-  -- or Hammer 2.1 0.5B (non-commercial use only). An LLM takes any chosen
-  command but is slower (a second or more on a Pi 5) and runs the wrong
-  command more often; with more than 8 chosen (the number is a setting) it
+  picked instead: Granite 4.0 350M or Hammer 2.1 0.5B (non-commercial use
+  only). An LLM takes any chosen command but is slower (a second or more on a
+  Pi 5) and runs the wrong command more often; with more than 8 chosen (the number is a setting) it
   is given the 8 closest in meaning to the sentence.
 
   Whichever it is, it only runs commands the satellite may run, and never
@@ -413,14 +412,21 @@ Each is on unless you turn it off, for the whole home or for one satellite:
 a satellite set "on" or "off" for a skill keeps that whatever the home's
 setting.
 
-## Questions
+## Conversation agent
 
-What no command or skill answers, when it reads as a question, goes to a
-small LLM (Settings page, "Questions"), answered in one sentence: Granite 4.0
-350M (downloaded on first start, 370 MB; about half a second on a Raspberry
-Pi 5), or Gemma 3 1B on a faster machine. It answers about 9 in 10 everyday
-questions right, and can be confidently wrong. Questions about now or here
-are never asked.
+What no command, skill or step under "When nothing matches" took can go to a
+Home Assistant conversation agent (Settings page, "Conversation agent"): Home
+Assistant's own, or an LLM's (OpenAI, Google, Ollama ...). Its answer is said,
+and what it doesn't understand either is the Unknown command's.
+
+Each satellite keeps a conversation with it: for 5 minutes after its last
+answer there (a setting, as the Voice PE's `conversation_timeout`), the next
+sentence continues it, so "who wrote The Odyssey?" ... "when did he live?"
+follows on. Skills still answer first, except "Can't look it up", which waits
+for the agent: it may know the weather.
+
+A dry run (the Test page without "Really run", or a dry-run debug session)
+never asks the agent, since it can act in your home.
 
 ## Names
 

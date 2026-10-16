@@ -3,14 +3,13 @@
 
 Each question is spoken by Piper and recognized as a call would be -- with the
 library's commands in the bench home (scripts/bench_fallback.py) -- or, with
-``--text``, handed to the question step as written. What each comes to:
+``--text``, handed to the skills as written. What each comes to:
 
 - a command (it should not: these are questions),
 - an exact answer, a skill's (graded against ``expected_answer``),
 - the live notice, the live skill's (graded against the CSV's ``online_required``),
-- the question model's answer (shown, timed; grading a free answer is the
-  benchmark's own business: llama.cpp's smart-home-qa-bench),
-- nothing (the hint).
+- nothing: what a Home Assistant conversation agent would get, when one is
+  chosen (voice_call/agent.py), and otherwise the hint.
 
     scripts/bench_questions.py ~/Downloads/smart_home_quick_questions_benchmark.csv --out /tmp/q.json
 """
@@ -22,7 +21,6 @@ import asyncio
 import csv
 import json
 import re
-import statistics
 import sys
 import time
 from collections import Counter
@@ -35,7 +33,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from bench_fallback import library_store  # noqa: E402
 
 from voice_call import skills  # noqa: E402
-from voice_call.questions import Answerer, Questions  # noqa: E402
 from voice_call.store import compile_store  # noqa: E402
 
 
@@ -61,7 +58,6 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("csv", type=Path)
     parser.add_argument("--text", action="store_true", help="the question as written, not spoken")
-    parser.add_argument("--model", help="question model GGUF (default: none, exact and live only)")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--out", type=Path)
@@ -77,15 +73,12 @@ async def main() -> int:
     rows = list(csv.DictReader(args.csv.open()))
     if args.limit:
         rows = rows[: args.limit]
-    answerer = Answerer(Path(args.model), args.threads) if args.model else None
-    questions = Questions(answerer)
     engine = speech = None
     if not args.text:
         ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
         engine = Engine(ctc, tdt_models(ROOT)["en"], DEFAULT_EMBEDDING_MODEL, threads=args.threads)
         engine.build(compile_store(library_store()))
         engine.fallback = Fallback(embedding_accept=True)
-        engine.questions = questions
         speech = Speech(ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx", ROOT / "sounds/acknowledge.mp3")
         await speech.start()
     satellite = Satellite("bench", "Bench", "kitchen", "Kitchen")
@@ -94,7 +87,7 @@ async def main() -> int:
         question = row["question"]
         started = time.perf_counter()
         if args.text:
-            answer = skills.answer(question) or skills.answer(question, last=True) or questions.answer(question)
+            answer = skills.answer(question) or skills.answer(question, last=True)
             heard, command = question, None
             answer = answer.to_json() if answer else None
         else:
@@ -118,7 +111,6 @@ async def main() -> int:
               f"{command or (answer or {}).get('text')!r} [heard {heard!r}]", flush=True)
     kinds = Counter(o["kind"] for o in out)
     graded = [o for o in out if o["right"] is not None]
-    llm = [o["answer"]["seconds"] for o in out if o["kind"] == "knowledge" and o["answer"].get("seconds")]
     summary = {
         "questions": len(out),
         "spoken": not args.text,
@@ -128,7 +120,6 @@ async def main() -> int:
         "live_right": f"{sum(o['right'] is True for o in out if o['kind'] == 'live')}/{kinds['live']}",
         "live_missed": sum(1 for o in out if o["live"] and o["kind"] != "live"),
         "graded_right": f"{sum(o['right'] for o in graded)}/{len(graded)}",
-        "model_median_seconds": statistics.median(llm) if llm else None,
     }
     print(json.dumps(summary, indent=1))
     if args.out:

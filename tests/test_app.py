@@ -302,6 +302,45 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/unknown", json={"response": ""})).status == 200
             assert "unknown" not in (tmp_path / "commands.yaml").read_text()
 
+            # A Home Assistant conversation agent gets what nothing here
+            # understood, in a conversation kept on each satellite.
+            async def agent_said(text):
+                record = await app.try_text(text, MAC, run_actions=True)
+                return next(s for s in record.stages if s["stage"] == "speech")["text"], record
+
+            agents = (await (await http.get("/api/agents")).json())["agents"]
+            assert [a["id"] for a in agents] == ["conversation.home_assistant", "conversation.chatty"]
+            assert (await http.put("/api/settings", json={"agent": "conversation.chatty", "agent_keep_minutes": 5})).status == 200
+            assert (await (await http.get("/api/status")).json())["agent"] == {"agent": "conversation.chatty", "keep_minutes": 5.0, "conversations": {}}
+            text, record = await agent_said("who wrote the odyssey")
+            assert text == "conversation.chatty heard who wrote the odyssey" and record.outcome == "answered"
+            asked = hass.conversations[-1]
+            assert asked["agent_id"] == "conversation.chatty" and "conversation_id" not in asked
+            assert asked.get("device_id") == app.satellite(MAC).device_id
+            # The next sentence follows on, in the same conversation ...
+            await agent_said("and when was that")
+            assert hass.conversations[-1]["conversation_id"] == "conversation-1"
+            assert next(s for s in app.calls.recent[-1].stages if s["stage"] == "agent")["continued"]
+            # ... until it has been quiet for longer than it is kept.
+            app.agent.conversations[MAC].at -= 301
+            await agent_said("who wrote the iliad")
+            assert "conversation_id" not in hass.conversations[-1]
+            # Skills still answer first; a live question is the agent's.
+            assert (await agent_said("what is twelve times eight"))[0] == "It's 96."
+            assert (await agent_said("what are the top news headlines"))[0] == "conversation.chatty heard what are the top news headlines"
+            # What it doesn't understand either is the Unknown command's.
+            asked = len(hass.conversations)
+            assert (await agent_said("nonsense words"))[0] == "Sorry, I didn't understand that."
+            assert len(hass.conversations) == asked + 1
+            # A dry run never asks it: it could act in the home.
+            record = await app.try_text("who wrote the odyssey", MAC)
+            assert len(hass.conversations) == asked + 1
+            assert next(s for s in record.stages if s["stage"] == "agent")["asked"] is False
+            assert await said("what are the top news headlines") == "Sorry, I can't look that up."
+            assert (await http.put("/api/settings", json={"agent": None})).status == 200
+            assert "agent" not in app.store.settings and not app.engine.agent_answers
+            assert (await http.put("/api/settings", json={"agent_keep_minutes": -1})).status == 400
+
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
         timer_list = f"voice_timer_list.{MAC}_timers"

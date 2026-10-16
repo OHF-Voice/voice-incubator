@@ -368,7 +368,7 @@ function fallbackPanel() {
       h("span", { class: "badge" }, count(status.llm_commands)),
       h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
-      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks among commands that hear something — meaning takes the rest — in about a quarter of a second on a Raspberry Pi 5. An LLM takes any command but is slower and wrong more often; Granite is also the question model, Hammer is licensed for non-commercial use only."),
+      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks among commands that hear something — meaning takes the rest — in about a quarter of a second on a Raspberry Pi 5. An LLM takes any command but is slower and wrong more often; Hammer is licensed for non-commercial use only."),
       field("Commands it chooses from", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
       thresholdField,
       h("button", { class: "primary", onclick: save }, "Save")));
@@ -424,25 +424,37 @@ async function pageFallback() {
   );
 }
 
-// Questions no command or skill took: a small LLM.
-function questionsPanel() {
-  const status = (state.status && state.status.questions) || {};
-  const llm = h("input", { type: "checkbox", checked: status.llm !== false, disabled: status.llm_installed === false });
-  const model = h("select", {}, Object.entries(status.models || {}).map(([id, m]) => h("option", { value: id, selected: status.model === id }, `${m.name} (${m.mb} MB)`)));
+// What nothing here understood: a Home Assistant conversation agent, in a
+// conversation kept on each satellite.
+function agentPanel() {
+  const status = (state.status && state.status.agent) || {};
+  const agent = h("select", {}, h("option", { value: "" }, "None"),
+    status.agent ? h("option", { value: status.agent, selected: true }, status.agent) : null);
+  const note = h("span");
+  api("GET", "agents").then((data) => {
+    fill(agent, h("option", { value: "", selected: !status.agent }, "None"),
+      ...data.agents.map((a) => h("option", { value: a.id, selected: status.agent === a.id }, `${a.name} (${a.id})`)),
+      status.agent && !data.agents.some((a) => a.id === status.agent) ? h("option", { value: status.agent, selected: true }, `${status.agent} (not found)`) : null);
+    note.textContent = data.error ? `Home Assistant's agents could not be listed: ${data.error}` : "";
+  }).catch(() => {});
+  const keep = h("input", { type: "number", min: 0, max: 1440, step: 0.5, value: status.keep_minutes ?? 5, style: "width:80px" });
+  const sats = satelliteLabels();
+  const kept = Object.entries(status.conversations || {});
   async function save() {
     try {
-      await api("PUT", "settings", { questions_llm: llm.checked, questions_model: model.value });
+      await api("PUT", "settings", { agent: agent.value || null, agent_keep_minutes: Number(keep.value) });
       toast("Saved"); await refreshStatus(); pageSettings();
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
-    h("h2", {}, "Questions"),
-    h("p", { class: "muted small" }, "When no command is meant, a question still gets an answer: exactly, from a ", h("a", { href: "#/skills" }, "skill"), " (arithmetic, unit conversions, dates, spelling), and otherwise from a small LLM."),
-    h("label", {}, llm, "Answer the rest with a small LLM, in one sentence (“who wrote The Odyssey?”)",
-      status.llm_installed === false ? h("span", { class: "badge" }, "llama.cpp is not installed") : h("span", { class: "badge" }, status.llm_status || "off")),
-    h("div", { class: "row" }, field("Model", model, "Granite answers about 9 in 10 of these in under half a second on a Raspberry Pi 5. Gemma 3 1B gets a few more right, for a faster machine."),
+    h("h2", {}, "Conversation agent"),
+    h("p", { class: "muted small" }, "What no command, ", h("a", { href: "#/skills" }, "skill"), " or step under “When nothing matches” took can go to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. “Can't look it up” waits for it: the agent may know the weather. What it doesn't understand either is the ", h("a", { href: "#/unknown" }, "Unknown command"), "'s."),
+    h("div", { class: "row" },
+      field("Agent", agent, note),
+      field("Keep a conversation for", h("label", {}, keep, "minutes"), "After its last answer on a satellite, the next sentence there continues the conversation (“how tall is it?”), as on the Voice PE. 0: every sentence starts a new one."),
       h("button", { class: "primary", onclick: save }, "Save")),
-    h("p", { class: "muted small" }, "A small model can be wrong, and says so with confidence. Only what reads as a question is asked, and never one about now or here (the weather, news, scores)."));
+    kept.length ? h("p", { class: "small" }, "Conversations kept: ", kept.map(([key, seconds]) => `${sats[key] || key || "the Test page"} (${Math.round(seconds)} s more)`).join(", ")) : null,
+    h("p", { class: "muted small" }, "A dry run never asks it, since an agent can act in your home: tick “Really run” on the Test page to try it. An LLM agent hears what the speech model wrote, mishearings and all."));
 }
 
 // Skills: questions answered without an LLM, each on or off for the whole
@@ -478,7 +490,7 @@ async function pageSkills() {
   fill($main,
     h("h1", {}, "Skills"),
     h("p", { class: "muted" }, "Questions no command takes, answered exactly and at once, without an LLM: a skill parses the whole question and computes the answer, or leaves it to the next step. Turn each on or off for the whole home, and give a satellite its own setting where it should differ."),
-    h("p", { class: "muted small" }, "They answer before the steps after keywords and examples (meaning, the LLM) — except “Can't look it up”, which comes after them, so “do I need an umbrella” can still be your weather command. What no skill answers goes to the question model (Settings page, “Questions”)."),
+    h("p", { class: "muted small" }, "They answer before the steps after keywords and examples (meaning, the model) — except “Can't look it up”, which comes after them, so “do I need an umbrella” can still be your weather command, and after the conversation agent when there is one (Settings page)."),
     ...data.skills.map(card));
 }
 
@@ -533,7 +545,7 @@ async function pageCommands() {
 }
 
 // The Unknown command: what is said when nothing -- no command, skill, the
-// fallback -- understood a sentence. A template, rendered by Home Assistant.
+// fallback, the conversation agent -- understood a sentence. A template, rendered by Home Assistant.
 const UNKNOWN_EXAMPLES = [
   "Sorry, I couldn't understand the sentence {{ transcript }}.",
   "{% if hint %}{{ hint }}{% else %}Sorry, I didn't catch “{{ transcript }}”.{% endif %}",
@@ -567,7 +579,7 @@ async function pageUnknown() {
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
     h("div", { class: "panel" },
-      h("p", { class: "muted" }, "When nothing understood a sentence — no command, no skill, nothing that runs when nothing matches — the satellite says this. Left empty, it says the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.” Something understood but impossible as said (“the fan in the office” where there is none) still says why."),
+      h("p", { class: "muted" }, "When nothing understood a sentence — no command, no skill, nothing that runs when nothing matches, nor the conversation agent — the satellite says this. Left empty, it says the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.” Something understood but impossible as said (“the fan in the office” where there is none) still says why."),
       field("Response", area, "A Home Assistant template. Something that renders to nothing says the default."),
       h("div", { class: "row small" }, h("span", { class: "muted" }, "Start from:"),
         ...UNKNOWN_EXAMPLES.map((example) => h("button", { type: "button", class: "link", onclick: () => { area.value = example; area.focus(); } }, h("code", {}, example)))),
@@ -1909,7 +1921,7 @@ function renderRecognition(rec) {
     rec.skipped && rec.skipped.length ? h("div", { class: "notice warn" }, "Passed over: ", rec.skipped.map((s) => `${s.command} (${s.why})`).join(", ")) : null,
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
-      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered by the question model${rec.answer.seconds ? ` in ${Math.round(rec.answer.seconds * 1000)} ms` : ""}`)) : null,
+      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered (${rec.answer.kind})`)) : null,
     rec.matched_by === "transcript" ? h("div", { class: "notice info" }, `Found by keywords in the ${rec.text_source && rec.text_source !== "TDT" ? `transcript from ${rec.text_source}` : "TDT transcript"}: the audio's own evidence wasn't enough.`) : null,
     !rec.command && rec.transcript_pass ? h("div", { class: "small muted" }, `Keywords on the transcript (“${rec.transcript_pass.text}”): `,
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
@@ -1985,6 +1997,12 @@ function renderStage(stage) {
   } else if (name === "timer_stopped") {
     head = "Timer stopped";
     body = h("div", { class: "small" }, data.by === "stop" ? "by “stop” or a call" : data.by === "button" ? "by the center button" : data.by === "timeout" ? "rang out" : data.by, data.heard ? ` · heard ${data.heard}` : "");
+  } else if (name === "agent") {
+    cls = !data.asked ? "" : data.understood && data.text ? "ok" : data.error ? "bad" : "warn";
+    head = `Conversation agent${data.agent ? ` (${data.agent})` : ""}`;
+    body = h("div", { class: "small" }, !data.asked ? "Not asked: a dry run, and an agent can act in the home." : data.error ? ["Could not be asked: ", data.error] : [
+      data.understood ? ["Said “", data.text || "", "”"] : ["Understood nothing (", data.code || data.response_type, "): said the default."],
+      h("div", { class: "muted" }, `${data.response_type || ""} in ${Math.round((data.seconds || 0) * 1000)} ms · ${data.continued ? "conversation kept from before" : "new conversation"}${data.conversation_id ? ` ${data.conversation_id}` : ""}${data.wants_answer ? " · it asked something back" : ""}`)]);
   } else if (name === "unknown") {
     cls = data.error ? "bad" : "ok";
     head = "Unknown command";
@@ -2074,14 +2092,14 @@ async function pageTest() {
 // ---------------------------------------------------------------- settings
 
 // Everything about how commands are recognized and answered that is not a
-// command: the fallback, responses, questions; and the YAML, for the rest.
+// command: the fallback, the conversation agent, responses; and the YAML.
 async function pageSettings() {
-  await refreshStatus();
+  await Promise.all([refreshStatus(), loadSatellites()]);
   fill($main,
     h("h1", {}, "Settings"),
     fallbackPanel(),
+    agentPanel(),
     responsesPanel(),
-    questionsPanel(),
     h("div", { class: "panel" },
       h("h2", {}, "Advanced"),
       h("div", { class: "item clickable", onclick: () => { location.hash = "#/yaml"; } },
