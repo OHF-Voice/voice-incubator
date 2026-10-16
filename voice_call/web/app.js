@@ -2036,6 +2036,8 @@ async function pageSession(id) {
   }
   const rec = stageOf(record, "recognition");
   const heard = rec && rec.recognition ? (rec.recognition.tdt_transcript || rec.recognition.transcript || "") : "";
+  // A satellite's audio (not a typed or synthesized test): whose voice it was.
+  const voice = record.audio && record.audio.call && record.kind !== "try" ? await voicePanel(record) : null;
   fill($main, 
     h("div", { class: "row" },
       h("a", { href: "#/sessions" }, "← Sessions"),
@@ -2054,9 +2056,52 @@ async function pageSession(id) {
       record.audio.command ? [h("h3", {}, record.kind === "try" ? "Synthesized command" : "Command (endpointing cut)"), waveform(record, "command", record.kind === "try" ? recognitionSpans(record, 0) : [])] : null,
       h("div", { class: "legend" }, ...Object.entries(SPAN_COLORS).map(([role, color]) => h("span", { style: `--c:${color}` }, role)))) :
       h("div", { class: "panel muted small" }, "No audio kept for this session. Turn on debugging (Sessions page), or debug its satellite (Test page), to keep it."),
+    voice,
     h("div", { class: "panel" }, h("h2", {}, "Pipeline"), ...(record.stages || []).map(renderStage)),
   );
   if (record.outcome === "in progress") poll(async () => { const next = await api("GET", `calls/${id}`); if (next.outcome !== "in progress") { stopPolling(); pageSession(id); } }, 1000);
+}
+
+// Who spoke in a session, and adding its voice to a speaker's: one already
+// known, or a new one.
+async function voicePanel(record) {
+  let data;
+  try { data = await api("GET", "speakers"); } catch (_) { return null; }
+  const found = stageOf(record, "speaker");
+  const said = !found ? "Not identified when it was heard."
+    : found.name ? `Recognized as ${found.name} (score ${num(found.score, 2)}).`
+      : found.best ? `Not recognized: closest ${found.best} (score ${num(found.score, 2)}).` : "Not recognized.";
+  if (!data.enabled) {
+    return h("div", { class: "panel" }, h("h2", {}, "Who spoke"), h("p", { class: "small" }, said),
+      h("p", { class: "muted small" }, "Speaker identification is turned off, so no voices are learned."));
+  }
+  const NEW = "+new"; // never a speaker's name
+  const pick = found && (found.name || found.best);
+  const who = h("select", {},
+    ...data.speakers.map((sp) => h("option", { value: sp.name, selected: sp.name === pick }, sp.name)),
+    h("option", { value: NEW, selected: !data.speakers.length }, "A new speaker…"));
+  const name = h("input", { type: "text", placeholder: "Name" });
+  const nameField = h("span", {}, name);
+  const out = h("div");
+  const update = () => { nameField.style.display = who.value === NEW ? "" : "none"; };
+  who.addEventListener("change", update);
+  update();
+  async function add() {
+    fill(out);
+    const speaker = who.value === NEW ? name.value.trim() : who.value;
+    if (!speaker) { out.append(errorBox("Give the speaker a name")); return; }
+    try {
+      const added = await api("POST", `calls/${record.id}/speaker`, { name: speaker });
+      toast(`Added to ${added.name}'s voice`);
+      fill(out, h("p", { class: "notice ok small" }, `${added.speech_s} s of speech added to ${added.name}'s voice, which now has ${added.seconds} s.`,
+        added.learned === 0 && who.value === NEW ? " A new voice from one session is a start: add a few more of theirs to make it sure." : ""));
+    } catch (err) { out.append(errorBox(err)); }
+  }
+  return h("div", { class: "panel" }, h("h2", {}, "Who spoke"),
+    h("p", { class: "small" }, said),
+    h("div", { class: "row" }, h("span", {}, "This is"), who, nameField, h("button", { class: "primary", onclick: add }, "Add this voice")),
+    h("p", { class: "muted small" }, "Adds the wake word and the command, as the satellite heard them, to that person's voice: they are recognized better from then on. Only add a session you know is theirs."),
+    out);
 }
 
 // -------------------------------------------------------------------- test

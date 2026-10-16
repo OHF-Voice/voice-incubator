@@ -455,6 +455,10 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   executed, and you hear what would have been said. Kept sessions show their
   waveform with the wake word, the cut and the recognized words marked, and
   can be **replayed** through today's commands.
+- **Who spoke**: a kept session's voice can be added to a speaker's -- one
+  already known, or a new one -- so they are recognized better from then on
+  (and their name reaches commands as `speaker`). Saying "learn a new voice
+  for Mike" to a satellite does the same from Mike's next few commands.
 
 ## YAML
 

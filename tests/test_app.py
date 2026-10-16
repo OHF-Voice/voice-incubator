@@ -182,6 +182,18 @@ async def _scenario(tmp_path: Path) -> None:
             audio = await http.get(f"/api/calls/{kept['id']}/audio/call")
             assert audio.status == 200 and audio.headers["Content-Type"] == "audio/wav"
 
+            # Whose voice it was: into a new speaker, then the same one again.
+            assert (await (await http.get("/api/speakers")).json()) == {"enabled": True, "speakers": []}
+            added = await (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": "mike"})).json()
+            assert added["ok"] and added["name"] == "Mike" and added["learned"] == 0 and added["speech_s"] > 1
+            added = await (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": "MIKE"})).json()
+            assert added["name"] == "Mike" and added["learned"] == 1
+            assert [s["name"] for s in (await (await http.get("/api/speakers")).json())["speakers"]] == ["Mike"]
+            unkept = next(c for c in calls if not c["kept"])
+            assert (await http.post(f"/api/calls/{unkept['id']}/speaker", json={"name": "Mike"})).status == 404
+            assert (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": " "})).status == 400
+            app.speakers.profiles.speakers.clear()  # nobody, for the rest
+
             # Replay the kept call through the current commands, as a dry run.
             replayed = await (await http.post(f"/api/calls/{kept['id']}/replay", json={})).json()
             assert replayed["kind"] == "replay" and replayed["outcome"] == "dry run"

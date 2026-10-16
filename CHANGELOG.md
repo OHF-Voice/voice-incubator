@@ -2,6 +2,8 @@
 
 ## 0.2.0
 
+- A kept session's voice can be added to a speaker's, known or new ("Who
+  spoke" on its page).
 - What nothing here understood can go to a Home Assistant **conversation
   agent** (Settings page), in a conversation kept on each satellite for 5
   minutes after its last answer, as on the Voice PE. It takes the place of

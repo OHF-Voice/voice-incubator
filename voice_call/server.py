@@ -1644,6 +1644,41 @@ class VoiceCallApp:
         self.calls.finish(record, outcome, summary, {"call": pcm})
         return record
 
+    async def add_voice(self, call_id: str, name: str) -> dict[str, Any]:
+        """A kept call's voice, into a speaker's profile (``name``: one that
+        exists, or a new one): the wake word and the command from the
+        capture speakers are identified on, as a call is."""
+        if self.speakers is None:
+            raise ConfigError("Speaker identification is turned off")
+        speaker = _speaker_name(name)
+        if speaker is None:
+            raise ConfigError("Give the speaker a name")
+        record = self.calls.get(call_id)
+        if record is None:
+            raise FileNotFoundError(f"No session {call_id}")
+        aec = self.speakers.channel == "aec" and self.calls.audio_path(call_id, "call-aec") is not None
+        path = self.calls.audio_path(call_id, "call-aec" if aec else "call")
+        if path is None:
+            raise FileNotFoundError("No audio was kept for this session")
+        with wave.open(str(path), "rb") as wav:
+            pcm = wav.readframes(wav.getnframes())
+        # From 1.2 s before the end of the wake word, as _speaker_audio.
+        split = record.marks.get("kaldi_split", record.marks.get("detection", 0.0))
+        if aec:
+            start = next((s for s in record.stages if s.get("stage") == "call_start"), {})
+            preroll = float(start.get("preroll") or 0.0)
+            split += float(start.get("aec_preroll") or preroll) - preroll
+        utterance = await self.speakers.embed(pcm[ms_to_bytes(max(0.0, split - 1.2) * 1000) :])
+        if utterance is None:
+            raise ConfigError("Too little speech in this session to learn a voice from")
+        speaker, profile = self.speakers.add(speaker, utterance)
+        return {"name": speaker, "speech_s": round(utterance.speech_s, 2), **_profile_json(speaker, profile)}
+
+    def speaker_list(self) -> list[dict[str, Any]]:
+        if self.speakers is None:
+            return []
+        return [_profile_json(name, p) for name, p in sorted(self.speakers.profiles.speakers.items())]
+
     # ---------------------------------------------------------------- timers
 
     def _timers_changed(self) -> None:
@@ -1951,6 +1986,16 @@ class VoiceCallApp:
         _LOGGER.info(
             "Saved %s/{call,call-aec,command}-%d.wav", out_dir, stamp
         )
+
+
+def _profile_json(name: str, profile: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": name,
+        "color": profile.get("color"),
+        "seconds": round(float(profile.get("speech_s") or 0.0), 1),
+        "windows": profile.get("n_windows"),
+        "learned": profile.get("learned", 0),
+    }
 
 
 def _speaker_name(text: Any) -> str | None:

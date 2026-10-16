@@ -307,10 +307,14 @@ class SpeakerId:
             ", ".join(sorted(self.profiles.speakers)) or "none yet",
         )
 
-    async def identify(self, pcm: bytes) -> Identification:
+    async def embed(self, pcm: bytes) -> Utterance | None:
+        """An utterance's embedding; None with too little speech."""
         assert self._embedder is not None, "start() first"
         async with self._lock:
-            utt = await asyncio.to_thread(self._embedder.embed, pcm_to_float(pcm))
+            return await asyncio.to_thread(self._embedder.embed, pcm_to_float(pcm))
+
+    async def identify(self, pcm: bytes) -> Identification:
+        utt = await self.embed(pcm)
         if utt is None:
             return Identification(None)
         names, P = self.profiles.matrix()
@@ -345,6 +349,21 @@ class SpeakerId:
         self.profiles.learn(ident.name, ident.utterance, self.learn_cap)
         self.profiles.save()
         return True
+
+    def add(self, name: str, utt: Utterance) -> tuple[str, dict]:
+        """Fold an utterance into a speaker's profile (``name`` in any case),
+        or start a profile with it: ``(name, profile)``. From the web UI: a
+        person says whose voice a saved call was."""
+        existing = self.profiles.find(name)
+        if existing is None:
+            profile = self.profiles.set(name, utt.windows, utt.speech_s)
+        else:
+            name = existing
+            self.profiles.learn(name, utt, self.learn_cap)
+            profile = self.profiles.speakers[name]
+        self.profiles.save()
+        _LOGGER.info("Added %.1fs of speech to %s's voice (%d windows)", utt.speech_s, name, profile["n_windows"])
+        return name, profile
 
     def begin_enrollment(self, name: str) -> Enrollment:
         existing = self.profiles.find(name)

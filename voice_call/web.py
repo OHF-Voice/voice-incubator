@@ -116,6 +116,8 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.delete("/api/calls/{id}", api.delete_call),
             web.get("/api/calls/{id}/audio/{name}", api.call_audio),
             web.post("/api/calls/{id}/replay", api.replay),
+            web.post("/api/calls/{id}/speaker", api.add_voice),
+            web.get("/api/speakers", api.speakers),
             web.post("/api/try", api.try_text),
         ]
     )
@@ -984,6 +986,16 @@ class Api:
         if path is None:
             raise FileNotFoundError("No such audio")
         return web.FileResponse(path, headers={"Content-Type": "audio/wav"})
+
+    async def add_voice(self, request: web.Request) -> web.Response:
+        """This session's voice, into a speaker's profile: ``{name}``, one
+        that exists or a new one."""
+        body = await request.json()
+        added = await self.app.add_voice(request.match_info["id"], str(body.get("name") or ""))
+        return web.json_response({"ok": True, **added})
+
+    async def speakers(self, request: web.Request) -> web.Response:
+        return web.json_response({"enabled": self.app.speakers is not None, "speakers": self.app.speaker_list()})
 
     async def replay(self, request: web.Request) -> web.Response:
         body = await _json_or_empty(request)
