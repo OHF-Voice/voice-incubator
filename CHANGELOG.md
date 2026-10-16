@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- A **Settings** page holds what the Commands page had besides commands and
+  command groups: when nothing matches, responses, questions -- and, under
+  Advanced, commands.yaml (the YAML tab is gone).
 - The web UI's Try page is now **Test**, and Calls is now **Sessions**. A
   command's page no longer has its own "Try it"; per-satellite choices that
   follow every satellite's read "Default".

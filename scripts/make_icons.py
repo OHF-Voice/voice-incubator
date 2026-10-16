@@ -31,6 +31,8 @@ DEFAULTS = [
     "mdi:folder-outline",
     # New command: a custom one.
     "mdi:pencil-plus-outline",
+    # Settings: commands.yaml.
+    "mdi:code-braces",
 ]
 PICKER = [
     "mdi:lightbulb",

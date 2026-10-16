@@ -152,7 +152,7 @@ added again. A command has:
 
   A beep is for what you can see happen. A command set to beep that acted
   somewhere else -- another area, a floor, a device in no area -- says what
-  the **Responses** panel on the Commands page says instead: the specific
+  the **Responses** panel on the Settings page says instead: the specific
   sentence unless you change it (Home Assistant's own says the brief one).
   The done response can be written once, for every level, or once for each;
   a level without one says the closest written, less before more. Timers
@@ -324,7 +324,7 @@ built-in TDT, or your Home Assistant STT), so "unlock the front door" heard
 plainly by the speech model runs even when the keyword evidence in the audio
 was weak. When they find nothing, two more steps can run a command -- but only a command you chose for them: tick them
 on the command's page, or "meaning" and "model" for many at once with
-**Choose commands** under "When nothing matches" on the **Commands** page. Commands
+**Choose commands** under "When nothing matches" on the **Settings** page. Commands
 from the library are not chosen until you choose them.
 
 - **Meaning** picks the chosen command a sentence is very close to: "kill
@@ -387,7 +387,7 @@ setting.
 ## Questions
 
 What no command or skill answers, when it reads as a question, goes to a
-small LLM (Commands page, "Questions"), answered in one sentence: Granite 4.0
+small LLM (Settings page, "Questions"), answered in one sentence: Granite 4.0
 350M (downloaded on first start, 370 MB; about half a second on a Raspberry
 Pi 5), or Gemma 3 1B on a faster machine. It answers about 9 in 10 everyday
 questions right, and can be confidently wrong. Questions about now or here
@@ -423,7 +423,7 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
 
 ## YAML
 
-Everything the UI edits is in `/data/commands.yaml` (shown on the YAML page),
+Everything the UI edits is in `/data/commands.yaml` (Settings page, "Advanced"),
 and you may edit it directly; comments survive saves from the UI.
 
 ```yaml

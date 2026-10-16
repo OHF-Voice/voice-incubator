@@ -362,7 +362,7 @@ function fallbackPanel() {
     try {
       await api("PUT", "settings", { fallback_meaning: meaning.checked, fallback_llm: llm.checked, fallback_model: model.value,
         fallback_top_k: Number(topK.value), fallback_threshold: Number(threshold.value) });
-      toast("Saved"); await refreshStatus(); pageCommands();
+      toast("Saved"); await refreshStatus(); pageSettings();
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
@@ -418,7 +418,7 @@ async function pageFallback() {
   }
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: "#/commands" }, "← Commands"),
+      h("a", { href: "#/settings" }, "← Settings"),
       h("h1", { class: "grow", style: "margin:0" }, "When nothing matches"),
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
@@ -440,7 +440,7 @@ function questionsPanel() {
   async function save() {
     try {
       await api("PUT", "settings", { questions_llm: llm.checked, questions_model: model.value });
-      toast("Saved"); await refreshStatus(); pageCommands();
+      toast("Saved"); await refreshStatus(); pageSettings();
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
@@ -486,7 +486,7 @@ async function pageSkills() {
   fill($main,
     h("h1", {}, "Skills"),
     h("p", { class: "muted" }, "Questions no command takes, answered exactly and at once, without an LLM: a skill parses the whole question and computes the answer, or leaves it to the next step. Turn each on or off for the whole home, and give a satellite its own setting where it should differ."),
-    h("p", { class: "muted small" }, "They answer before the steps after keywords and examples (meaning, the LLM) — except “Can't look it up”, which comes after them, so “do I need an umbrella” can still be your weather command. What no skill answers goes to the question model (Commands page, “Questions”)."),
+    h("p", { class: "muted small" }, "They answer before the steps after keywords and examples (meaning, the LLM) — except “Can't look it up”, which comes after them, so “do I need an umbrella” can still be your weather command. What no skill answers goes to the question model (Settings page, “Questions”)."),
     ...data.skills.map(card));
 }
 
@@ -508,9 +508,6 @@ async function pageCommands() {
       h("button", { class: "primary", onclick: () => newCommandDialog() }, "New command")),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
     ids.length ? groupsPanel(store, sats) : null,
-    ids.length ? fallbackPanel() : null,
-    ids.length ? responsesPanel() : null,
-    questionsPanel(),
     ids.length ? null : h("div", { class: "panel" },
       h("p", {}, "No voice commands yet."),
       h("p", { class: "muted" }, "Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
@@ -780,7 +777,7 @@ async function pageCommand(id, prefill) {
         ...levels.map(([value, label]) => h("option", { value, selected: target.verbosity === value }, label)));
       const help = question()
         ? "A question always answers; with an answer written for each level, this picks which."
-        : "A beep is the acknowledgement sound, for what you can see happen: done somewhere else (another area, a floor, a device in no area), it says what the Commands page's “Responses” says instead. Only when it's done; what went wrong is always said.";
+        : "A beep is the acknowledgement sound, for what you can see happen: done somewhere else (another area, a floor, a device in no area), it says what the Settings page's “Responses” says instead. Only when it's done; what went wrong is always said.";
       return field("How much it says", select, help);
     }
 
@@ -1147,7 +1144,7 @@ async function pageCommand(id, prefill) {
             } }), label))),
           (id && ((state.store.details || {})[id] || {}).needs_said)
             ? "It hears something (a name, number, value or text): meaning picks the command, and the model hears what was said in it."
-            : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Commands page.")),
+            : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Settings page.")),
       h("div", { class: "panel" }, h("h2", {}, "Where"), scopeEditor(spec, "scope", true)),
       h("div", { class: "panel" }, h("h2", {}, "Target"),
         h("p", { class: "muted small" }, "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
@@ -2016,6 +2013,27 @@ async function pageTest() {
   input.focus();
 }
 
+// ---------------------------------------------------------------- settings
+
+// Everything about how commands are recognized and answered that is not a
+// command: the fallback, responses, questions; and the YAML, for the rest.
+async function pageSettings() {
+  await refreshStatus();
+  fill($main,
+    h("h1", {}, "Settings"),
+    fallbackPanel(),
+    responsesPanel(),
+    questionsPanel(),
+    h("div", { class: "panel" },
+      h("h2", {}, "Advanced"),
+      h("div", { class: "item clickable", onclick: () => { location.hash = "#/yaml"; } },
+        icon("mdi:code-braces", "big"),
+        h("div", { class: "grow" },
+          h("div", { class: "title" }, "Edit commands.yaml"),
+          h("div", { class: "muted small" }, "Everything the Commands and Names pages edit, in one file: commands, groups, names and value lists. Commands written here may use anything adapt-ctc supports.")))),
+  );
+}
+
 // -------------------------------------------------------------------- yaml
 
 async function pageYaml() {
@@ -2024,7 +2042,7 @@ async function pageYaml() {
   area.value = data.text;
   const errors = h("div");
   fill($main, 
-    h("div", { class: "row" }, h("h1", { class: "grow" }, "commands.yaml"),
+    h("div", { class: "row" }, h("a", { href: "#/settings" }, "← Settings"), h("h1", { class: "grow", style: "margin:0" }, "commands.yaml"),
       h("button", { class: "primary", onclick: async () => {
         fill(errors, );
         try { await api("PUT", "yaml", { text: area.value }); toast("Saved"); refreshStatus(); }
@@ -2045,7 +2063,8 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    link.classList.toggle("active", link.dataset.page === page || ((page === "command" || page === "group" || page === "fallback") && link.dataset.page === "commands") || (page === "session" && link.dataset.page === "sessions"));
+    const parent = { command: "commands", group: "commands", fallback: "settings", yaml: "settings", session: "sessions" }[page];
+    link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
     if (page === "commands") await pageCommands();
@@ -2063,6 +2082,7 @@ async function route() {
     else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
     else if (page === "call") location.hash = `#/session/${arg}`;
     else if (page === "try") location.hash = "#/test";
+    else if (page === "settings") await pageSettings();
     else if (page === "yaml") await pageYaml();
     else await pageCommands();
   } catch (err) {

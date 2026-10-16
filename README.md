@@ -157,7 +157,7 @@ come on, not a timer you can't. What a global setting would get wrong is
 areas, floors and devices it names (a device's area from the registry) or
 else the satellite's area -- and a beep is said only when that is the
 satellite's own area. Elsewhere it says `beep_elsewhere` (settings.yaml,
-"Responses" on the Commands page; `specific` unless set: "Turned on the
+"Responses" on the Settings page; `specific` unless set: "Turned on the
 lights in the Office" says where, which "Turned on the lights" can't).
 Home Assistant's default does the same with the brief sentence. Templates see
 `place` too (`said`: "in the Kitchen", "upstairs"; `here`; `areas`), and a
@@ -940,7 +940,7 @@ Assistant.
 `voice_call/fallback.py`. After the CTC matcher (keywords and examples), in
 order, each only when the one before found nothing -- and each only for the
 commands chosen for it (`fallback: [meaning, llm]` on the command; ticked on
-its page, or many at once on the Commands page). None are chosen to begin
+its page, or many at once on the Settings page). None are chosen to begin
 with, the library's included: a command is run this way only when someone
 decided it may be.
 
