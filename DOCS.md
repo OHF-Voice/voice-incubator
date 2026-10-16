@@ -78,11 +78,13 @@ at the top of the Satellites page, and per satellite below it.
 
 ## Commands
 
-Start from the **Library** (adding one copies it into your commands, with any
-shared value list it uses that you don't have yet; one you already have is
-marked **added**, by its id, so a command you renamed counts as your own and
-the library's can be added again) or make a new one. A
-command has:
+**New command** on the Commands page offers the library's commands --
+search them, or show one group (Basics, Covers and locks, Music, Timers) --
+and, always at the top, a custom command made from scratch. Adding one from
+the library copies it into your commands, with any shared value list it uses
+that you don't have yet; one you already have is marked **added**, by its
+id, so a command you renamed counts as your own and the library's can be
+added again. A command has:
 
 - **Icon**: to tell commands apart at a glance; by default, one for what it
   does (a timer, music, a script ...).

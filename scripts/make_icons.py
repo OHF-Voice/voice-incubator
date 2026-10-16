@@ -29,6 +29,8 @@ DEFAULTS = [
     "mdi:music",
     # The command groups list.
     "mdi:folder-outline",
+    # New command: a custom one.
+    "mdi:pencil-plus-outline",
 ]
 PICKER = [
     "mdi:lightbulb",

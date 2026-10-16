@@ -51,6 +51,8 @@
   (`combinations: [[], [area], [floor]]`), each heard whole, so it never
   runs with something said left out ("kill the lights in the office" no
   longer turns off the satellite's own area). The editor's "Ways to say it".
+- New command opens the library in a dialog -- search it, or show one group
+  -- with a custom command always at the top. The Library page is gone.
 - How much a command says when it's done: a beep, a brief fixed sentence
   (cached by text-to-speech), a specific one, or a verbose one -- set per
   command (and per area or satellite), with a response for each level.

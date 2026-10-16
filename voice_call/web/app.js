@@ -505,8 +505,7 @@ async function pageCommands() {
   const order = Object.keys(groups).sort((a, b) => (a === "Everywhere" ? -1 : b === "Everywhere" ? 1 : a.localeCompare(b)));
   fill($main, 
     h("div", { class: "row" }, h("h1", { class: "grow" }, "Commands"),
-      h("button", { onclick: () => { location.hash = "#/library"; } }, "Add from library"),
-      h("button", { class: "primary", onclick: () => { location.hash = "#/command/"; } }, "New command")),
+      h("button", { class: "primary", onclick: () => newCommandDialog() }, "New command")),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
     ids.length ? groupsPanel(store, sats) : null,
     ids.length ? fallbackPanel() : null,
@@ -514,7 +513,7 @@ async function pageCommands() {
     questionsPanel(),
     ids.length ? null : h("div", { class: "panel" },
       h("p", {}, "No voice commands yet."),
-      h("p", { class: "muted" }, "Start from the library, or make one: pick what it targets, give example sentences or keywords, and choose what happens.")),
+      h("p", { class: "muted" }, "Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
     ...order.map((group) => h("div", { class: "panel" },
       h("h2", {}, group),
       h("div", { class: "list" }, ...groups[group].map((id) => {
@@ -1231,43 +1230,88 @@ function textToValues(text) {
   return out;
 }
 
-// ----------------------------------------------------------------- library
+// ------------------------------------------------------------- new command
 
-async function pageLibrary() {
-  const [data, store] = await Promise.all([api("GET", "library"), loadStore()]);
+// New command: the library's commands to start from -- searched, filtered by
+// group -- and, always there, a custom one.
+async function newCommandDialog() {
+  let data, store;
+  try {
+    [data, store] = await Promise.all([api("GET", "library"), loadStore()]);
+  } catch (err) { toast(err.message); return; }
   // Added: one of your commands has its id. A command whose id you changed is
   // yours, and the library's can be added again.
   const yours = new Set(Object.keys(store.commands || {}));
-  const groups = {};
-  for (const entry of data.entries) (groups[entry.group] = groups[entry.group] || []).push(entry);
+  const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries()];
+  let group = "";
+  const search = h("input", { type: "search", placeholder: "Search the library: lights, timer, play…", "aria-label": "Search the library" });
+  const list = h("div", { class: "list" });
+  const chips = h("div", { class: "row filter-chips" });
+  const previous = document.activeElement;
+  function close() {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+    if (previous && previous.focus) previous.focus();
+  }
+  function onKey(e) { if (e.key === "Escape") close(); }
   const add = async (entry) => {
     try {
       const result = await api("POST", "library/add", { file: entry.file, id: entry.id });
       toast(`Added ${result.id}`);
+      close();
       refreshStatus();
       location.hash = `#/command/${result.id}`;
     } catch (err) { toast(err.message); }
   };
-  fill($main, 
-    h("h1", {}, "Library"),
-    h("p", { class: "muted" }, "Example commands. Adding one copies it into your commands, where you can change anything about it."),
-    ...Object.entries(groups).map(([group, entries]) => h("div", { class: "panel" },
-      h("h2", { class: "row" }, entries[0].group_icon ? icon(entries[0].group_icon) : null, group,
-        h("span", { class: "muted small", style: "font-weight:400" }, `${entries.filter((e) => yours.has(e.id)).length} of ${entries.length} added`)),
-      h("div", { class: "list" }, ...entries.map((entry) => {
-        const added = yours.has(entry.id);
-        return h("div", { class: `item ${added ? "added" : ""}` },
-          icon(iconFor(entry.spec), "big"),
-          h("div", { class: "grow" },
-            h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
-            h("div", { class: "muted small" }, entry.description, listensText(entry.spec) ? ` · ${listensText(entry.spec)}` : ""),
-            entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
-            entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
-          added ? h("button", { class: "link", onclick: () => add(entry) }, "Add a copy") : null,
-          added ? h("button", { onclick: () => { location.hash = `#/command/${entry.id}`; } }, "Open")
-            : h("button", { onclick: () => add(entry) }, "Add"));
-      }))))
-  );
+  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = "#/command/"; } },
+    icon("mdi:pencil-plus-outline", "big"),
+    h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
+      h("span", { class: "muted small" }, "Start from scratch: what it acts on, what to listen for, what happens.")));
+  const matches = (entry, words) => {
+    const text = [entry.title, entry.description, entry.id, entry.group, listensText(entry.spec)].join(" ").toLowerCase();
+    return words.every((w) => text.includes(w));
+  };
+  function render() {
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const inGroup = data.entries.filter((e) => !group || e.group === group);
+    const shown = inGroup.filter((e) => matches(e, words));
+    fill(chips, ...[["", null, "All"], ...groups.map(([g, i]) => [g, i, g])].map(([value, ic, label]) => {
+      const count = data.entries.filter((e) => (!value || e.group === value) && matches(e, words)).length;
+      return h("button", { type: "button", class: `filter-chip ${group === value ? "on" : ""}`, "aria-pressed": String(group === value),
+        onclick: () => { group = value; render(); } }, ic ? icon(ic) : null, `${label} (${count})`);
+    }));
+    fill(list, ...shown.map((entry) => {
+      const added = yours.has(entry.id);
+      return h("div", { class: `item ${added ? "added" : ""}` },
+        icon(iconFor(entry.spec), "big"),
+        h("div", { class: "grow" },
+          h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
+          h("div", { class: "muted small" }, entry.description, listensText(entry.spec) ? ` · ${listensText(entry.spec)}` : ""),
+          entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
+          entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
+        added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
+        added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/command/${entry.id}`; } }, "Open")
+          : h("button", { type: "button", class: "primary", onclick: () => add(entry) }, "Add"));
+    }), shown.length ? null : h("p", { class: "muted" }, "No library command matches. Start a custom one above."));
+  }
+  search.addEventListener("input", render);
+  const overlay = h("div", { class: "overlay", onclick: (e) => { if (e.target === overlay) close(); } },
+    h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": "New command" },
+      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "New command"),
+        h("button", { type: "button", class: "link", "aria-label": "Close", onclick: close }, "Close")),
+      custom,
+      h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it."),
+      search, chips,
+      h("div", { class: "dialog-list" }, list)));
+  document.addEventListener("keydown", onKey);
+  document.body.append(overlay);
+  render();
+  search.focus();
+}
+
+async function pageLibrary() {
+  location.hash = "#/commands";
+  newCommandDialog();
 }
 
 // ------------------------------------------------------------------- names
