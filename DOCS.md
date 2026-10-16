@@ -307,6 +307,9 @@ read whole is left to the next step:
   scores, prices, what's open -- get "Sorry, I can't look that up" (unless a
   command of yours answers them, like the library's weather command).
 
+They read questions however they are written -- "What's 50°F in Celsius?",
+"12 × 8", "¼ cup", "$80" -- as well as spoken.
+
 Each is on unless you turn it off, for the whole home or for one satellite:
 a satellite set "on" or "off" for a skill keeps that whatever the home's
 setting.

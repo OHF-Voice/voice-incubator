@@ -990,6 +990,13 @@ command fallback -- a question still gets an answer:
    downloaded on first start) or Gemma 3 1B (for a faster machine). The same
    llama.cpp as the command fallback.
 
+Each gets the question normalized first (`skills/common.py` `normalize`):
+what a typed question, or a speech-to-text that formats what it hears (Home
+Assistant's), writes -- "What’s", "50°F", "−5", "12 × 8", "½ cup", "1½
+quarts", "5²", "10 m²", "√144", "$80", "100km" -- in the words the grammars
+read. A currency is live only when there are two ("how many euros is a
+dollar"); "15% of $80" is 12 dollars, and "3.5 kg in pounds" is a weight.
+
 Every skill is on unless turned off, for the whole home (`settings.yaml`
 `skills: {spelling: false}`) or one satellite (`satellites.yaml`, the same;
 its own setting wins). A skill is a `Skill` (`skills/common.py`: id, name,

@@ -48,6 +48,8 @@
   for live ones, and the rest by a small LLM (Granite 4.0 350M, or Gemma 3
   1B), downloaded on first start. Each skill is turned on or off on the new
   Skills tab, for the whole home or per satellite.
+  Skills read questions as typed or formatted ("50°F", "12 × 8", "½ cup",
+  "$80").
 - Library: set an alarm (a timer that rings at a clock time: "wake me up at
   half past six"), take something off the shopping list, add to the to-do
   list.

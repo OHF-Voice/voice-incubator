@@ -28,7 +28,6 @@ LIVE_PATTERNS = [
     # Spoken, and found missing on the held-out questions (README "Skills and questions").
     r"\b(won|win|winner|champions?|happened)\b.*\blast (year|season|week|month)\b",
     r"\bdid (the )?[a-z ]+ (win|lose)\b",
-    r"\b(euros?|dollars?|pounds?|yen|pesos?)\b.*\b(euros?|dollars?|pounds?|yen|pesos?)\b",
     r"\bwhat time (?:does|do|is) .+ (open|close|closing)\b",
     r"\b(price|prices|cost of|stock|stocks|shares?|bitcoin|crypto|exchange rate|in (euros|dollars|pounds|yen)|gas prices?|gasoline|mortgage rates?)\b",
     r"\b(near me|nearby|around here|closest .* to me|in my area|local)\b",
@@ -48,7 +47,10 @@ LIVE_EXCEPTIONS = [
     r"\bwhat does .* mean\b",
     r"\bhow do you (spell|say)\b",
     r"\b(what is|what's) (a|an) [a-z]+\??$",
+    # A weight in pounds is not money.
+    r"\b(kilos?|kilograms?|kg|grams?|g|ounces?|oz|stones?|tons?|tonnes?|lbs?)\b.*\bin pounds\b",
 ]
+CURRENCIES = re.compile(r"\b(euros?|dollars?|pounds?|yen|pesos?)\b")
 
 
 def is_live(q):
@@ -56,6 +58,10 @@ def is_live(q):
     s = re.sub(r"[,;]", " ", q.lower())
     for p in LIVE_EXCEPTIONS:
         s = re.sub(p, " ", s)
+    # Two currencies: an exchange rate ("how many euros is a dollar"); one
+    # twice is arithmetic ("$5 plus $3").
+    if len({c.rstrip("s") for c in CURRENCIES.findall(s)}) > 1:
+        return True
     return any(re.search(p, s) for p in LIVE_PATTERNS)
 
 

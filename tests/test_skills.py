@@ -9,6 +9,7 @@ import pytest
 
 from voice_call import skills
 from voice_call.skills import SKILLS, Answer, enabled
+from voice_call.skills.common import normalize
 from voice_call.skills.live import LIVE_REPLY
 
 
@@ -54,6 +55,61 @@ def test_live_questions(question):
     # ...but the live notice, after the command fallback.
     assert skills.answer(question, last=True) == Answer("live", LIVE_REPLY, "live")
     assert skills.answer(question, frozenset(SKILLS) - {"live"}, last=True) is None
+
+
+@pytest.mark.parametrize(
+    ("question", "said", "skill"),
+    [
+        # As typed, or as a speech-to-text that formats what it hears writes it.
+        ("What is 50°F in Celsius?", "It's 10 degrees Celsius.", "units"),
+        ("What is 50 °F in °C?", "It's 10 degrees Celsius.", "units"),
+        ("What is 50℉ in Celsius?", "It's 10 degrees Celsius.", "units"),
+        ("What is −5°C in Fahrenheit?", "It's 23 degrees Fahrenheit.", "units"),
+        ("What is 50F in C?", "It's 10 degrees Celsius.", "units"),
+        ("What is 300K in Celsius?", "It's 26.9 degrees Celsius.", "units"),
+        ("What’s 12 × 8?", "It's 96.", "arithmetic"),
+        ("What is 12·8?", "It's 96.", "arithmetic"),
+        ("What is 12x8?", "It's 96.", "arithmetic"),
+        ("What is 10 – 3?", "It's 7.", "arithmetic"),
+        ("What is 5 + 3 =", "It's 8.", "arithmetic"),
+        ("What is 15% of $80?", "It's 12 dollars.", "arithmetic"),
+        ("What's $5 plus $3?", "It's 8 dollars.", "arithmetic"),
+        ("What is ½ of 10?", "It's 5.", "arithmetic"),
+        ("What is 1/2 of 10?", "It's 5.", "arithmetic"),
+        ("What is 5²?", "It's 25.", "arithmetic"),
+        ("What is √144?", "It's 12.", "arithmetic"),
+        ("How many tablespoons are in ¼ cup?", "It's 4.", "units"),
+        ("How many cups in 1½ quarts?", "It's 6.", "units"),
+        ("How many cups in 1 1/2 quarts?", "It's 6.", "units"),
+        ("How many square feet are in 10 m²?", "It's 107.6.", "units"),
+        ("Convert 100km to miles", "It's 62.14 miles.", "units"),
+        ("What is 5lbs in kilograms?", "It's 2.268 kilograms.", "units"),
+        ("What's 3.5 kg in pounds?", "It's 7.716 pounds.", "units"),  # pounds, not money
+        ("How do you spell “necessary”?", "Necessary is spelled N, E, C, E, S, S, A, R, Y.", "spelling"),
+        ("How do you spell ‘rhythm’?", "Rhythm is spelled R, H, Y, T, H, M.", "spelling"),
+        ("When is April Fools’ Day?", "It's April 1.", "dates"),
+        ("What day of the week is July 4th, 2026?", "It's Saturday.", "dates"),
+        ("What time is 45 minutes after 3 p.m.?", "It's 3:45 PM.", "clock"),
+    ],
+)
+def test_written_out(question, said, skill):
+    assert skills.answer(question) == Answer("exact", said, skill)
+
+
+def test_normalize():
+    assert normalize("What’s 50°F in °C?") == "What's 50 degrees fahrenheit in degrees celsius?"
+    assert normalize("½ cup, 1½ cups, 2 1/4 cups, 1/3 cup") == "a half cup, 1.5 cups, 2.25 cups, a third cup"
+    assert normalize("what is 1/2") == "what is 1/2"  # a division, left to arithmetic
+    assert normalize("80 € in $") == "80 euros in $"
+    assert normalize("the 4th at 3pm") == "the 4th at 3pm"  # ordinals and times stay as they are
+
+
+def test_money_is_live_when_converted():
+    assert skills.answer("how many euros is a dollar", last=True) is not None
+    assert skills.answer("what is 80 € in dollars", last=True) is not None
+    assert skills.answer("what is 5 pounds in dollars", last=True) is not None
+    assert skills.answer("what's $5 plus $3", last=True) is None
+    assert skills.answer("what's 3.5 kg in pounds", last=True) is None
 
 
 def test_spelling_comes_first():

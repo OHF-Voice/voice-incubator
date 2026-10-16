@@ -81,7 +81,7 @@ def plural(u, v):
 def solve(q):
     s = clean(q)
     s = re.sub(r"\s+(in us cooking|in cooking)$", "", s)
-    temp = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how hot is|how cold is)?\s*{N} (?:degrees? )?(celsius|centigrade|fahrenheit|c|f|kelvin)\s+(?:in|to|into|as)\s+(?:degrees? )?(celsius|centigrade|fahrenheit|kelvin)", s)
+    temp = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how hot is|how cold is)?\s*{N} (?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)\s+(?:in|to|into|as)\s+(?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)", s)
     if temp:
         v = parse_num(temp.group(1))
         a, b = temp.group(2)[0], temp.group(3)[0]

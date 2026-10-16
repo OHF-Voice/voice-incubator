@@ -13,6 +13,10 @@ same), the satellite's own setting winning.
 
 When they are asked, in ``SKILLS`` order:
 
+Each gets the question normalized (``common.normalize``): "What’s",
+"50°F", "12 × 8", "½ cup" and "$80" as a typed question, or another
+speech-to-text, may write them, in the words the grammars read.
+
 1. Before the command fallback (meaning, the LLM) -- they are instant and
    never wrong: spelling first ("how do you spell weather" is not about the
    weather), then, unless the question is about now or here
@@ -28,7 +32,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import arithmetic, clock, dates, live, spelling, units
-from .common import Skill
+from .common import Skill, normalize
 from .live import is_live
 
 SKILLS: dict[str, Skill] = {
@@ -74,7 +78,8 @@ def enabled(home: Any = None, own: Any = None) -> frozenset[str]:
 def answer(text: str, on: frozenset[str] | None = None, last: bool = False) -> Answer | None:
     """The first answer from the skills that are ``on`` (None: every one), of
     those asked before the command fallback, or (``last``) after it."""
-    if not text.strip():
+    text = normalize(text)
+    if not text:
         return None
     live_question: bool | None = None
     for skill in SKILLS.values():

@@ -1,6 +1,6 @@
-"""What the skills share (not a skill itself): what a skill is, spoken
-numbers, a question cleaned up for the grammars, and an answer said as a
-sentence."""
+"""What the skills share (not a skill itself): what a skill is, a question
+normalized and cleaned up for the grammars, spoken numbers, and an answer
+said as a sentence."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class Skill:
     examples: tuple[str, ...]
     icon: str
     answer: Callable[[str], str | None]
-    """The question as transcribed -> what is said, or None."""
+    """The question, normalized (``normalize``) -> what is said, or None."""
     kind: str = "exact"
     """exact | live: what the answer is, for the call's trace."""
     last: bool = False
@@ -41,6 +41,7 @@ class Skill:
             "kind": self.kind,
             "last": self.last,
         }
+
 
 _UNITS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
           "sixteen seventeen eighteen nineteen").split()
@@ -125,6 +126,78 @@ def fmt(x):
     if isinstance(x, float):
         return f"{x:.4g}" if abs(x) < 1e6 else f"{x:,.0f}"
     return f"{x:,}" if abs(x) >= 10000 else str(x)
+
+
+_DEGREES = {"f": "fahrenheit", "c": "celsius", "k": "kelvin"}
+_CURRENCY = {"$": "dollars", "€": "euros", "£": "pounds", "¥": "yen"}
+_VULGAR = {"½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅕": 0.2, "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875}
+_FRACTION_WORDS = {0.5: "a half", 0.25: "a quarter", 0.75: "three quarters", 1 / 3: "a third", 2 / 3: "two thirds"}
+_SQUARE_UNITS = {"mm": "millimeters", "cm": "centimeters", "m": "meters", "km": "kilometers", "in": "inches",
+                 "ft": "feet", "yd": "yards", "mi": "miles"}
+_OPERATORS = r"(?:plus|minus|times|divided|over|x|and|to)\b"
+
+
+def normalize(text: str) -> str:
+    """A question as typed, or written out by a speech-to-text that formats
+    what it hears, in the words the skills read: "What’s" -> "What's",
+    "50°F" -> "50 degrees fahrenheit", "−5" -> "-5", "12 × 8" -> "12 times
+    8", "1½ cups" -> "1.5 cups", "½ cup" -> "a half cup", "5²" -> "5
+    squared", "10 m²" -> "10 square meters", "√144" -> "square root of 144",
+    "$80" -> "80 dollars", "100km" -> "100 km"."""
+    s = text
+    # Quotes and apostrophes: an apostrophe in a word stays, quotes go.
+    s = s.translate(str.maketrans({"’": "'", "‘": "'", "‛": "'", "`": "'", "´": "'", "“": '"', "”": '"', "„": '"'}))
+    s = s.replace('"', " ")
+    s = re.sub(r"(?<![A-Za-z])'|'(?![A-Za-z])", " ", s)
+    s = re.sub(r"[\u00a0\u2007\u2009\u202f]", " ", s)
+    # A minus, or a dash used as one.
+    s = re.sub(r"[\u2212\u2012\u2013\u2014]", "-", s)
+    # Degrees.
+    s = s.replace("℉", "°F").replace("℃", "°C")
+    s = re.sub(r"\s*°\s*([FCKfck])\b", lambda m: f" degrees {_DEGREES[m.group(1).lower()]}", s)
+    s = re.sub(r"\s*°", " degrees", s)
+    # Squares and cubes: of a unit, or of a number.
+    s = re.sub(r"\b(mm|cm|km|m|in|ft|yd|mi)²", lambda m: f"square {_SQUARE_UNITS[m.group(1)]}", s)
+    s = re.sub(r"\s*²", " squared", s)
+    s = re.sub(r"\s*³", " cubed", s)
+    # Fractions: 1½ and 1 1/2 are numbers; ½ alone is said.
+    vulgar = "".join(_VULGAR)
+    s = re.sub(rf"(\d+)\s*([{vulgar}])", lambda m: _decimal(int(m.group(1)) + _VULGAR[m.group(2)]), s)
+    s = re.sub(rf"[{vulgar}]", lambda m: f" {_said_fraction(_VULGAR[m.group(0)])} ", s)
+    s = re.sub(r"\b(\d+)\s+(\d+)/(\d+)\b", lambda m: _decimal(int(m.group(1)) + int(m.group(2)) / int(m.group(3))), s)
+    # 1/2 before a word (not an operator): "1/2 cup", "1/2 of 10".
+    s = re.sub(
+        rf"(?<![\d/.])\b(\d+)/(\d+)\b(?![/\d])(?=\s+(?!{_OPERATORS})[a-z])",
+        lambda m: f"{_said_fraction(int(m.group(1)) / int(m.group(2)))}" if int(m.group(2)) else m.group(0),
+        s,
+        flags=re.I,
+    )
+    # Operators.
+    s = re.sub(r"(\d)\s*[x×✕✖]\s*(\d)", r"\1 times \2", s)
+    s = re.sub(r"\s*[×✕✖·∙⋅]\s*", " times ", s)
+    s = re.sub(r"\s*÷\s*", " divided by ", s)
+    s = re.sub(r"√\s*", "square root of ", s)
+    s = re.sub(r"∛\s*", "cube root of ", s)
+    s = re.sub(r"\s*=\s*\??\s*$", "", s)
+    # Money: "$80" -> "80 dollars", "80 €" -> "80 euros".
+    symbols = re.escape("".join(_CURRENCY))
+    s = re.sub(rf"(?:US)?([{symbols}])\s*(\d[\d,]*(?:\.\d+)?)", lambda m: f"{m.group(2)} {_CURRENCY[m.group(1)]}", s)
+    s = re.sub(rf"(\d)\s*([{symbols}])", lambda m: f"{m.group(1)} {_CURRENCY[m.group(2)]}", s)
+    # A unit written on its number: "100km", "5lbs", "50F" (not "4th", "3pm").
+    s = re.sub(r"(\d)(?!(?:st|nd|rd|th|am|pm)\b)([A-Za-z]+)\b", r"\1 \2", s)
+    s = re.sub(r"\s+([?.!,])", r"\1", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _decimal(value: float) -> str:
+    return f"{round(value, 4):g}"
+
+
+def _said_fraction(value: float) -> str:
+    for known, said in _FRACTION_WORDS.items():
+        if abs(value - known) < 1e-9:
+            return said
+    return _decimal(value)
 
 
 def clean(q):

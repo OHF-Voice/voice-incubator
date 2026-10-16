@@ -63,8 +63,20 @@ def solve(q):
     return None
 
 
+MONEY = re.compile(r"\b(dollars?|euros?|pounds?|yen|cents?|bucks?)\b", re.I)
+
+
 def answer(text: str) -> str | None:
-    return sentence(solve(text))
+    """With money in it ("15% of $80"), in that money: "It's 12 dollars."."""
+    money = {m.lower().rstrip("s") for m in MONEY.findall(text)}
+    if len(money) > 1:
+        return None  # a conversion: not arithmetic
+    found = solve(MONEY.sub(" ", text) if money else text)
+    if found is None or not money:
+        return sentence(found)
+    unit = money.pop()
+    plural = "" if unit == "yen" or found == "1" else "s"
+    return sentence(f"{found} {unit}{plural}")
 
 
 SKILL = Skill(
