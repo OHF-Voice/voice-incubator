@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- A command has no "Where" (`scope`) any more: command groups say where a
+  command is available. A `scope` left in commands.yaml is an error that says
+  so.
 - A **Settings** page holds what the Commands page had besides commands and
   command groups: when nothing matches, responses, questions -- and, under
   Advanced, commands.yaml (the YAML tab is gone).

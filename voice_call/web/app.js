@@ -279,14 +279,6 @@ function satelliteLabels() {
 
 // ---------------------------------------------------------------- commands
 
-function scopeText(scope, areas, sats) {
-  if (!scope || scope === "all") return "Everywhere";
-  const parts = [];
-  if (scope.areas && scope.areas.length) parts.push(scope.areas.map((a) => areas[a] || a).join(", "));
-  if (scope.satellites && scope.satellites.length) parts.push(scope.satellites.map((s) => sats[s] || s).join(", "));
-  return parts.join(" · ");
-}
-
 function listensText(spec) {
   const parts = [];
   if (spec.examples && spec.examples.length) parts.push(`“${spec.examples[0]}”${spec.examples.length > 1 ? ` +${spec.examples.length - 1}` : ""}`);
@@ -492,17 +484,11 @@ async function pageSkills() {
 
 async function pageCommands() {
   const [store] = await Promise.all([loadStore(), loadSatellites()]);
-  const areas = await areaLabels();
   const sats = satelliteLabels();
   const ids = Object.keys(store.commands || {});
   const groupNames = Object.fromEntries(Object.entries(store.groups || {}).map(([g, spec]) => [g, (spec && spec.name) || g]));
-  const groups = {};
-  for (const id of ids) {
-    const spec = store.commands[id] || {};
-    const key = scopeText(spec.scope, areas, sats);
-    (groups[key] = groups[key] || []).push(id);
-  }
-  const order = Object.keys(groups).sort((a, b) => (a === "Everywhere" ? -1 : b === "Everywhere" ? 1 : a.localeCompare(b)));
+  const groups = ids.length ? { Commands: ids } : {};
+  const order = Object.keys(groups);
   fill($main, 
     h("div", { class: "row" }, h("h1", { class: "grow" }, "Commands"),
       h("button", { class: "primary", onclick: () => newCommandDialog() }, "New command")),
@@ -1145,7 +1131,6 @@ async function pageCommand(id, prefill) {
           (id && ((state.store.details || {})[id] || {}).needs_said)
             ? "It hears something (a name, number, value or text): meaning picks the command, and the model hears what was said in it."
             : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Settings page.")),
-      h("div", { class: "panel" }, h("h2", {}, "Where"), scopeEditor(spec, "scope", true)),
       h("div", { class: "panel" }, h("h2", {}, "Target"),
         h("p", { class: "muted small" }, "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
         targetEditor(spec)),

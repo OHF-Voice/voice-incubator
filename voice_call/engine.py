@@ -13,8 +13,8 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    matches. Then keyword intents; then, when nothing matched, the TDT
    transcript against the examples, word for word.
 3. **Where it is available.** Matches are taken best first, skipping commands
-   that are not available on this satellite; the most specific scope decides
-   what happens.
+   that are not available on this satellite (not in its command groups); the
+   most specific override decides what happens.
 4. **Free text** is re-read from the TDT transcript over the same stretch of
    audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
 5. **When nothing matched**, the closest command is named: from the keyword
@@ -129,8 +129,9 @@ class Satellite:
         }
 
     def available(self, command: Command) -> tuple[Behavior, str] | None:
-        """What a command does here, and which scope decided it; None where it
-        is not available (its scope, or this satellite's command groups)."""
+        """What a command does here, and which override decided it; None
+        where it is not available (this satellite's command groups, or an
+        override that turns it off)."""
         if not command.allowed(self.command_groups):
             return None
         return command.resolve(self.key, self.area_id)

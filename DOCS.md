@@ -29,8 +29,8 @@ their areas are kept by the app.
 Satellites on the network are found and connected to automatically. On the
 **Satellites** page, give each one a name and an area (with the integration,
 that is the area of its device in Home Assistant, and can be changed in either
-place). The area is what "the lights" means there, and what commands scoped to
-an area follow. The floor comes from the area.
+place). The area is what "the lights" means there. The floor comes from the
+area.
 
 ### Wake words
 
@@ -92,7 +92,6 @@ added again. A command has:
 - **What it does**: a verb phrase, "turn on the lights". It is also how a near
   miss is described: "It looks like you're trying to turn on the lights, but I
   didn't hear which room."
-- **Where**: every satellite, or only some areas or satellites.
 - **Target**: entities, areas or floors the command acts on. They reach Home
   Assistant as slots, as if they had been heard, so the phrase can be anything
   ("cooking mode") while the target stays fixed.
@@ -186,9 +185,13 @@ satellite:
 - A satellite without its own uses the groups given to the whole home.
 - With no groups given anywhere, every command is available, as before.
 
+Groups are where a command is available: a command has no "where" of its own.
+To keep one to some satellites -- unlocking the front door, say -- put it in
+a group given only to them, and give the others groups without it.
+
 A command outside a satellite's groups is not run there: it says "It looks
-like you're trying to …, but that isn't set up here." `where` and overrides
-still apply inside a group. Deleting a group takes every command out of it and
+like you're trying to …, but that isn't set up here." Overrides still apply
+inside a group. Deleting a group takes every command out of it and
 takes it away from the home and the satellites.
 
 ### What Home Assistant gets
@@ -313,8 +316,8 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
   is; the area or floor you name, else the satellite's area, says which. When
   the satellite's area has none of that type, every one in the home is meant.
   When there are none, it says so.
-- Unlocking works for anyone the satellite hears: scope the command to the
-  satellites that should.
+- Unlocking works for anyone the satellite hears: keep the command to the
+  satellites that should with a command group.
 
 ## When nothing matches
 

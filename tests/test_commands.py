@@ -1,4 +1,4 @@
-"""Commands: parsing, scopes and overrides, presets, slots, and the store."""
+"""Commands: parsing, overrides, presets, slots, and the store."""
 
 import pytest
 
@@ -24,12 +24,10 @@ def test_everywhere_by_default():
     assert behavior.sequence() == [{"action": "light.turn_on", "target": "{{ target }}"}]
 
 
-def test_scope_limits_where_a_command_is():
-    lights = command(scope={"areas": ["kitchen"], "satellites": ["office1"]})
-    assert lights.resolve("sat1", "kitchen") is not None
-    assert lights.resolve("office1", "office") is not None
-    assert lights.resolve("sat2", "bedroom") is None
-    assert lights.resolve("sat2", None) is None
+def test_scope_is_no_more():
+    # Where a command is available is its command groups'.
+    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*command group"):
+        command(scope={"areas": ["kitchen"]})
 
 
 def test_the_most_specific_override_wins():
@@ -53,7 +51,6 @@ def test_the_most_specific_override_wins():
 
 def test_an_override_can_switch_a_command_off_or_extend_it():
     lights = command(
-        scope={"areas": ["kitchen"]},
         overrides=[
             {"scope": {"satellites": ["noisy"]}, "disabled": True},
             {"scope": {"areas": ["office"]}, "response": "Office lights."},
@@ -219,10 +216,8 @@ def test_command_groups_limit_a_satellite():
     anywhere = Satellite("sat2", "Kitchen", "kitchen")
     assert kids.available(lights) is not None and kids.available(other) is None
     assert kids.why_unavailable(other) == "not in this satellite's command groups"
-    # Not limited: groups change nothing, scope still does.
+    # Not limited: groups change nothing.
     assert anywhere.available(lights) is not None and anywhere.available(other) is not None
-    scoped = command(groups=["kids"], scope={"areas": ["kitchen"]})
-    assert kids.available(scoped) is None and kids.why_unavailable(scoped) == "not available on this satellite"
     assert kids.as_dict()["command_groups"] == ["kids"] and anywhere.as_dict()["command_groups"] is None
 
 

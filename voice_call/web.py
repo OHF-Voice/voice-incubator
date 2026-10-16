@@ -227,7 +227,6 @@ class Api:
                 command = parse_command(command_id, spec)
                 details[command_id] = {
                     "does": command.behavior.does,
-                    "scope": command.scope.to_data(),
                     "overrides": len(command.overrides),
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": needs_heard_slots(command),

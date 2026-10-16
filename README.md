@@ -175,8 +175,8 @@ set a level per area or satellite.
 | `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
 | `voice_call/endpoint.py` | silero VAD endpointing |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
-| `voice_call/engine.py` | where the command starts, recognition, scope, free text from TDT, hints |
-| `voice_call/commands.py` | the command schema: scope, overrides, presets, what happens |
+| `voice_call/engine.py` | where the command starts, recognition, command groups, free text from TDT, hints |
+| `voice_call/commands.py` | the command schema: combinations, overrides, presets, what happens |
 | `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
 | `voice_call/actions.py` | variables, `execute_script`, the response, the `voice_call_command` event |
 | `voice_call/calls.py` | per-call traces, saved audio, debug sessions |

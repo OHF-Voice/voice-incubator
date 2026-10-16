@@ -1,11 +1,10 @@
-"""Voice commands: what is listened for, where, and what happens.
+"""Voice commands: what is listened for, and what happens.
 
 A command is one adapt-ctc intent plus what to do when it matches::
 
     commands:
       ecobee_on:
         description: turn on the thermostat      # a verb phrase, for hints
-        scope: {areas: [living_room]}            # or `all` (the default)
         slots: {entity: [climate.ecobee]}        # fixed slots: the target
         examples: [turn on the EcoBee, turn on the Echo Bee]
         require: [[turn on, turn ... on], [ecobee, echo bee]]
@@ -61,16 +60,17 @@ says the built-in sentence::
       done: Paused.
       no_timers: There's nothing to pause.
 
-``scope`` says where a command is available: everywhere, in some areas, or on
-some satellites. ``overrides`` change what happens (and the fixed slots) in a
-narrower scope, or switch the command off there (``disabled: true``): an
-override for a satellite wins over one for its area, which wins over the
-command itself.
+``overrides`` change what happens (and the fixed slots) in some areas or on
+some satellites (``scope``), or switch the command off there (``disabled:
+true``): an override for a satellite wins over one for its area, which wins
+over the command itself.
 
 ``groups`` puts a command in command groups (defined at the top level of the
 store, ``groups: {kids: {name: Kids}}``). A group can be given to the whole
 home or to a satellite; a satellite with groups -- its own, else the home's --
-runs only the commands in them. Without any, every command is available::
+runs only the commands in them. Without any, every command is available
+everywhere. Groups are where a command is available: there is no ``scope``
+of its own::
 
     groups:
       kids: {name: Kids' room, description: what the kids may ask for}
@@ -128,7 +128,6 @@ SPOKEN = VERBOSITY[1:]
 """The levels with something to say, which a done response can be written for."""
 COMMAND_KEYS = {
     "description",
-    "scope",
     "slots",
     "response",
     "verbosity",
@@ -141,6 +140,11 @@ COMMAND_KEYS = {
     "combinations",
     *LISTEN_KEYS,
     *DO_KEYS,
+}
+# Keys a command no longer takes, and what to do instead.
+REMOVED_KEYS = {
+    "scope": "a command is available wherever its command groups are given: put it in a group, "
+    "and give the group to the satellites it is for (Satellites page)",
 }
 GROUP_KEYS = {"name", "description"}
 FALLBACK_STEPS = ("meaning", "llm")
@@ -348,7 +352,6 @@ class Behavior:
 class Command:
     id: str
     description: str
-    scope: Scope
     behavior: Behavior
     overrides: list[tuple[Scope, dict[str, Any]]]
     intent: dict[str, Any]
@@ -396,10 +399,7 @@ class Command:
     def resolve(self, satellite: str | None, area: str | None) -> tuple[Behavior, str] | None:
         """What happens on this satellite, and which scope decided it; None
         where the command is not available."""
-        best: tuple[int, int, Behavior, str] | None = None
-        base = self.scope.specificity(satellite, area)
-        if base is not None:
-            best = (base, -len(self.overrides) - 1, self.behavior, "command")
+        best: tuple[int, int, Behavior, str] | None = (0, -len(self.overrides) - 1, self.behavior, "command")
         for index, (scope, changes) in enumerate(self.overrides):
             fit = scope.specificity(satellite, area)
             if fit is None:
@@ -456,6 +456,8 @@ def parse_command(command_id: str, spec: Any) -> Command:
     if not COMMAND_ID.match(command_id):
         raise ConfigError(f"{where}: ids are lowercase letters, digits and underscores")
     spec = _mapping(spec, where)
+    for key in sorted(set(spec) & set(REMOVED_KEYS)):
+        raise ConfigError(f"{where}.{key}: no longer used: {REMOVED_KEYS[key]}")
     unknown = set(spec) - COMMAND_KEYS
     if unknown:
         raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
@@ -519,7 +521,6 @@ def parse_command(command_id: str, spec: Any) -> Command:
     return Command(
         command_id,
         description,
-        _scope(spec.get("scope"), f"{where}.scope"),
         behavior,
         overrides,
         intent,
