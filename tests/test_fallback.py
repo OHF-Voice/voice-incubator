@@ -464,3 +464,38 @@ def test_gliner_hearing_nothing_runs_only_what_meaning_puts_first():
 
     found = fallback.decide("some light please", far, compiled, KITCHEN, lights_first)
     assert found.command.id == "lights_on" and found.slots == {} and found.trace["llm"]["combination"] == []
+
+
+def test_a_room_said_must_be_taken():
+    compiled = compile_store(STORE)
+    tools = Tools(compiled)
+    commands = compiled.commands
+    assert tools.places_left(commands["what_time"], {}, "what time is it in the kitchen") == ["area Kitchen"]
+    assert tools.places_left(commands["what_time"], {}, "what time is it upstairs") == ["floor Upstairs"]
+    assert tools.places_left(commands["lights_on"], {"area": ["living_room"]}, "lights on in the lounge") == []
+    assert tools.places_left(commands["lights_on"], {}, "lights on in the lounge") == ["area Living Room"]
+    # Free text may say a room: "office supplies", "the kitchen sink".
+    assert tools.places_left(commands["add_item"], {"item": "kitchen roll"}, "add kitchen roll to the list") == []
+    assert tools.places_left(commands["what_time"], {}, "what time is it") == []
+    # A device's own name may say a room.
+    store = {**STORE, "names": {**STORE["names"], "entities": {"fan.kitchen_fan": {"name": "Kitchen Fan"}}}}
+    store["commands"] = {**STORE["commands"], "device_on": {**STORE["commands"]["device_on"], "names": {"entity": {"count": 1}}}}
+    fans = Tools(compile_store(store))
+    device_on = compile_store(store).commands["device_on"]
+    assert fans.places_left(device_on, {"entity": ["fan.kitchen_fan"]}, "turn on the kitchen fan") == []
+    assert fans.places_left(device_on, {"entity": ["fan.kitchen_fan"]}, "turn on the kitchen fan upstairs") == ["floor Upstairs"]
+
+    # Meaning picked a command that hears nothing; the sentence names a room.
+    compiled = chosen_for(STORE, meaning=["what_time"])
+    fallback = Fallback(embedding_accept=True, llm=None)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("what's the time in the kitchen", near, compiled, KITCHEN, ranked)
+    assert found.command is None and found.trace["meaning"]["problems"] == ["heard area Kitchen, which it doesn't take"]
+    assert llm_note(found.trace) == "meaning picked what_time, not run: heard area Kitchen, which it doesn't take"
+    assert fallback.decide("what's the time", near, compiled, KITCHEN, ranked).command.id == "what_time"
+
+    # GLiNER picked one that takes no room.
+    stub = StubGliner({"turn on a device": 0.9}, {"device": [("coffee maker", 0.9, 8, 20)]})
+    fallback, compiled = gliner_fallback(stub, ["device_on"])
+    found = fallback.decide("start the coffee maker in the kitchen", far, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["llm"]["problems"] == ["heard area Kitchen, which it doesn't take"]

@@ -1869,7 +1869,8 @@ function renderRecognition(rec) {
       rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
         rec.fallback.meaning.heard_by ? h("div", { class: "muted" }, `${rec.fallback.meaning.heard_by} heard `, h("code", {}, JSON.stringify(rec.fallback.meaning.arguments || {})),
           rec.fallback.meaning.combination ? ` — said with ${rec.fallback.meaning.combination.length ? rec.fallback.meaning.combination.join(" and ") : "nothing"}` : "",
-          rec.fallback.meaning.problems ? ` — not run: ${rec.fallback.meaning.problems.join("; ")}` : "") : null) : null,
+          rec.fallback.meaning.problems ? ` — not run: ${rec.fallback.meaning.problems.join("; ")}` : "") : null,
+        !rec.fallback.meaning.heard_by && rec.fallback.meaning.problems ? h("div", { class: "muted" }, `not run: ${rec.fallback.meaning.problems.join("; ")}`) : null) : null,
       rec.fallback.llm ? h("div", { class: "small" }, `${rec.fallback.llm.by || "LLM"}: `,
         rec.fallback.llm.skipped ? `skipped (${rec.fallback.llm.skipped})` : [
           h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${Math.round((rec.fallback.llm.seconds || 0) * 1000)} ms`,

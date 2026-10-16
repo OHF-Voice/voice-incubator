@@ -13,6 +13,10 @@
   outcome.
 - Pausing a paused timer (or resuming a running one) says it already is,
   instead of that there's no such timer.
+- A room or floor you say must be one the command takes: "pause the music
+  upstairs" no longer pauses it here, "play music in the office" no longer
+  resumes it here. "Play jazz in the kitchen" and "play more like this
+  upstairs" play there.
 - "Move the music to the kitchen / upstairs / the office speaker": what
   plays here moves there, queue and all (Music Assistant's transfer_queue).
 - Music, on Music Assistant: "play …" searches and plays the closest match,

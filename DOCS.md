@@ -115,6 +115,12 @@ added again. A command has:
     keywords ("add … to the shopping list"), from a keyword to the end
     ("remind me to …"), or right before or after a keyword ("the … timer").
     It is spelled from the TDT transcript.
+  - **Rooms**: a room or floor you say must be one the command takes.
+    "Pause the music upstairs" isn't pausing it here, and "what time is it in
+    the kitchen" isn't the time: neither runs, and the satellite says
+    "…but I can't pick a floor for it". A room inside free text is part of
+    it ("play the kitchen sink"); at its end, it is where ("play jazz in the
+    kitchen").
   - **Ways to say it**: what is heard is never optional. Instead a command
     lists the combinations that may be said, each whole: "turn off the
     lights" with nothing named (the satellite's area), with an area, or with
@@ -254,7 +260,9 @@ library's **Music** group:
 - "play Miles Davis", "play the album Kind of Blue", "play my chill
   playlist", "play So What by Miles Davis": Music Assistant is searched for
   what was heard and the closest match plays ("Playing Kind of Blue by Miles
-  Davis."). "Add … to the queue", "play more like this".
+  Davis."). "Add … to the queue", "play more like this". Add a room or a
+  floor to play it there: "play jazz in the kitchen", "play more like this
+  upstairs".
 - "pause", "resume", "stop the music", "next", "go back", "louder", "set the
   volume to 30 percent", "mute", "shuffle", "repeat", "what's playing".
 - "move the music to the kitchen", "move the music upstairs", "send the music

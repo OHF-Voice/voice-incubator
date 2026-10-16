@@ -36,6 +36,12 @@ from .spotter import Hit, Spotting, spot
 from .text import name_units, sentence_key, spoken_words
 
 _INF = float("inf")
+PLACE_TYPES = ("area", "floor")
+"""Names that say where: heard, an intent must take them (``places_must_fit``)."""
+PLACE_WORDS = ("in", "on", "at", "to")
+"""What says a place follows: "play jazz *in the* kitchen"."""
+BARE_PLACES = ("upstairs", "downstairs")
+"""Places said without one: "play jazz upstairs"."""
 
 
 @dataclass
@@ -556,10 +562,11 @@ class Recognizer:
         heard = [hit for hit in spotting.hits if hit.heard]
         word_costs, important, lead_in = self._word_costs(spotting, heard)
         name_positions = self._name_positions(spotting, heard)
+        trailing = self._trailing_places(spotting, heard) if settings.places_must_fit else []
 
         results = [
             self._match_intent(
-                intent, spotting, heard, word_costs, important, lead_in, name_positions
+                intent, spotting, heard, word_costs, important, lead_in, name_positions, trailing
             )
             if intent.keywords
             else IntentResult(
@@ -602,11 +609,27 @@ class Recognizer:
         started = time.perf_counter()
         ranked = self._example_recognizer.recognize_log_probs(log_probs, frame_seconds).matches
         recognition.timings["examples"] = time.perf_counter() - started
+        spotting = recognition.spotting
+        trailing = self._trailing_places(spotting, [h for h in spotting.hits if h.heard]) if settings.places_must_fit else []
 
         rejected = {r.intent: r for r in recognition.rejected}
         for result in rejected.values():
             if not self.config.intents[result.intent].keywords:
                 result.reasons.clear()
+        if settings.places_must_fit:
+            # A sentence said with a room it cannot take is not that sentence.
+            fitting = []
+            for result in ranked:
+                foreign = self._foreign_places(recognition.spotting, result.spans, result.intent, trailing=trailing)
+                if not foreign:
+                    fitting.append(result)
+                elif result.intent in rejected:
+                    rejected[result.intent].reasons.append(
+                        f"example '{self._example_text(result)}' leaves {foreign[0][0]} {foreign[0][1]}, "
+                        "which this intent cannot take"
+                    )
+                    rejected[result.intent].missing.append({"kind": "place", "type": foreign[0][0], "id": foreign[0][1]})
+            ranked = fitting
         best = ranked[0] if ranked else None
         runner_up = ranked[1] if len(ranked) > 1 else None
         if (
@@ -649,6 +672,64 @@ class Recognizer:
                 result.reasons.append("no example close in the CTC evidence")
                 if not self.config.intents[name].keywords:
                     result.missing.append({"kind": "example"})
+
+    def _foreign_places(
+        self,
+        spotting: Spotting,
+        spans: list[SpanUse],
+        intent_name: str,
+        hits: bool = False,
+        trailing: list[tuple[int, Hit, Meaning]] | None = None,
+    ) -> list[Any]:
+        """Areas and floors heard where ``spans`` explain nothing -- or only as
+        free text, when the sentence ends on them ("play music *in the
+        office*") -- of a type the intent takes none of: ``[(type, id)]``, or
+        ``[(type, id, hit)]``."""
+        intent = self.config.intents.get(intent_name)
+        if intent is None:
+            return []
+        said_last = {id(hit) for _, hit, _ in trailing or []}
+        out: dict[tuple[str, str], Hit] = {}
+        for hit in spotting.hits:
+            if not (hit.heard and hit.meaningful):
+                continue
+            covering = [use for use in spans if use.hit.start <= hit.center <= use.hit.end]
+            if covering and not (id(hit) in said_last and all(use.role == "wildcard" for use in covering)):
+                continue
+            for meaning in hit.meanings:
+                if meaning.kind == "name" and meaning.name_type in PLACE_TYPES and not intent.name_count(meaning.name_type):
+                    out.setdefault((meaning.name_type, meaning.name_id), hit)
+        return [(*key, hit) for key, hit in out.items()] if hits else list(out)
+
+    def _trailing_places(self, spotting: Spotting, heard: list[Hit]) -> list[tuple[int, Hit, Meaning]]:
+        """Areas and floors the sentence ends on, said as a place: after "in",
+        "on", "at" or "to" (and "the"), or "upstairs", "downstairs" alone.
+        ``[(first frame of the place clause, hit, meaning)]``."""
+        filler = {f for f in self.config.filler if " " not in f}
+        words = [(w, w.text.lower().strip(".,?!;:\"'")) for w in spotting.words if w.frames]
+        while words and words[-1][1] in filler:
+            words.pop()
+        if not words:
+            return []
+        last = words[-1][0]
+        out = []
+        for hit in heard:
+            if not hit.meaningful or hit.end < last.start:
+                continue
+            for meaning in hit.meanings:
+                if meaning.kind != "name" or meaning.name_type not in PLACE_TYPES:
+                    continue
+                first = next((i for i, (w, _) in enumerate(words) if w.end >= hit.start), None)
+                if first is None:
+                    continue
+                before = first - 1
+                if before >= 0 and words[before][1] == "the":
+                    before -= 1
+                if before >= 0 and words[before][1] in PLACE_WORDS:
+                    out.append((words[before][0].start, hit, meaning))
+                elif words[first][1] in BARE_PLACES:
+                    out.append((words[first][0].start, hit, meaning))
+        return out
 
     def _example_text(self, result: IntentResult) -> str:
         phrase = next(use.meaning.phrase for use in result.spans if use.role == "require")
@@ -802,6 +883,7 @@ class Recognizer:
         important: list[bool],
         lead_in: int | None,
         name_positions: dict[int, str],
+        trailing: list[tuple[int, Hit, Meaning]] | None = None,
     ) -> IntentResult:
         settings = self.config.settings
         items, cond_bits = self._items(intent, heard)
@@ -811,7 +893,10 @@ class Recognizer:
             stop = {p for p in self.config.filler if " " not in p} | set(self.config.name_cues)
             units = set(intent.number.units) if intent.number else set()
             lead = stop | units | {unit + "s" for unit in units}
-            items += _wildcard_items(wild, spotting, settings.wildcard_cost, stop, lead)
+            # Free text to the end may stop before a place this intent takes:
+            # "play jazz | in the kitchen".
+            cuts = {start for start, _, meaning in trailing or [] if intent.name_count(meaning.name_type)}
+            items += _wildcard_items(wild, spotting, settings.wildcard_cost, stop, lead, cuts)
             items.sort(key=lambda item: (item.end, item.start))
         # Free text with both edges (or running to the end) may have fillers
         # between it and its keywords: "add [the] milk", "remind me [to] ...".
@@ -1056,11 +1141,16 @@ class Recognizer:
         result.unexplained = self._unexplained(
             spotting, heard, chosen, important, lead_in, name_positions
         )
-        self._judge(intent, result, excluded, spotting)
+        self._judge(intent, result, excluded, spotting, trailing)
         return result
 
     def _judge(
-        self, intent: Intent, result: IntentResult, excluded: list[Hit], spotting: Spotting
+        self,
+        intent: Intent,
+        result: IntentResult,
+        excluded: list[Hit],
+        spotting: Spotting,
+        trailing: list[tuple[int, Hit, Meaning]] | None = None,
     ) -> None:
         settings = self.config.settings
         fmt = _Format(spotting.frame_seconds)
@@ -1089,6 +1179,13 @@ class Recognizer:
                 f"'{word.text}' ({fmt.span(word.start, word.end)}) after '{word.name_cue}' {what}"
             )
             result.missing.append({"kind": "unknown_name", "words": [word.text]})
+        if settings.places_must_fit:
+            cued = [w for w in result.unexplained if w.name_cue is not None]
+            for kind, name_id, hit in self._foreign_places(spotting, result.spans, intent.name, hits=True, trailing=trailing):
+                # A room the intent cannot take is what was missed, more than a name.
+                result.missing.insert(0, {"kind": "place", "type": kind, "id": name_id})
+                if not any(w.start <= hit.center <= w.end for w in cued):
+                    result.reasons.append(f"heard {kind} {name_id}, which this intent cannot take")
 
         unused = [w for w in result.unexplained if w.important]
         other = [w for w in result.unexplained if not w.important]
@@ -1325,12 +1422,14 @@ def _name_allowed(intent: Intent, meaning: Meaning) -> bool:
 
 
 def _wildcard_items(
-    wild: Wildcard, spotting: Spotting, cost: float, stop: set[str], lead: set[str]
+    wild: Wildcard, spotting: Spotting, cost: float, stop: set[str], lead: set[str], cuts: set[int] | None = None
 ) -> list[_Item]:
     """Every run of 1 to ``max_words`` transcript words, as free text. Fillers
     and name cues are not part of it: "set a bread timer" misheard as "setet a
     bread timer" names the timer "bread", not "setet a bread". A run is `led`
-    when the word before it is in ``lead``: "a", "the", "minute"."""
+    when the word before it is in ``lead``: "a", "the", "minute". Text that
+    runs to the end may instead end before a word starting at one of
+    ``cuts`` (frames): a place the sentence ends on."""
     words = [
         (word, word.text.lower().strip(".,?!;:\"'").replace("'", ""))
         for word in spotting.words
@@ -1345,7 +1444,9 @@ def _wildcard_items(
             if not text or (text in stop and not (inner and texts)):
                 break
             texts.append(text)
-            if text in stop or (wild.to_end and i + offset != len(words) - 1):
+            at = i + offset
+            ends = at == len(words) - 1 or bool(cuts and words[at + 1][0].start in cuts)
+            if text in stop or (wild.to_end and not ends):
                 continue  # a filler may be inside the text, not at its edge
             meaning = Meaning("wildcard", " ".join(texts))
             hit = Hit(-1, [meaning], first.start, word.end, cost * len(texts), len(texts))

@@ -635,6 +635,10 @@ class Engine:
         recognition.tdt_transcript = transcript
         if words is None:
             text = free_text(transcript, wildcard, str(decision.slots.get(slot) or "")) or ""
+            # Text to the end stops before the place it was told apart from.
+            places = [use.meaning.phrase for use in decision.intent.spans if use.role == "name" and use.meaning.name_type in ("area", "floor")]
+            filler = list(self.recognizer.config.filler) if self.recognizer is not None else []
+            text = without_place(text, places, filler)
         else:
             use = uses[0]
             start = use.hit.start * frame_seconds - frame_seconds
@@ -804,6 +808,9 @@ def _missing_text(command: Command, missing: list[dict[str, Any]]) -> str:
         return f"but I didn't understand \"{words}\"" if words else "but I didn't understand all of it"
     if kind == "unknown_name":
         return f"but I don't know \"{' '.join(first.get('words') or [])}\""
+    if kind == "place":
+        # A room or floor it can't be pointed at: "play music in the office".
+        return f"but I can't pick a {'floor' if first.get('type') == 'floor' else 'room'} for it"
     return "but I wasn't sure"
 
 
@@ -820,8 +827,8 @@ def llm_note(fallback: dict[str, Any] | None) -> str | None:
     no command, in a line (None when it was not asked)."""
     llm = (fallback or {}).get("llm") or {}
     meaning = (fallback or {}).get("meaning") or {}
-    if not llm and meaning.get("heard_by") and meaning.get("problems"):
-        # Meaning picked it; what the model heard in the sentence did not fit.
+    if not llm and meaning.get("problems"):
+        # Meaning picked it; what was said in the sentence did not fit.
         return f"meaning picked {meaning['command']}, not run: {'; '.join(meaning['problems'])}"
     if not llm:
         return None
@@ -845,6 +852,17 @@ def llm_note(fallback: dict[str, Any] | None) -> str | None:
 def _timing(transcriber: Any) -> str:
     source = getattr(transcriber, "source", "TDT")
     return "tdt" if source == "TDT" else "typed" if source == "typed" else "stt"
+
+
+def without_place(text: str, places: list[str], filler: list[str] | None = None) -> str:
+    """Free text without a place it ends on, that was heard as one: "jazz in
+    the kitchen" -> "jazz", "jazz upstairs please" -> "jazz"."""
+    tail = rf"(?:\s+(?:{'|'.join(re.escape(f) for f in filler)}))*" if filler else ""
+    for phrase in places:
+        found = re.search(rf"\s+(?:(?:in|on|at|to)(?:\s+the)?\s+)?{re.escape(phrase)}{tail}[.!?]*$", text, re.I)
+        if found:
+            return text[: found.start()].strip()
+    return text
 
 
 def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str | None:

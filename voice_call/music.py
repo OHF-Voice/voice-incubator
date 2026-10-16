@@ -134,8 +134,12 @@ SEARCH_TYPES = ["artist", "album", "track", "playlist", "radio"]
 # A small preference between results as close to what was heard: an artist's
 # name is more often asked for than a track that happens to share it.
 TYPE_PRIOR = {"artist": 0.03, "playlist": 0.02, "album": 0.01, "track": 0.0, "radio": 0.0}
-GENERIC = {"music", "some music", "something", "anything", "songs", "some songs", "the music", "my music"}
-"""Asked to play these, the player resumes instead."""
+GENERIC = {
+    "music", "some music", "something", "anything", "songs", "some songs", "the music", "my music",
+    "this", "that", "this one", "that one", "this song", "that song", "it",
+}
+"""Asked to play these, the player resumes instead; to play music like
+these, like what is playing."""
 
 
 @dataclass

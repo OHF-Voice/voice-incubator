@@ -107,8 +107,13 @@ def test_alias_and_area():
     reason = rejected(result, "TurnOn").reasons[0]
     assert "'den'" in reason and "area living_room, which this intent cannot take" in reason
 
-    # Not after a name cue, an unused area only costs the plain intent.
+    # Not after a name cue either: an area left unexplained rejects an intent
+    # that takes none (places_must_fit) -- or, turned off, only costs it.
     result = recognize(["turn", "on", "lights", "den"])
+    assert [m.intent for m in result.matches] == ["TurnOnArea"]
+    assert rejected(result, "TurnOn").reasons == ["heard area living_room, which this intent cannot take"]
+    assert rejected(result, "TurnOn").missing[0] == {"kind": "place", "type": "area", "id": "living_room"}
+    result = recognize(["turn", "on", "lights", "den"], places_must_fit=False)
     assert [m.intent for m in result.matches] == ["TurnOnArea", "TurnOn"]
 
 
@@ -687,13 +692,18 @@ def test_examples_too_close_to_another_intents_go_to_tdt():
 
 def test_example_cost_limit_counts_unexplained_words():
     script = ["what", "weather", "tomorrow", "kitchen"]
+    # A room the intent cannot take: not that sentence (places_must_fit).
     result, _ = recognize_with_examples(script, "", CTC_EXAMPLES)
+    assert result.best is None
+    assert "leaves area kitchen, which this intent cannot take" in rejected(result, "Forecast").reasons[0]
+
+    result, _ = recognize_with_examples(script, "", CTC_EXAMPLES, places_must_fit=False)
     assert result.best.intent == "Forecast"
     # Names and numbers are not listened for here: "kitchen" is just a word.
     assert result.best.cost == pytest.approx(1.5, abs=0.01)
     assert [w.text for w in result.best.unexplained] == ["kitchen"]
 
-    result, _ = recognize_with_examples(script, "", CTC_EXAMPLES, example_max_cost=1)
+    result, _ = recognize_with_examples(script, "", CTC_EXAMPLES, example_max_cost=1, places_must_fit=False)
     assert result.best is None
     assert rejected(result, "Forecast").reasons[0] == (
         "example 'what weather tomorrow' costs 1.50 in the CTC evidence, limit 1"
@@ -799,3 +809,31 @@ def test_everyday_requests_close_to_an_example_are_dropped():
         del MEANINGS["what's the weather"]
     assert "what's the weather" not in recognizer._distractors
     assert "turn on the lights" in recognizer._distractors
+
+
+PLAY = {
+    "intents": {
+        "Play": {"require": [["play"]], "wildcard": {"slot": "query", "after": ["play"], "to_end": True, "max_words": 4, "required": True}},
+        "PlayIn": {
+            "require": [["play"]],
+            "optional": [["in"]],
+            "names": {"area": 1},
+            "wildcard": {"slot": "query", "after": ["play"], "to_end": True, "max_words": 4, "required": True},
+        },
+    }
+}
+
+
+def test_free_text_stops_before_a_place_it_ends_on():
+    config = {**PLAY, "intents": {**CONFIG["intents"], **PLAY["intents"]}}
+    result = recognize(["play", "music", "in", "the", "kitchen"], config)
+    assert result.best.intent == "PlayIn"
+    assert result.best.slots == {"area": ["kitchen"], "query": "music"}
+    # Text that swallows the place it ends on leaves it out: not that intent.
+    assert rejected(result, "Play").reasons == ["heard area kitchen, which this intent cannot take"]
+    # A room inside the text is the text: "play kitchen music".
+    result = recognize(["play", "kitchen", "music"], config)
+    assert result.best.intent == "Play" and result.best.slots == {"query": "kitchen music"}
+    # Off: the text runs to the end, as before.
+    result = recognize(["play", "music", "in", "the", "kitchen"], config, places_must_fit=False)
+    assert "Play" in [m.intent for m in result.matches]

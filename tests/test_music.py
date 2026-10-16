@@ -330,3 +330,15 @@ def test_moving_the_music_through_home_assistant():
             server.close()
 
     asyncio.run(scenario())
+
+
+def test_free_text_without_the_place_it_ends_on():
+    from voice_call.engine import without_place  # pylint: disable=import-outside-toplevel
+
+    assert without_place("jazz in the kitchen", ["kitchen"]) == "jazz"
+    assert without_place("Kind of Blue upstairs", ["upstairs"]) == "Kind of Blue"
+    assert without_place("some music in the living room please", ["living room"], ["the", "please"]) == "some music"
+    assert without_place("the kitchen sink", ["kitchen"]) == "the kitchen sink"  # not where it ends
+    assert without_place("jazz", []) == "jazz"
+    # "Like this": like what is playing.
+    assert music.generic("this") and music.generic("that song") and not music.generic("this will destroy you")

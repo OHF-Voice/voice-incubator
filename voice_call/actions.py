@@ -345,7 +345,9 @@ async def _run_music(
     try:
         if operation in music_ops.FIND:
             if operation == "radio" and music_ops.generic(query):
-                item = await music.current(ids[0])
+                # Like what plays here, even to play it in a room named.
+                here = music_ops.choose("status", players, own, None, nearby, []).players if named else chosen
+                item = await music.current(here[0].entity_id) if here else None
                 if item is None:
                     return await _say(hass, behavior, values, outcome, "nothing_playing", music_ops.NOTHING_PLAYING)
             elif music_ops.generic(query):

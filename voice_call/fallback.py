@@ -263,6 +263,32 @@ class Tools:
                 out[_key(said)] = item_id
         return out
 
+    def places_left(self, command: Command, slots: dict[str, Any], text: str) -> list[str]:
+        """Areas and floors the sentence names (by name or alias, whole words,
+        outside its free text) that are not in ``slots`` -- what was heard,
+        plus the command's fixed target: "play music in the office" for a
+        command that takes no room."""
+        said = f" {_key(text)} "
+        for name, parameter in self.parameters.get(command.id, {}).items():
+            if parameter.kind == "text" and slots.get(name):
+                said = said.replace(f" {_key(slots[name])} ", " ")
+        # A device's own name may say a room: "the bedroom fan".
+        devices = set(slots.get("entity") or command.behavior.slots.get("entity") or [])
+        for phrase, item_id in sorted(self._name_choices("entity", {}).items(), key=lambda kv: -len(kv[0])):
+            if item_id in devices:
+                said = said.replace(f" {phrase} ", " ")
+        taken = {
+            (kind, str(item))
+            for kind in ("area", "floor")
+            for item in (slots.get(kind) or command.behavior.slots.get(kind) or [])
+        }
+        out = []
+        for kind in ("area", "floor"):
+            for phrase, item_id in self._name_choices(kind, {}).items():
+                if f" {phrase} " in said and (kind, item_id) not in taken:
+                    out.append(f"{kind} {self._label(kind, item_id)}")
+        return list(dict.fromkeys(out))
+
     def _label(self, kind: str, item_id: str) -> str:
         table = self.names.get({"entity": "entities", "area": "areas", "floor": "floors"}.get(kind, kind)) or {}
         return str((table.get(item_id) or {}).get("name") or item_id)
@@ -1008,7 +1034,9 @@ class Fallback:
             found.trace["meaning"] = why
             if accept and command is not None and satellite.available(command) is not None:
                 if not command.takes_something:
-                    return Found(command, {}, "meaning", found.trace)
+                    if self._places_fit(command, {}, text, why):
+                        return Found(command, {}, "meaning", found.trace)
+                    return found
                 # Meaning picked the command; what was said in it, the model hears.
                 return self._fill(found, why, command, text, satellite)
         if llm is None or self.tools is None or not self.chosen or not text.strip():
@@ -1066,8 +1094,19 @@ class Fallback:
             if satellite.available(command) is None:
                 trace["problems"] = [satellite.why_unavailable(command)]
                 return found
+            if not self._places_fit(command, slots, text, trace):
+                return found
             return Found(command, slots, "llm", found.trace)
         return found
+
+    def _places_fit(self, command: Command, slots: dict[str, Any], text: str, trace: dict[str, Any]) -> bool:
+        """Whether the sentence names no room or floor the command left out;
+        else why not, in ``trace``. "Play music in the office" is not resuming
+        the music here."""
+        left = self.tools.places_left(command, slots, text) if self.tools is not None else []
+        if left:
+            trace["problems"] = [f"heard {place}, which it doesn't take" for place in left]
+        return not left
 
     def _model_ready(self) -> bool:
         llm = self.llm
@@ -1103,6 +1142,8 @@ class Fallback:
             trace["problems"] = problems
             return found
         trace["combination"] = list(command.combination_for(set(slots) - set(command.behavior.slots)) or [])
+        if not self._places_fit(command, slots, text, trace):
+            return found
         return Found(command, slots, "meaning", found.trace)
 
     def _entity_types(self, command_ids: list[str]) -> dict[str, str]:
@@ -1187,6 +1228,8 @@ class Fallback:
             return found
         if satellite.available(command) is None:
             trace["problems"] = [satellite.why_unavailable(command)]
+            return found
+        if not self._places_fit(command, slots, text, trace):
             return found
         return Found(command, slots, "gliner", found.trace)
 

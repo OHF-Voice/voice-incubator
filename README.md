@@ -663,7 +663,7 @@ capture is too quiet to use -- firmware still streaming it at gain 1.
 ## Recognition (adapt-ctc)
 
 Commands are recognized by adapt-ctc ([adapt_ctc/README.md](adapt_ctc/README.md)
-has how, and how well on the office-multicap corpus), with four additions made
+has how, and how well on the office-multicap corpus), with five additions made
 for this app:
 
 - **Where the command starts.** The call is decoded from half a second before
@@ -687,6 +687,23 @@ for this app:
   `required`; fillers may then sit inside it ("a bag of rice") but not at its
   edges. Its text is re-read from the TDT transcript over the same frames,
   which spells better than the CTC head.
+- **Rooms must fit** (`settings.places_must_fit`, on). An area or floor name
+  heard that a match leaves unexplained rejects an intent that takes no name
+  of that type -- keyword matches and example sentences alike. Before, a
+  match only paid for one unused recognized word, and an example sentence
+  for a few: "play music in the office" was the example "play music",
+  resuming the music here; "pause the music upstairs" paused it here. Free
+  text that runs to the end may stop before a place the sentence ends on
+  ("in", "on", "at", "to", optionally "the", or "upstairs" / "downstairs"
+  alone) when the intent takes that place -- "play jazz in the kitchen" is
+  jazz, in the kitchen -- and swallowing it counts as leaving it out for an
+  intent that doesn't. A room inside the text is the text: "play the kitchen
+  sink by radiohead". The fallback holds its picks to the same rule
+  (`Tools.places_left`: area and floor names and aliases in the transcript,
+  outside free text and the names of the devices it took). A hint says "but I
+  can't pick a room for it". On the office-multicap corpus (2,030
+  recordings, `examples/home-extras.yaml`) not one recording changed: 1796
+  correct either way, so a misheard word taken for a room rejected nothing.
 
 When nothing matched, the closest command is named. From the keyword evidence
 first: a command whose keywords, names and numbers cover at least half the

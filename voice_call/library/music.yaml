@@ -19,7 +19,13 @@ commands:
     # Questions: "who played Jack in Titanic", "how many players are on a
     # team", "what movies are playing near me" are not "play".
     exclude: [next, previous, played, players, playing]
+    optional: [[in, on], [the]]
     wildcard: {slot: query, after: [play, put on, listen to], to_end: true, max_words: 8}
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    # "Play jazz", or "play jazz in the kitchen" / "upstairs": there, not here.
+    combinations: [[query], [area, query], [floor, query]]
     music: play
     verbosity: specific
 
@@ -39,10 +45,14 @@ commands:
     description: "play more music like what's playing"
     examples: [play more like this, more like this, play something similar]
     require: [[like, similar]]
-    optional: [[play], [more, music, songs, something, stuff]]
+    optional: [[play], [more, music, songs, something, stuff], [in, on], [the]]
     wildcard: {slot: query, after: [like], to_end: true, max_words: 6}
-    # Each said whole.
-    combinations: [[], [query]]
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    # Like what plays here, or like what was said -- here, or in a room or
+    # on a floor named.
+    combinations: [[], [query], [area], [floor], [area, query], [floor, query]]
     music: radio
     verbosity: specific
 
