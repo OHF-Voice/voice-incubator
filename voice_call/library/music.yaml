@@ -199,6 +199,26 @@ commands:
     music: repeat_off
     verbosity: beep
 
+  move_music:
+    title: Move the music
+    icon: mdi:cast-audio
+    description: move the music to another room, floor or speaker
+    # From what is playing here (or the one player playing anywhere) to the
+    # room, floor or speaker named, queue and all.
+    require: [[move, transfer, send, take], [music, song, playlist, audio]]
+    optional: [[to, into, over], [the]]
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+      entity: {count: 1, domains: [media_player]}
+    # Each said whole: it goes where it is told.
+    combinations: [[area], [floor], [entity]]
+    music: move
+    verbosity: specific
+    needs:
+      - Add names for the rooms, floors or speakers to move it to (Names page).
+        A speaker must be a Music Assistant player.
+
   whats_playing:
     title: What's playing
     icon: mdi:playlist-music

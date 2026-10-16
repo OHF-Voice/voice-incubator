@@ -273,3 +273,60 @@ def test_what_music_says_by_level():
     said = music.found_said("play", item, [own])
     assert said["brief"] == "Playing music." and said["specific"] == "Playing Kind of Blue by Miles Davis."
     assert set(music.level_examples()) == set(music.OUTCOMES) - {"status"}
+
+
+def test_moving_chooses_from_what_plays_here_to_what_is_named():
+    own = Player(OWN, "Fake VPE", "playing", "So What", "Miles Davis")
+    kitchen = Player(KITCHEN, "Kitchen Speaker", "idle")
+    den = Player("media_player.den", "Den Speaker", "playing", "Blue in Green")
+    players = {p.entity_id: p for p in (own, kitchen, den)}
+    choice = music.choose_move(players, OWN, [KITCHEN], [])
+    assert choice.source is own and choice.players == [kitchen] and choice.outcome is None
+    # Nothing named, or nothing there: no player.
+    assert music.choose_move(players, OWN, None, []).outcome == "no_player"
+    # Already there.
+    assert music.choose_move(players, OWN, [OWN], []).outcome == "already"
+    # Nothing playing here: the one player playing anywhere; with two, none.
+    quiet = {**players, OWN: Player(OWN, "Fake VPE", "idle")}
+    assert music.choose_move({k: v for k, v in quiet.items() if k != "media_player.den"}, OWN, [KITCHEN], []).outcome == "nothing_playing"
+    assert music.choose_move(quiet, OWN, [KITCHEN], []).source.entity_id == "media_player.den"
+    both = {**quiet, KITCHEN: Player(KITCHEN, "Kitchen Speaker", "playing", "So What")}
+    assert music.choose_move(both, OWN, [OWN], []).outcome == "nothing_playing"
+    # Paused here counts, when nothing plays here.
+    paused = {OWN: Player(OWN, "Fake VPE", "paused", "So What"), KITCHEN: kitchen}
+    assert music.choose_move(paused, OWN, [KITCHEN], []).source.entity_id == OWN
+    said = music.moved_said(own, kitchen, "to the Kitchen")
+    assert said == {"brief": "Moved the music.", "specific": "Moved the music to the Kitchen.",
+                    "verbose": "Moved So What by Miles Davis from Fake VPE to Kitchen Speaker."}
+
+
+def test_moving_the_music_through_home_assistant():
+    async def scenario():
+        fake, server, hass = await _hass()
+        try:
+            helper = music.Music(hass)
+            move = {"music": "move", "names": {"area": {"count": 1}, "entity": {"count": 1}},
+                    "combinations": [["area"], ["entity"]]}
+            outcome = await _run(hass, move, {"area": ["kitchen"]}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("nothing_playing", "Nothing is playing to move.")
+            await _run(hass, {"music": "play"}, {"query": "the album kind of blue"}, helper=helper)
+            outcome = await _run(hass, move, {"area": ["kitchen"]}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("done", "Moved the music to the Kitchen.")
+            transfer = fake.services[-1]
+            assert transfer["service"] == "transfer_queue" and transfer["target"] == {"entity_id": [KITCHEN]}
+            assert transfer["service_data"] == {"source_player": OWN, "auto_play": True}
+            assert fake.states[KITCHEN][0] == "playing" and fake.states[OWN][0] == "idle"
+            assert fake.queues[KITCHEN]["uri"] == "library://album/1" and OWN not in fake.queues
+            # Back to the satellite's own player, by name: from the one playing anywhere.
+            outcome = await _run(hass, {**move, "verbosity": "verbose"}, {"entity": [OWN]}, helper=helper)
+            assert outcome.speech == "Moved Kind of Blue by Miles Davis from Kitchen Speaker to Fake VPE."
+            assert fake.states[OWN][0] == "playing"
+            outcome = await _run(hass, move, {"entity": [OWN]}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("already", "The music is already playing there.")
+            outcome = await _run(hass, move, {"area": ["bedroom"]}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("no_player", "There's no music player there.")
+        finally:
+            await hass.stop()
+            server.close()
+
+    asyncio.run(scenario())

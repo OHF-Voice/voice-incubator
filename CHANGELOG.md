@@ -13,6 +13,8 @@
   outcome.
 - Pausing a paused timer (or resuming a running one) says it already is,
   instead of that there's no such timer.
+- "Move the music to the kitchen / upstairs / the office speaker": what
+  plays here moves there, queue and all (Music Assistant's transfer_queue).
 - Music, on Music Assistant: "play …" searches and plays the closest match,
   plus pause, resume, stop, next, previous, volume, mute, shuffle, repeat,
   "play more like this", "add … to the queue" and "what's playing". A

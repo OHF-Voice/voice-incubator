@@ -9,7 +9,12 @@ A command says which operation (``music: play``). The player is
 * for what acts on playing music (pause, next, "what's playing" ...), the one
   that is playing: the satellite's own, else Music Assistant's players in the
   satellite's area;
-* to resume, what voice paused on this satellite, else its own player.
+* to resume, what voice paused on this satellite, else its own player;
+* to move the music (``music: move``), from what is playing here -- the
+  satellite's own player, else Music Assistant's in its area, else the one
+  player playing anywhere -- to a player the command names, with Music
+  Assistant's ``transfer_queue``: the queue goes along, and the other player
+  stops.
 
 Playing searches Music Assistant (``music_assistant.search``) for what was
 heard, picks the result closest to it, and plays that
@@ -56,6 +61,7 @@ OPERATIONS = (
     "repeat_one",
     "repeat_off",
     "status",
+    "move",
 )
 FIND = ("play", "add", "radio")
 """Operations that search Music Assistant for what to play."""
@@ -82,6 +88,7 @@ OUTCOMES = {
     "repeat_one": _ON_PLAYING,
     "repeat_off": _ON_PLAYING,
     "status": _ON_PLAYING,
+    "move": ("done", "nothing_playing", "no_player", "already"),
 }
 
 NO_PLAYER = "There's no music player here."
@@ -92,6 +99,13 @@ SAID = {
     "missing_query": "What should I play?",
     "missing_volume": "What volume?",
     "already": "It's already playing.",
+}
+
+# Moving: where it goes is what the command names.
+MOVE_SAID = {
+    "nothing_playing": "Nothing is playing to move.",
+    "no_player": "There's no music player there.",
+    "already": "The music is already playing there.",
 }
 
 # What each outcome says, for the UI: the defaults a command's responses replace.
@@ -107,6 +121,7 @@ EXAMPLES["play"].update(done="Playing Kind of Blue by Miles Davis.", not_found="
 EXAMPLES["add"].update(done="Added So What by Miles Davis to the queue.", not_found="I couldn't find so watt.")
 EXAMPLES["radio"].update(done="Playing music like So What by Miles Davis.", not_found="I couldn't find so watt.")
 EXAMPLES["status"].update(done="This is So What by Miles Davis.")
+EXAMPLES["move"].update(done="Moved the music to the Kitchen.", **MOVE_SAID)
 
 VOLUME_STEP = 0.1
 MATCH_AT_LEAST = 0.5
@@ -206,6 +221,8 @@ class Choice:
     players: list[Player] = field(default_factory=list)
     outcome: str | None = None
     """Set when nothing will be done: why."""
+    source: Player | None = None
+    """For a move: the player the music comes from."""
 
 
 def choose(
@@ -257,6 +274,37 @@ def choose(
     if operation in ("pause", "stop") and named:
         return Choice(playing)
     return Choice(playing[:1])
+
+
+def choose_move(
+    players: dict[str, Player], own: str | None, named: list[str] | None, nearby: list[str]
+) -> Choice:
+    """Where the music comes from and goes to. From what is playing here --
+    the satellite's own player, then the others in its area (paused, when
+    nothing plays) -- else from the one player playing anywhere; to the
+    first of the named players that is not the source, one that is not
+    playing before one that is."""
+
+    def known(ids: list[str]) -> list[Player]:
+        return [players[i] for i in ids if i in players and players[i].available]
+
+    destinations = known(named or [])
+    if not destinations:
+        return Choice(outcome="no_player")
+    here = known(list(dict.fromkeys(([own] if own else []) + nearby)))
+    source = next((p for p in here if p.playing), None) or next(
+        (p for p in here if p.state == "paused" and p.title), None
+    )
+    if source is None:
+        playing = [p for p in players.values() if p.playing and p.available]
+        source = playing[0] if len(playing) == 1 else None
+    if source is None:
+        return Choice(outcome="nothing_playing")
+    targets = [p for p in destinations if p.entity_id != source.entity_id]
+    if not targets:
+        return Choice(outcome="already", source=source)
+    target = next((p for p in targets if not p.playing), targets[0])
+    return Choice([target], source=source)
 
 
 def control(operation: str, slots: dict[str, Any], players: list[Player]) -> tuple[list[tuple[str, str, dict]], str, str]:
@@ -345,6 +393,17 @@ def found_said(operation: str, item: Item, players: list[Player]) -> dict[str, s
         operation, f"Playing {item.spoken}."
     )
     return {"brief": FOUND_SAID.get(operation, "Playing."), "specific": specific, "verbose": _on_players(specific, players)}
+
+
+def moved_said(source: Player, target: Player, to: str) -> dict[str, str]:
+    """A move, by level of verbosity; ``to`` is where, as heard: "to the
+    Kitchen", "upstairs", "to Kitchen Speaker"."""
+    what = source.media or "the music"
+    return {
+        "brief": "Moved the music.",
+        "specific": f"Moved the music {to}." if to else f"Moved the music to {target.name}.",
+        "verbose": f"Moved {what} from {source.name} to {target.name}.",
+    }
 
 
 def _on_players(sentence: str, players: list[Player]) -> str:
@@ -627,7 +686,10 @@ def level_examples() -> dict[str, dict[str, str]]:
     for operation in OUTCOMES:
         if operation == "status":
             continue
-        if operation in FIND:
+        if operation == "move":
+            kitchen = Player("media_player.kitchen", "Kitchen Speaker")
+            out[operation] = moved_said(Player("media_player.living_room", "Living Room Speaker", "playing", "So What", "Miles Davis"), kitchen, "to the Kitchen")
+        elif operation in FIND:
             item = Item("Kind of Blue", "", "album", "Miles Davis") if operation == "play" else Item("So What", "", "track", "Miles Davis")
             out[operation] = found_said(operation, item, [player])
         else:

@@ -257,6 +257,13 @@ library's **Music** group:
   Davis."). "Add … to the queue", "play more like this".
 - "pause", "resume", "stop the music", "next", "go back", "louder", "set the
   volume to 30 percent", "mute", "shuffle", "repeat", "what's playing".
+- "move the music to the kitchen", "move the music upstairs", "send the music
+  to the office speaker": what plays here -- the satellite's own player, else
+  one in its area, else the one player playing anywhere -- moves there, queue
+  and all, and stops where it was ("Moved the music to the Kitchen."). It
+  goes to one player: on a floor with several, one that isn't already
+  playing. Name the rooms, floors or speakers first (Names page); a speaker
+  must be a Music Assistant player.
 
 The player is the satellite's own, unless a command names another (Target)
 or an area. Pausing, skipping, the volume and "what's playing" act on
@@ -268,8 +275,9 @@ Like timers, every music command has outcomes, each with a sentence you can
 replace: `done` (controls play a short sound), `no_player`,
 `nothing_playing`, `not_found`, `missing_query`, `missing_volume`, `already`
 and `failed`. Templates also see `player` (the one it acted on: `entity_id`,
-`name`, `state`, `title`, `artist`, `volume` ...), `players` and, when it
-searched, `media` (`name`, `artist`, `media_type`, `uri`).
+`name`, `state`, `title`, `artist`, `volume` ...), `players`, when it
+searched `media` (`name`, `artist`, `media_type`, `uri`), and when it moved
+the music `source` (the player it came from).
 
 On the satellite, music is turned down while it listens to you or a timer
 rings, never paused, and the center button pauses and resumes it.

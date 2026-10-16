@@ -3,7 +3,7 @@
 It answers what voice_call asks for -- auth, the registries, get_states,
 render_template, execute_script, fire_event, event subscriptions, the
 Voice Call integration's API (satellites, voice_timer_list timers), and Music
-Assistant's (players, search, play_media, get_queue) -- and records the
+Assistant's (players, search, play_media, get_queue, transfer_queue) -- and records the
 scripts it was asked to run, the services called and the events fired. Timers run only when a test finishes them (``finish_timer``). Templates are
 rendered with jinja2 and stubs for ``now()``, ``states()`` and
 ``state_attr()``; that is close enough to check variables arrive, not a
@@ -390,6 +390,19 @@ class FakeHass:
         ids = [ids] if isinstance(ids, str) else ids
         if service == "get_queue":
             return {e: {"current_item": {"media_item": self.queues[e]}} for e in ids if e in self.queues}
+        if service == "transfer_queue":
+            # The queue, and what plays, goes to the target; the source stops.
+            source = data["source_player"]
+            state, attrs = self.states.get(source, ("idle", {}))
+            for entity_id in ids:
+                if source in self.queues:
+                    self.queues[entity_id] = self.queues[source]
+                target_attrs = dict(self.states.get(entity_id, ("idle", {}))[1])
+                target_attrs.update(media_title=attrs.get("media_title"), media_artist=attrs.get("media_artist"))
+                self.states[entity_id] = ("playing" if data.get("auto_play", True) else state, target_attrs)
+            self.queues.pop(source, None)
+            self.states[source] = ("idle", {k: v for k, v in attrs.items() if not k.startswith("media_")})
+            return None
         for entity_id in ids:
             state, attrs = self.states.get(entity_id, ("idle", {}))
             attrs = dict(attrs)

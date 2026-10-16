@@ -867,6 +867,11 @@ the player is one the command names, else the satellite's own, else -- to
 pause, skip, change the volume or ask what's playing -- whichever of Music
 Assistant's players plays in the satellite's area (Home Assistant's own media
 intents choose the same way); "resume" picks what voice paused there.
+Moving the music (`music: move`, `music.choose_move`) goes from what plays
+there -- else the one player playing anywhere, so "move the music to the
+kitchen" works from the kitchen too -- to the first player named that isn't
+the source (one not playing first), with `music_assistant.transfer_queue`
+(`source_player`, `auto_play`): the queue goes along and the source stops.
 Everything goes through Home Assistant: player state by template,
 `media_player.*` for controls, and for "play …" `music_assistant.search` on
 every reading of what was heard ("so what by miles davis" is a title, and a

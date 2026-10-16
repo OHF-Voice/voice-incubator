@@ -29,8 +29,9 @@ A timer command (``timer: cancel`` ...) is carried out by the app on the
 satellite's voice_timer_list (voice_call/timers.py), and says what it did unless
 the command has a response of its own. A music command (``music: play`` ...)
 is carried out on a Music Assistant player (voice_call/music.py); its response
-also sees ``player`` (the one it acted on), ``players`` and, when it searched,
-``media`` (what it found).
+also sees ``player`` (the one it acted on), ``players``, when it searched
+``media`` (what it found), and when it moved the music ``source`` (the player
+it came from).
 
 How it went is the outcome: ``done``, ``failed`` (Home Assistant refused), a
 timer operation's own (``no_timers``, ``not_found`` ...), or the ``outcome`` a
@@ -315,12 +316,18 @@ async def _run_music(
     started = time.perf_counter()
     trace: dict[str, Any] = {"operation": operation, "own": own, "named": named, "nearby": nearby}
     outcome.music = trace
+    # Moving needs every player: the music may be playing anywhere.
+    everywhere = _all_music_players(hass) if operation == "move" else []
     try:
-        players = await music.players(list(dict.fromkeys(([own] if own else []) + (named or []) + nearby)))
+        players = await music.players(
+            list(dict.fromkeys(([own] if own else []) + (named or []) + nearby + everywhere))
+        )
     except (HassError, ConnectionError, OSError, TimeoutError, ValueError) as err:
         outcome.error = str(err)
         return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
     trace["players"] = {k: p.as_dict() for k, p in players.items()}
+    if operation == "move":
+        return await _move_music(hass, behavior, values, satellite, outcome, music, players, own, named, nearby, started)
     choosing = "play" if operation == "radio" and not music_ops.generic(query) else operation
     choice = music_ops.choose(choosing, players, own, named, nearby, music.paused_by_voice(satellite.key))
     chosen = choice.players
@@ -387,6 +394,67 @@ async def _run_music(
             music.forget_paused(satellite.key)
     outcome.timings["music"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, name, speech)
+
+
+async def _move_music(
+    hass: HomeAssistant,
+    behavior: Behavior,
+    values: dict[str, Any],
+    satellite: Satellite,
+    outcome: Outcome,
+    music: music_ops.Music,
+    players: dict[str, music_ops.Player],
+    own: str | None,
+    named: list[str] | None,
+    nearby: list[str],
+    started: float,
+) -> Outcome:
+    """The music playing here to the player the command names, queue and
+    all (Music Assistant's ``transfer_queue``)."""
+    choice = music_ops.choose_move(players, own, named, nearby)
+    trace = outcome.music or {}
+    if choice.source is not None:
+        trace["source"] = choice.source.entity_id
+        values = {**values, "source": choice.source.as_dict()}
+    if choice.outcome:
+        return await _say(hass, behavior, values, outcome, choice.outcome, music_ops.MOVE_SAID[choice.outcome])
+    source, target = choice.source, choice.players[0]
+    assert source is not None
+    heard = values["place"]
+    to = "" if values["slots"].get("entity") else _to_place(heard.get("said") or "")
+    values = {
+        **values,
+        "player": target.as_dict(),
+        "players": [target.as_dict()],
+        "place": _players_place([target], satellite, getattr(hass, "catalog", None)),
+    }
+    data = {"source_player": source.entity_id, "auto_play": True}
+    target_ids = {"entity_id": [target.entity_id]}
+    outcome.sequence = [{"action": "music_assistant.transfer_queue", "target": target_ids, "data": data}]
+    if not outcome.dry_run:
+        try:
+            await hass.call_service("music_assistant", "transfer_queue", data, target_ids)
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            outcome.error = str(err)
+            _LOGGER.error("Moving the music failed: %s", err)
+            return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+        music.forget_paused(satellite.key)
+    outcome.timings["music"] = time.perf_counter() - started
+    return await _say(hass, behavior, values, outcome, "done", music_ops.moved_said(source, target, to))
+
+
+def _to_place(said: str) -> str:
+    """Where, as heard, to move to: "in the Kitchen" -> "to the Kitchen";
+    "upstairs" stays."""
+    for word in ("in ", "on "):
+        if said.startswith(word):
+            return "to " + said[len(word):]
+    return said
+
+
+def _all_music_players(hass: HomeAssistant) -> list[str]:
+    catalog = getattr(hass, "catalog", None)
+    return [p.entity_id for p in catalog.music_players()] if catalog is not None else []
 
 
 def _players_place(players: list[music_ops.Player], satellite: Satellite, catalog: Any) -> dict[str, Any]:
