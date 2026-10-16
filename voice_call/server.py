@@ -414,6 +414,7 @@ class VoiceCallApp:
             self.options.threads,
             (LEARN_VOICE,) if self.speakers is not None else (),
         )
+        self.engine.entity_area = self._entity_area
         await self.reload_commands()
         self._spawn(self.configure_fallback())
         self._spawn(self.configure_questions())
@@ -598,6 +599,12 @@ class VoiceCallApp:
         return ToolModel(path, n_threads=self.options.threads, model=model)
 
     # ----------------------------------------------------------- questions
+
+    def _entity_area(self, entity_id: str) -> str | None:
+        """A device's area in Home Assistant (its own, else its device's)."""
+        catalog = self.hass.catalog
+        entity = catalog.entities.get(entity_id) if catalog is not None else None
+        return entity.area_id if entity is not None else None
 
     def beep_elsewhere(self) -> str:
         """``settings.yaml`` ``beep_elsewhere``: what a command that beeps

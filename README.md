@@ -127,6 +127,17 @@ combination. The library went from 56 intents to 92 (lights,
 covers, brightness and the thermostat by area or floor; timers by name,
 free-text name or length).
 
+**A device and a room.** The library's device, cover, lock, brightness and
+thermostat commands have an `[entity, area]` combination, as Home
+Assistant's intents have `name_area`. Names may repeat across devices, so
+the engine (`Engine.fit_devices`) takes every device with the name heard and
+keeps those in the room said, by Home Assistant's registry (an entity's
+area, else its device's; `Engine.entity_area`). None there refuses the
+command with a hint ("but there's no Fan in the Kitchen", or "I don't know
+which room Kettle is in"), and nothing else is tried. Without a room, a name
+several devices share is the one in the satellite's area. The room is not
+part of the target: `target` holds only the devices when there are any.
+
 **How much a command says** when it is done (`verbosity`,
 `commands.VERBOSITY`): `beep`, `brief` (a fixed sentence, so a TTS cache keeps
 it), `specific` (what was heard) or `verbose` (what it did, in full). The done

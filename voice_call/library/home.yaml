@@ -17,10 +17,13 @@ commands:
     icon: mdi:window-shutter-open
     description: open a cover
     require: [[open, raise]]
-    optional: [[up]]
+    optional: [[up], [in, on], [the]]
     exclude: [is, are]
     names:
       entity: {count: 1, domains: [cover]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
     action:
       action: cover.open_cover
       target: "{{ target }}"
@@ -38,10 +41,13 @@ commands:
     icon: mdi:window-shutter
     description: close a cover
     require: [[close, shut, lower]]
-    optional: [[down]]
+    optional: [[down], [in, on], [the]]
     exclude: [is, are]
     names:
       entity: {count: 1, domains: [cover]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
     action:
       action: cover.close_cover
       target: "{{ target }}"
@@ -190,8 +196,12 @@ commands:
     description: lock a door
     require: [[lock]]
     exclude: [unlock, is, are, all, everything]
+    optional: [[in, on], [the]]
     names:
       entity: {count: 1, domains: [lock]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
     action:
       action: lock.lock
       target: "{{ target }}"
@@ -210,8 +220,12 @@ commands:
     description: unlock a door
     require: [[unlock]]
     exclude: [is, are]
+    optional: [[in, on], [the]]
     names:
       entity: {count: 1, domains: [lock]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
     action:
       action: lock.unlock
       target: "{{ target }}"
@@ -245,8 +259,12 @@ commands:
     icon: mdi:window-shutter-alert
     description: say if a cover is open
     require: [[is, are]]
+    optional: [[in, on], [the]]
     names:
       entity: {count: 1, domains: [cover]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity, asked], [entity, area, asked]]
     lists:
       asked: {list: open_closed}
     response: >-
@@ -318,8 +336,12 @@ commands:
     icon: mdi:lock-question
     description: say if a door is locked
     require: [[is, are]]
+    optional: [[in, on], [the]]
     names:
       entity: {count: 1, domains: [lock, binary_sensor]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity, asked], [entity, area, asked]]
     lists:
       asked: {list: locked_unlocked}
     response: >-

@@ -13,6 +13,9 @@
   outcome.
 - Pausing a paused timer (or resuming a running one) says it already is,
   instead of that there's no such timer.
+- "Turn on the fan in the office": a device named with a room is the one
+  of that name there (names may repeat); none there, and the satellite says
+  so. Without a room, a shared name is the one in the satellite's room.
 - A room or floor you say must be one the command takes: "pause the music
   upstairs" no longer pauses it here, "play music in the office" no longer
   resumes it here. "Play jazz in the kitchen" and "play more like this

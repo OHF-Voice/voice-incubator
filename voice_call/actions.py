@@ -12,8 +12,9 @@ variables, which the sequence and the response template can both use:
 ``satellite``   ``id``, ``name``, ``area_id``, ``area_name``, ``floor_id``,
                 ``floor_name``, ``device_id``, ``timer_list``
 ``speaker``     ``name`` (None when not recognized) and ``score``
-``target``      ``entity_id``/``area_id``/``floor_id`` from the slots, or
-                else the satellite's area: ``target: "{{ target }}"``
+``target``      ``entity_id`` from the slots (a room said with a device only
+                picks it out), else ``area_id``/``floor_id``, else the
+                satellite's area: ``target: "{{ target }}"``
 ``command``     ``id``, ``description``, ``text`` (what was heard)
 ``place``       where it acts: ``here`` (only the satellite's area),
                 ``said`` ("in the Kitchen", "upstairs"; empty when unknown),
@@ -126,7 +127,10 @@ def variables(
     catalog: Any = None,
 ) -> dict[str, Any]:
     target: dict[str, list[str]] = {}
-    for slot, key in (("entity", "entity_id"), ("area", "area_id"), ("floor", "floor_id")):
+    # Named devices are the target; a room said with them only picked them
+    # out ("the fan in the office"), it is not one more thing to act on.
+    named = (("entity", "entity_id"),) if slots.get("entity") else (("area", "area_id"), ("floor", "floor_id"))
+    for slot, key in named:
         if slots.get(slot):
             target[key] = list(slots[slot])
     if not target and satellite.area_id:

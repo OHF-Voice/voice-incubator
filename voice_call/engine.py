@@ -159,6 +159,9 @@ class Decision:
     """Matches passed over: not available on this satellite."""
 
     hint: dict[str, Any] | None = None
+    refused: dict[str, Any] | None = None
+    """Understood, but not possible as said ("the fan in the office" when
+    the office has no fan): the hint, with nothing else tried."""
     message: str | None = None
     """What to say when nothing will run."""
 
@@ -287,6 +290,9 @@ class Engine:
         (voice_call/questions.py)."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
+        self.entity_area: Any = None
+        """Where a device is -- its Home Assistant area, or None -- to pick out
+        the device of a name in the room said with it (``fit_devices``)."""
 
         self.compiled: Compiled | None = None
         self.recognizer: Recognizer | None = None
@@ -522,6 +528,10 @@ class Engine:
             # Fixed slots are the command's target; a name that was heard
             # is more specific.
             decision.slots = {**decision.behavior.slots, **heard}
+            refused = self.fit_devices(decision, compiled, satellite)
+            if refused is not None:
+                decision.command, decision.behavior, decision.refused = None, None, refused
+                break
             heard_intent = command.intents.get(result.intent) or command.intent
             if heard_intent.get("wildcard"):
                 self._reread_text(
@@ -530,7 +540,7 @@ class Engine:
                 )
             break
 
-        if decision.command is None and decision.internal is None:
+        if decision.command is None and decision.internal is None and decision.refused is None:
             if transcriber is not None and recognition.tdt_transcript is None:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
@@ -545,7 +555,7 @@ class Engine:
                 decision.answer = exact.to_json()
             elif self.fallback is not None and compiled.commands:
                 self._fall_back(decision, recognition, compiled, satellite)
-            if decision.command is None and decision.answer is None:
+            if decision.command is None and decision.answer is None and decision.refused is None:
                 started = time.perf_counter()
                 answer = skills.answer(text, satellite.skills, last=True)
                 if answer is None and self.questions is not None:
@@ -553,7 +563,10 @@ class Engine:
                 if answer is not None:
                     recognition.timings["question"] = time.perf_counter() - started
                     decision.answer = answer.to_json()
-        if decision.command is None and decision.internal is None and decision.answer is None:
+        if decision.refused is not None:
+            decision.hint = decision.refused
+            decision.message = decision.refused["text"]
+        elif decision.command is None and decision.internal is None and decision.answer is None:
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
             llm = (decision.fallback or {}).get("llm") or {}
             if llm.get("command") in compiled.commands:
@@ -599,6 +612,57 @@ class Engine:
         decision.behavior, decision.decided_by = resolved
         decision.slots = {**decision.behavior.slots, **found.slots}
         decision.matched_by = found.by or "llm"
+        refused = self.fit_devices(decision, compiled, satellite)
+        if refused is not None:
+            decision.command, decision.behavior, decision.refused = None, None, refused
+
+    def fit_devices(self, decision: Decision, compiled: Compiled, satellite: Satellite) -> dict[str, Any] | None:
+        """The devices a command names, by where they are. Every device with
+        the name heard is a candidate (names may repeat: a Fan in the office
+        and one in the bedroom). Said with a room, they are the ones there --
+        none there, and nothing runs: the hint says why. Without one, a name
+        shared by several is the one in the satellite's area, when one is."""
+        slots = decision.slots
+        entities = list(slots.get("entity") or [])
+        if not entities or decision.command is None:
+            return None
+        names = (compiled.data.get("names") or {}).get("entities") or {}
+
+        def said(entity_id: str) -> set[str]:
+            item = names.get(entity_id) or {}
+            item = {"name": item} if isinstance(item, str) else item
+            return {" ".join(str(n).lower().split()) for n in [item.get("name") or entity_id, *(item.get("aliases") or [])]}
+
+        candidates = list(dict.fromkeys(
+            other for entity_id in entities for other in [entity_id, *names] if other == entity_id or said(other) & said(entity_id)
+        ))
+        where = {c: self.entity_area(c) if self.entity_area is not None else None for c in candidates}
+        areas = list(slots.get("area") or [])
+        if not areas:
+            if len(candidates) > len(entities):
+                here = [c for c in candidates if satellite.area_id and where[c] == satellite.area_id]
+                if here:
+                    slots["entity"] = here
+            return None
+        fit = [c for c in candidates if where[c] in areas]
+        if fit:
+            slots["entity"] = fit
+            return None
+        item = names.get(entities[0]) or {}
+        device = item if isinstance(item, str) else item.get("name") or entities[0]
+        area_item = ((compiled.data.get("names") or {}).get("areas") or {}).get(areas[0]) or {}
+        room = area_item if isinstance(area_item, str) else area_item.get("name") or areas[0]
+        if all(where[c] is None for c in candidates):
+            why = f"but I don't know which room {device} is in"
+        else:
+            from .actions import _in_area  # pylint: disable=import-outside-toplevel
+
+            why = f"but there's no {device} {_in_area(room)}"
+        return {
+            "source": "place",
+            "command": decision.command.id,
+            "text": f"It looks like you're trying to {decision.command.description}, {why}.",
+        }
 
     def _greedy(self, log_probs: np.ndarray) -> str:
         ids, previous = [], None

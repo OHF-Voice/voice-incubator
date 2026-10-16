@@ -115,6 +115,14 @@ added again. A command has:
     keywords ("add … to the shopping list"), from a keyword to the end
     ("remind me to …"), or right before or after a keyword ("the … timer").
     It is spelled from the TDT transcript.
+  - **A device in a room**: "turn on the fan in the office" picks the Fan
+    that Home Assistant puts in the office -- names may repeat, one Fan per
+    room. When none is there, nothing runs and the satellite says so ("…but
+    there's no Fan in the Kitchen"). Without a room, a name several devices
+    share is the one in the satellite's own room. The room only picks the
+    device out: Home Assistant is asked to turn on the fan, not the office.
+    The library's device, cover, lock, brightness and thermostat commands
+    take one.
   - **Rooms**: a room or floor you say must be one the command takes.
     "Pause the music upstairs" isn't pausing it here, and "what time is it in
     the kitchen" isn't the time: neither runs, and the satellite says
@@ -192,7 +200,7 @@ The action, the script and the response template all see:
 | `slots` | what was heard plus the fixed target: `entity`, `area`, `floor` (lists of ids), the number (by preset name), value lists, free text |
 | `satellite` | `id`, `name`, `area_id`, `area_name`, `floor_id`, `floor_name`, `device_id`, `timer_list`, `media_player` |
 | `speaker` | `name` of the enrolled voice (or none) and `score` |
-| `target` | `entity_id`/`area_id`/`floor_id` from the slots, or else the satellite's area: `target: "{{ target }}"` |
+| `target` | `entity_id` from the slots (a room said with a device only picks it out), else `area_id`/`floor_id`, else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
 | `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |

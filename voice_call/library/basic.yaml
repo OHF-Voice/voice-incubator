@@ -149,6 +149,9 @@ commands:
     optional: [[in]]
     names:
       entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
     action:
       action: homeassistant.turn_on
       target: "{{ target }}"
@@ -169,6 +172,9 @@ commands:
     optional: [[in]]
     names:
       entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
     action:
       action: homeassistant.turn_off
       target: "{{ target }}"
@@ -193,7 +199,7 @@ commands:
       floor: {count: 1}
     number: percentage
     # Each said whole; without a name, the satellite's own.
-    combinations: [[percentage], [entity, percentage], [area, percentage], [floor, percentage]]
+    combinations: [[percentage], [entity, percentage], [area, percentage], [floor, percentage], [entity, area, percentage]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -245,7 +251,7 @@ commands:
       area: {count: 1}
     number: temperature
     # Each said whole; without a name, the satellite's own.
-    combinations: [[temperature], [entity, temperature], [area, temperature]]
+    combinations: [[temperature], [entity, temperature], [area, temperature], [entity, area, temperature]]
     action:
       action: climate.set_temperature
       target: "{{ target }}"
