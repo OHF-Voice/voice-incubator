@@ -200,8 +200,8 @@ th { color: var(--muted); font-weight: 600; border-top: none; }
   .dialog { max-height: 100vh; height: 100%; border-radius: 0; }
 }
 
-/* Listening live: the waveform, and the spectrogram under it. */
+/* Listening live: the waveform, and each model's probabilities under it. */
 .live { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .live canvas { width: 100%; display: block; background: var(--code); border-radius: 6px; }
 .live-wave { height: 80px; }
-.live-spectrogram { height: 128px; background: #000 !important; }
+.live-wake { height: 40px; }

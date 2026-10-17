@@ -1021,6 +1021,11 @@ class VoiceCallApp:
             self._live(session, payload)
             return
 
+        if msg_type == Message.WAKE_REPORT:
+            if session.listeners:
+                self._live(session, self._wake_report(json.loads(payload) if payload else {}))
+            return
+
         if msg_type == Message.AUDIO_IN_AEC:
             if session.call is not None:
                 session.call.aec += payload
@@ -1095,6 +1100,22 @@ class VoiceCallApp:
                 queue.put_nowait(item)
             except asyncio.QueueFull:
                 pass  # a listener behind by seconds loses audio, not the app
+
+    def _wake_report(self, report: dict) -> dict:
+        """The device's report, for the page: names, and probabilities 0-1."""
+        models = []
+        for model in report.get("models") or []:
+            model_id = str(model.get("id") or "")
+            word = self.wake_words.get(model_id)
+            models.append({
+                "id": model_id,
+                "name": "Voice activity" if model.get("vad") else (word.name if word is not None else model_id),
+                "vad": bool(model.get("vad")),
+                "cutoff": round(int(model.get("cutoff") or 0) / 255, 3),
+                "peak": round(int(model.get("peak") or 0) / 255, 3),
+                "window": round(int(model.get("window") or 0) / 255, 3),
+            })
+        return {"type": "wake", "models": models, "detected": [str(d) for d in report.get("detected") or []]}
 
     def _live_call_ended(self, session: Session) -> None:
         """Hung up, or ended by the device: once."""

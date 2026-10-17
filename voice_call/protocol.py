@@ -33,6 +33,12 @@ class Message(IntEnum):
     """Something happened on the device: {"type": "announcing" | "announced"}."""
     AUDIO_MONITOR = 0x0A
     """The microphone outside a call, while monitored (MONITOR)."""
+    WAKE_REPORT = 0x0B
+    """While monitored, about ten times a second: {"models": [{"id", "vad",
+    "cutoff", "peak", "window"}], "detected": [ids]} -- each model's highest
+    probability (0-255) since the last report, of an inference and of its
+    window's mean (what meets the cutoff), and wake words detected, which a
+    monitored device does not answer."""
 
     """App to device."""
     AUDIO_OUT = 0x10
@@ -41,8 +47,9 @@ class Message(IntEnum):
     HANGUP = 0x13
     MONITOR = 0x14
     """{"active": true | false}: stream the microphone outside calls, for
-    someone listening live; the device shows it (the VPE's ring blinks red).
-    Firmware that can says ``"monitor": true`` in HELLO."""
+    someone listening live, with WAKE_REPORTs; meanwhile a wake word does not
+    start a call. The device shows it (the VPE's ring blinks red). Firmware
+    that can says ``"monitor": true`` in HELLO."""
     MODEL_START = 0x20
     MODEL_DATA = 0x21
     MODEL_END = 0x22

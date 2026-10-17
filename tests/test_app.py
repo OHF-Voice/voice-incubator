@@ -369,19 +369,25 @@ async def _scenario(tmp_path: Path) -> None:
             # someone listens (and shows it), and its calls come through too.
             async with http.ws_connect(f"/api/satellites/{MAC}/live") as live:
                 assert (await live.receive_json(timeout=5)) == {"type": "start", "sample_rate": 16000}
-                heard = await live.receive(timeout=5)
-                assert heard.type == aiohttp.WSMsgType.BINARY and len(heard.data) % 2 == 0 and heard.data
                 await wait_for(lambda: satellite.monitoring == [True])
                 listed = (await (await http.get("/api/satellites")).json())["satellites"]
                 assert listed[0]["can_listen"] and listed[0]["listeners"] == 1
-                placing = asyncio.ensure_future(satellite.call(read_call(CALLS / "call-15788.wav")))
-                calls_seen = []
-                while len(calls_seen) < 2:
-                    message = await live.receive(timeout=30)
-                    if message.type == aiohttp.WSMsgType.TEXT:
-                        calls_seen.append(json.loads(message.data))
-                assert calls_seen == [{"type": "call", "active": True, "wake_word": "okay_nabu"}, {"type": "call", "active": False}]
-                assert await placing == "done"
+                audio, reports = 0, []
+                while not (audio and len(reports) > 1):
+                    message = await live.receive(timeout=5)
+                    if message.type == aiohttp.WSMsgType.BINARY:
+                        assert len(message.data) % 2 == 0
+                        audio += len(message.data)
+                    else:
+                        reports.append(json.loads(message.data))
+                # Each model's probabilities, by name, and the wake word heard
+                # meanwhile (not answered: the device keeps listening).
+                first = reports[0]
+                assert first["type"] == "wake" and first["detected"] == ["okay_nabu"]
+                vad, okay = first["models"]
+                assert vad["vad"] and vad["name"] == "Voice activity"
+                assert okay["name"] == "Okay Nabu" and okay["cutoff"] == 0.851 and 0 < okay["peak"] < 1
+                assert reports[1]["detected"] == []
             await wait_for(lambda: satellite.monitoring == [True, False])
             async with http.ws_connect("/api/satellites/nobody/live") as live:
                 assert (await live.receive_json(timeout=5))["type"] == "error"

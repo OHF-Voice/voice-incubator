@@ -736,9 +736,11 @@ class Api:
     async def live(self, request: web.Request) -> web.WebSocketResponse:
         """Listen to a satellite live, over a WebSocket: its microphone as
         16 kHz 16-bit mono PCM (binary messages, about a tenth of a second
-        each) and JSON for what happens -- ``start``, ``call`` (a call starts
-        or ends: the audio is the call's then), ``end``, ``error``. The
-        satellite streams while someone listens, and shows that it does."""
+        each) and JSON for what happens -- ``start``, ``wake`` (each model's
+        probabilities, and wake words detected, which it does not answer
+        meanwhile), ``call`` (a call that was going on ends), ``end``,
+        ``error``. The satellite streams while someone listens, and shows
+        that it does."""
         key = request.match_info["key"]
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)

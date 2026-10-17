@@ -883,9 +883,19 @@ the firmware streams its microphone between calls as `AUDIO_MONITOR` (0x0A)
 already heard. The firmware says it can in HELLO (`"monitor": true`), stops
 on a disconnect, and fires its own `monitoring` event on every change, which
 the VPE config turns into a red blink on the ring: what the ring shows comes
-from the device's state, not from what the app says. The browser plays it
-through Web Audio (a fifth of a second behind, for the network's jitter) and
-draws the level, the last six seconds and a spectrogram to 8 kHz.
+from the device's state, not from what the app says. While monitored, the
+firmware also sends `WAKE_REPORT` (0x0B) about ten times a second: each
+model's highest probability since the last, of an inference and of its
+sliding window's mean (what meets the cutoff), and the wake words detected
+-- which it does not answer: someone listening is not talking to it. The
+browser plays the audio through Web Audio (a fifth of a second behind, for
+the network's jitter) and draws the level, the last six seconds, and a strip
+per model with its cutoff and its detections.
+
+The LED ring's speaker colors are gamma-corrected by ESPHome (2.8), which
+turns orange and pink red, and red means someone is listening: the palette
+(`speaker.PALETTE`) is written for how it looks on the ring, and a speaker
+with a color that showed red gets a new one when the profiles load.
 
 ### The multilingual TDT model
 

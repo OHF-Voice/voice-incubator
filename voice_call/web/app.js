@@ -2171,11 +2171,13 @@ function debugSection(s) {
 }
 
 // Listening to a satellite live: its microphone, heard here and drawn as it
-// comes -- the level, the last seconds' waveform, and a spectrogram up to
-// 8 kHz. The satellite streams only while someone listens, and shows it (the
-// Voice PE's ring blinks red).
+// comes -- the level, the last seconds' waveform -- and what its wake word
+// models make of it, each against its cutoff. The satellite streams only
+// while someone listens, shows it (the Voice PE's ring blinks red), and does
+// not answer a wake word meanwhile: a detection is only marked here.
 const LIVE_RATE = 16000;
 const LIVE_SECONDS = 6;
+const WAKE_ROW = 40;
 
 function liveSection(s) {
   const button = h("button", { class: "primary" }, "Listen");
@@ -2183,16 +2185,27 @@ function liveSection(s) {
   const note = h("span", { class: "muted small" });
   const level = h("span", { class: "badge", title: "loudness of the last moment: RMS / peak, dB below full scale" }, "— dB");
   const inCall = h("span", { class: "badge accent hidden" }, "in a call");
+  const heardNote = h("span", { class: "small", "aria-live": "polite" });
   const wave = h("canvas", { class: "live-wave" });
-  const spectrogram = h("canvas", { class: "live-spectrogram" });
-  const view = h("div", { class: "live hidden" }, h("div", { class: "row small" }, level, inCall, h("span", { class: "grow" }), h("span", { class: "muted" }, `last ${LIVE_SECONDS} s · spectrogram to 8 kHz`)), wave, spectrogram);
-  let socket = null, audio = null, analyser = null, gain = null, drawing = 0, nextTime = 0, scrolled = 0, lastDrawn = 0;
+  const models = h("canvas", { class: "live-wake" });
+  const view = h("div", { class: "live hidden" },
+    h("div", { class: "row small" }, level, inCall, heardNote, h("span", { class: "grow" }), h("span", { class: "muted" }, `last ${LIVE_SECONDS} s`)),
+    wave, models,
+    h("div", { class: "legend" },
+      h("span", { style: "--c:var(--accent)" }, "probability over its window, what meets the cutoff"),
+      h("span", { style: "--c:var(--muted)" }, "each inference"),
+      h("span", { style: "--c:var(--warn)" }, "cutoff"),
+      h("span", { style: "--c:var(--bad)" }, "detected (not answered)")));
+  let socket = null, audio = null, gain = null, drawing = 0, nextTime = 0;
   const recent = new Float32Array(LIVE_RATE * LIVE_SECONDS);
   let written = 0;
+  // What each model reported, and when: {id: {name, vad, cutoff, points: [{t, peak, window}]}}.
+  let wake = {};
+  let detections = [];
 
   function stop(why) {
     if (socket) { socket.onclose = null; socket.close(); socket = null; }
-    if (audio) { audio.close(); audio = null; analyser = null; gain = null; }
+    if (audio) { audio.close(); audio = null; gain = null; }
     cancelAnimationFrame(drawing);
     button.textContent = "Listen";
     button.className = "primary";
@@ -2221,22 +2234,39 @@ function liveSection(s) {
     chunk.copyToChannel(samples, 0);
     const source = audio.createBufferSource();
     source.buffer = chunk;
-    source.connect(analyser);
+    source.connect(gain);
     const now = audio.currentTime;
     if (nextTime < now + 0.05 || nextTime > now + 1) nextTime = now + 0.2;
     source.start(nextTime);
     nextTime += chunk.duration;
   }
 
+  function reported(message) {
+    const t = performance.now();
+    for (const m of message.models) {
+      const series = wake[m.id] || (wake[m.id] = { points: [] });
+      Object.assign(series, { name: m.name, vad: m.vad, cutoff: m.cutoff });
+      series.points.push({ t, peak: m.peak, window: m.window });
+      while (series.points.length && series.points[0].t < t - LIVE_SECONDS * 1000) series.points.shift();
+    }
+    for (const id of message.detected) {
+      detections.push({ t, id });
+      const name = (wake[id] && wake[id].name) || id;
+      heardNote.textContent = `Heard ${name} at ${new Date().toLocaleTimeString()}: not answered while you listen.`;
+    }
+    detections = detections.filter((d) => d.t >= t - LIVE_SECONDS * 1000);
+  }
+
   function draw() {
     drawing = requestAnimationFrame(draw);
-    const muted = getComputedStyle(document.documentElement).getPropertyValue("--muted");
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
     // The waveform: the last seconds, newest on the right.
     const W = wave.width = Math.round(wave.clientWidth * devicePixelRatio);
     const H = wave.height = Math.round(wave.clientHeight * devicePixelRatio);
     const g = wave.getContext("2d");
     g.clearRect(0, 0, W, H);
-    g.fillStyle = muted;
+    g.fillStyle = color("--muted");
     const per = recent.length / W;
     for (let x = 0; x < W; x++) {
       let lo = 0, hi = 0;
@@ -2248,43 +2278,78 @@ function liveSection(s) {
       }
       g.fillRect(x, H / 2 - hi * H / 2, 1, Math.max(1, (hi - lo) * H / 2));
     }
-    // The spectrogram: scrolling left as time passes, over the same seconds
-    // as the waveform, however often the page is drawn.
-    if (!analyser) return;
-    const S = spectrogram.getContext("2d");
-    const SW = spectrogram.width, SH = spectrogram.height;
-    const wanted = Math.round(spectrogram.clientWidth * devicePixelRatio);
-    if (SW !== wanted) { spectrogram.width = wanted; spectrogram.height = Math.round(spectrogram.clientHeight * devicePixelRatio); return; }
+    // The models: voice activity first, then each wake word, over the same
+    // seconds as the waveform.
+    const rows = Object.entries(wake).sort(([, a], [, b]) => (b.vad - a.vad) || String(a.name).localeCompare(String(b.name)));
+    models.style.height = `${Math.max(1, rows.length) * WAKE_ROW}px`;
+    const MW = models.width = Math.round(models.clientWidth * devicePixelRatio);
+    const MH = models.height = Math.round(rows.length * WAKE_ROW * devicePixelRatio);
+    const m = models.getContext("2d");
+    m.clearRect(0, 0, MW, MH);
     const now = performance.now();
-    scrolled += lastDrawn ? ((now - lastDrawn) / 1000) * SW / LIVE_SECONDS : 0;
-    lastDrawn = now;
-    const dx = Math.floor(scrolled);
-    if (dx < 1) return;
-    scrolled -= dx;
-    S.drawImage(spectrogram, -dx, 0);
-    const bins = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(bins);
-    const top = Math.min(bins.length, Math.round(bins.length * (LIVE_RATE / 2) / (audio.sampleRate / 2)));
-    for (let y = 0; y < SH; y++) {
-      const v = bins[Math.floor((1 - y / SH) * (top - 1))] / 255;
-      S.fillStyle = `hsl(${240 - v * 240}, 90%, ${v * 55}%)`;
-      S.fillRect(SW - dx, y, dx, 1);
-    }
+    const x = (t) => MW - ((now - t) / (LIVE_SECONDS * 1000)) * MW;
+    const rowH = WAKE_ROW * devicePixelRatio;
+    rows.forEach(([id, series], row) => {
+      const top = row * rowH, inner = rowH - 4 * devicePixelRatio;
+      const y = (p) => top + 2 * devicePixelRatio + (1 - p) * inner;
+      if (row) { m.fillStyle = color("--line"); m.fillRect(0, top, MW, devicePixelRatio); }
+      const points = series.points;
+      if (points.length) {
+        // Over its window: filled; each inference: a thin line.
+        m.beginPath();
+        m.moveTo(x(points[0].t), y(0));
+        for (const p of points) m.lineTo(x(p.t), y(p.window));
+        m.lineTo(x(points[points.length - 1].t), y(0));
+        m.closePath();
+        m.globalAlpha = 0.35;
+        m.fillStyle = color("--accent");
+        m.fill();
+        m.globalAlpha = 1;
+        m.strokeStyle = color("--accent");
+        m.lineWidth = 1.5 * devicePixelRatio;
+        m.beginPath();
+        points.forEach((p, i) => (i ? m.lineTo(x(p.t), y(p.window)) : m.moveTo(x(p.t), y(p.window))));
+        m.stroke();
+        m.strokeStyle = color("--muted");
+        m.lineWidth = devicePixelRatio;
+        m.beginPath();
+        points.forEach((p, i) => (i ? m.lineTo(x(p.t), y(p.peak)) : m.moveTo(x(p.t), y(p.peak))));
+        m.stroke();
+      }
+      m.strokeStyle = color("--warn");
+      m.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
+      m.beginPath();
+      m.moveTo(0, y(series.cutoff));
+      m.lineTo(MW, y(series.cutoff));
+      m.stroke();
+      m.setLineDash([]);
+      for (const d of detections.filter((d) => d.id === id)) {
+        m.fillStyle = color("--bad");
+        m.fillRect(x(d.t) - devicePixelRatio, top, 2 * devicePixelRatio, rowH);
+      }
+      const last = points[points.length - 1];
+      const label = `${series.name}  ${last ? Math.round(last.window * 100) : 0}% (cutoff ${Math.round(series.cutoff * 100)}%)`;
+      m.font = `${12 * devicePixelRatio}px system-ui, sans-serif`;
+      m.globalAlpha = 0.85;
+      m.fillStyle = color("--code");
+      m.fillRect(3 * devicePixelRatio, top + 3 * devicePixelRatio, m.measureText(label).width + 6 * devicePixelRatio, 15 * devicePixelRatio);
+      m.globalAlpha = 1;
+      m.fillStyle = color("--text");
+      m.fillText(label, 6 * devicePixelRatio, top + 14 * devicePixelRatio);
+    });
   }
 
   function start() {
     try {
       audio = new AudioContext();
     } catch (err) { note.textContent = `This browser can't play it: ${err.message}`; return; }
-    analyser = audio.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.2;
     gain = audio.createGain();
     gain.gain.value = play.checked ? 1 : 0;
-    analyser.connect(gain);
     gain.connect(audio.destination);
     nextTime = 0;
-    lastDrawn = 0;
+    wake = {};
+    detections = [];
+    heardNote.textContent = "";
     const url = new URL(`api/satellites/${encodeURIComponent(s.key)}/live`, location.href);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.hash = "";
@@ -2298,6 +2363,7 @@ function liveSection(s) {
       if (typeof event.data !== "string") { if (audio) heard(event.data); return; }
       const message = JSON.parse(event.data);
       if (message.type === "start") note.textContent = `Listening: the ring of ${s.name} blinks red while you do.`;
+      else if (message.type === "wake") reported(message);
       else if (message.type === "call") inCall.classList.toggle("hidden", !message.active);
       else if (message.type === "error" || message.type === "end") stop(message.error || message.why);
     };
@@ -2310,7 +2376,7 @@ function liveSection(s) {
   if (why) button.disabled = true;
   return h("div", {},
     h("h3", {}, "Listen live"),
-    h("p", { class: "muted small" }, "Hear what its microphone hears, now, and see it. It streams only while you listen, and its ring blinks red the whole time; a call (after the wake word) comes through too. Near the satellite, use headphones or untick “Play it here”: it would hear itself."),
+    h("p", { class: "muted small" }, "Hear what its microphone hears, now, and see what its voice activity and wake word models make of it. It streams only while you listen, its ring blinks red the whole time, and it doesn't answer a wake word meanwhile: a detection is only marked here. Near the satellite, use headphones or untick “Play it here”: it would hear itself."),
     h("div", { class: "row" }, button, h("label", { class: "small" }, play, "Play it here"), why ? h("span", { class: "muted small" }, why) : note),
     view);
 }

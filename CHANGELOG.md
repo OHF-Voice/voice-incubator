@@ -3,9 +3,13 @@
 ## 0.2.0
 
 - **Listen live** to a satellite on the Test page: its microphone, played
-  and drawn (level, waveform, spectrogram) as it comes. The satellite streams
-  only while someone listens, and the Voice PE's ring blinks red meanwhile
-  (new voice_call firmware: `MONITOR`, `AUDIO_MONITOR`).
+  and drawn as it comes (level, waveform, and each wake word and voice
+  activity model's probability against its cutoff). The satellite streams
+  only while someone listens, the Voice PE's ring blinks red meanwhile, and
+  it doesn't answer a wake word then (new voice_call firmware: `MONITOR`,
+  `AUDIO_MONITOR`, `WAKE_REPORT`).
+- Speaker colors on the ring no longer look red (orange and pink did, after
+  the LEDs' gamma correction); a speaker who had one gets a new color.
 - Debugging a satellite moved from the Satellites page to the Test page,
   where a select picks the satellite.
 - A kept session's voice can be added to a speaker's, known or new ("Who

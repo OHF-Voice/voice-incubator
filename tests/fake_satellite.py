@@ -133,12 +133,25 @@ class FakeSatellite:
             self._hangup.set()
 
     async def _stream(self) -> None:
-        """The microphone between calls, while monitored: a quiet hum. A call
+        """The microphone between calls, while monitored: a quiet hum, and
+        about ten times a second what the models make of it -- the first
+        report with a wake word heard (and, monitored, not answered). A call
         streams its own audio instead, as the device does."""
         tone = (np.sin(np.arange(CHUNK // 2) * 2 * np.pi * 440 / SAMPLE_RATE) * 3000).astype("<i2").tobytes()
+        sent = 0
         while self._writer is not None:
             if not self._in_call:
                 self._writer.write(encode(Message.AUDIO_MONITOR, tone))
+                if sent % 3 == 0:
+                    report = {
+                        "models": [
+                            {"id": m, **({"vad": True} if m == "vad" else {}), "cutoff": 217, "peak": 40 + sent % 50, "window": 30}
+                            for m in self.models
+                        ],
+                        "detected": [m for m in self.models if m != "vad"][:1] if sent == 0 else [],
+                    }
+                    self._writer.write(encode_json(Message.WAKE_REPORT, report))
+                sent += 1
                 await self._writer.drain()
             await asyncio.sleep(CHUNK / BYTE_RATE / self.speed)
 
