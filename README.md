@@ -750,7 +750,10 @@ for this app:
 
 When nothing matched, the closest command is named. From the keyword evidence
 first: a command whose keywords, names and numbers cover at least half the
-words that are not fillers, with what it lacked (`IntentResult.missing`). Or
+words that are not fillers, with what it lacked (`IntentResult.missing`) --
+or one heard whole that lacked only a room, floor or device it can take,
+however much of the sentence was its free text ("play jazz in the office":
+"…but I can't pick a room for it"). Or
 else by meaning, with EmbeddingGemma 2 against the commands' descriptions and
 examples, when the closest is at least 0.6 similar and 0.02 ahead of the next
 command or everyday request. The embedding never accepts a command

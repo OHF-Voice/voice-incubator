@@ -811,7 +811,11 @@ class Engine:
             if not matched_constraints and groups and result.heard_groups < max(1, groups - 1):
                 continue  # too little of it was heard
             coverage = _coverage(recognition, recognizer, result.intent) if recognizer else 1.0
-            if coverage < HINT_COVERAGE:
+            # Heard whole but for a room, floor or device it can't take: that
+            # is why, however much of the sentence was its free text ("play
+            # jazz in the office").
+            only_place = matched_constraints and all(m.get("kind") == "place" for m in result.missing)
+            if coverage < HINT_COVERAGE and not only_place:
                 continue
             rank = (
                 0 if matched_constraints else 1,

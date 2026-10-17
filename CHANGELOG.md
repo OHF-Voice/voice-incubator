@@ -57,7 +57,8 @@
   resumes it here. "Play jazz in the kitchen" and "play more like this
   upstairs" play there, and "play jazz on the Mark 2" plays jazz on a
   command that takes that device, instead of searching for "jazz on the
-  Mark 2".
+  Mark 2". Said to a command that can't take the room, the satellite says
+  so ("…but I can't pick a room for it"), free text or not.
 - "Move the music to the kitchen / upstairs / the office speaker": what
   plays here moves there, queue and all (Music Assistant's transfer_queue).
 - Music, on Music Assistant: "play …" searches and plays the closest match,

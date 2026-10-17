@@ -133,3 +133,29 @@ def test_a_copy_in_another_group_says_the_same_sentences(engine):
             assert decision.behavior is decision.command.behavior
     finally:
         engine.build(compile_store(STORE))
+
+
+def test_a_room_it_cant_take_is_why(engine):
+    # Heard whole but for the room: the hint says so, though most of the
+    # sentence was free text.
+    store = {
+        "names": {"areas": {"office": {"name": "Office"}}},
+        "commands": {
+            "play_music": {
+                "description": "play music", "require": [["play"]], "response": "Playing.",
+                "wildcard": {"slot": "query", "after": ["play"], "to_end": True, "max_words": 8},
+            },
+        },
+    }
+    engine.build(compile_store(store))
+    try:
+        decision = engine.recognize_text("play jazz in the office", OFFICE)
+        assert decision.command is None
+        assert decision.message == "It looks like you're trying to play music, but I can't pick a room for it."
+        decision = engine.recognize_text("play songs about life on the moon", OFFICE)
+        assert decision.command.id == "play_music" and decision.slots == {"query": "songs about life on the moon"}
+        # Little of it heard, and not for a room: no hint.
+        decision = engine.recognize_text("what a lovely day for a walk in the park", OFFICE)
+        assert decision.command is None and decision.message == "Sorry, I didn't understand that."
+    finally:
+        engine.build(compile_store(STORE))
