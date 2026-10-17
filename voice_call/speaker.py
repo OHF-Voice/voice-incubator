@@ -40,21 +40,25 @@ SAMPLE_RATE = 16000
 WINDOW_SECONDS, HOP_SECONDS, MIN_SPEECH_SECONDS = 4.0, 2.0, 0.6
 MODEL_NAME = "redimnet-b2"
 
-# Colors for the LED ring, assigned to new speakers in order. Saturated hues read
-# best on WS2812s. Red is left out (it means error/mute on the VPE) and so is the
-# ring's default cyan, which marks "nobody recognized".
+# Colors for the LED ring, assigned to new speakers in order. The ring's LEDs
+# are gamma-corrected (ESPHome's 2.8), which darkens a channel below full far
+# more than it looks: (255, 96, 0) shows as (255, 16, 0), red. So the colors
+# are written to look like themselves after it, and none may look red -- red
+# means someone is listening live (and error or mute on the VPE) -- nor like
+# the ring's default cyan, which marks "nobody recognized".
 PALETTE: list[tuple[str, tuple[int, int, int]]] = [
-    ("orange", (255, 96, 0)),
-    ("green", (0, 255, 32)),
-    ("violet", (128, 0, 255)),
-    ("yellow", (255, 200, 0)),
-    ("magenta", (255, 0, 160)),
-    ("blue", (0, 40, 255)),
-    ("lime", (140, 255, 0)),
-    ("pink", (255, 80, 120)),
-    ("teal", (0, 255, 160)),
+    ("green", (0, 255, 64)),
+    ("violet", (160, 0, 255)),
+    ("yellow", (255, 235, 0)),
+    ("blue", (0, 60, 255)),
+    ("magenta", (255, 0, 255)),
+    ("lime", (180, 255, 0)),
     ("white", (255, 255, 255)),
 ]
+
+# Colors the palette once had that the ring shows red: a speaker with one is
+# given a palette color instead when the profiles are loaded.
+RED_ON_THE_RING = {(255, 96, 0), (255, 80, 120), (255, 0, 160)}
 
 # "learn a new voice for Mike". Trained into the recognizer alongside Home
 # Assistant's wildcard sentence triggers, but handled here, never sent to HA.
@@ -168,6 +172,14 @@ class Profiles:
                     path, stored, channel,
                 )
             self.speakers = data.get("speakers", {})
+            recolor = [n for n, p in self.speakers.items() if tuple(p.get("color") or ()) in RED_ON_THE_RING]
+            for name in recolor:
+                old = self.speakers[name]["color"]
+                self.speakers[name]["color"] = None  # not in use while choosing
+                self.speakers[name]["color"] = list(self.next_color())
+                _LOGGER.info("%s's ring color %s showed red; now %s", name, old, self.speakers[name]["color"])
+            if recolor:
+                self.save()
 
     def save(self) -> None:
         # write-then-rename: learning saves mid-call, and a crash must not leave a
@@ -196,7 +208,7 @@ class Profiles:
         return tuple(self.speakers[name]["color"])
 
     def next_color(self) -> tuple[int, int, int]:
-        used = {tuple(p["color"]) for p in self.speakers.values()}
+        used = {tuple(p["color"]) for p in self.speakers.values() if p.get("color")}
         for _, rgb in PALETTE:
             if rgb not in used:
                 return rgb
