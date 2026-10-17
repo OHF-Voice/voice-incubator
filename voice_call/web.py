@@ -132,59 +132,135 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
     return runner
 
 
-def load_library() -> list[dict[str, Any]]:
-    """Example commands shipped with the app, by file."""
+VARIANTS = {
+    "here": "on this satellite",
+    "device": "on a device by name",
+    "place": "in an area or floor by name",
+}
+"""What a library family's versions act on, in the order the library shows
+them: the satellite it is said to (nothing named), a device named, or an area
+or floor named."""
+
+LIBRARY_ONLY = ("needs", "variants", "formerly")
+"""Library keys that are not the command's: not added with it."""
+
+
+def library_files() -> list[tuple[Path, dict[str, Any]]]:
     yaml = YAML(typ="safe")
+    return [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in sorted(LIBRARY_DIR.glob("*.yaml"))]
+
+
+def library_versions(family_id: str, spec: dict[str, Any]) -> list[tuple[str, str | None, dict[str, Any]]]:
+    """A library command's versions, ``[(id, variant, spec)]``.
+
+    With ``variants`` it is a family: one version for each of ``here``,
+    ``device`` and ``place`` it has (id ``<family>_<variant>``), each the
+    family's keys with the variant's own on top -- a null one removes the
+    family's. Else it is its own only version. ``needs`` stays in the spec;
+    ``variants`` and ``formerly`` (ids the family once had) do not."""
+    base = {k: v for k, v in spec.items() if k not in ("variants", "formerly")}
+    variants = spec.get("variants")
+    if not variants:
+        return [(family_id, None, base)]
+    unknown = sorted(set(variants) - set(VARIANTS))
+    if unknown:
+        raise ConfigError(f"Library command {family_id}: no variant {', '.join(unknown)} (one of {', '.join(VARIANTS)})")
+    out = []
+    for variant in VARIANTS:
+        if variant not in variants:
+            continue
+        merged = {**base, **(variants[variant] or {})}
+        out.append((f"{family_id}_{variant}", variant, copy.deepcopy({k: v for k, v in merged.items() if v is not None})))
+    return out
+
+
+def load_library() -> list[dict[str, Any]]:
+    """Example commands shipped with the app, by file: one entry for each
+    version of each command (``family``, ``variant``: see
+    library_versions)."""
     entries = []
-    for path in sorted(LIBRARY_DIR.glob("*.yaml")):
-        data = plain(yaml.load(path.read_text("utf-8")) or {})
+    for path, data in library_files():
         file_lists = data.get("lists") or {}
-        for command_id, spec in (data.get("commands") or {}).items():
-            # The file's shared value lists this command uses: added with it.
-            used = sorted(
-                {
-                    str(value["list"])
-                    for value in (spec.get("lists") or {}).values()
-                    if isinstance(value, dict) and value.get("list") in file_lists
-                }
-                | {str(value) for value in (spec.get("lists") or {}).values() if isinstance(value, str) and value in file_lists}
-            )
-            entry = {
-                "file": path.stem,
-                "group": data.get("title") or path.stem,
-                "group_icon": data.get("icon"),
-                "id": command_id,
-                "title": spec.get("title") or command_id,
-                "description": spec.get("description", ""),
-                "spec": spec,
-                "lists": {name: file_lists[name] for name in used},
-                "needs": spec.get("needs") or [],
-            }
+        for family_id, family in (data.get("commands") or {}).items():
             try:
-                # adapt-ctc's own checks too: keywords, names, numbers.
-                compile_store(
-                    {
-                        "lists": entry["lists"],
-                        "commands": {command_id: {k: v for k, v in spec.items() if k != "needs"}},
-                    }
-                )
+                versions = library_versions(family_id, family)
             except ConfigError as err:
-                entry["error"] = str(err)
-            entries.append(entry)
+                versions = [(family_id, None, {k: v for k, v in family.items() if k not in ("variants", "formerly")})]
+                failed = str(err)
+            else:
+                failed = None
+            for command_id, variant, spec in versions:
+                entries.append(_library_entry(path.stem, data, file_lists, family_id, family, command_id, variant, spec, failed))
     return entries
+
+
+def _library_entry(
+    file: str,
+    data: dict[str, Any],
+    file_lists: dict[str, Any],
+    family_id: str,
+    family: dict[str, Any],
+    command_id: str,
+    variant: str | None,
+    full: dict[str, Any],
+    failed: str | None,
+) -> dict[str, Any]:
+    spec = {k: v for k, v in full.items() if k not in LIBRARY_ONLY}
+    # The file's shared value lists this command uses: added with it.
+    used = sorted(
+        {
+            str(value["list"])
+            for value in (spec.get("lists") or {}).values()
+            if isinstance(value, dict) and value.get("list") in file_lists
+        }
+        | {str(value) for value in (spec.get("lists") or {}).values() if isinstance(value, str) and value in file_lists}
+    )
+    family_title = family.get("title") or family_id
+    if variant:
+        # Its own, else the family's with what it acts on.
+        title = ((family["variants"].get(variant) or {}).get("title")) or f"{family_title} {VARIANTS[variant]}"
+    else:
+        title = spec.get("title") or command_id
+    entry = {
+        "file": file,
+        "group": data.get("title") or file,
+        "group_icon": data.get("icon"),
+        "id": command_id,
+        "title": title,
+        "description": spec.get("description", ""),
+        "family": family_id,
+        "family_title": family_title,
+        "family_icon": family.get("icon"),
+        "family_description": family.get("description", ""),
+        "variant": variant,
+        "spec": spec,
+        "lists": {name: file_lists[name] for name in used},
+        "needs": full.get("needs") or [],
+    }
+    if failed:
+        entry["error"] = failed
+        return entry
+    try:
+        # adapt-ctc's own checks too: keywords, names, numbers.
+        compile_store({"lists": entry["lists"], "commands": {command_id: spec}})
+    except ConfigError as err:
+        entry["error"] = str(err)
+    return entry
 
 
 @functools.lru_cache(maxsize=1)
 def library_sections() -> tuple[list[dict[str, Any]], dict[str, str]]:
     """The library's files in order -- ``{file, title, icon}`` -- and which
     file each library command id is in. The library ships with the app."""
-    yaml = YAML(typ="safe")
     sections, ids = [], {}
-    for path in sorted(LIBRARY_DIR.glob("*.yaml")):
-        data = yaml.load(path.read_text("utf-8")) or {}
+    for path, data in library_files():
         sections.append({"file": path.stem, "title": data.get("title") or path.stem, "icon": data.get("icon")})
-        for command_id in data.get("commands") or {}:
-            ids.setdefault(str(command_id), path.stem)
+        for family_id, family in (data.get("commands") or {}).items():
+            # Each version's id, and the family's own and former ones: a
+            # command added before the library had versions.
+            versions = [str(v) for v in (family.get("variants") or {})]
+            for command_id in [family_id, *(f"{family_id}_{v}" for v in versions), *(family.get("formerly") or [])]:
+                ids.setdefault(str(command_id), path.stem)
     return sections, ids
 
 
@@ -535,8 +611,7 @@ class Api:
         if entry is None:
             raise FileNotFoundError("No such library command")
         spec = copy.deepcopy(entry["spec"])
-        spec.pop("needs", None)
-        spec.setdefault("title", entry["title"])
+        spec["title"] = entry["title"]
         spec["library"] = entry["file"]
         # Shared lists it uses, unless yours already has one by that name.
         have = self.app.store.load().data.get("lists") or {}

@@ -326,6 +326,19 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/unknown", json={"response": ""})).status == 200
             assert "unknown" not in (tmp_path / "commands.yaml").read_text()
 
+            # The library: a command's versions, each added on its own.
+            entries = (await (await http.get("/api/library")).json())["entries"]
+            play = [e for e in entries if e["family"] == "play_music"]
+            assert [(e["id"], e["variant"]) for e in play] == [
+                ("play_music_here", "here"), ("play_music_device", "device"), ("play_music_place", "place")]
+            added = await (await http.post("/api/library/add", json={"file": "music", "id": "play_music_device"})).json()
+            assert added == {"ok": True, "id": "play_music_device"}
+            spec = (await (await http.get("/api/store")).json())["commands"]["play_music_device"]
+            assert spec["title"] == "Play music on a different device" and spec["library"] == "music"
+            assert spec["combinations"] == [["entity", "query"]] and spec["names"] == {"entity": {"count": 1, "domains": ["media_player"]}}
+            assert not {"needs", "variants", "formerly"} & set(spec)
+            assert (await http.delete("/api/commands/play_music_device")).status == 200
+
             # A Home Assistant conversation agent gets what nothing here
             # understood, in a conversation kept on each satellite.
             async def agent_said(text):

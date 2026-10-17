@@ -10,6 +10,9 @@
 #               running ones: "a timer named chicken nuggets"
 #   duration    "the 5 minute timer"
 # or it is the only one running.
+#
+# Timers are the satellite's own, so they have no versions (variants) for a
+# device or a place named.
 title: Timers
 icon: mdi:timer-outline
 

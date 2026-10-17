@@ -1302,7 +1302,11 @@ async function duplicateDialog(id) {
 // ------------------------------------------------------------- new command
 
 // New command: the library's commands to start from -- searched, filtered by
-// group -- and, always there, a custom one.
+// group -- and, always there, a custom one. A command with versions is one
+// row that opens to them: on this satellite (nothing named), on a device by
+// name, in an area or floor by name. Each version is added on its own.
+const VARIANT_ICONS = { here: "mdi:crosshairs-gps", device: "mdi:devices", place: "mdi:home-map-marker" };
+
 async function newCommandDialog() {
   let data, store;
   try {
@@ -1312,6 +1316,19 @@ async function newCommandDialog() {
   // yours, and the library's can be added again.
   const yours = new Set(Object.keys(store.commands || {}));
   const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries()];
+  // Each command and its versions, in the library's order.
+  const families = [];
+  const byKey = new Map();
+  for (const entry of data.entries) {
+    const key = `${entry.file}/${entry.family}`;
+    if (!byKey.has(key)) {
+      const family = { key, group: entry.group, title: entry.family_title, icon: entry.family_icon, versions: [] };
+      byKey.set(key, family);
+      families.push(family);
+    }
+    byKey.get(key).versions.push(entry);
+  }
+  const opened = new Set();
   let group = "";
   const search = h("input", { type: "search", placeholder: "Search the library: lights, timer, play…", "aria-label": "Search the library" });
   const list = h("div", { class: "list" });
@@ -1330,36 +1347,64 @@ async function newCommandDialog() {
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
       h("span", { class: "muted small" }, "Start from scratch: what it acts on, what to listen for, what happens.")));
   const matches = (entry, words) => {
-    const text = [entry.title, entry.description, entry.id, entry.group, listensText(entry.spec)].join(" ").toLowerCase();
+    const text = [entry.title, entry.description, entry.id, entry.group, entry.family_title, entry.family_description, listensText(entry.spec)].join(" ").toLowerCase();
     return words.every((w) => text.includes(w));
+  };
+  // One version: what it is, and Add (or Open, once added). Its family's
+  // description is said once, on the family.
+  const row = (entry, iconName) => {
+    const added = yours.has(entry.id);
+    const description = entry.variant && entry.description === entry.family_description ? "" : entry.description;
+    return h("div", { class: `item ${added ? "added" : ""}` },
+      icon(iconName, "big"),
+      h("div", { class: "grow" },
+        h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
+        h("div", { class: "muted small" }, [description, listensText(entry.spec)].filter(Boolean).join(" · ")),
+        entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
+        entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
+      added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
+      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/command/${entry.id}`; } }, "Open")
+        : h("button", { type: "button", class: "primary", onclick: () => add(entry) }, "Add"));
+  };
+  // A command with versions: a row that opens to them -- opened while
+  // searching, to show which matched.
+  const familyRow = (family, versions, searching) => {
+    const added = family.versions.filter((e) => yours.has(e.id)).length;
+    const details = h("details", { class: "family" },
+      h("summary", { class: "item" },
+        icon("mdi:chevron-right", "chevron"),
+        icon(family.icon || iconFor(family.versions[0].spec), "big"),
+        h("div", { class: "grow" },
+          h("div", { class: "title" }, family.title),
+          h("div", { class: "muted small" }, [...new Set(family.versions.map((e) => e.description))].join(" or "))),
+        added ? h("span", { class: "badge ok" }, `${added} of ${family.versions.length} added`) : null,
+        h("span", { class: "badge" }, `${family.versions.length} versions`)),
+      h("div", { class: "versions" }, versions.map((e) => row(e, VARIANT_ICONS[e.variant] || iconFor(e.spec)))));
+    details.open = searching || opened.has(family.key);
+    details.addEventListener("toggle", () => {
+      if (searching) return;
+      if (details.open) opened.add(family.key); else opened.delete(family.key);
+    });
+    return details;
   };
   function render() {
     const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const inGroup = data.entries.filter((e) => !group || e.group === group);
-    const shown = inGroup.filter((e) => matches(e, words));
+    const shown = families.filter((f) => !group || f.group === group)
+      .map((f) => [f, f.versions.filter((e) => matches(e, words))]).filter(([, versions]) => versions.length);
     fill(chips, ...[["", null, "All"], ...groups.map(([g, i]) => [g, i, g])].map(([value, ic, label]) => {
-      const count = data.entries.filter((e) => (!value || e.group === value) && matches(e, words)).length;
+      const count = families.filter((f) => (!value || f.group === value) && f.versions.some((e) => matches(e, words))).length;
       return h("button", { type: "button", class: `filter-chip ${group === value ? "on" : ""}`, "aria-pressed": String(group === value),
         onclick: () => { group = value; render(); } }, ic ? icon(ic) : null, `${label} (${count})`);
     }));
-    fill(list, ...shown.map((entry) => {
-      const added = yours.has(entry.id);
-      return h("div", { class: `item ${added ? "added" : ""}` },
-        icon(iconFor(entry.spec), "big"),
-        h("div", { class: "grow" },
-          h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
-          h("div", { class: "muted small" }, entry.description, listensText(entry.spec) ? ` · ${listensText(entry.spec)}` : ""),
-          entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
-          entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
-        added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
-        added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/command/${entry.id}`; } }, "Open")
-          : h("button", { type: "button", class: "primary", onclick: () => add(entry) }, "Add"));
-    }), shown.length ? null : h("p", { class: "muted" }, "No library command matches. Start a custom one above."));
+    fill(list, ...shown.map(([family, versions]) => (family.versions.length === 1 && !family.versions[0].variant
+      ? row(versions[0], iconFor(versions[0].spec))
+      : familyRow(family, versions, words.length > 0))),
+    shown.length ? null : h("p", { class: "muted" }, "No library command matches. Start a custom one above."));
   }
   search.addEventListener("input", render);
   const close = openDialog("New command", [
     custom,
-    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it."),
+    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own."),
     search, chips,
     h("div", { class: "dialog-list" }, list)]);
   render();

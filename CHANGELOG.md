@@ -2,6 +2,15 @@
 
 ## 0.2.0
 
+- The library's commands come in **versions** for what they act on: on this
+  satellite (nothing named), on a device by name, in an area or floor by
+  name -- "Play music" is Play music on this satellite, on a different
+  device, in an area or floor. Each is a command of its own; New command
+  shows each command as one row that opens to its versions. New versions:
+  every music control on a device or in a place, "is the desk lamp on", a
+  light's color by name. "Turn on the lights" and "Turn on a device" are now
+  one command, Turn on (also Turn off, Open covers, Close covers, Are covers
+  open), and commands added before keep their library section.
 - **Listen live** to a satellite on the Test page: its microphone, played
   and drawn as it comes (level, waveform, and each wake word and voice
   activity model's probability against its cutoff). The satellite streams

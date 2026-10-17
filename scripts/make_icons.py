@@ -36,6 +36,11 @@ DEFAULTS = [
     # The Commands page: your own commands, and the Unknown command.
     "mdi:pencil-outline",
     "mdi:help-circle-outline",
+    # New command: a library command's versions, and opening it to them.
+    "mdi:chevron-right",
+    "mdi:crosshairs-gps",
+    "mdi:devices",
+    "mdi:home-map-marker",
 ]
 PICKER = [
     "mdi:lightbulb",
@@ -107,8 +112,9 @@ def library_icons() -> list[str]:
         if data.get("icon"):
             icons.append(data["icon"])
         for spec in (data.get("commands") or {}).values():
-            if spec.get("icon"):
-                icons.append(spec["icon"])
+            for version in [spec, *(spec.get("variants") or {}).values()]:
+                if (version or {}).get("icon"):
+                    icons.append(version["icon"])
     return icons
 
 

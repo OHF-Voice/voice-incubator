@@ -2,13 +2,37 @@
 # commands.yaml, where it can be changed like any other command.
 #
 # Each entry is a command (see voice_call/commands.py) plus:
-#   title:  what the library calls it
-#   needs:  what to set after adding it, shown in the UI
+#   title:     what the library calls it
+#   needs:     what to set after adding it, shown in the UI
+#   variants:  its versions, each added on its own, for what it acts on:
+#                here    the satellite it is said to, or its area (nothing named)
+#                device  a device by name
+#                place   an area or floor by name
+#              Each is the command's keys with its own on top (null removes
+#              one), with the id <command>_<variant>.
+#   formerly:  ids it had before it had versions (where the Commands page
+#              lists a command added then)
 #
 # Keywords follow adapt-ctc's core intents (adapt_ctc/examples/intents/core.yaml),
 # which were tuned on the office-multicap corpus.
 title: Basics
 icon: mdi:home-outline
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
 
 commands:
   what_time:
@@ -32,17 +56,13 @@ commands:
     optional: [[tell me], [what is, whats, what's], [today]]
     response: "Today is {{ now().strftime('%A, %B %-d') }}."
 
-  lights_on:
-    title: Turn on the lights
+  # Lights here, in an area or on a floor named, or a device by name.
+  turn_on:
+    title: Turn on
     icon: mdi:lightbulb-on-outline
     description: turn on the lights
     require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
-    optional: [[all], [in]]
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[], [area], [floor]]
+    optional: [[all], [in, on], [the]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -64,21 +84,39 @@ commands:
           {%- else -%}
           Turned on {{ (ns.names[:-1] | join(', ') ~ ' and ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }}.
           {%- endif -%}
-    needs:
-      - Lights in the satellite's area are used unless an area or floor is named.
-        Add names for areas and floors to say them.
+    formerly: [lights_on, device_on]
+    variants:
+      here:
+        title: Turn on the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns on.
+      device:
+        <<: *device
+        title: Turn on a device by name
+        icon: mdi:toggle-switch-outline
+        description: turn on a device
+        require: [[turn on, switch on, turn ... on, switch ... on]]
+        action:
+          action: homeassistant.turn_on
+          target: "{{ target }}"
+        response:
+          done:
+            brief: Turned it on.
+            specific: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }}.
+            verbose: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
+        needs:
+          - Add names for the devices it may turn on (Names page).
+      place:
+        <<: *place
+        title: Turn on the lights in an area or floor
 
-  lights_off:
-    title: Turn off the lights
+  turn_off:
+    title: Turn off
     icon: mdi:lightbulb-off-outline
     description: turn off the lights
     require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
-    optional: [[all], [in], [house, everywhere]]
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[], [area], [floor]]
+    optional: [[all], [in, on], [the], [house, everywhere]]
     action:
       action: light.turn_off
       target: "{{ target }}"
@@ -100,6 +138,33 @@ commands:
           {%- else -%}
           Turned off {{ (ns.names[:-1] | join(', ') ~ ' and ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }}.
           {%- endif -%}
+    formerly: [lights_off, device_off]
+    variants:
+      here:
+        title: Turn off the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns off.
+      device:
+        <<: *device
+        title: Turn off a device by name
+        icon: mdi:toggle-switch-off-outline
+        description: turn off a device
+        require: [[turn off, switch off, turn ... off, switch ... off]]
+        optional: [[in, on], [the]]
+        action:
+          action: homeassistant.turn_off
+          target: "{{ target }}"
+        response:
+          done:
+            brief: Turned it off.
+            specific: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }}.
+            verbose: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
+        needs:
+          - Add names for the devices it may turn off (Names page).
+      place:
+        <<: *place
+        title: Turn off the lights in an area or floor
 
   any_lights_on:
     title: Are any lights on
@@ -107,13 +172,8 @@ commands:
     description: say which lights are on
     # No example sentences: one said word for word carries no area or floor.
     require: [[are, is], [light, lights], [on]]
-    optional: [[any], [in]]
+    optional: [[any], [in, on], [the]]
     exclude: [turn, switch]
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[], [area], [floor]]
     response: >-
       {%- set named = slots.area or slots.floor -%}
       {%- set ns = namespace(areas=slots.area or [], on=[]) -%}
@@ -138,68 +198,47 @@ commands:
       Yes, {{ (ns.on[:-1] | join(', ') ~ ' and ' ~ ns.on[-1]) if count > 1 else ns.on[0] }}
       {{- ' is' if count == 1 else ' are' }} on{{ where }}.
       {%- endif -%}
-    needs:
-      - The satellite's area is asked about unless an area or floor is named.
-
-  device_on:
-    title: Turn on a device
-    icon: mdi:toggle-switch-outline
-    description: turn on a device
-    require: [[turn on, switch on, turn ... on, switch ... on]]
-    optional: [[in]]
-    names:
-      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
-      area: {count: 1}
-    # A room with the device picks it out: the one of that name there.
-    combinations: [[entity], [entity, area]]
-    action:
-      action: homeassistant.turn_on
-      target: "{{ target }}"
-    verbosity: beep
-    response:
-      done:
-        brief: Turned it on.
-        specific: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }}.
-        verbose: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
-    needs:
-      - Add names for the devices it may turn on (Names page).
-
-  device_off:
-    title: Turn off a device
-    icon: mdi:toggle-switch-off-outline
-    description: turn off a device
-    require: [[turn off, switch off, turn ... off, switch ... off]]
-    optional: [[in]]
-    names:
-      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
-      area: {count: 1}
-    # A room with the device picks it out: the one of that name there.
-    combinations: [[entity], [entity, area]]
-    action:
-      action: homeassistant.turn_off
-      target: "{{ target }}"
-    verbosity: beep
-    response:
-      done:
-        brief: Turned it off.
-        specific: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }}.
-        verbose: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
-    needs:
-      - Add names for the devices it may turn off (Names page).
+    variants:
+      here:
+        title: Are any lights on in this satellite's area
+        needs:
+          - The satellite's area (Satellites page) is the one it asks about.
+      device:
+        <<: *device
+        title: Is a device on, by name
+        icon: mdi:toggle-switch-outline
+        description: say if a device is on
+        require: [[is, are]]
+        # "on" is the answer asked about here, not a place word.
+        optional: [[in], [the]]
+        names:
+          entity: {count: 1, domains: [light, switch, fan, input_boolean]}
+          area: {count: 1}
+        lists:
+          asked: {list: on_off}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set state = states(e) -%}
+          {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+          {%- if state in ['on', 'off'] -%}
+          {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the lights and switches it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are any lights on in an area or floor
 
   set_brightness:
     title: Set the brightness
     icon: mdi:brightness-6
     description: set the brightness of the lights
     require: [[brightness, percent]]
-    optional: [[set, change, make], [light, lights], [to], [in], [brightness], [percent]]
-    names:
-      entity: {count: 1, domains: [light]}
-      area: {count: 1}
-      floor: {count: 1}
+    optional: [[set, change, make], [light, lights], [to], [in, on], [the], [brightness], [percent]]
     number: percentage
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[percentage], [entity, percentage], [area, percentage], [floor, percentage], [entity, area, percentage]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -212,20 +251,32 @@ commands:
         specific: >-
           Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
           else 'the lights ' ~ place.said }} to {{ slots.percentage }}%.
+    variants:
+      here:
+        title: Set the brightness in this satellite's area
+      device:
+        <<: *device
+        title: Set the brightness of a light by name
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, percentage], [entity, area, percentage]]
+        needs:
+          - Add names for the lights it may dim (Names page).
+      place:
+        <<: *place
+        title: Set the brightness in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
 
   light_color:
     title: Set the light color
     icon: mdi:format-color-fill
     description: change the color of the lights
     require: [[set, make, turn], [light, lights]]
-    optional: [[color], [to], [in]]
-    names:
-      area: {count: 1}
+    optional: [[color], [to], [in, on], [the]]
     lists:
       color:
         values: [red, orange, yellow, green, blue, purple, pink, white]
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[color], [area, color]]
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -235,23 +286,37 @@ commands:
     response:
       done:
         brief: Changed the color.
-        specific: Turned the lights {{ place.said }} {{ slots.color }}.
+        specific: >-
+          Turned {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the lights ' ~ place.said }} {{ slots.color }}.
+    variants:
+      here:
+        title: Set the light color in this satellite's area
+      device:
+        <<: *device
+        title: Set the color of a light by name
+        require: [[set, make, turn]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, color], [entity, area, color]]
+        needs:
+          - Add names for the lights it may color (Names page).
+      place:
+        <<: *place
+        title: Set the light color in an area or floor
+        combinations: [[area, color], [floor, color]]
 
   set_temperature:
     title: Set the temperature
     icon: mdi:thermometer
     description: set the temperature
     require: [[set, temperature, degrees]]
-    optional: [[set], [temperature], [to, at], [degrees], [in]]
+    optional: [[set], [temperature], [to, at], [degrees], [in, on], [the]]
     # A question about degrees is not a setting: "what's 20 degrees C in
     # Fahrenheit" (the units skill).
     exclude: [what, "what's", how, convert]
-    names:
-      entity: {count: 1, domains: [climate]}
-      area: {count: 1}
     number: temperature
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[temperature], [entity, temperature], [area, temperature], [entity, area, temperature]]
     action:
       action: climate.set_temperature
       target: "{{ target }}"
@@ -265,6 +330,22 @@ commands:
         specific: >-
           Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
           else 'the temperature ' ~ place.said }} to {{ slots.temperature }} degrees.
+    variants:
+      here:
+        title: Set the temperature in this satellite's area
+      device:
+        <<: *device
+        title: Set the temperature of a thermostat by name
+        names:
+          entity: {count: 1, domains: [climate]}
+          area: {count: 1}
+        combinations: [[entity, temperature], [entity, area, temperature]]
+        needs:
+          - Add names for the thermostats it may set (Names page).
+      place:
+        <<: *place
+        title: Set the temperature in an area or floor
+        combinations: [[area, temperature], [floor, temperature]]
 
   weather:
     title: What's the weather
@@ -402,3 +483,9 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
+
+# Shared by the commands above (added with them).
+lists:
+  on_off:
+    "on": ["on"]
+    "off": ["off"]

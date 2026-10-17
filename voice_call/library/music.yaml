@@ -2,13 +2,37 @@
 # Sendspin client's (Music Assistant finds the satellite on the network; the
 # app finds its player by MAC), or one picked on the Satellites page.
 #
-# Pause, skip, "what's playing" and the volume act on whichever player plays
-# in the satellite's area when its own does not. "Play …" searches Music
-# Assistant for what was heard (free text to the end of the sentence, spelled
-# from the TDT transcript) and plays the closest match; "the album …",
-# "songs by …", "my … playlist", "… by …" narrow it.
+# Each command comes in versions (variants) for where it plays:
+#   here    the satellite's own player. Pause, skip, "what's playing" and the
+#           volume act on whichever player plays in the satellite's area when
+#           its own does not.
+#   device  a Music Assistant player by name: "pause the music on the Mark 2"
+#   place   the players in an area or on a floor by name: "play jazz in the
+#           kitchen", "turn it up upstairs"
+#
+# "Play …" searches Music Assistant for what was heard (free text to the end
+# of the sentence, spelled from the TDT transcript) and plays the closest
+# match; "the album …", "songs by …", "my … playlist", "… by …" narrow it.
 title: Music
 icon: mdi:music
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  player: &player
+    names:
+      entity: {count: 1, domains: [media_player]}
+    combinations: [[entity]]
+    needs:
+      - Add names for the players it may act on (Names page). A player must be
+        a Music Assistant player.
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page). It acts
+        on the Music Assistant players there.
 
 commands:
   play_music:
@@ -21,219 +45,393 @@ commands:
     exclude: [next, previous, played, players, playing]
     optional: [[in, on], [the]]
     wildcard: {slot: query, after: [play, put on, listen to], to_end: true, max_words: 8}
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-    # "Play jazz", or "play jazz in the kitchen" / "upstairs": there, not here.
-    combinations: [[query], [area, query], [floor, query]]
     music: play
     verbosity: specific
+    variants:
+      here:
+        title: Play music on this satellite
+      device:
+        <<: *player
+        title: Play music on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Play music in an area or floor
+        combinations: [[area, query], [floor, query]]
 
   add_to_queue:
     title: Add to the queue
     icon: mdi:playlist-plus
     description: add an artist, album or song to the queue
     require: [[add], [queue]]
-    optional: [[to]]
+    optional: [[to], [in, on], [the]]
     wildcard: {slot: query, after: [add], before: [to], bounded: true, max_words: 6}
     music: add
     verbosity: specific
+    variants:
+      here:
+        title: Add to the queue on this satellite
+      device:
+        <<: *player
+        title: Add to the queue on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Add to the queue in an area or floor
+        combinations: [[area, query], [floor, query]]
 
   play_similar:
     title: Play music like it
     icon: mdi:radio
     description: "play more music like what's playing"
-    examples: [play more like this, more like this, play something similar]
     require: [[like, similar]]
     optional: [[play], [more, music, songs, something, stuff], [in, on], [the]]
     wildcard: {slot: query, after: [like], to_end: true, max_words: 6}
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-    # Like what plays here, or like what was said -- here, or in a room or
-    # on a floor named.
-    combinations: [[], [query], [area], [floor], [area, query], [floor, query]]
     music: radio
     verbosity: specific
+    # Like what plays there, or like what was said.
+    variants:
+      here:
+        title: Play music like it on this satellite
+        examples: [play more like this, more like this, play something similar]
+        combinations: [[], [query]]
+      device:
+        <<: *player
+        title: Play music like it on a different device
+        combinations: [[entity], [entity, query]]
+      place:
+        <<: *place
+        title: Play music like it in an area or floor
+        combinations: [[area], [floor], [area, query], [floor, query]]
 
   pause_music:
     title: Pause the music
     icon: mdi:pause
     description: pause the music
-    examples: [pause, pause the music]
     require: [[pause]]
-    optional: [[music, song, it, playback]]
+    optional: [[music, song, it, playback], [in, on], [the]]
     exclude: [timer, timers]
     music: pause
     verbosity: beep
+    variants:
+      here:
+        title: Pause the music on this satellite
+        examples: [pause, pause the music]
+      device:
+        <<: *player
+        title: Pause the music on a different device
+      place:
+        <<: *place
+        title: Pause the music in an area or floor
 
   resume_music:
     title: Resume the music
     icon: mdi:play
     description: resume the music
-    examples: [resume, resume the music, unpause, play music, keep playing]
     require: [[resume, unpause, continue, keep playing]]
-    optional: [[music, it, playing, playback]]
+    optional: [[music, it, playing, playback], [in, on], [the]]
     exclude: [timer, timers]
     music: resume
     verbosity: beep
+    variants:
+      here:
+        title: Resume the music on this satellite
+        examples: [resume, resume the music, unpause, play music, keep playing]
+      device:
+        <<: *player
+        title: Resume the music on a different device
+      place:
+        <<: *place
+        title: Resume the music in an area or floor
 
   stop_music:
     title: Stop the music
     icon: mdi:stop
     description: stop the music
     require: [[stop], [music, song, playing, playback]]
+    optional: [[in, on], [the]]
     exclude: [timer, timers]
     music: stop
     verbosity: beep
+    variants:
+      here:
+        title: Stop the music on this satellite
+      device:
+        <<: *player
+        title: Stop the music on a different device
+      place:
+        <<: *place
+        title: Stop the music in an area or floor
 
   next_track:
     title: Next track
     icon: mdi:skip-next
     description: skip to the next song
-    examples: [next, next song, skip, skip this song]
     require: [[next, skip]]
-    optional: [[song, track, this, it, one]]
+    optional: [[song, track, this, it, one], [in, on], [the]]
     music: next
     verbosity: beep
+    variants:
+      here:
+        title: Next track on this satellite
+        examples: [next, next song, skip, skip this song]
+      device:
+        <<: *player
+        title: Next track on a different device
+      place:
+        <<: *place
+        title: Next track in an area or floor
 
   previous_track:
     title: Previous track
     icon: mdi:skip-previous
     description: go back to the previous song
-    examples: [previous song, go back, last song]
     require: [[previous, go back, last song, last track]]
-    optional: [[song, track]]
+    optional: [[song, track], [in, on], [the]]
     music: previous
     verbosity: beep
+    variants:
+      here:
+        title: Previous track on this satellite
+        examples: [previous song, go back, last song]
+      device:
+        <<: *player
+        title: Previous track on a different device
+      place:
+        <<: *place
+        title: Previous track in an area or floor
 
   volume_up:
     title: Turn it up
     icon: mdi:volume-plus
     description: turn up the volume
-    examples: [louder, turn it up, volume up]
     require: [[louder, volume up, turn it up, turn up, turn ... up, increase the volume, raise the volume]]
-    optional: [[volume, music, sound, a bit, a little]]
+    optional: [[volume, music, sound, a bit, a little], [in, on], [the]]
     exclude: [light, lights, brightness, heat, temperature]
     music: volume_up
     verbosity: beep
+    variants:
+      here:
+        title: Turn it up on this satellite
+        examples: [louder, turn it up, volume up]
+      device:
+        <<: *player
+        title: Turn it up on a different device
+      place:
+        <<: *place
+        title: Turn it up in an area or floor
 
   volume_down:
     title: Turn it down
     icon: mdi:volume-minus
     description: turn down the volume
-    examples: [quieter, turn it down, volume down]
     require: [[quieter, softer, volume down, turn it down, turn down, turn ... down, decrease the volume, lower the volume]]
-    optional: [[volume, music, sound, a bit, a little]]
+    optional: [[volume, music, sound, a bit, a little], [in, on], [the]]
     exclude: [light, lights, brightness, heat, temperature]
     music: volume_down
     verbosity: beep
+    variants:
+      here:
+        title: Turn it down on this satellite
+        examples: [quieter, turn it down, volume down]
+      device:
+        <<: *player
+        title: Turn it down on a different device
+      place:
+        <<: *place
+        title: Turn it down in an area or floor
 
   set_volume:
     title: Set the volume
     icon: mdi:volume-equal
     description: set the volume
     require: [[volume]]
-    optional: [[set, change, make], [to], [percent]]
+    optional: [[set, change, make], [to], [percent], [in, on], [the]]
     number: percentage
     music: volume_set
     verbosity: beep
+    variants:
+      here:
+        title: Set the volume on this satellite
+      device:
+        <<: *player
+        title: Set the volume on a different device
+        combinations: [[entity, percentage]]
+      place:
+        <<: *place
+        title: Set the volume in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
 
   mute_music:
     title: Mute
     icon: mdi:volume-off
     description: mute the music
-    examples: [mute, mute the music]
     require: [[mute]]
-    optional: [[music, it, sound]]
+    optional: [[music, it, sound], [in, on], [the]]
     music: mute
     verbosity: beep
+    variants:
+      here:
+        title: Mute this satellite
+        examples: [mute, mute the music]
+      device:
+        <<: *player
+        title: Mute a different device
+      place:
+        <<: *place
+        title: Mute an area or floor
 
   unmute_music:
     title: Unmute
     icon: mdi:volume-high
     description: unmute the music
-    examples: [unmute, unmute the music]
     require: [[unmute]]
-    optional: [[music, it, sound]]
+    optional: [[music, it, sound], [in, on], [the]]
     music: unmute
     verbosity: beep
+    variants:
+      here:
+        title: Unmute this satellite
+        examples: [unmute, unmute the music]
+      device:
+        <<: *player
+        title: Unmute a different device
+      place:
+        <<: *place
+        title: Unmute an area or floor
 
   shuffle_on:
     title: Shuffle
     icon: mdi:shuffle-variant
     description: shuffle the music
-    examples: [shuffle, shuffle the music, turn on shuffle]
     require: [[shuffle]]
-    optional: [[music, songs, playlist, turn on, on]]
+    optional: [[music, songs, playlist, turn on, on], [in], [the]]
     exclude: [off, stop, don't]
     music: shuffle_on
     verbosity: beep
+    variants:
+      here:
+        title: Shuffle on this satellite
+        examples: [shuffle, shuffle the music, turn on shuffle]
+      device:
+        <<: *player
+        title: Shuffle on a different device
+      place:
+        <<: *place
+        title: Shuffle in an area or floor
 
   shuffle_off:
     title: Stop shuffling
     icon: mdi:shuffle-disabled
     description: stop shuffling
-    examples: [stop shuffling, turn off shuffle, shuffle off]
     require: [[shuffle, shuffling], [off, stop, don't]]
+    optional: [[in, on], [the]]
     music: shuffle_off
     verbosity: beep
+    variants:
+      here:
+        title: Stop shuffling on this satellite
+        examples: [stop shuffling, turn off shuffle, shuffle off]
+      device:
+        <<: *player
+        title: Stop shuffling on a different device
+      place:
+        <<: *place
+        title: Stop shuffling in an area or floor
 
   repeat_one:
     title: Repeat this song
     icon: mdi:repeat-once
     description: repeat this song
-    examples: [repeat this song, play this song again]
     require: [[repeat, again], [this song, this track, this one]]
-    optional: [[play]]
+    optional: [[play], [in, on], [the]]
     music: repeat_one
     verbosity: beep
+    variants:
+      here:
+        title: Repeat this song on this satellite
+        examples: [repeat this song, play this song again]
+      device:
+        <<: *player
+        title: Repeat the song on a different device
+      place:
+        <<: *place
+        title: Repeat the song in an area or floor
 
   repeat_all:
     title: Repeat
     icon: mdi:repeat
     description: repeat the music
-    examples: [repeat, turn on repeat, repeat all]
     require: [[repeat]]
-    optional: [[all, turn on, on, music, playlist, album]]
+    optional: [[all, turn on, on, music, playlist, album], [in], [the]]
     exclude: [off, stop, song, track, this]
     music: repeat_all
     verbosity: beep
+    variants:
+      here:
+        title: Repeat on this satellite
+        examples: [repeat, turn on repeat, repeat all]
+      device:
+        <<: *player
+        title: Repeat on a different device
+      place:
+        <<: *place
+        title: Repeat in an area or floor
 
   repeat_off:
     title: Stop repeating
     icon: mdi:repeat-off
     description: stop repeating
-    examples: [stop repeating, turn off repeat, repeat off]
     require: [[repeat, repeating], [off, stop, don't]]
+    optional: [[in, on], [the]]
     music: repeat_off
     verbosity: beep
+    variants:
+      here:
+        title: Stop repeating on this satellite
+        examples: [stop repeating, turn off repeat, repeat off]
+      device:
+        <<: *player
+        title: Stop repeating on a different device
+      place:
+        <<: *place
+        title: Stop repeating in an area or floor
 
+  # Where it is told to go: from what is playing here (or the one player
+  # playing anywhere) to the device, area or floor named, queue and all.
+  # Bringing it here ("move the music here") is not a version yet.
   move_music:
     title: Move the music
     icon: mdi:cast-audio
     description: move the music to another room, floor or speaker
-    # From what is playing here (or the one player playing anywhere) to the
-    # room, floor or speaker named, queue and all.
     require: [[move, transfer, send, take], [music, song, playlist, audio]]
     optional: [[to, into, over], [the]]
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-      entity: {count: 1, domains: [media_player]}
-    # Each said whole: it goes where it is told.
-    combinations: [[area], [floor], [entity]]
     music: move
     verbosity: specific
-    needs:
-      - Add names for the rooms, floors or speakers to move it to (Names page).
-        A speaker must be a Music Assistant player.
+    variants:
+      device:
+        <<: *player
+        title: Move the music to a different device
+        description: move the music to another speaker
+      place:
+        <<: *place
+        title: Move the music to an area or floor
+        description: move the music to another room or floor
 
   whats_playing:
     title: What's playing
     icon: mdi:playlist-music
     description: say what's playing
-    examples: [what's playing, what song is this, who is this, who sings this]
     require: [[what's playing, what is playing, what song, which song, who sings, who is singing, who is this, what is this song]]
-    optional: [[this, song, now]]
+    optional: [[this, song, now], [in, on], [the]]
     music: status
+    variants:
+      here:
+        title: What's playing on this satellite
+        examples: [what's playing, what song is this, who is this, who sings this]
+      device:
+        <<: *player
+        title: What's playing on a different device
+      place:
+        <<: *place
+        title: What's playing in an area or floor

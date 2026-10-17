@@ -85,8 +85,21 @@ change it, rename it or duplicate it.
 
 **New command** on the Commands page offers the library's commands --
 search them, or show one group (Basics, Covers and locks, Music, Timers) --
-and, always at the top, a custom command made from scratch. Adding one from
-the library copies it into your commands, with any shared value list it uses
+and, always at the top, a custom command made from scratch. Most of the
+library's commands come in **versions**, for what they act on; open one
+("Play music") to pick:
+
+- **on this satellite** -- nothing named: the satellite's own player, or the
+  lights in its area ("play jazz", "turn on the lights");
+- **on a device by name** ("play jazz on the Mark 2", "turn on the desk
+  lamp");
+- **in an area or floor by name** ("play jazz in the kitchen", "turn on the
+  lights upstairs").
+
+Each version is a command of its own (`play_music_here`,
+`play_music_device`, `play_music_place`): add the ones you want, and a
+sentence goes to the one that takes what was said in it. Adding one from the
+library copies it into your commands, with any shared value list it uses
 that you don't have yet; one you already have is marked **added**, by its
 id, so a command you renamed counts as your own and the library's can be
 added again. A command has:
@@ -279,9 +292,7 @@ library's **Music** group:
 - "play Miles Davis", "play the album Kind of Blue", "play my chill
   playlist", "play So What by Miles Davis": Music Assistant is searched for
   what was heard and the closest match plays ("Playing Kind of Blue by Miles
-  Davis."). "Add … to the queue", "play more like this". Add a room or a
-  floor to play it there: "play jazz in the kitchen", "play more like this
-  upstairs".
+  Davis."). "Add … to the queue", "play more like this".
 - "pause", "resume", "stop the music", "next", "go back", "louder", "set the
   volume to 30 percent", "mute", "shuffle", "repeat", "what's playing".
 - "move the music to the kitchen", "move the music upstairs", "send the music
@@ -289,11 +300,16 @@ library's **Music** group:
   one in its area, else the one player playing anywhere -- moves there, queue
   and all, and stops where it was ("Moved the music to the Kitchen."). It
   goes to one player: on a floor with several, one that isn't already
-  playing. Name the rooms, floors or speakers first (Names page); a speaker
-  must be a Music Assistant player.
+  playing.
 
-The player is the satellite's own, unless a command names another (Target)
-or an area. Pausing, skipping, the volume and "what's playing" act on
+Each comes in versions: **on this satellite**, **on a different device**
+("pause the music on the Mark 2", "play jazz on the Mark 2") and **in an area
+or floor** ("play jazz in the kitchen", "turn it up upstairs"). Moving the
+music has only the last two. Name the players, rooms and floors first (Names
+page); a player must be a Music Assistant player.
+
+The player is the satellite's own, unless a command names another (Target),
+a room or a floor. Pausing, skipping, the volume and "what's playing" act on
 whichever Music Assistant player is playing in the satellite's area when its
 own is not, and "resume" resumes what was paused by voice. A player grouped
 with others pauses and skips with its group.
@@ -326,6 +342,11 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
   When there are none, it says so.
 - Unlocking works for anyone the satellite hears: keep the command to the
   satellites that should with a command group.
+
+Opening, closing and "is it open" come in versions: by type in the
+satellite's area ("open the blinds"), a cover by name ("open the skylight"),
+and by type in an area or floor ("close the shades upstairs"). Locks are
+only by name, and "lock up" and "is everything locked" are every lock.
 
 ## When nothing matches
 

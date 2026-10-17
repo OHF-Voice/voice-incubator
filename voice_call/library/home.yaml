@@ -8,72 +8,45 @@
 #
 # The by-type actions return an outcome (stop with response_variable), so they
 # say "There aren't any shades in the Bedroom" instead of nothing happening.
+#
+# Opening, closing and asking about covers come in versions (variants; see
+# basic.yaml): by type in the satellite's area, a cover by name, by type in an
+# area or on a floor named. Locks have no versions: one is locked or unlocked
+# only by name, and "lock up" is every lock in the home.
 title: Covers and locks
 icon: mdi:door
 
-commands:
-  open_cover:
-    title: Open a cover
-    icon: mdi:window-shutter-open
-    description: open a cover
-    require: [[open, raise]]
-    optional: [[up], [in, on], [the]]
-    exclude: [is, are]
+# What the versions add to a command (merged into them with <<).
+shared:
+  cover: &cover
     names:
       entity: {count: 1, domains: [cover]}
       area: {count: 1}
     # A room with the device picks it out: the one of that name there.
     combinations: [[entity], [entity, area]]
-    action:
-      action: cover.open_cover
-      target: "{{ target }}"
-    # Out of sight, or what keeps people out: said.
-    verbosity: specific
-    response:
-      done:
-        brief: Opening it.
-        specific: "Opening {{ state_attr(slots.entity[0], 'friendly_name') }}."
-    needs:
-      - Add names for the covers it may open (Names page).
-
-  close_cover:
-    title: Close a cover
-    icon: mdi:window-shutter
-    description: close a cover
-    require: [[close, shut, lower]]
-    optional: [[down], [in, on], [the]]
-    exclude: [is, are]
-    names:
-      entity: {count: 1, domains: [cover]}
-      area: {count: 1}
-    # A room with the device picks it out: the one of that name there.
-    combinations: [[entity], [entity, area]]
-    action:
-      action: cover.close_cover
-      target: "{{ target }}"
-    # Out of sight, or what keeps people out: said.
-    verbosity: specific
-    response:
-      done:
-        brief: Closing it.
-        specific: "Closing {{ state_attr(slots.entity[0], 'friendly_name') }}."
-    needs:
-      - Add names for the covers it may close (Names page).
-
-  open_covers:
-    title: Open covers by type
-    icon: mdi:blinds-open
-    description: open the blinds
-    require: [[open, raise]]
-    optional: [[all], [up], [in, on]]
-    exclude: [is, are]
+  place: &place
     names:
       area: {count: 1}
       floor: {count: 1}
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+  nothing_here: &nothing_here
+    - The satellite's area (Satellites page) is where. When nothing of the type
+      is there, every one in the home is meant ("open the garage door" from the
+      kitchen).
+
+commands:
+  # The blinds (by type) in the satellite's area, in an area or on a floor
+  # named, or a cover by name.
+  open_covers:
+    title: Open covers
+    icon: mdi:blinds-open
+    description: open the blinds
+    require: [[open, raise]]
+    optional: [[all], [up], [in, on], [the]]
+    exclude: [is, are]
     lists:
       device_class: {list: cover_classes}
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[device_class], [area, device_class], [floor, device_class]]
     action:
       - variables:
           covers: >-
@@ -124,21 +97,42 @@ commands:
         {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
           else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
         There aren't any {{ kinds[slots.device_class] }}{{ where }}.
+    formerly: [open_cover]
+    variants:
+      here:
+        title: Open the blinds in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Open a cover by name
+        icon: mdi:window-shutter-open
+        description: open a cover
+        lists: null
+        action:
+          action: cover.open_cover
+          target: "{{ target }}"
+        # Out of sight, or what keeps people out: said.
+        verbosity: specific
+        response:
+          done:
+            brief: Opening it.
+            specific: "Opening {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the covers it may open (Names page).
+      place:
+        <<: *place
+        title: Open the blinds in an area or floor
+        combinations: [[area, device_class], [floor, device_class]]
 
   close_covers:
-    title: Close covers by type
+    title: Close covers
     icon: mdi:blinds
     description: close the blinds
     require: [[close, shut, lower]]
-    optional: [[all], [down], [in, on]]
+    optional: [[all], [down], [in, on], [the]]
     exclude: [is, are]
-    names:
-      area: {count: 1}
-      floor: {count: 1}
     lists:
       device_class: {list: cover_classes}
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[device_class], [area, device_class], [floor, device_class]]
     action:
       - variables:
           covers: >-
@@ -189,6 +183,32 @@ commands:
         {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
           else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
         There aren't any {{ kinds[slots.device_class] }}{{ where }}.
+    formerly: [close_cover]
+    variants:
+      here:
+        title: Close the blinds in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Close a cover by name
+        icon: mdi:window-shutter
+        description: close a cover
+        lists: null
+        action:
+          action: cover.close_cover
+          target: "{{ target }}"
+        # Out of sight, or what keeps people out: said.
+        verbosity: specific
+        response:
+          done:
+            brief: Closing it.
+            specific: "Closing {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the covers it may close (Names page).
+      place:
+        <<: *place
+        title: Close the blinds in an area or floor
+        combinations: [[area, device_class], [floor, device_class]]
 
   lock:
     title: Lock a lock
@@ -255,45 +275,15 @@ commands:
     verbosity: specific
     response: Locking all the doors.
 
-  is_cover_open:
-    title: Is a cover open
-    icon: mdi:window-shutter-alert
-    description: say if a cover is open
-    require: [[is, are]]
-    optional: [[in, on], [the]]
-    names:
-      entity: {count: 1, domains: [cover]}
-      area: {count: 1}
-    # A room with the device picks it out: the one of that name there.
-    combinations: [[entity, asked], [entity, area, asked]]
-    lists:
-      asked: {list: open_closed}
-    response: >-
-      {%- set e = slots.entity[0] -%}
-      {%- set state = states(e) -%}
-      {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
-      {%- if state in ['open', 'closed'] -%}
-      {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
-      {%- else -%}
-      {{ said }}
-      {%- endif -%}
-    needs:
-      - Add names for the covers it may ask about (Names page).
-
   are_covers_open:
-    title: Are covers open, by type
+    title: Are covers open
     icon: mdi:blinds-horizontal
     description: say if the blinds are open
     require: [[is, are]]
-    optional: [[any, all], [in, on]]
-    names:
-      area: {count: 1}
-      floor: {count: 1}
+    optional: [[any, all], [in, on], [the]]
     lists:
       device_class: {list: cover_classes}
       asked: {list: open_closed}
-    # Each said whole; without a name, the satellite's own.
-    combinations: [[device_class, asked], [area, device_class, asked], [floor, device_class, asked]]
     response: >-
       {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
         'curtain': ['curtain', 'curtains'], 'door': ['door', 'doors'],
@@ -331,6 +321,34 @@ commands:
       {{ (ns.opened[:-1] | join(', ') ~ ' and ' ~ ns.opened[-1]) if count > 1 else ns.opened[0] }}
       {{- ' is' if count == 1 else ' are' }} open.
       {%- endif -%}
+    formerly: [is_cover_open]
+    variants:
+      here:
+        title: Are the blinds open in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Is a cover open, by name
+        icon: mdi:window-shutter-alert
+        description: say if a cover is open
+        lists:
+          asked: {list: open_closed}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set state = states(e) -%}
+          {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+          {%- if state in ['open', 'closed'] -%}
+          {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the covers it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are the blinds open in an area or floor
+        combinations: [[area, device_class, asked], [floor, device_class, asked]]
 
   is_locked:
     title: Is a lock locked

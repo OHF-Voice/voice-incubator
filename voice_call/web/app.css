@@ -195,6 +195,15 @@ th { color: var(--muted); font-weight: 600; border-top: none; }
 .filter-chip { display: inline-flex; gap: 4px; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 0.84rem; background: var(--chip); border-color: transparent; }
 .filter-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .filter-chip .icon { width: 16px; height: 16px; }
+/* A library command with versions: a row that opens to them. */
+details.family > summary { list-style: none; color: inherit; font-size: inherit; }
+details.family > summary::-webkit-details-marker { display: none; }
+details.family > summary:hover { background: var(--bg); }
+details.family + details.family > summary, .item + details.family > summary { border-top: 1px solid var(--line); }
+details.family > summary .chevron { width: 18px; height: 18px; transition: transform .15s; }
+details.family[open] > summary .chevron { transform: rotate(90deg); }
+details.family .versions { padding-left: 30px; }
+details.family .versions .item:first-child { border-top: 1px solid var(--line); }
 @media (max-width: 640px) {
   .overlay { padding: 0; }
   .dialog { max-height: 100vh; height: 100%; border-radius: 0; }
