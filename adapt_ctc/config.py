@@ -67,8 +67,10 @@ class Settings:
     places_must_fit: bool = True
     """An area or floor name heard and left unexplained rejects an intent that
     takes no name of that type, keywords or example sentence: "play music in
-    the office" is not "play music" here. Off, it is one more unexplained
-    word."""
+    the office" is not "play music" here. The same for a device the sentence
+    ends on as the place ("play jazz on the Mark 2"), swallowed by free text
+    of an intent that cannot take it; one that can stops its free text
+    before it. Off, it is one more unexplained word."""
 
     lead_in: float = 0.35
     """Seconds. An unrecognized first word that ends this early is taken for

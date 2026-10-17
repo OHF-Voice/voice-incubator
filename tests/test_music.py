@@ -340,5 +340,8 @@ def test_free_text_without_the_place_it_ends_on():
     assert without_place("some music in the living room please", ["living room"], ["the", "please"]) == "some music"
     assert without_place("the kitchen sink", ["kitchen"]) == "the kitchen sink"  # not where it ends
     assert without_place("jazz", []) == "jazz"
+    # Compared as spoken: the name is "Mark two", the transcript says "2".
+    assert without_place("She paints me blue on the mark 2.", ["mark two"]) == "She paints me blue"
+    assert without_place("the mark 2", ["mark two"]) == "the mark 2"  # nothing left: it is the text
     # "Like this": like what is playing.
     assert music.generic("this") and music.generic("that song") and not music.generic("this will destroy you")

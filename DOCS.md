@@ -132,7 +132,9 @@ added again. A command has:
     the kitchen" isn't the time: neither runs, and the satellite says
     "…but I can't pick a floor for it". A room inside free text is part of
     it ("play the kitchen sink"); at its end, it is where ("play jazz in the
-    kitchen").
+    kitchen"). So is a device at its end ("play jazz on the Mark 2"): a
+    command that takes that device runs, with "jazz" as the text, and one
+    that can't take it doesn't swallow it.
   - **Ways to say it**: what is heard is never optional. Instead a command
     lists the combinations that may be said, each whole: "turn off the
     lights" with nothing named (the satellite's area), with an area, or with

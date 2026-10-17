@@ -837,3 +837,38 @@ def test_free_text_stops_before_a_place_it_ends_on():
     # Off: the text runs to the end, as before.
     result = recognize(["play", "music", "in", "the", "kitchen"], config, places_must_fit=False)
     assert "Play" in [m.intent for m in result.matches]
+
+
+def test_free_text_stops_before_a_device_it_ends_on():
+    config = {
+        "names": {
+            **CONFIG["names"],
+            "entities": {"media_player.natalie": "Natalie", "climate.ecobee": "EcoBee"},
+        },
+        "intents": {
+            **CONFIG["intents"],
+            "Play": PLAY["intents"]["Play"],
+            "PlayOn": {
+                "require": [["play"]],
+                "optional": [["on"]],
+                "names": {"entity": {"count": 1, "domains": ["media_player"]}},
+                "wildcard": {"slot": "query", "after": ["play"], "to_end": True, "max_words": 4, "required": True},
+            },
+        },
+    }
+    result = recognize(["play", "music", "on", "the", "natalie"], config)
+    assert result.best.intent == "PlayOn"
+    assert result.best.slots == {"entity": ["media_player.natalie"], "query": "music"}
+    # Text that swallows the device it ends on: not an intent that can't take it.
+    assert rejected(result, "Play").reasons == ["heard entity media_player.natalie, which this intent cannot take"]
+    # A device inside the text is the text.
+    result = recognize(["play", "natalie", "music"], config)
+    assert result.best.intent == "Play" and result.best.slots == {"query": "natalie music"}
+    # A device of a kind it does not take is no place for it either.
+    result = recognize(["play", "music", "on", "the", "eco", "+bee"], config)
+    assert result.best is None
+    assert rejected(result, "Play").reasons == ["heard entity climate.ecobee, which this intent cannot take"]
+    assert rejected(result, "PlayOn").missing[0]["kind"] == "name"  # no media player heard
+    # Off: the text runs to the end, as before.
+    result = recognize(["play", "music", "on", "the", "natalie"], config, places_must_fit=False)
+    assert "Play" in [m.intent for m in result.matches]

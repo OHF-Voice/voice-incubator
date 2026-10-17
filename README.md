@@ -731,7 +731,16 @@ for this app:
   ("in", "on", "at", "to", optionally "the", or "upstairs" / "downstairs"
   alone) when the intent takes that place -- "play jazz in the kitchen" is
   jazz, in the kitchen -- and swallowing it counts as leaving it out for an
-  intent that doesn't. A room inside the text is the text: "play the kitchen
+  intent that doesn't. A device name works the same way, after "in", "on",
+  "at" or "to" only, and only as the end of free text: "play jazz on the
+  Mark 2" is jazz on the Mark 2 for an intent that takes that device
+  (`_name_allowed`: its domains and ids), and no match for one whose text
+  would swallow it -- a duplicate of `play_music` that takes a media player
+  wins over the plain one. A device left unexplained elsewhere is not
+  checked: commands with a fixed target are said with their device's name.
+  The text re-read from a transcript without word times (an STT entity)
+  drops the clause too (`without_place`, comparing spoken forms: "Mark 2" is
+  the name "Mark two"). A room inside the text is the text: "play the kitchen
   sink by radiohead". The fallback holds its picks to the same rule
   (`Tools.places_left`: area and floor names and aliases in the transcript,
   outside free text and the names of the devices it took). A hint says "but I

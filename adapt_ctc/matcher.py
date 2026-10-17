@@ -39,7 +39,7 @@ _INF = float("inf")
 PLACE_TYPES = ("area", "floor")
 """Names that say where: heard, an intent must take them (``places_must_fit``)."""
 PLACE_WORDS = ("in", "on", "at", "to")
-"""What says a place follows: "play jazz *in the* kitchen"."""
+"""What says a place follows: "play jazz *in the* kitchen", "*on the* Mark 2"."""
 BARE_PLACES = ("upstairs", "downstairs")
 """Places said without one: "play jazz upstairs"."""
 
@@ -704,7 +704,9 @@ class Recognizer:
     ) -> list[Any]:
         """Areas and floors heard where ``spans`` explain nothing -- or only as
         free text, when the sentence ends on them ("play music *in the
-        office*") -- of a type the intent takes none of: ``[(type, id)]``, or
+        office*") -- of a type the intent takes none of; and a device the
+        sentence ends on, swallowed by free text, that the intent cannot take
+        ("play jazz *on the Mark 2*"): ``[(type, id)]``, or
         ``[(type, id, hit)]``."""
         intent = self.config.intents.get(intent_name)
         if intent is None:
@@ -715,17 +717,26 @@ class Recognizer:
             if not (hit.heard and hit.meaningful):
                 continue
             covering = [use for use in spans if use.hit.start <= hit.center <= use.hit.end]
-            if covering and not (id(hit) in said_last and all(use.role == "wildcard" for use in covering)):
+            swallowed = bool(covering) and id(hit) in said_last and all(use.role == "wildcard" for use in covering)
+            if covering and not swallowed:
                 continue
             for meaning in hit.meanings:
-                if meaning.kind == "name" and meaning.name_type in PLACE_TYPES and not intent.name_count(meaning.name_type):
+                if meaning.kind != "name":
+                    continue
+                if meaning.name_type in PLACE_TYPES and not intent.name_count(meaning.name_type):
+                    out.setdefault((meaning.name_type, meaning.name_id), hit)
+                elif meaning.name_type == "entity" and swallowed and not _name_allowed(intent, meaning):
+                    # Only as the place it is to happen: a device left
+                    # unexplained elsewhere is the intent's own business.
                     out.setdefault((meaning.name_type, meaning.name_id), hit)
         return [(*key, hit) for key, hit in out.items()] if hits else list(out)
 
     def _trailing_places(self, spotting: Spotting, heard: list[Hit]) -> list[tuple[int, Hit, Meaning]]:
-        """Areas and floors the sentence ends on, said as a place: after "in",
-        "on", "at" or "to" (and "the"), or "upstairs", "downstairs" alone.
-        ``[(first frame of the place clause, hit, meaning)]``."""
+        """Names the sentence ends on, said as the place it is to happen:
+        areas and floors after "in", "on", "at" or "to" (and "the"), or
+        "upstairs", "downstairs" alone; devices after one of those words
+        ("play it *on the* Mark 2"). ``[(first frame of the place clause,
+        hit, meaning)]``."""
         filler = {f for f in self.config.filler if " " not in f}
         words = [(w, w.text.lower().strip(".,?!;:\"'")) for w in spotting.words if w.frames]
         while words and words[-1][1] in filler:
@@ -738,7 +749,7 @@ class Recognizer:
             if not hit.meaningful or hit.end < last.start:
                 continue
             for meaning in hit.meanings:
-                if meaning.kind != "name" or meaning.name_type not in PLACE_TYPES:
+                if meaning.kind != "name" or meaning.name_type not in (*PLACE_TYPES, "entity"):
                     continue
                 first = next((i for i, (w, _) in enumerate(words) if w.end >= hit.start), None)
                 if first is None:
@@ -748,7 +759,7 @@ class Recognizer:
                     before -= 1
                 if before >= 0 and words[before][1] in PLACE_WORDS:
                     out.append((words[before][0].start, hit, meaning))
-                elif words[first][1] in BARE_PLACES:
+                elif words[first][1] in BARE_PLACES and meaning.name_type in PLACE_TYPES:
                     out.append((words[first][0].start, hit, meaning))
         return out
 
@@ -915,8 +926,8 @@ class Recognizer:
             units = set(intent.number.units) if intent.number else set()
             lead = stop | units | {unit + "s" for unit in units}
             # Free text to the end may stop before a place this intent takes:
-            # "play jazz | in the kitchen".
-            cuts = {start for start, _, meaning in trailing or [] if intent.name_count(meaning.name_type)}
+            # "play jazz | in the kitchen", "play jazz | on the Mark 2".
+            cuts = {start for start, _, meaning in trailing or [] if _name_allowed(intent, meaning)}
             items += _wildcard_items(wild, spotting, settings.wildcard_cost, stop, lead, cuts)
             items.sort(key=lambda item: (item.end, item.start))
         # Free text with both edges (or running to the end) may have fillers

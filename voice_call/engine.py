@@ -40,7 +40,7 @@ from adapt_ctc.acoustic import CtcModel
 from adapt_ctc.config import WakeConfig, parse_config
 from adapt_ctc.matcher import IntentResult, Recognition, Recognizer
 from adapt_ctc.report import to_json
-from adapt_ctc.text import spoken_words
+from adapt_ctc.text import sentence_key, spoken_words
 from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
@@ -758,10 +758,12 @@ class Engine:
         recognition.tdt_transcript = transcript
         if words is None:
             text = free_text(transcript, wildcard, str(decision.slots.get(slot) or "")) or ""
-            # Text to the end stops before the place it was told apart from.
-            places = [use.meaning.phrase for use in decision.intent.spans if use.role == "name" and use.meaning.name_type in ("area", "floor")]
-            filler = list(self.recognizer.config.filler) if self.recognizer is not None else []
-            text = without_place(text, places, filler)
+            # Text to the end stops before the place it was told apart from:
+            # a room, a floor, a device ("on the Mark 2").
+            places = [use.meaning.phrase for use in decision.intent.spans if use.role == "name"]
+            config = self.recognizer.config if self.recognizer is not None else None
+            filler = list(config.filler) if config is not None else []
+            text = without_place(text, places, filler, config.language if config is not None else "en")
         else:
             use = uses[0]
             start = use.hit.start * frame_seconds - frame_seconds
@@ -932,8 +934,9 @@ def _missing_text(command: Command, missing: list[dict[str, Any]]) -> str:
     if kind == "unknown_name":
         return f"but I don't know \"{' '.join(first.get('words') or [])}\""
     if kind == "place":
-        # A room or floor it can't be pointed at: "play music in the office".
-        return f"but I can't pick a {'floor' if first.get('type') == 'floor' else 'room'} for it"
+        # A room, floor or device it can't be pointed at: "play music in the office".
+        what = {"floor": "floor", "entity": "device"}.get(str(first.get("type")), "room")
+        return f"but I can't pick a {what} for it"
     return "but I wasn't sure"
 
 
@@ -977,14 +980,28 @@ def _timing(transcriber: Any) -> str:
     return "tdt" if source == "TDT" else "typed" if source == "typed" else "stt"
 
 
-def without_place(text: str, places: list[str], filler: list[str] | None = None) -> str:
-    """Free text without a place it ends on, that was heard as one: "jazz in
-    the kitchen" -> "jazz", "jazz upstairs please" -> "jazz"."""
-    tail = rf"(?:\s+(?:{'|'.join(re.escape(f) for f in filler)}))*" if filler else ""
-    for phrase in places:
-        found = re.search(rf"\s+(?:(?:in|on|at|to)(?:\s+the)?\s+)?{re.escape(phrase)}{tail}[.!?]*$", text, re.I)
-        if found:
-            return text[: found.start()].strip()
+def without_place(text: str, places: list[str], filler: list[str] | None = None, language: str = "en") -> str:
+    """Free text without a place it ends on, that was heard as one -- a room,
+    a floor, a device -- compared as spoken: "jazz in the kitchen" -> "jazz",
+    "jazz upstairs please" -> "jazz", "jazz on the Mark 2" -> "jazz" (the
+    name "Mark two")."""
+    words = text.split()
+    fill = {f.lower() for f in filler or []}
+    end = len(words)
+    while end > 0 and _strip(words[end - 1]).lower() in fill:
+        end -= 1
+    wanted = {sentence_key(phrase, language) for phrase in places} - {""}
+    # The longest tail that is the place, with "in the" before it; some text stays.
+    for start in range(1, end):
+        tail = [_strip(w).lower() for w in words[start:end]]
+        skip = 1 if tail[0] in ("in", "on", "at", "to") else 0
+        if skip < len(tail) and tail[skip] == "the":
+            skip += 1
+        if skip < len(tail) and sentence_key(" ".join(words[start + skip : end]), language) in wanted:
+            kept = words[:start]
+            if all(_strip(w).lower() in fill | {"the"} for w in kept):
+                break  # nothing but "the" before it: the place is the text
+            return " ".join(kept).strip()
     return text
 
 
