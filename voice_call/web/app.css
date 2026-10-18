@@ -214,3 +214,4 @@ details.family .versions .item:first-child { border-top: 1px solid var(--line); 
 .live canvas { width: 100%; display: block; background: var(--code); border-radius: 6px; }
 .live-wave { height: 80px; }
 .live-wake { height: 40px; }
+.examples-info { margin-top: 4px; }

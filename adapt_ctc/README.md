@@ -345,6 +345,13 @@ intents:
     against "…like tomorrow") costs 17.85.
 - An intent with only examples takes no keywords, names or numbers. One with
   both matches on either. An example may belong to only one intent.
+- **Templates.** An example may be a template, a small part of Home
+  Assistant's hassil syntax: `(a|b)` is either, `[a]` may be left out, nested
+  and inside words: `(turn|switch) on the light[s]` is four sentences
+  ([template.py](template.py)). Each is matched as if written out; by
+  meaning, the few that say every alternative once stand for them all.
+  Slots (`{area}`) and rules (`<name>`) are refused, as is a template of
+  more than 512 sentences.
 - **By meaning.** Last, both transcripts (TDT and CTC) are embedded with
   EmbeddingGemma 2, using the text model of onnx-community's ONNX export
   (`model_q4`, 175 MB, the `embedding` extra). Each is compared with the

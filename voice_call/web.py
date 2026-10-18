@@ -22,6 +22,7 @@ from aiohttp import web
 from ruamel.yaml import YAML
 
 from adapt_ctc.config import ConfigError
+from adapt_ctc.template import TemplateError, expand
 
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
@@ -84,6 +85,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/commands/{id}", api.put_command),
             web.delete("/api/commands/{id}", api.delete_command),
             web.post("/api/commands/check", api.check_command),
+            web.post("/api/examples", api.examples),
             web.post("/api/commands/{id}/duplicate", api.duplicate_command),
             web.get("/api/yaml", api.get_yaml),
             web.put("/api/yaml", api.put_yaml),
@@ -419,6 +421,21 @@ class Api:
         spec = _clean(_from_form(body.get("spec") or {}))
         command = parse_command(str(body.get("id") or "draft"), spec)
         return web.json_response({"ok": True, "intent": command.intent, "yaml": _dump(spec)})
+
+    async def examples(self, request: web.Request) -> web.Response:
+        """What example sentences stand for: each template's sentences (the
+        first few), or what is wrong with it."""
+        body = await request.json()
+        out = []
+        for text in body.get("examples") or []:
+            text = str(text)
+            try:
+                sentences = expand(text)
+            except TemplateError as err:
+                out.append({"example": text, "error": str(err)})
+                continue
+            out.append({"example": text, "count": len(sentences), "sentences": sentences[:20]})
+        return web.json_response({"examples": out})
 
     async def yaml_dump(self, request: web.Request) -> web.Response:
         body = await request.json()

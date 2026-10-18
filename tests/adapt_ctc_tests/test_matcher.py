@@ -696,6 +696,15 @@ def test_an_example_said_whole_only():
     assert rejected(result, "Weather").reasons[0] == "example 'what weather' is not all that was said: tomorrow besides"
 
 
+def test_a_template_is_every_sentence_it_stands_for():
+    # Found in the CTC evidence, or in the transcript, as any of them.
+    lights = {"Lights": {"examples": ["(turn|switch) on [the] light[s]"]}}
+    result, _ = recognize_with_examples(["switch", "on", "light"], "", lights, examples_first=True, examples_whole=True)
+    assert result.best.intent == "Lights" and result.best.example == "switch on light" and result.best.example_source == "CTC"
+    result, _ = recognize_with_examples(["what", "weather"], "switch on the lights", lights, examples_whole=True)
+    assert result.best.intent == "Lights" and result.best.example == "switch on the lights"
+
+
 def test_examples_too_close_to_another_intents_go_to_tdt():
     result, transcriber = recognize_with_examples(
         ["what", "weather", "tomorrow"], "What weather?", CTC_EXAMPLES, example_margin=5
@@ -805,6 +814,15 @@ def test_embedding_needs_a_margin_over_the_next_intent():
         "within 0.08 of Spell at 0.67"
     )
     assert rejected(result, "Spell").reasons[-1].startswith("closest example by embedding")
+
+
+def test_a_template_is_embedded_by_the_few_that_say_each_alternative():
+    data = copy.deepcopy(CONFIG)
+    data["intents"]["Lights"] = {"examples": ["(turn|switch) on [the] light[s]"]}
+    embedder = FakeEmbedder({})
+    recognizer = Recognizer(parse_config(data), vocab=toy_vocab(), embedder=embedder)
+    assert [t for i, t in recognizer._example_owners if i == "Lights"] == ["turn on the lights", "switch on light"]
+    assert len(recognizer.examples) >= 8  # every sentence for matching
 
 
 def test_everyday_requests_stand_for_no_example():

@@ -15,7 +15,8 @@ A command is one adapt-ctc intent plus what to do when it matches::
 ``library`` (the library file it was added from, ``music``: where the
 Commands page lists it) are only for the UI.
 
-Listening is adapt-ctc's own vocabulary -- ``examples``, ``require``,
+Listening is adapt-ctc's own vocabulary -- ``examples`` (sentences, or
+templates of them: ``(turn|switch) on the light[s]``), ``require``,
 ``optional``, ``exclude``, ``names``, ``number``, ``lists`` and ``wildcard``
 -- with two additions: ``number`` may be a preset (``percentage``,
 ``temperature``, ``duration``, ``count``) and may name its slot.
@@ -90,6 +91,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from adapt_ctc.config import ConfigError
+from adapt_ctc.template import TemplateError, expand
 from adapt_ctc.text import sentence_key
 
 COMMAND_ID = re.compile(r"^[a-z0-9_]+$")
@@ -803,18 +805,33 @@ def shared_examples(commands: dict[str, Command]) -> tuple[dict[str, dict[str, A
         for name, spec in command.intents.items():
             kept = []
             for text in spec.get("examples") or []:
-                key = sentence_key(str(text), BASE_CONFIG["language"])
-                first = owner.setdefault(key, name)
-                if first == name:
-                    kept.append(text)
-                elif name not in twins.setdefault(first, []):
-                    twins[first].append(name)
+                # A template is every sentence it stands for: one whose every
+                # sentence another has is a twin's; one only some of whose
+                # sentences another has is an error (adapt-ctc says which).
+                keys = [sentence_key(s, BASE_CONFIG["language"]) for s in example_sentences(str(text))]
+                taken = [owner[k] for k in keys if owner.get(k, name) != name]
+                if keys and len(taken) == len(keys):
+                    if name not in twins.setdefault(taken[0], []):
+                        twins[taken[0]].append(name)
+                    continue
+                for key in keys:
+                    owner.setdefault(key, name)
+                kept.append(text)
             if len(kept) < len(spec.get("examples") or []):
                 spec = {**spec, "examples": kept} if kept else {k: v for k, v in spec.items() if k != "examples"}
                 if not kept and not any(spec.get(k) for k in ("require", "names", "number", "lists", "wildcard")):
                     continue
             intents[name] = spec
     return intents, {name: tuple(others) for name, others in twins.items()}
+
+
+def example_sentences(template: str) -> list[str]:
+    """The sentences an example stands for (adapt_ctc.template); a template
+    that can't be read, as written (adapt-ctc says what is wrong with it)."""
+    try:
+        return expand(template)
+    except TemplateError:
+        return [template]
 
 
 def adapt_config(store: dict[str, Any], commands: dict[str, Command]) -> dict[str, Any] | None:

@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from .numbers import DURATION_UNITS, on_grid
+from .template import TemplateError, covering, expand
 from .text import sentence_key, spoken_words
 
 NAME_TYPES = ("entity", "area", "floor", "media")
@@ -279,8 +280,8 @@ class Intent:
     number: NumberSpec | None = None
     wildcard: Wildcard | None = None
     examples: tuple[str, ...] = ()
-    """Sentences matched against the TDT transcript, as written, when no
-    keyword intent matched."""
+    """Sentences matched word for word, in the CTC evidence and the TDT
+    transcript: every one the templates as written stand for."""
 
     description: str = ""
     """What the intent does, as a verb phrase ("set a timer"). Used to say
@@ -288,6 +289,14 @@ class Intent:
 
     lists: tuple[ListSlot, ...] = ()
     """Value lists; each is also one of ``require`` (or ``optional``)."""
+
+    templates: tuple[str, ...] = ()
+    """The examples as written (adapt_ctc.template: ``(a|b)``, ``[a]``)."""
+
+    meaning_examples: tuple[str, ...] = ()
+    """A few of ``examples`` that say every alternative of a template at least
+    once (template.covering): what a sentence is compared with by meaning.
+    Empty: all of them."""
 
     @property
     def list_values(self) -> dict[str, tuple[str, Any]]:
@@ -582,16 +591,26 @@ def _intent(
     if spec.get("wildcard"):
         wildcard = _wildcard(spec["wildcard"], require + optional, language, f"{where}.wildcard")
 
-    examples = tuple(
+    templates = tuple(
         dict.fromkeys(str(text).strip() for text in _list(spec.get("examples") or [], f"{where}.examples"))
     )
-    for text in examples:
-        if not sentence_key(text, language):
-            raise ConfigError(f"{where}.examples: {text!r} has no speakable words")
+    sentences: list[str] = []
+    meaning: list[str] = []
+    for template in templates:
+        try:
+            said = [s for s in expand(template) if sentence_key(s, language)]
+            meaning.extend(s for s in covering(template) if sentence_key(s, language))
+        except TemplateError as err:
+            raise ConfigError(f"{where}.examples: {template!r}: {err}") from err
+        if not said:
+            raise ConfigError(f"{where}.examples: {template!r} has no speakable words")
+        sentences.extend(said)
+    examples = tuple(dict.fromkeys(sentences))
 
     description = str(spec.get("description") or "").strip()
     intent = Intent(
-        name, require, optional, exclude, names, number, wildcard, examples, description, lists
+        name, require, optional, exclude, names, number, wildcard, examples, description, lists,
+        templates=templates, meaning_examples=tuple(dict.fromkeys(meaning)),
     )
     if set(seen) & set(exclude):
         raise ConfigError(f"{where}.lists: {sorted(set(seen) & set(exclude))} are also excluded")
@@ -612,17 +631,20 @@ def _intent(
 
 
 def _check_examples(intents: dict[str, Intent], language: str) -> None:
-    """An example sentence names one intent."""
+    """An example sentence names one intent -- every sentence a template
+    stands for."""
     owner: dict[str, tuple[str, str]] = {}
     for intent in intents.values():
-        for text in intent.examples:
-            key = sentence_key(text, language)
-            other = owner.setdefault(key, (intent.name, text))
-            if other[0] != intent.name:
-                raise ConfigError(
-                    f"intents.{intent.name}.examples: {text!r} is also an example "
-                    f"of {other[0]} ({other[1]!r})"
-                )
+        for written in intent.templates or intent.examples:
+            for text in expand(written) if intent.templates else [written]:
+                key = sentence_key(text, language)
+                other = owner.setdefault(key, (intent.name, written))
+                if other[0] != intent.name:
+                    said = repr(text) if text == written else f"{text!r} (from {written!r})"
+                    raise ConfigError(
+                        f"intents.{intent.name}.examples: {said} is also an example "
+                        f"of {other[0]} ({other[1]!r})"
+                    )
 
 
 def _wildcard(

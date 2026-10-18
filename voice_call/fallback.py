@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .commands import Command, command_of, match_slots
+from .commands import Command, command_of, example_sentences, match_slots
 from .skills.common import FRACTIONS, SCALES, WORD_NUM, parse_num
 
 _LOGGER = logging.getLogger(__name__)
@@ -429,10 +429,10 @@ _WILDCARD_HELP = {
 
 
 def _description(command: Command) -> str:
-    """What the command does, and how it is said: its examples, else its
-    keywords (the first of each required group)."""
+    """What the command does, and how it is said: its examples (a template's
+    first sentence), else its keywords (the first of each required group)."""
     intent = command.intent
-    said = list(intent.get("examples") or [])[:2]
+    said = [example_sentences(str(t))[0] for t in list(intent.get("examples") or [])[:2]]
     if not said and intent.get("require"):
         words = []
         for group in intent["require"]:

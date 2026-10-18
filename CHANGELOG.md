@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- Example sentences may be templates, as in Home Assistant's sentences:
+  `(turn|switch) on the light[s]` is four sentences, each matched word for
+  word. `{slots}` and `<rules>` aren't supported. The editor shows what each
+  template stands for, and the library's examples use them.
 - An example sentence matches only as all that was said: the example
   "pause" (Pause the music) took "pause the timer" ahead of the timer's
   keywords, and "resume" "resume the timer" (adapt-ctc `examples_whole`).

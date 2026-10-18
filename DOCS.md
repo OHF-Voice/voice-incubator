@@ -117,7 +117,12 @@ added again. A command has:
   - **Example sentences**, said word for word. An example always matches when
     it is heard, ahead of keyword matches -- but only as all that was said:
     the example "pause" is not "pause the timer", which is the timer's.
-    Examples have no placeholders.
+    An example may be a template, as in Home Assistant's sentences: `(a|b)`
+    is either, `[a]` may be left out, inside a word too --
+    `(turn|switch) on the light[s]` is four sentences, each matched word for
+    word. The editor shows what each template stands for. Examples have no
+    placeholders (`{area}`): slots come from keywords. Each sentence costs a
+    little on every call, so a template may stand for 512 at most.
   - **Keywords**: groups that must be heard (any one alternative of each), in
     any order, plus optional groups and words that must not be heard ("is",
     so "the door is locked" isn't "lock the door"). Write `turn ... on` for

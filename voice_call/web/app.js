@@ -129,6 +129,25 @@ function poll(fn, ms) {
 }
 
 // Chips: a list of short phrases. Enter or comma adds; × removes.
+// What each example template stands for -- its sentences, or what's wrong
+// with it -- under the example sentences.
+function examplesInfo(values) {
+  const box = h("div", { class: "small examples-info" });
+  async function show(list) {
+    const templates = asList(list).map(String).filter((v) => /[()[\]|{}<>]/.test(v));
+    if (!templates.length) { fill(box); return; }
+    try {
+      const data = await api("POST", "examples", { examples: templates });
+      fill(box, data.examples.map((e) => (e.error
+        ? h("div", { class: "notice bad" }, `“${e.example}”: ${e.error}`)
+        : h("div", { class: "muted", title: e.sentences.join("\n") },
+          `“${e.example}” is ${e.count} sentence${e.count === 1 ? "" : "s"}: `, e.sentences.slice(0, 3).join(" · "), e.count > 3 ? " …" : ""))));
+    } catch (err) { fill(box, h("div", { class: "notice bad" }, err.message)); }
+  }
+  show(values);
+  return { box, show };
+}
+
 function chipsInput(values, onChange, placeholder) {
   const list = asList(values).map(String);
   const wrap = h("div", { class: "chips" });
@@ -1164,8 +1183,9 @@ async function pageCommand(id, prefill) {
         h("p", { class: "muted small" }, "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
         targetEditor(spec)),
       h("div", { class: "panel" }, h("h2", {}, "Listen for"),
-        field("Example sentences", chipsInput(spec.examples || [], (v) => { spec.examples = v; }, "type a whole sentence and press Enter"),
-          "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. No placeholders: slots come from keywords below."),
+        ((info) => field("Example sentences", h("div", {},
+          chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box),
+          "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."))(examplesInfo(spec.examples || [])),
         h("h3", {}, "Keywords"),
         h("p", { class: "muted small" }, "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
         field("Required", groupsEditor(spec.require, (v) => { spec.require = v; }, "Add a required group")),

@@ -701,6 +701,24 @@ for this app:
   under the limit of 10) took "pause the timer" from the timer's keywords
   (0.03), and "cancel" "cancel the timer". On 250 recorded calls (`calls/`,
   `var/calls/`), none decided differently; 11 had matched an example.
+- **Templates.** An example may use a small part of hassil's syntax --
+  `(a|b)`, `[a]`, nested, inside words: `(turn|switch) on the light[s]`
+  (`adapt_ctc/template.py`). A template stands for every sentence it can be,
+  each searched for in the CTC evidence and looked up in the transcript like
+  one written out; for meaning, the few that say every alternative once
+  (`covering`: "turn on the lights", "switch on light") stand for all, since
+  the rest are near copies that each cost an embedding (not their centroid:
+  that sits between distinct phrasings and is close to neither). Slots and
+  rules are refused. A copy whose templates stand for the same sentences is
+  a twin (`shared_examples`); one sharing only some is an error naming both.
+  At most 512 sentences a template: the example search costs about 0.06 ms a
+  sentence on x86 (20 ms at 300, 64 at 1,100; the library's 72 take about
+  10), after two changes -- one sentence per intent in the examples' graph
+  is the cheapest in one pass, not the general parse that pairs every two
+  spans (`one_phrase`), and what each leftover word was heard as is worked
+  out once per call, not once per intent -- which took 1,100 sentences from
+  156 ms (p90 784) to 64 (p90 112) and changed no decision on the 250
+  recorded calls.
 - **Value lists** (`lists:`) report which alternative of a group was heard, as
   a value: `{color: red}` for "crimson".
 - **Bounded free text.** A wildcard may need both edges (`bounded`: after

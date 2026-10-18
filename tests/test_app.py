@@ -326,6 +326,13 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/unknown", json={"response": ""})).status == 200
             assert "unknown" not in (tmp_path / "commands.yaml").read_text()
 
+            # What example templates stand for, for the editor.
+            stands = (await (await http.post("/api/examples", json={"examples": ["turn on the light[s]", "(oops"]})).json())["examples"]
+            assert stands == [
+                {"example": "turn on the light[s]", "count": 2, "sentences": ["turn on the lights", "turn on the light"]},
+                {"example": "(oops", "error": "'(' at 1 is never closed"},
+            ]
+
             # The library: a command's versions, each added on its own.
             entries = (await (await http.get("/api/library")).json())["entries"]
             play = [e for e in entries if e["family"] == "play_music"]

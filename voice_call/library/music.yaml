@@ -93,7 +93,7 @@ commands:
     variants:
       here:
         title: Play music like it on this satellite
-        examples: [play more like this, more like this, play something similar]
+        examples: ["[play] more like this", play something similar]
         combinations: [[], [query]]
       device:
         <<: *player
@@ -116,7 +116,7 @@ commands:
     variants:
       here:
         title: Pause the music on this satellite
-        examples: [pause, pause the music]
+        examples: ["pause [the music]"]
       device:
         <<: *player
         title: Pause the music on a different device
@@ -136,7 +136,7 @@ commands:
     variants:
       here:
         title: Resume the music on this satellite
-        examples: [resume, resume the music, unpause, play music, keep playing]
+        examples: ["(resume|unpause) [the music]", play music, keep playing]
       device:
         <<: *player
         title: Resume the music on a different device
@@ -174,7 +174,7 @@ commands:
     variants:
       here:
         title: Next track on this satellite
-        examples: [next, next song, skip, skip this song]
+        examples: ["next [song]", "skip [this song]"]
       device:
         <<: *player
         title: Next track on a different device
@@ -193,7 +193,7 @@ commands:
     variants:
       here:
         title: Previous track on this satellite
-        examples: [previous song, go back, last song]
+        examples: ["(previous|last) song", go back]
       device:
         <<: *player
         title: Previous track on a different device
@@ -273,7 +273,7 @@ commands:
     variants:
       here:
         title: Mute this satellite
-        examples: [mute, mute the music]
+        examples: ["mute [the music]"]
       device:
         <<: *player
         title: Mute a different device
@@ -292,7 +292,7 @@ commands:
     variants:
       here:
         title: Unmute this satellite
-        examples: [unmute, unmute the music]
+        examples: ["unmute [the music]"]
       device:
         <<: *player
         title: Unmute a different device
@@ -312,7 +312,7 @@ commands:
     variants:
       here:
         title: Shuffle on this satellite
-        examples: [shuffle, shuffle the music, turn on shuffle]
+        examples: ["shuffle [the music]", turn on shuffle]
       device:
         <<: *player
         title: Shuffle on a different device
@@ -370,7 +370,7 @@ commands:
     variants:
       here:
         title: Repeat on this satellite
-        examples: [repeat, turn on repeat, repeat all]
+        examples: ["repeat [all]", turn on repeat]
       device:
         <<: *player
         title: Repeat on a different device

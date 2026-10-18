@@ -51,7 +51,7 @@ commands:
     title: What's the date
     icon: mdi:calendar-today
     description: tell the date
-    examples: [what's the date, what day is it]
+    examples: ["what's the date [today]", "what day is it [today]"]
     require: [[date, what day]]
     optional: [[tell me], [what is, whats, what's], [today]]
     response: "Today is {{ now().strftime('%A, %B %-d') }}."
@@ -63,7 +63,7 @@ commands:
     # Said whole only: "cancel the timer" is the timer's. Nothing to do, and by
     # default nothing said, not even a sound: the satellite stops listening.
     # Give it a response (Only respond) or a beep to hear that it did.
-    examples: [never mind, nevermind, forget it, cancel, cancel that, nothing]
+    examples: [never mind, nevermind, forget it, "cancel [that]", nothing]
 
   # Lights here, in an area or on a floor named, or a device by name.
   turn_on:
@@ -360,7 +360,7 @@ commands:
     title: What's the weather
     icon: mdi:weather-partly-cloudy
     description: tell the weather
-    examples: [what's the weather like today, is it going to rain]
+    examples: ["what's the weather [like] [today]", "is it going to rain [today]"]
     require: [[weather, forecast]]
     slots:
       entity: [weather.home]
@@ -473,7 +473,7 @@ commands:
     title: Activate a scene
     icon: mdi:palette
     description: start movie time
-    examples: [movie time, start movie time]
+    examples: ["[start] movie time"]
     scene: scene.movie_time
     verbosity: beep
     response:

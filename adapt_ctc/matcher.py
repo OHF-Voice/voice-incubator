@@ -181,9 +181,13 @@ class Recognizer:
         vocab: Vocabulary | None = None,
         transcriber=None,
         embedder=None,
+        one_phrase: bool = False,
     ) -> None:
         if model is None and vocab is None:
             raise ValueError("Need an acoustic model or at least its vocabulary")
+        self.one_phrase = one_phrase
+        """Each intent is one of its phrases, said once: the example
+        sentences' graph, where a template stands for hundreds."""
         self.config = config
         self.model = model
         self.vocab = model.vocab if model is not None else vocab
@@ -250,8 +254,11 @@ class Recognizer:
     def _embed_examples(self) -> None:
         """The examples' embeddings, and the built-in everyday requests not
         too close to any of them."""
+        # A template's few that say each alternative, not every sentence.
         self._example_owners = [
-            (intent.name, text) for intent in self.config.intents.values() for text in intent.examples
+            (intent.name, text)
+            for intent in self.config.intents.values()
+            for text in intent.meaning_examples or intent.examples
         ]
         # Descriptions too, for naming the closest intent (closest_by_meaning).
         self._hint_owners = self._example_owners + [
@@ -324,7 +331,7 @@ class Recognizer:
             intents=intents,
             wake=None,
         )
-        return Recognizer(examples, vocab=self.vocab)
+        return Recognizer(examples, vocab=self.vocab, one_phrase=True)
 
     def _build_graph(self) -> tuple[CompiledGraph, list[str], dict[str, int]]:
         config = self.config
@@ -587,10 +594,12 @@ class Recognizer:
         word_costs, important, lead_in = self._word_costs(spotting, heard)
         name_positions = self._name_positions(spotting, heard)
         trailing = self._trailing_places(spotting, heard) if settings.places_must_fit else []
+        # What each word was heard as, for every intent that leaves it.
+        labels: dict[int, list[str]] = {}
 
         results = [
             self._match_intent(
-                intent, spotting, heard, word_costs, important, lead_in, name_positions, trailing
+                intent, spotting, heard, word_costs, important, lead_in, name_positions, trailing, labels
             )
             if intent.keywords
             else IntentResult(
@@ -724,8 +733,8 @@ class Recognizer:
         ("play jazz *on the Mark 2*"): ``[(type, id)]``, or
         ``[(type, id, hit)]``."""
         intent = self.config.intents.get(intent_name)
-        if intent is None:
-            return []
+        if intent is None or not self._names_by_type:
+            return []  # no names in this graph: nothing heard as a place (the examples')
         said_last = {id(hit) for _, hit, _ in trailing or []}
         out: dict[tuple[str, str], Hit] = {}
         for hit in spotting.hits:
@@ -931,6 +940,7 @@ class Recognizer:
         lead_in: int | None,
         name_positions: dict[int, str],
         trailing: list[tuple[int, Hit, Meaning]] | None = None,
+        labels: dict[int, list[str]] | None = None,
     ) -> IntentResult:
         settings = self.config.settings
         items, cond_bits = self._items(intent, heard)
@@ -1110,6 +1120,18 @@ class Recognizer:
         table: list[dict[_State, tuple[int, float, tuple[int, _State] | None]]] = [
             {} for _ in items
         ]
+        if self.one_phrase:
+            # One phrase, said once: the cheapest with what it leaves around
+            # it, in one pass (the parse below pairs every two).
+            best_one: tuple[tuple[int, float], int] | None = None
+            for j, item in enumerate(items):
+                before, vetoes_before = gap(-1, item.start)
+                after, vetoes_after = gap(item.end, num_frames)
+                total = (vetoes_before + vetoes_after, before + item.cost + after)
+                if best_one is None or total < best_one[0]:
+                    best_one = (total, j)
+            items = [items[best_one[1]]] if best_one is not None else []
+            table = [{}]
 
         def relax(j: int, state: _State, vetoes: int, cost: float, back) -> None:
             current = table[j].get(state)
@@ -1186,7 +1208,7 @@ class Recognizer:
                 result.slots[slot] = value
         result.heard_groups = len(intent.require)
         result.unexplained = self._unexplained(
-            spotting, heard, chosen, important, lead_in, name_positions
+            spotting, heard, chosen, important, lead_in, name_positions, labels
         )
         self._judge(intent, result, excluded, spotting, trailing)
         return result
@@ -1277,7 +1299,11 @@ class Recognizer:
         important: list[bool],
         lead_in: int | None,
         name_positions: dict[int, str],
+        labels: dict[int, list[str]] | None = None,
     ) -> list[UnexplainedWord]:
+        """The words ``chosen`` leaves, and what each was heard as (``labels``:
+        the same for every intent, so worked out once per recognition)."""
+        labels = {} if labels is None else labels
         out = []
         for index, (word, is_important) in enumerate(zip(spotting.words, important)):
             if index == lead_in:
@@ -1287,17 +1313,19 @@ class Recognizer:
             )
             if 2 * covered >= len(word.frames):
                 continue
-            labels = []
-            for hit in heard:
-                if hit.meaningful and any(hit.start <= f <= hit.end for f in word.frames):
-                    labels.extend(m.label() for m in hit.meanings if m.meaningful)
+            if index not in labels:
+                found = []
+                for hit in heard:
+                    if hit.meaningful and any(hit.start <= f <= hit.end for f in word.frames):
+                        found.extend(m.label() for m in hit.meanings if m.meaningful)
+                labels[index] = list(dict.fromkeys(found))
             out.append(
                 UnexplainedWord(
                     word.text,
                     word.start,
                     word.end,
                     is_important,
-                    list(dict.fromkeys(labels)),
+                    list(labels[index]),
                     name_positions.get(index),
                 )
             )

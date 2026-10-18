@@ -135,6 +135,25 @@ def test_a_copy_in_another_group_says_the_same_sentences(engine):
         engine.build(compile_store(STORE))
 
 
+def test_a_copy_says_the_same_templates(engine):
+    # A template is every sentence it stands for: a copy's, all the first's,
+    # makes it a twin.
+    lights = {"description": "turn on the lights", "examples": ["(turn|switch) on the light[s]"], "groups": ["home"], "response": "Lights."}
+    store = {
+        "groups": {"home": {"name": "Home"}, "kids": {"name": "Kids"}},
+        "commands": {"lights": lights, "kids_lights": {**lights, "groups": ["kids"], "response": "Night light."}},
+    }
+    compiled = compile_store(store)
+    assert compiled.twins == {"lights": ("kids_lights",)} and "kids_lights" not in compiled.config["intents"]
+    engine.build(compiled)
+    kids = Satellite("k", "Kids", "kids", command_groups=frozenset({"kids"}))
+    try:
+        decision = engine.recognize_text("switch on the light", kids)
+        assert decision.command.id == "kids_lights"
+    finally:
+        engine.build(compile_store(STORE))
+
+
 def test_a_room_it_cant_take_is_why(engine):
     # Heard whole but for the room: the hint says so, though most of the
     # sentence was free text.

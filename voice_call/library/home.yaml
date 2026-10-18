@@ -264,7 +264,7 @@ commands:
     title: Lock up
     icon: mdi:shield-lock
     description: lock all the doors
-    examples: [lock up, lock all the doors, lock everything]
+    examples: [lock up, "lock all [the] doors", lock everything]
     require: [[lock], [all, everything, up]]
     optional: [[doors, locks]]
     exclude: [unlock, is, are]
