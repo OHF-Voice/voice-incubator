@@ -117,6 +117,12 @@ class Settings:
     (within ``example_max_cost`` and ``example_margin``) win over keyword
     matches. For examples that must always match when said word for word."""
 
+    examples_whole: bool = False
+    """An example sentence found in the CTC evidence matches only when it is
+    the whole of what was said: no heard word left unexplained (but a lead-in,
+    the wake word's tail). Else "pause" is found in "pause the timer", and --
+    with ``examples_first`` -- wins over the timer's keywords."""
+
     embedding_accept: bool = True
     """Accept an example intent whose example is closest in meaning to the
     transcript (``embedding_margin``). When false, the embedding is only used

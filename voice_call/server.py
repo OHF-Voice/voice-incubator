@@ -37,7 +37,7 @@ from .fallback import (
     llama_available,
     needs_model,
 )
-from .engine import LEARN_VOICE, Decision, Engine, Satellite, llm_note
+from .engine import Decision, Engine, Satellite, llm_note
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
@@ -54,7 +54,7 @@ from .protocol import (
     encode_json,
     ms_to_bytes,
 )
-from .speaker import Enrollment, Identification, SpeakerId
+from .speaker import Identification, SpeakerId
 from .store import Compiled, Store
 from .tts import Speech
 from .wake import VerifyResult, WakeVerifier
@@ -233,7 +233,6 @@ class Options:
     """Which capture to identify from. AEC benchmarked at half the EER of AGC,
     provided the firmware streams it with gain (see voice-call-vpe.yaml)."""
     speaker_learn: bool = True
-    enroll_commands: int = 5
     timer_ring_seconds: float = 300.0
     """How long a finished timer rings if nobody stops it."""
     downloads: bool = False
@@ -304,8 +303,6 @@ class Session:
     """The satellite's key (its MAC) once it has said HELLO."""
     hello: dict = field(default_factory=dict)
     connected_at: float | None = None
-    enrollment: Enrollment | None = None
-    """A voice being learned from this satellite's next few commands."""
     warned_quiet_aec: bool = False
     ringing: asyncio.Task | None = None
     """A finished timer ringing on this satellite."""
@@ -375,7 +372,6 @@ class VoiceCallApp:
                 channel=options.speaker_channel,
                 threshold=options.speaker_threshold,
                 learn=options.speaker_learn,
-                enroll_commands=options.enroll_commands,
             )
         elif options.speaker_id:
             _LOGGER.warning("Speaker model %s not found; speaker ID disabled", speaker_model)
@@ -420,7 +416,6 @@ class VoiceCallApp:
             self.tdt_dir(),
             self.options.embedding_dir,
             self.options.threads,
-            (LEARN_VOICE,) if self.speakers is not None else (),
         )
         self.engine.entity_area = self._entity_area
         await self.reload_commands()
@@ -623,7 +618,7 @@ class VoiceCallApp:
         says when it acted out of the satellite's area (actions.BEEP_ELSEWHERE
         unless set)."""
         value = self.store.settings.get("beep_elsewhere")
-        return value if value in VERBOSITY else actions.BEEP_ELSEWHERE
+        return value if value in VERBOSITY[1:] else actions.BEEP_ELSEWHERE
 
     def agent_settings(self) -> dict[str, Any]:
         """``settings.yaml``: the Home Assistant conversation agent that gets
@@ -1481,22 +1476,17 @@ class VoiceCallApp:
             record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         ident = await speaker_task if speaker_task is not None else None
 
-        if decision.internal == LEARN_VOICE:
-            name = _speaker_name(decision.slots.get("speaker"))
-            if name:
-                if record is not None:
-                    self.calls.finish(record, "enrolling", f"learning {name}'s voice", self._call_audio(call))
-                await self._start_enrollment(session, name)
-                return
-        notice = self._after_identify(session, ident)
+        self._after_identify(session, ident)
         speaker = _speaker_json(ident)
         dry_run = bool(record is not None and record.debug_session and record.dry_run)
 
         if call.interrupted_ring and (
             decision.command is None
+            or (decision.behavior is not None and decision.behavior.does == "nothing")
             or timers.stops_ringing(decision.behavior.timer if decision.behavior else None, decision.slots)
         ):
-            # "Okay Nabu, stop" (or anything) said over the alarm stopped it.
+            # "Okay Nabu, stop" (or "never mind", or anything) said over the
+            # alarm stopped it.
             if record is not None:
                 record.stage("timer_stopped", by="call", heard=decision.transcript)
                 self.calls.finish(record, "timer stopped", "stopped the timer", self._call_audio(call))
@@ -1512,10 +1502,13 @@ class VoiceCallApp:
             await self._event(session, "not_recognized", heard=decision.transcript)
         else:
             await self._event(session, "recognized", text=decision.transcript, command=decision.command.id)
-        await self._event(session, "responding", text=speech)
-        await self._say(session, speech, record)
-        if notice:
-            await self._announce_enrolled(session, notice)
+        if speech is None:
+            # Silent: not even the acknowledgement sound ("never mind").
+            if record is not None:
+                record.stage("speech", text="", silent=True)
+        else:
+            await self._event(session, "responding", text=speech)
+            await self._say(session, speech, record)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
         await self._hang_up(session, "done" if decision.command or answered else "not_recognized")
@@ -1527,14 +1520,14 @@ class VoiceCallApp:
         speaker: dict[str, Any],
         dry_run: bool,
         record: CallRecord | None,
-    ) -> tuple[str, str, str]:
-        """Run (or show) the decided command. Returns what to say, the
-        outcome, and a one-line summary."""
+    ) -> tuple[str | None, str, str]:
+        """Run (or show) the decided command. Returns what to say (None: a
+        silent command, not even the acknowledgement sound), the outcome, and
+        a one-line summary."""
         if (
             decision.command is None
             and decision.answer is None
             and decision.refused is None
-            and decision.internal is None
             and self.agent.agent_id
             and decision.transcript.strip()
         ):
@@ -1575,7 +1568,7 @@ class VoiceCallApp:
         if record is not None:
             record.stage("action", **outcome.to_json())
         state = "error" if outcome.error else ("dry run" if dry_run else "done")
-        return outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
+        return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
 
     async def _ask_agent(
         self, decision: Decision, satellite: Satellite, dry_run: bool, record: CallRecord | None
@@ -1685,7 +1678,7 @@ class VoiceCallApp:
         speech, outcome, summary = await self._carry_out(
             decision, satellite, {"name": None, "score": None}, not run_actions, record
         )
-        record.stage("speech", text=speech)
+        record.stage("speech", text=speech or "", **({"silent": True} if speech is None else {}))
         self.calls.finish(record, outcome, summary, {"command": pcm} if pcm else None)
         return record
 
@@ -1745,7 +1738,7 @@ class VoiceCallApp:
         speech, outcome, summary = await self._carry_out(
             decision, satellite, speaker, not run_actions, record
         )
-        record.stage("speech", text=speech)
+        record.stage("speech", text=speech or "", **({"silent": True} if speech is None else {}))
         self.calls.finish(record, outcome, summary, {"call": pcm})
         return record
 
@@ -1930,16 +1923,6 @@ class VoiceCallApp:
         if ident is not None and ident.name is not None:
             fields = {"speaker": ident.name, "score": round(ident.score, 3)}
             fields.update(_rgb(self.speakers.profiles.color(ident.name)))
-        enrolling = session.enrollment
-        if enrolling is not None and not enrolling.expired:
-            # While a voice is being learned the ring shows the color it will get.
-            fields = {
-                "speaker": enrolling.name,
-                "enrolling": True,
-                "collected": len(enrolling.utterances),
-                "needed": enrolling.needed,
-                **_rgb(enrolling.color),
-            }
         if ident is None or ident.utterance is None:
             _LOGGER.info("[%s] Speaker: too little speech to identify", session)
         else:
@@ -1965,63 +1948,12 @@ class VoiceCallApp:
         await self._event(session, "processing", **fields)
         return ident
 
-    def _after_identify(self, session: Session, ident: Identification | None) -> str | None:
-        """Feed an active enrollment, or learn from a confident call. Returns
-        what to tell the user if an enrollment just completed."""
+    def _after_identify(self, session: Session, ident: Identification | None) -> None:
+        """Learn from a confident call: its voice into the speaker's profile."""
         if self.speakers is None or ident is None:
-            return None
-        enrolling = session.enrollment
-        if enrolling is not None:
-            if enrolling.expired:
-                _LOGGER.info(
-                    "[%s] Enrollment of %s expired with %d/%d utterances",
-                    session,
-                    enrolling.name,
-                    len(enrolling.utterances),
-                    enrolling.needed,
-                )
-                session.enrollment = None
-            else:
-                if self.speakers.add_to_enrollment(enrolling, ident) is None:
-                    return None
-                session.enrollment = None
-                return enrolling.name
+            return
         if self.speakers.maybe_learn(ident):
             _LOGGER.info("[%s] Learned this call into %s's profile", session, ident.name)
-        return None
-
-    async def _start_enrollment(self, session: Session, name: str) -> None:
-        if self.speakers is None:
-            await self._say(session, "Speaker identification is turned off.")
-            await self._hang_up(session, "done")
-            return
-        session.enrollment = self.speakers.begin_enrollment(name)
-        enrollment = session.enrollment
-        _LOGGER.info(
-            "[%s] Enrolling %s from the next %d command(s), color %s",
-            session,
-            enrollment.name,
-            enrollment.needed,
-            enrollment.color,
-        )
-        await self._event(
-            session, "enrolling", speaker=enrollment.name, needed=enrollment.needed,
-            **_rgb(enrollment.color),
-        )
-        await self._say(
-            session,
-            f"OK. {enrollment.name}, use me as usual for your next "
-            f"{enrollment.needed} commands, and I'll learn your voice.",
-        )
-        await self._hang_up(session, "enrolling")
-
-    async def _announce_enrolled(self, session: Session, name: str) -> None:
-        assert self.speakers is not None
-        await self._event(
-            session, "speaker_enrolled", speaker=name,
-            **_rgb(self.speakers.profiles.color(name)),
-        )
-        await self._say(session, f"I've learned {name}'s voice.")
 
     # ---------------------------------------------------------------- output
 

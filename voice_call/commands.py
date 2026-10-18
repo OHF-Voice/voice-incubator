@@ -44,7 +44,8 @@ satellite's own timers: start, cancel, cancel_all, pause, resume, add, subtract,
 status; see voice_call/timers.py), or ``music`` (playing or controlling Music
 Assistant's players: play, pause, next, volume_up ...; see voice_call/music.py),
 plus an optional ``response`` template that is spoken. A command may also only
-respond.
+respond, or do nothing at all -- "never mind" -- which by default says nothing,
+not even the acknowledgement sound.
 
 ``response`` may instead say something different for each way it can turn
 out (its outcome): ``done``, ``failed`` (Home Assistant refused), what a
@@ -112,14 +113,17 @@ OUTCOME_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 # Every command is done or failed; a timer command also has its operation's
 # outcomes (timers.OUTCOMES), and a script or action whatever it returns.
 BASE_OUTCOMES = ("done", "failed")
-# How much a command says when it is done. A beep is the acknowledgement sound
-# (a question still answers); brief is a fixed sentence ("Turned on the
-# lights.", which text-to-speech caches); specific says what was heard
-# ("... in the Kitchen", "the 5 minute timer"); verbose what it did, in full
-# ("Turned on Ceiling, Lamp and Strip in the Kitchen."). Other outcomes always
-# say what went wrong.
-VERBOSITY = ("beep", "brief", "specific", "verbose")
-SPOKEN = VERBOSITY[1:]
+# How much a command says when it is done. Silent is nothing at all, not even
+# a sound ("never mind"); a beep is the acknowledgement sound (a question still
+# answers either way); brief is a fixed sentence ("Turned on the lights.",
+# which text-to-speech caches); specific says what was heard ("... in the
+# Kitchen", "the 5 minute timer"); verbose what it did, in full ("Turned on
+# Ceiling, Lamp and Strip in the Kitchen."). Other outcomes always say what
+# went wrong. By number, 0 to 4.
+VERBOSITY = ("silent", "beep", "brief", "specific", "verbose")
+QUIET = VERBOSITY[:2]
+"""The levels with nothing to say."""
+SPOKEN = VERBOSITY[2:]
 """The levels with something to say, which a done response can be written for."""
 COMMAND_KEYS = {
     "description",
@@ -154,7 +158,7 @@ BASE_CONFIG: dict[str, Any] = {
     "filler": ["the", "a", "an", "please", "my", "can you", "could you", "would you", "it", "of"],
     "name_cues": ["the", "my", "named", "called"],
     "numbers": {"detect": {"min": 0, "max": 200}},
-    "settings": {"examples_first": True, "embedding_accept": False},
+    "settings": {"examples_first": True, "examples_whole": True, "embedding_accept": False},
 }
 
 # Value lists the app keeps current itself; commands refer to them by name
@@ -254,6 +258,8 @@ class Behavior:
         response (an action without one still beeps)."""
         if self.music and self.music not in ("play", "add", "radio", "status"):
             return "beep"
+        if self.does == "nothing":
+            return "silent"
         return "specific"
 
     @property
@@ -273,6 +279,8 @@ class Behavior:
             return (*MUSIC_OUTCOMES[self.music], "failed")
         if self.script or self.action:
             return None
+        if self.does == "nothing":
+            return ("done",)
         return BASE_OUTCOMES
 
     @property
@@ -287,7 +295,8 @@ class Behavior:
             return "timer"
         if self.music:
             return "music"
-        return "respond"
+        # Only a response, or nothing at all: "never mind".
+        return "respond" if self.texts("done") else "nothing"
 
     def sequence(self) -> list[dict]:
         """The Home Assistant action sequence, empty for a response only.
@@ -360,10 +369,10 @@ class Command:
 
 
 def closest_text(texts: dict[str, str], level: str) -> str | None:
-    """The text for ``level`` (a beep counts as brief), else the closest:
-    less said first, then more."""
-    index = max(1, VERBOSITY.index(level)) if level in VERBOSITY else SPOKEN.index("specific") + 1
-    order = list(VERBOSITY[index:0:-1]) + list(VERBOSITY[index + 1 :])
+    """The text for ``level`` (silent or a beep counts as brief), else the
+    closest: less said first, then more."""
+    index = SPOKEN.index(level) if level in SPOKEN else 0 if level in QUIET else SPOKEN.index("specific")
+    order = list(SPOKEN[index::-1]) + list(SPOKEN[index + 1 :])
     return next((texts[lvl] for lvl in order if texts.get(lvl)), None)
 
 
@@ -417,8 +426,6 @@ def parse_command(command_id: str, spec: Any) -> Command:
     if duration:
         _ensure_unit_keywords(intent)
     behavior = _behavior(spec, where)
-    if behavior.does == "respond" and not behavior.response_for("done"):
-        raise ConfigError(f"{where}: needs a script, scene, action or response")
     _check_outcomes(behavior, f"{where}.response")
 
     return Command(
@@ -659,14 +666,14 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
 
 
 def _verbosity(value: Any, where: str) -> str | None:
-    """A level by name, or 1 to 4."""
+    """A level by name, or 0 (silent) to 4 (verbose)."""
     if value in (None, ""):
         return None
-    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= len(VERBOSITY):
-        return VERBOSITY[value - 1]
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < len(VERBOSITY):
+        return VERBOSITY[value]
     if str(value) in VERBOSITY:
         return str(value)
-    raise ConfigError(f"{where}: one of {', '.join(VERBOSITY)} (or 1 to {len(VERBOSITY)})")
+    raise ConfigError(f"{where}: one of {', '.join(VERBOSITY)} (or 0 to {len(VERBOSITY) - 1})")
 
 
 def _response(value: Any, where: str) -> str | dict[str, Any] | None:
@@ -713,7 +720,7 @@ def _check_outcomes(behavior: Behavior, where: str) -> None:
         if behavior.timer or behavior.music:
             kind = f"{behavior.does}: {behavior.timer or behavior.music}"
         else:
-            kind = {"respond": "only a response"}.get(behavior.does, f"a {behavior.does}")
+            kind = {"respond": "only a response", "nothing": "nothing to do"}.get(behavior.does, f"a {behavior.does}")
         raise ConfigError(
             f"{where}: {', '.join(unknown)} can't happen with {kind}; use {', '.join(allowed)}"
         )

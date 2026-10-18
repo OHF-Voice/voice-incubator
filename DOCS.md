@@ -115,7 +115,9 @@ added again. A command has:
   ("cooking mode") while the target stays fixed.
 - **Listen for**:
   - **Example sentences**, said word for word. An example always matches when
-    it is heard, ahead of keyword matches. Examples have no placeholders.
+    it is heard, ahead of keyword matches -- but only as all that was said:
+    the example "pause" is not "pause the timer", which is the timer's.
+    Examples have no placeholders.
   - **Keywords**: groups that must be heard (any one alternative of each), in
     any order, plus optional groups and words that must not be heard ("is",
     so "the door is locked" isn't "lock the door"). Write `turn ... on` for
@@ -159,8 +161,11 @@ added again. A command has:
   action (Home Assistant script syntax), a timer operation or a music
   operation (below), plus an
   optional **response** template that is spoken. Nothing to say plays a short
-  sound.
-- **How much it says** when it's done, one of four levels:
+  sound. Or **nothing** at all: the library's **Never mind** ("never mind",
+  "cancel", "forget it") only ends the conversation, silently.
+- **How much it says** when it's done, one of five levels:
+  0. **Silent**: nothing, not even a sound -- what a command that does
+     nothing says by default. A question still answers.
   1. **Beep**: the acknowledgement sound. A question still answers.
   2. **Brief**: a fixed sentence, "Turned on the lights." -- the same every
      time, so text-to-speech caches it.
@@ -505,8 +510,7 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   can be **replayed** through today's commands.
 - **Who spoke**: a kept session's voice can be added to a speaker's -- one
   already known, or a new one -- so they are recognized better from then on
-  (and their name reaches commands as `speaker`). Saying "learn a new voice
-  for Mike" to a satellite does the same from Mike's next few commands.
+  (and their name reaches commands as `speaker`).
 
 ## YAML
 
@@ -541,7 +545,7 @@ commands:
     names: {area: {count: 1}, floor: {count: 1}}
     combinations: [[], [area], [floor]]  # nothing named: the satellite's area
     action: {action: light.turn_on, target: "{{ target }}"}
-    verbosity: beep  # beep, brief, specific or verbose (or 1 to 4)
+    verbosity: beep  # silent, beep, brief, specific or verbose (or 0 to 4)
     response:
       done:
         brief: Turned on the lights.

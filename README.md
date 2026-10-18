@@ -642,23 +642,18 @@ decoded: ~0.1 s on a Pi 5, ~0.2-0.35 s on a Pi 4.
 | event | data |
 |---|---|
 | `processing` | `speaker` (name or `unknown`), `score`, and the color as `r`, `g`, `b` |
-| `enrolling` | `speaker`, `needed`, color -- after "learn a new voice for ..." |
-| `speaker_enrolled` | `speaker`, color -- once enough of their voice is in |
 
 Benchmarked on recorded VPE audio of four speakers (whosaidit): ~1% EER on AGC,
 ~0.5% on AEC; at 0.45, about 98% of household commands are accepted while 0.5%
 of an un-enrolled speaker's in the same room get through.
 
-**Enrolling.** Say *"okay nabu, learn a new voice for Natalie"*. The app handles
-that itself (it never reaches Home Assistant), replies, and learns Natalie's
-voice from the next five commands on that satellite -- which run normally.
-Meanwhile the ring shows the color she is getting. Commands that do not sound
-like the rest (someone else stepping in) are left out, as is anyone already
-enrolled and recognized with confidence, so it waits for five consistent ones;
-after ten minutes an unfinished enrollment lapses. Saying it for an existing
-name re-enrolls them and keeps their color. Colors come from a fixed list of
-hues that stay distinct on the ring, skipping red (error) and the default cyan
-(nobody recognized).
+**Enrolling.** On a kept session's page (Sessions), "Who spoke" adds its
+voice to a speaker, known or new; or enroll from recordings on the command
+line (below). Colors come from a fixed list of hues that stay distinct on the
+ring, skipping red (error) and the default cyan (nobody recognized). Saying
+"learn a new voice for Natalie" to a satellite, which learned her voice from
+her next five commands, was removed until it has a better way to start (git
+history before 2026-10-18 has it).
 
 **Learning.** A command that clears the threshold by 0.05, beats the
 runner-up by 0.1 and has 2 s of speech is folded into that person's profile,
@@ -700,7 +695,12 @@ for this app:
   said word for word wins over keyword matches (`settings.examples_first`).
   The sentences are a graph of their own (about 16 ms for 51 sentences on
   x86). The TDT transcript, word for word, is still the fallback when nothing
-  matched.
+  matched. A sentence found in the evidence counts only as all that was said
+  (`settings.examples_whole`: no heard word left unexplained but the wake
+  word's tail): the example "pause" (cost 8.0 with "the timer" unexplained,
+  under the limit of 10) took "pause the timer" from the timer's keywords
+  (0.03), and "cancel" "cancel the timer". On 250 recorded calls (`calls/`,
+  `var/calls/`), none decided differently; 11 had matched an example.
 - **Value lists** (`lists:`) report which alternative of a group was heard, as
   a value: `{color: red}` for "crimson".
 - **Bounded free text.** A wildcard may need both edges (`bounded`: after

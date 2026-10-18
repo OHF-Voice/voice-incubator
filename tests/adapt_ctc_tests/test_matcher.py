@@ -678,6 +678,24 @@ def test_examples_are_searched_for_in_the_ctc_evidence_before_tdt():
     assert rejected(result, "Weather").reasons == []
 
 
+def test_an_example_said_whole_only():
+    # "turn on" said in "turn on the lights": with examples first, the short
+    # sentence took it from the keywords; said whole only, the keywords have it.
+    script = ["turn", "on", "the", "lights"]
+    short = {"Hello": {"examples": ["turn on"]}}
+    result, _ = recognize_with_examples(script, "", short, examples_first=True)
+    assert result.best.intent == "Hello" and result.best.example_source == "CTC"
+    result, _ = recognize_with_examples(script, "", short, examples_first=True, examples_whole=True)
+    assert result.best.intent == "TurnOn"
+    # Said whole, it still matches, ahead of the keywords.
+    result, _ = recognize_with_examples(["turn", "on"], "", short, examples_first=True, examples_whole=True)
+    assert result.best.intent == "Hello" and result.best.example_source == "CTC"
+    # An example-only intent: not that sentence, and said why.
+    result, _ = recognize_with_examples(["what", "weather", "tomorrow"], "", {"Weather": {"examples": ["what weather"]}}, examples_whole=True)
+    assert result.best is None
+    assert rejected(result, "Weather").reasons[0] == "example 'what weather' is not all that was said: tomorrow besides"
+
+
 def test_examples_too_close_to_another_intents_go_to_tdt():
     result, transcriber = recognize_with_examples(
         ["what", "weather", "tomorrow"], "What weather?", CTC_EXAMPLES, example_margin=5

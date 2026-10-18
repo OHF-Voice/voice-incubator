@@ -38,7 +38,6 @@ def test_scope_and_overrides_are_no_more():
     [
         ({"description": "", "examples": ["a"]}, "description"),
         ({"description": "x"}, "needs examples or keywords"),
-        ({"description": "x", "examples": ["a"]}, "needs a script, scene, action or response"),
         ({"description": "x", "examples": ["a"], "script": "light.x"}, "script entity id"),
         ({"description": "x", "examples": ["a"], "script": "script.a", "scene": "scene.b"}, "give one of"),
         ({"description": "x", "examples": ["a"], "response": "ok", "bogus": 1}, "unknown key"),
@@ -112,7 +111,7 @@ def test_responses_by_outcome():
         ({**PAUSE, "response": {"Done": "x"}}, "lowercase"),
         ({**PAUSE, "response": {"done": ["x"]}}, "template string"),
         ({**PAUSE, "response": ["x"]}, "templates by outcome"),
-        ({"description": "x", "examples": ["a"], "response": {"failed": "Oops."}}, "needs a script, scene, action or response"),
+        ({"description": "x", "examples": ["a"], "response": {"failed": "Oops."}}, "failed can't happen with nothing to do; use done"),
     ],
 )
 def test_response_errors(spec, message):
@@ -296,14 +295,26 @@ def test_verbosity_and_responses_by_level():
     assert music.level == "beep" and not music.question
     assert parse_command("q", {"description": "x", "examples": ["x"], "response": "Hi."}).behavior.question
     texts = {"brief": "b", "verbose": "v"}
-    assert [closest_text(texts, level) for level in ("beep", "brief", "specific", "verbose")] == ["b", "b", "b", "v"]
+    assert [closest_text(texts, level) for level in ("silent", "beep", "brief", "specific", "verbose")] == ["b", "b", "b", "b", "v"]
+    # Silent is 0: the numbers 1 to 4 keep their levels.
+    assert parse_command("c", {**base, "verbosity": 0}).behavior.verbosity == "silent"
+
+
+def test_a_command_may_do_nothing():
+    # "Never mind": nothing to do, and by default nothing said, not even the
+    # acknowledgement sound. With a response it only responds, and says it.
+    nothing = parse_command("never_mind", {"description": "cancel what was asked", "examples": ["never mind"]}).behavior
+    assert nothing.does == "nothing" and nothing.level == "silent" and not nothing.question
+    assert nothing.sequence() == [] and nothing.outcomes() == ("done",)
+    said = parse_command("never_mind", {"description": "x", "examples": ["never mind"], "response": "OK."}).behavior
+    assert said.does == "respond" and said.question
 
 
 @pytest.mark.parametrize(
     ("spec", "message"),
     [
-        ({"verbosity": "loud"}, "one of beep, brief, specific, verbose"),
-        ({"verbosity": 5}, "one of beep"),
+        ({"verbosity": "loud"}, "one of silent, beep, brief, specific, verbose"),
+        ({"verbosity": 5}, "one of silent"),
         ({"response": {"done": {"loud": "x"}}}, "by level, one of brief, specific, verbose"),
         ({"response": {"failed": {"brief": "x"}}}, "by level only when done"),
     ],

@@ -139,12 +139,6 @@ async def main() -> None:
         action="store_true",
         help="keep profiles fixed instead of learning from confident calls",
     )
-    parser.add_argument(
-        "--enroll-commands",
-        type=int,
-        default=5,
-        help="commands collected after 'learn a new voice for <name>' (default 5)",
-    )
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
@@ -213,7 +207,6 @@ async def main() -> None:
             speaker_threshold=args.speaker_threshold,
             speaker_channel=args.speaker_channel,
             speaker_learn=not args.no_speaker_learn,
-            enroll_commands=args.enroll_commands,
             downloads=True,
         )
     )

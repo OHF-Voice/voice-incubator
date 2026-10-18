@@ -60,21 +60,6 @@ PALETTE: list[tuple[str, tuple[int, int, int]]] = [
 # given a palette color instead when the profiles are loaded.
 RED_ON_THE_RING = {(255, 96, 0), (255, 80, 120), (255, 0, 160)}
 
-# "learn a new voice for Mike". Trained into the recognizer alongside Home
-# Assistant's wildcard sentence triggers, but handled here, never sent to HA.
-ENROLL_SENTENCES = ["learn [a] [new] voice for {speaker}"]
-_ENROLL_TEXT = re.compile(r"^\s*learn\s+(?:a\s+)?(?:new\s+)?voice\s+for\s+(.+?)\s*$", re.I)
-
-
-def enroll_name(text: str | None) -> str | None:
-    """The speaker name if ``text`` is the enroll command, else None."""
-    match = _ENROLL_TEXT.match(text or "")
-    if match is None:
-        return None
-    name = re.sub(r"[^\w' -]+", "", match.group(1)).strip()
-    return " ".join(word.capitalize() for word in name.split()) or None
-
-
 def _unit(v: np.ndarray) -> np.ndarray:
     return v / (np.linalg.norm(v, axis=-1, keepdims=True) + 1e-12)
 
@@ -245,36 +230,6 @@ class Profiles:
         p["learned_s"] = p.get("learned_s", 0.0) + utt.speech_s
 
 
-@dataclass
-class Enrollment:
-    """Collecting one new speaker's voice from their next few ordinary commands."""
-
-    name: str
-    color: tuple[int, int, int]
-    needed: int
-    deadline: float
-    utterances: list[Utterance] = field(default_factory=list)
-
-    @property
-    def expired(self) -> bool:
-        return time.monotonic() > self.deadline
-
-    def consistent(self, min_sim: float) -> list[Utterance]:
-        """The largest group that sounds like one person: drop, one at a time, the
-        utterance least similar to the rest until every remaining one is at least
-        ``min_sim`` (cosine) from the others' mean. Guards against someone else
-        speaking in between."""
-        keep = list(self.utterances)
-        while len(keep) > 1:
-            V = np.array([u.vector for u in keep])
-            sims = [float(V[i] @ _unit(np.delete(V, i, 0).mean(0))) for i in range(len(keep))]
-            worst = int(np.argmin(sims))
-            if sims[worst] >= min_sim:
-                break
-            keep.pop(worst)
-        return keep
-
-
 class SpeakerId:
     def __init__(
         self,
@@ -288,9 +243,6 @@ class SpeakerId:
         learn_min_speech: float = 2.0,
         learn_min_gap: float = 0.1,
         learn_cap: int = 100,
-        enroll_commands: int = 5,
-        enroll_timeout: float = 600.0,
-        enroll_min_sim: float = 0.35,
         threads: int = 2,
     ) -> None:
         self.model_path = model_path
@@ -302,9 +254,6 @@ class SpeakerId:
         self.learn_min_speech = learn_min_speech
         self.learn_min_gap = learn_min_gap
         self.learn_cap = learn_cap
-        self.enroll_commands = enroll_commands
-        self.enroll_timeout = enroll_timeout
-        self.enroll_min_sim = enroll_min_sim
         self.threads = threads
         self._embedder: Embedder | None = None
         # One utterance at a time: onnxruntime sessions are thread-safe, but two
@@ -376,47 +325,6 @@ class SpeakerId:
         self.profiles.save()
         _LOGGER.info("Added %.1fs of speech to %s's voice (%d windows)", utt.speech_s, name, profile["n_windows"])
         return name, profile
-
-    def begin_enrollment(self, name: str) -> Enrollment:
-        existing = self.profiles.find(name)
-        color = self.profiles.color(existing) if existing else self.profiles.next_color()
-        return Enrollment(
-            name=existing or name,
-            color=color,
-            needed=self.enroll_commands,
-            deadline=time.monotonic() + self.enroll_timeout,
-        )
-
-    def add_to_enrollment(self, enrollment: Enrollment, ident: Identification) -> dict | None:
-        """Collect one utterance. Returns the new profile once enough consistent
-        speech is in, else None."""
-        if ident.utterance is None:
-            return None
-        # Someone already enrolled, recognized with confidence, is not the new
-        # speaker -- unless this is a re-enrollment of that same person.
-        if ident.name and ident.name != enrollment.name and ident.score >= self.threshold + 0.1:
-            _LOGGER.info("Enrollment of %s: skipped an utterance from %s", enrollment.name, ident.name)
-            return None
-        enrollment.utterances.append(ident.utterance)
-        keep = enrollment.consistent(self.enroll_min_sim)
-        _LOGGER.info(
-            "Enrollment of %s: %d/%d utterances (%d consistent)",
-            enrollment.name, len(enrollment.utterances), enrollment.needed, len(keep),
-        )
-        if len(keep) < enrollment.needed:
-            return None
-        windows = np.concatenate([u.windows for u in keep])
-        profile = self.profiles.set(
-            enrollment.name, windows, sum(u.speech_s for u in keep), enrollment.color
-        )
-        self.profiles.save()
-        _LOGGER.info(
-            "Enrolled %s: %d windows, %.1fs, cohesion %.2f, color %s",
-            enrollment.name, profile["n_windows"], profile["speech_s"], profile["cohesion"],
-            profile["color"],
-        )
-        return profile
-
 
 # ---------------------------------------------------------------- CLI
 

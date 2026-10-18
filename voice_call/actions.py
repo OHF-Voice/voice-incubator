@@ -41,8 +41,8 @@ the built-in sentence: what the timer operation says, the script's
 ``speech``, FAILED.
 
 How much is said when it is done is the command's verbosity
-(commands.VERBOSITY): a beep, or its response for that level -- or the
-closest written -- else the built-in sentence for it. A beep is for what the
+(commands.VERBOSITY): nothing at all, a beep, or its response for that level
+-- or the closest written -- else the built-in sentence for it. A beep is for what the
 satellite's own area can see happen: a command that acted elsewhere says the
 ``elsewhere`` level instead (settings.yaml ``beep_elsewhere``), and a
 question always answers.
@@ -71,7 +71,7 @@ from typing import Any
 
 from . import music as music_ops
 from . import timers
-from .commands import VERBOSITY, Behavior, Command, closest_text
+from .commands import QUIET, SPOKEN, Behavior, Command, closest_text
 from .engine import Decision, Satellite
 from .hass import HassError, HomeAssistant
 
@@ -111,6 +111,9 @@ class Outcome:
     verbosity: dict[str, Any] | None = None
     """When done: the level said at, and why."""
 
+    silent: bool = False
+    """Done, and nothing said: not even the acknowledgement sound."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "outcome": self.name,
@@ -122,6 +125,7 @@ class Outcome:
             "sequence": self.sequence,
             "response": self.response,
             "speech": self.speech,
+            "silent": self.silent,
             "error": self.error,
             "timings": {k: round(v, 4) for k, v in self.timings.items()},
         }
@@ -556,9 +560,9 @@ def level_for(behavior: Behavior, here: bool, elsewhere: str = BEEP_ELSEWHERE) -
     """The verbosity a done command says at, and why."""
     level = behavior.level
     why = "the command's" if behavior.verbosity else "the default for what it does"
-    if level == "beep" and behavior.question:
+    if level in QUIET and behavior.question:
         return "brief", "a question always answers"
-    if level == "beep" and not here and elsewhere in VERBOSITY and elsewhere != "beep":
+    if level == "beep" and not here and elsewhere in SPOKEN:
         return elsewhere, "it acted out of the satellite's area"
     return level, why
 
@@ -583,9 +587,10 @@ async def _say(
         outcome.verbosity = {"level": level, "why": why, "place": values["place"]}
     if isinstance(default, dict):
         default = closest_text(default, level or "specific") or ""
-    template = behavior.response_for(name, level) if level != "beep" else None
-    if level == "beep":
+    template = behavior.response_for(name, level) if level not in QUIET else None
+    if level in QUIET:
         outcome.speech = ""
+        outcome.silent = level == "silent"
     elif template:
         started = time.perf_counter()
         try:

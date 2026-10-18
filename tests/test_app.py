@@ -273,7 +273,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await (await http.get("/api/status")).json())["fallback"]["threshold"] == 0.45
             # What a command that beeps says when it acted out of sight.
             status = await (await http.get("/api/status")).json()
-            assert status["verbosity"] == {"levels": ["beep", "brief", "specific", "verbose"], "beep_elsewhere": "specific"}
+            assert status["verbosity"] == {"levels": ["silent", "beep", "brief", "specific", "verbose"], "beep_elsewhere": "specific"}
             assert status["outcomes"]["timer_levels"]["start"]["brief"] == "Timer started."
             assert (await http.put("/api/settings", json={"beep_elsewhere": "loud"})).status == 400
             assert (await http.put("/api/settings", json={"beep_elsewhere": "brief"})).status == 200

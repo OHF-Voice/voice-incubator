@@ -27,6 +27,7 @@ DEFAULTS = [
     "mdi:palette",
     "mdi:timer-outline",
     "mdi:music",
+    "mdi:close-circle-outline",
     # The command groups list.
     "mdi:folder-outline",
     # New command: a custom one.

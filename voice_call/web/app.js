@@ -35,10 +35,15 @@ function h(tag, attrs, ...children) {
 
 // Icons: a command's own (icon: mdi:…), else one for what it does. ICONS is
 // the subset of Material Design Icons in icons.js (scripts/make_icons.py).
-const KIND_ICONS = { respond: "mdi:message-text-outline", action: "mdi:flash-outline", script: "mdi:script-text-outline", scene: "mdi:palette", timer: "mdi:timer-outline", music: "mdi:music" };
+const KIND_ICONS = { respond: "mdi:message-text-outline", action: "mdi:flash-outline", script: "mdi:script-text-outline", scene: "mdi:palette", timer: "mdi:timer-outline", music: "mdi:music", nothing: "mdi:close-circle-outline" };
+
+// Whether a response says something when done: a plain one, or done's.
+const respondsWhenDone = (response) => Boolean(typeof response === "string" ? response
+  : response && response.done && (typeof response.done === "string" || Object.values(response.done).some(Boolean)));
 
 function kindOf(spec) {
-  return spec.script ? "script" : spec.scene ? "scene" : spec.timer ? "timer" : spec.music ? "music" : spec.action ? "action" : "respond";
+  return spec.script ? "script" : spec.scene ? "scene" : spec.timer ? "timer" : spec.music ? "music" : spec.action ? "action"
+    : respondsWhenDone(spec.response) ? "respond" : "nothing";
 }
 
 function iconFor(spec) {
@@ -320,12 +325,13 @@ function groupsPanel(store, sats) {
 // the LLM -- each only for the commands chosen for it.
 // How much a command says when it's done (commands.VERBOSITY).
 const LEVELS = [
+  ["silent", "Silent: nothing, not even a beep"],
   ["beep", "Beep"],
   ["brief", "Brief: a fixed sentence"],
   ["specific", "Specific: what was heard"],
   ["verbose", "Verbose: everything it did"],
 ];
-const levelName = (value) => ({ beep: "beep", brief: "brief", specific: "specific", verbose: "verbose" }[value] || value);
+const levelName = (value) => ({ silent: "silent", beep: "beep", brief: "brief", specific: "specific", verbose: "verbose" }[value] || value);
 
 // What a command that beeps says when it acted out of sight.
 function responsesPanel() {
@@ -333,7 +339,7 @@ function responsesPanel() {
   const select = h("select", { onchange: async (e) => {
     try { await api("PUT", "settings", { beep_elsewhere: e.target.value }); toast("Saved"); await refreshStatus(); }
     catch (err) { toast(err.message); }
-  } }, ...LEVELS.map(([value, label]) => h("option", { value, selected: (verbosity.beep_elsewhere || "specific") === value }, value === "beep" ? "Beep anyway" : label)));
+  } }, ...LEVELS.filter(([value]) => value !== "silent").map(([value, label]) => h("option", { value, selected: (verbosity.beep_elsewhere || "specific") === value }, value === "beep" ? "Beep anyway" : label)));
   return h("div", { class: "panel" },
     h("h2", {}, "Responses"),
     h("p", { class: "muted small" }, "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."),
@@ -748,15 +754,16 @@ async function pageCommand(id, prefill) {
   // What happens: respond / script / scene / action YAML, and a response.
   function behaviorEditor(target, yamlBox) {
     const wrap = h("div");
-    const current = () => (target.script ? "script" : target.scene ? "scene" : target.timer ? "timer" : target.music ? "music" : (yamlBox.value || "").trim() ? "action" : "respond");
+    const current = () => (target.script ? "script" : target.scene ? "scene" : target.timer ? "timer" : target.music ? "music"
+      : (yamlBox.value || "").trim() ? "action" : respondsWhenDone(target.response) ? "respond" : "nothing");
     let mode = current();
     function render() {
-      const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["timer", "A timer"], ["music", "Music"]];
+      const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["timer", "A timer"], ["music", "Music"], ["nothing", "Nothing"]];
       const radios = h("div", { class: "row" }, ...choices.map(([value, label]) => h("label", {},
         h("input", { type: "radio", name: `do-${Math.random()}`, checked: mode === value, onchange: () => {
           // Responses for outcomes only the old kind had go (a script's own stay with an action).
           const scripted = (m) => m === "script" || m === "action";
-          if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "respond" ? ["done"] : ["done", "failed"]);
+          if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "nothing" ? [] : value === "respond" ? ["done"] : ["done", "failed"]);
           mode = value;
           delete target.script; delete target.scene; delete target.timer; delete target.music;
           if (value === "timer") target.timer = "start";
@@ -794,14 +801,14 @@ async function pageCommand(id, prefill) {
     // How much it says when done: the command's level, or what it does by default.
     const question = () => mode === "respond" || (mode === "timer" && target.timer === "status") || (mode === "music" && target.music === "status");
     function verbosityField() {
-      const kindDefault = mode === "music" && !["play", "add", "radio", "status"].includes(target.music) ? "beep" : "specific";
-      const levels = LEVELS.filter(([value]) => !(question() && value === "beep"));
+      const kindDefault = mode === "music" && !["play", "add", "radio", "status"].includes(target.music) ? "beep" : mode === "nothing" ? "silent" : "specific";
+      const levels = LEVELS.filter(([value]) => !(question() && (value === "beep" || value === "silent")));
       const select = h("select", { onchange: (e) => { if (e.target.value) target.verbosity = e.target.value; else delete target.verbosity; render(); } },
         h("option", { value: "", selected: !target.verbosity }, `Default (${levelName(kindDefault)})`),
         ...levels.map(([value, label]) => h("option", { value, selected: target.verbosity === value }, label)));
       const help = question()
         ? "A question always answers; with an answer written for each level, this picks which."
-        : "A beep is the acknowledgement sound, for what you can see happen: done somewhere else (another area, a floor, a device in no area), it says what the Settings page's “Responses” says instead. Only when it's done; what went wrong is always said.";
+        : "Silent says nothing at all, for what needs no answer (“never mind”). A beep is the acknowledgement sound, for what you can see happen: done somewhere else (another area, a floor, a device in no area), it says what the Settings page's “Responses” says instead. Only when it's done; what went wrong is always said.";
       return field("How much it says", select, help);
     }
 
@@ -842,7 +849,7 @@ async function pageCommand(id, prefill) {
         area.value = typeof done === "string" ? done : "";
         return field(h("span", {}, "When it's done ", toggle), area);
       }
-      const boxes = LEVELS.filter(([level]) => level !== "beep").map(([level, label]) => {
+      const boxes = LEVELS.filter(([level]) => level !== "beep" && level !== "silent").map(([level, label]) => {
         const area = h("textarea", { class: "short", placeholder: (levelDefaults && levelDefaults[level]) || (level === "brief" ? "A fixed sentence, e.g. Turned on the lights." : ""), oninput: (e) => {
           const next = responses();
           const d = next.done && typeof next.done === "object" ? { ...next.done } : {};
@@ -875,6 +882,9 @@ async function pageCommand(id, prefill) {
         return area;
       };
       const vars = "Rendered by Home Assistant with the same variables, plus result: what a script returned, result.outcome, and result.speech (what is said without a response).";
+      if (mode === "nothing") {
+        return h("p", { class: "muted small" }, "It ends the conversation and does nothing else (“never mind”). To say something, choose Only respond; for the acknowledgement sound, set How much it says to Beep.");
+      }
       if (mode === "respond") {
         return h("div", {}, doneEditor("Spoken response template, e.g. It's {{ now().strftime('%H:%M') }}", null, true), h("span", { class: "help" }, vars));
       }
@@ -1155,7 +1165,7 @@ async function pageCommand(id, prefill) {
         targetEditor(spec)),
       h("div", { class: "panel" }, h("h2", {}, "Listen for"),
         field("Example sentences", chipsInput(spec.examples || [], (v) => { spec.examples = v; }, "type a whole sentence and press Enter"),
-          "Said word for word, an example always matches, ahead of keywords. No placeholders: slots come from keywords below."),
+          "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. No placeholders: slots come from keywords below."),
         h("h3", {}, "Keywords"),
         h("p", { class: "muted small" }, "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
         field("Required", groupsEditor(spec.require, (v) => { spec.require = v; }, "Add a required group")),
@@ -1921,7 +1931,7 @@ function renderOutcome(record) {
       rec.recognition.tdt_transcript ? [h("div", {}, heardLabels(rec).text), h("div", {}, rec.recognition.tdt_transcript)] : null,
       rec.slots && Object.keys(rec.slots).length ? [h("div", {}, "Slots"), h("div", {}, h("code", {}, JSON.stringify(rec.slots)))] : null,
       !rec.command && llmNote(rec.fallback) ? [h("div", {}, rec.fallback.llm.by || "Model"), h("div", {}, llmNote(rec.fallback))] : null,
-      speech ? [h("div", {}, "Says"), h("div", {}, speech.text || h("span", { class: "muted" }, "(a short sound)"))] : null,
+      speech ? [h("div", {}, "Says"), h("div", {}, speech.text || h("span", { class: "muted" }, speech.silent ? "(nothing: it's silent)" : "(a short sound)"))] : null,
       action && action.error ? [h("div", {}, "Error"), h("div", { class: "notice bad" }, action.error)] : null));
 }
 
@@ -2055,7 +2065,7 @@ function renderStage(stage) {
     body = h("div", { class: "small" }, data.error ? ["Could not render it (", data.error, "): said the default."] : data.said ? ["Says “", data.said, "”"] : "Rendered to nothing: said the default.");
   } else if (name === "speech") {
     head = "Said";
-    body = h("div", {}, data.text || h("span", { class: "muted" }, "(a short sound)"));
+    body = h("div", {}, data.text || h("span", { class: "muted" }, data.silent ? "(nothing: it's silent)" : "(a short sound)"));
   } else if (name === "speaker") {
     head = "Speaker";
     body = h("div", { class: "small" }, data.name || "not recognized", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "");

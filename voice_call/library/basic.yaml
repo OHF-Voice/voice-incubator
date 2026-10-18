@@ -56,6 +56,15 @@ commands:
     optional: [[tell me], [what is, whats, what's], [today]]
     response: "Today is {{ now().strftime('%A, %B %-d') }}."
 
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: never mind, cancel the request
+    # Said whole only: "cancel the timer" is the timer's. Nothing to do, and by
+    # default nothing said, not even a sound: the satellite stops listening.
+    # Give it a response (Only respond) or a beep to hear that it did.
+    examples: [never mind, nevermind, forget it, cancel, cancel that, nothing]
+
   # Lights here, in an area or on a floor named, or a device by name.
   turn_on:
     title: Turn on

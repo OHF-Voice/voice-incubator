@@ -2,6 +2,17 @@
 
 ## 0.2.0
 
+- An example sentence matches only as all that was said: the example
+  "pause" (Pause the music) took "pause the timer" ahead of the timer's
+  keywords, and "resume" "resume the timer" (adapt-ctc `examples_whole`).
+- **Never mind** in the library ("never mind", "cancel", "forget it",
+  "nothing"): a command that does nothing, and by default says nothing --
+  not even a sound. A command may now do nothing (choose **Nothing** under
+  What happens), and **Silent** is a level of how much a command says (0;
+  the numbers 1 to 4 keep their levels). Said over a ringing timer, it stops
+  the timer.
+- "Learn a new voice for …" is gone for now: add a session's voice to a
+  speaker on its page (Sessions) instead.
 - When nothing matches, GLiNER picks among every command -- those that hear
   nothing too, "have you got the time" -- or "not a command". Its pick with
   nothing heard in it runs only when meaning puts the command first, ahead

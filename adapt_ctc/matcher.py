@@ -640,6 +640,18 @@ class Recognizer:
         for result in rejected.values():
             if not self.config.intents[result.intent].keywords:
                 result.reasons.clear()
+        if settings.examples_whole:
+            # Said whole, word for word: not inside a longer sentence.
+            whole = []
+            for result in ranked:
+                if not result.unexplained:
+                    whole.append(result)
+                elif result.intent in rejected:
+                    rejected[result.intent].reasons.append(
+                        f"example '{self._example_text(result)}' is not all that was said: "
+                        f"{' '.join(w.text for w in result.unexplained)} besides"
+                    )
+            ranked = whole
         if settings.places_must_fit:
             # A sentence said with a room it cannot take is not that sentence.
             fitting = []

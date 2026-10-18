@@ -952,8 +952,8 @@ class Api:
             settings["fallback_threshold"] = threshold
             fallback_changed = True
         if "beep_elsewhere" in body:
-            if body["beep_elsewhere"] not in VERBOSITY:
-                raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY)}")
+            if body["beep_elsewhere"] not in VERBOSITY[1:]:
+                raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY[1:])}")
             settings["beep_elsewhere"] = body["beep_elsewhere"]
             self.app.store.save_settings()
         if fallback_changed:

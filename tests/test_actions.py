@@ -194,6 +194,16 @@ def test_the_closest_written_level_is_said():
 def test_a_question_always_answers():
     outcome = say({"verbosity": "beep", "response": "It's late."})
     assert outcome.speech == "It's late." and outcome.verbosity["why"] == "a question always answers"
+    assert say({"verbosity": "silent", "response": "It's late."}).speech == "It's late."
+
+
+def test_silent_says_nothing_not_even_a_beep():
+    nothing = say({})  # "never mind": nothing to do, silent by default
+    assert nothing.speech == "" and nothing.silent and nothing.verbosity["level"] == "silent"
+    quiet = say({**LIGHTS, "verbosity": "silent"}, {"area": ["office"]})
+    assert quiet.silent and quiet.speech == ""  # silent elsewhere too: only a beep is said there
+    beep = say({"action": {"action": "light.turn_on"}})
+    assert beep.speech == "" and not beep.silent
 
 
 def test_where_it_acted():

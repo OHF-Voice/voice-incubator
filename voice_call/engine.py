@@ -74,20 +74,6 @@ not fillers: "set" alone does not make "set a timer" a temperature."""
 NAME_WORDS = {"entity": "which device", "area": "which room", "floor": "which floor"}
 NO_COMMANDS = "No voice commands are set up yet. Add some in the Voice Call app."
 
-# The app's own commands, recognized like the rest but handled here.
-LEARN_VOICE = "voice_call_learn_voice"
-INTERNAL_INTENTS: dict[str, dict[str, Any]] = {
-    LEARN_VOICE: {
-        "description": "learn a new voice",
-        "require": [["learn"], ["voice"]],
-        "optional": [["new"], ["for"]],
-        "wildcard": {
-            "slot": "speaker", "after": ["for"], "to_end": True, "required": True, "max_words": 3,
-        },
-    }
-}
-
-
 @dataclass
 class Satellite:
     """Who asked, as Home Assistant sees it."""
@@ -159,9 +145,6 @@ class Decision:
     message: str | None = None
     """What to say when nothing will run."""
 
-    internal: str | None = None
-    """One of the app's own commands (INTERNAL_INTENTS) matched."""
-
     text_from_tdt: dict[str, str] = field(default_factory=dict)
     """Free-text slots re-read from the TDT transcript (or the STT entity's):
     slot -> as the CTC head heard it."""
@@ -190,7 +173,7 @@ class Decision:
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "command": self.command.id if self.command else self.internal,
+            "command": self.command.id if self.command else None,
             "description": self.command.description if self.command else None,
             "does": self.behavior.does if self.behavior else None,
             "slots": self.slots,
@@ -261,9 +244,7 @@ class Engine:
         tdt_dir: Path | None = None,
         embedding_dir: Path | None = None,
         threads: int = 2,
-        internal: tuple[str, ...] = (),
     ) -> None:
-        self.internal = {name: INTERNAL_INTENTS[name] for name in internal}
         self.model = CtcModel(model_dir, num_threads=threads)
         self.threads = threads
         self.transcriber = self._load_tdt(tdt_dir)
@@ -339,7 +320,6 @@ class Engine:
         started = time.perf_counter()
         recognizer = None
         config = copy.deepcopy(compiled.config or {**BASE_CONFIG, "intents": {}})
-        config["intents"].update(copy.deepcopy(self.internal))
         self._fill_dynamic(config)
         if config["intents"]:
             recognizer = Recognizer(
@@ -507,7 +487,7 @@ class Engine:
 
         self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
 
-        if decision.command is None and decision.internal is None and decision.refused is None:
+        if decision.command is None and decision.refused is None:
             if transcriber is not None and recognition.tdt_transcript is None:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
@@ -516,7 +496,7 @@ class Engine:
             # may have heard plainly what the CTC evidence only half did.
             if recognition.tdt_transcript and getattr(transcriber, "source", "TDT") != "typed":
                 self._match_transcript(decision, recognition.tdt_transcript, compiled, recognizer, satellite)
-        if decision.command is None and decision.internal is None and decision.refused is None:
+        if decision.command is None and decision.refused is None:
             text = recognition.tdt_transcript or recognition.transcript or ""
             # Each transcript, TDT's first: one may hear "fifty degrees F in
             # Celsius" where the other heard "FN Celsius".
@@ -536,7 +516,7 @@ class Engine:
         if decision.refused is not None:
             decision.hint = decision.refused
             decision.message = decision.refused["text"]
-        elif decision.command is None and decision.internal is None and decision.answer is None:
+        elif decision.command is None and decision.answer is None:
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
             llm = (decision.fallback or {}).get("llm") or {}
             if llm.get("command") in compiled.commands:
@@ -602,19 +582,8 @@ class Engine:
         transcriber: Any,
     ) -> None:
         """The first of ``recognition``'s matches this satellite may run:
-        its command, behavior and slots into ``decision`` (or an internal
-        command, or a refusal)."""
+        its command, behavior and slots into ``decision`` (or a refusal)."""
         for result in recognition.matches:
-            if result.intent in self.internal:
-                decision.internal = result.intent
-                decision.intent = result
-                decision.slots = dict(result.slots)
-                spec = self.internal[result.intent]
-                if spec.get("wildcard"):
-                    self._reread_text(
-                        decision, recognition, command_audio, frame_seconds, spec["wildcard"], transcriber
-                    )
-                return
             command = compiled.commands.get(command_of(result.intent))
             if command is None:
                 continue
@@ -668,7 +637,7 @@ class Engine:
         # text, a short example with words around it ("grab bananas *next*
         # time you shop") is no example said.
         heard = recognizer.recognize_log_probs(log_probs, self.model.frame_seconds, examples=False)
-        before = (decision.command, decision.internal, decision.refused)
+        before = (decision.command, decision.refused)
         self._take(decision, heard, compiled, satellite, np.zeros(0, dtype=np.float32), self.model.frame_seconds, TypedText(transcript))
         found = decision.command is not None and before[0] is None
         if found:
