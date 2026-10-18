@@ -872,3 +872,13 @@ def test_free_text_stops_before_a_device_it_ends_on():
     # Off: the text runs to the end, as before.
     result = recognize(["play", "music", "on", "the", "natalie"], config, places_must_fit=False)
     assert "Play" in [m.intent for m in result.matches]
+
+
+def test_the_closest_by_meaning_has_no_rival_in_its_own_group():
+    # Intents that are one thing said different ways (a command's versions)
+    # are passed over for the runner-up.
+    _, recognizer, _ = recognize_by_embedding(["what", "weather"], "between the two", "")
+    near = recognizer.closest_by_meaning(["between the two"])
+    assert near["intent"] == "Umbrella" and near["next"] == "Spell"
+    near = recognizer.closest_by_meaning(["between the two"], group=lambda intent: "one")
+    assert near["intent"] == "Umbrella" and near["next"] != "Spell" and near["next_similarity"] < 0.5

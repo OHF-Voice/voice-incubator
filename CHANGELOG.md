@@ -2,6 +2,16 @@
 
 ## 0.2.0
 
+- When nothing matches, GLiNER picks among every command -- those that hear
+  nothing too, "have you got the time" -- or "not a command". Its pick with
+  nothing heard in it runs only when meaning puts the command first, ahead
+  of everyday requests that are no command ("thank you").
+- A command's versions are one choice to meaning and the model step, and
+  what was said picks the version: "kill the lights" ran nothing, too close
+  to its own version for an area or floor.
+- A step turned off on the Settings page, for a command chosen for it: the
+  command's page says "off in Settings", and a call's trace says it was
+  skipped.
 - The library's commands come in **versions** for what they act on: on this
   satellite (nothing named), on a device by name, in an area or floor by
   name -- "Play music" is Play music on this satellite, on a different

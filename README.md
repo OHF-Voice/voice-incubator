@@ -1024,18 +1024,35 @@ thanks"; the types are their parameters (a room, a device, music, something
 to buy, a duration, a percentage, a value from a list, ...). One label per
 command, whatever its combinations: what it hears in the sentence picks the
 combination ("lights out in the bedroom": turn off the lights, with an
-area). It picks only among commands that hear something -- meaning takes
-the rest. It is given the 8 (`fallback_top_k`) of those closest in meaning
-to the sentence, *chosen or not*: alone, a command is taken for nearly
+area). It picks among every command, those that hear nothing too ("have you
+got the time"). It is given the 8 (`fallback_top_k`) closest in meaning to
+the sentence, *chosen or not*: alone, a command is taken for nearly
 anything ("never mind" played music at 0.87), and the others are what it
 tells the chosen ones from. Its pick runs only when it is chosen, at least
 `fallback_threshold` sure (0.3), ahead of "something else", and what it heard
 is exactly one of the command's combinations (a room and a floor for a
 command that takes either is refused). Hearing nothing in it ("lights out"),
 there is nothing to check the pick by, so it runs only when meaning puts the
-same command first. The same words found as two types ("living room" as a
-room and as a floor) count once, as the surer type the command can take.
-There is no prompt prefix, so how many are chosen costs nothing.
+same command first -- ahead of the everyday requests that are no command,
+too: with every library command chosen, "thank you" was "say good night",
+"what's the capital of France" the date and "what's twelve times eight"
+turned on repeat, each with an everyday request far closer in meaning
+(0.96, 0.97, 0.87) than the command (0.76, 0.60, 0.67). The same words found
+as two types ("living room" as a room and as a floor) count once, as the
+surer type the command can take. There is no prompt prefix, so how many are
+chosen costs nothing.
+
+**Versions.** The library's commands come in versions (on this satellite, a
+device by name, an area or floor by name), each a command of its own, and
+described alike. To meaning and the model step, commands described alike
+are one (`fallback.label_of`): meaning's runner-up is the closest command
+described otherwise (`closest_by_meaning(group=...)`), GLiNER gets one label
+for them, and what the model hears picks the version as it picks a
+combination -- of those it fits, the one that takes the most ("play jazz on
+the Mark 2" is the device's, not this satellite's with the device left
+out). As separate commands, "kill the lights" was 0.88 from Turn off the
+lights in this satellite's area and refused as "too close" to the same
+command for an area or floor, and GLiNER chose among identical labels.
 
 It runs without PyTorch: onnxruntime, numpy and the tokenizers library
 (about 50 ms a sentence on a desktop, 0.22-0.28 s on a Raspberry Pi 5 with 4
@@ -1119,6 +1136,17 @@ Every library command chosen (56):
 | GLiNER small, 0.3 | 66% | 10/10 | 2 | 0.05 s |
 | GLiNER small, 0.4 | 63% | 10/10 | 2 | 0.05 s |
 | Granite, closest 8 | 63% | 10/10 | 9 | 1.51 s |
+
+Since the library has versions (2026-10-18), the same eight as versions
+(play music on this satellite and in an area or floor, the lights on and off
+on this satellite and in an area or floor, and the rest): GLiNER at 0.3 gets
+16/32, refuses 32/32, runs no wrong command; with every version chosen (109
+commands), 56% right, 10/10 non-commands refused, 4 wrong (the two timers
+below, "throw on my workout playlist" as more like it, "don't let me forget
+to buy eggs" as a reminder). Before versions were one choice to it, 11/32;
+GLiNER also picking commands that hear nothing gains "hold the music",
+"forget the timer" and "secure the house" and loses "can you play something
+by the beatles" (offered more types, it no longer finds the band).
 
 With optional slots instead of combinations, GLiNER at 0.3 got 17/32 and
 59%. Meaning now picks the command for slot-taking commands too, and the

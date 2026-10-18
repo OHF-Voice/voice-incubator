@@ -52,9 +52,8 @@ from voice_call.fallback import (  # noqa: E402
     Tools,
     with_way_out,
 )
-from voice_call.store import _yaml, compile_store, plain  # noqa: E402
+from voice_call.store import compile_store  # noqa: E402
 
-LIBRARY = ROOT / "voice_call/library"
 UTTERANCES = ROOT / "tests/fallback_utterances.yaml"
 
 HOME = {
@@ -78,16 +77,18 @@ HOME = {
 
 
 def library_store(chosen: list[str] | None = None) -> dict[str, Any]:
-    """Every library command, with the value lists they use, in HOME: each
-    chosen for meaning and the model step, or only those in ``chosen``."""
+    """Every library command -- each version of each, as added from the
+    library -- with the value lists they use, in HOME: each chosen for
+    meaning and the model step, or only those in ``chosen`` (a version's id,
+    or a command's for all its versions)."""
+    from voice_call.web import load_library  # pylint: disable=import-outside-toplevel
+
     commands: dict[str, Any] = {}
     lists: dict[str, Any] = {}
-    for path in sorted(LIBRARY.glob("*.yaml")):
-        data = plain(_yaml().load(path.read_text()))  # YAML 1.2: "on" is a word
-        lists.update(data.get("lists") or {})
-        for command_id, spec in (data.get("commands") or {}).items():
-            steps = ["meaning", "llm"] if chosen is None or command_id in chosen else []
-            commands[command_id] = {k: v for k, v in spec.items() if k != "needs"} | {"fallback": steps}
+    for entry in load_library():
+        lists.update(entry["lists"])
+        steps = ["meaning", "llm"] if chosen is None or {entry["id"], entry["family"]} & set(chosen) else []
+        commands[entry["id"]] = {**entry["spec"], "fallback": steps}
     return {"names": HOME, "lists": lists, "commands": commands}
 
 
@@ -138,11 +139,20 @@ def _chosen(args) -> list[str] | None:
     return [c.strip() for c in args.chosen.split(",") if c.strip()] if args.chosen else None
 
 
+def _versions(chosen: list[str] | None) -> list[str] | None:
+    """The library versions ``--chosen`` names: each one named, and every
+    version of a command named."""
+    if chosen is None:
+        return None
+    return sorted(i for i, spec in library_store(chosen)["commands"].items() if spec["fallback"])
+
+
 def _for_chosen(utterances, chosen: list[str] | None) -> list[dict[str, Any]]:
     """A sentence for a command not chosen should be refused."""
-    if chosen is None:
+    versions = _versions(chosen)
+    if versions is None:
         return utterances
-    return [u if u.get("expect") in chosen else {**u, "expect": None, "slots": {}} for u in utterances]
+    return [u if u.get("expect") in versions else {**u, "expect": None, "slots": {}} for u in utterances]
 
 
 def run_llm(args, compiled, utterances) -> dict[str, Any]:
@@ -150,7 +160,7 @@ def run_llm(args, compiled, utterances) -> dict[str, Any]:
     if args.chosen:
         # Only these are tools.
         chosen = _chosen(args)
-        tools.specs = tools.subset(sorted(chosen))
+        tools.specs = tools.subset(_versions(chosen) or [])
         utterances = _for_chosen(utterances, chosen)
     llm = _tool_model(args)
     ranked = rankings(args, compiled, utterances) if args.top_k else {}
@@ -209,7 +219,8 @@ def run_fallback(args, compiled, utterances) -> dict[str, Any]:
     from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL  # pylint: disable=import-outside-toplevel
 
     from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_call.fallback import Fallback  # pylint: disable=import-outside-toplevel
+    from voice_call.commands import command_of  # pylint: disable=import-outside-toplevel
+    from voice_call.fallback import Fallback, label_of  # pylint: disable=import-outside-toplevel
 
     utterances = _for_chosen(utterances, _chosen(args))
     ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -220,12 +231,18 @@ def run_fallback(args, compiled, utterances) -> dict[str, Any]:
     fallback.prepare(engine, wait=True)
     recognizer = engine.recognizer
     satellite = Satellite("bench", "Bench", "kitchen", "Kitchen")
+
+    def same(intent: str) -> str:
+        # As Engine._fall_back: a command's versions are no rivals.
+        command = compiled.commands.get(command_of(intent))
+        return label_of(command) if command is not None else intent
+
     rows = []
     for utterance in utterances:
         texts = [utterance["text"]]
         started = time.perf_counter()
         found = fallback.decide(
-            utterance["text"], lambda texts=texts: recognizer.closest_by_meaning(texts), compiled, satellite,
+            utterance["text"], lambda texts=texts: recognizer.closest_by_meaning(texts, group=same), compiled, satellite,
             lambda texts=texts: recognizer.rank_by_meaning(texts),
         )
         seconds = time.perf_counter() - started

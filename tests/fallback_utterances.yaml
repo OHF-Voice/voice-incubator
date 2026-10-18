@@ -1,24 +1,25 @@
 # What people say that the library's keywords and examples mostly do not
 # catch: for scripts/bench_fallback.py. `expect` is the command that should
 # run (null: none should), `slots` what it must carry (a subset; text slots
-# are compared loosely).
+# are compared loosely). Library commands are named by version
+# (play_music_here, turn_off_place ...).
 #
 # The home: see scripts/bench_fallback.py (HOME).
 utterances:
   # ---- music
-  - {text: put on some jazz, expect: play_music, slots: {query: jazz}}
-  - {text: i want to listen to taylor swift, expect: play_music, slots: {query: taylor swift}}
-  - {text: can you play something by the beatles, expect: play_music, slots: {query: the beatles}}
-  - {text: let's hear abbey road, expect: play_music, slots: {query: abbey road}}
-  - {text: throw on my workout playlist, expect: play_music, slots: {query: workout}}
-  - {text: i'd like some classical music, expect: play_music, slots: {query: classical}}
-  - {text: start the radio, expect: play_music}
-  - {text: skip this song, expect: next_track}
-  - {text: go back to the last song, expect: previous_track}
-  - {text: hold the music, expect: pause_music}
-  - {text: it's too loud, expect: volume_down}
-  - {text: crank it up, expect: volume_up}
-  - {text: who sings this, expect: whats_playing}
+  - {text: put on some jazz, expect: play_music_here, slots: {query: jazz}}
+  - {text: i want to listen to taylor swift, expect: play_music_here, slots: {query: taylor swift}}
+  - {text: can you play something by the beatles, expect: play_music_here, slots: {query: the beatles}}
+  - {text: let's hear abbey road, expect: play_music_here, slots: {query: abbey road}}
+  - {text: throw on my workout playlist, expect: play_music_here, slots: {query: workout}}
+  - {text: i'd like some classical music, expect: play_music_here, slots: {query: classical}}
+  - {text: start the radio, expect: play_music_here}
+  - {text: skip this song, expect: next_track_here}
+  - {text: go back to the last song, expect: previous_track_here}
+  - {text: hold the music, expect: pause_music_here}
+  - {text: it's too loud, expect: volume_down_here}
+  - {text: crank it up, expect: volume_up_here}
+  - {text: who sings this, expect: whats_playing_here}
   # ---- shopping and to-do lists
   - {text: we need milk, expect: shopping_list_add, slots: {item: milk}}
   - {text: we're out of coffee, expect: shopping_list_add, slots: {item: coffee}}
@@ -48,19 +49,19 @@ utterances:
   - {text: forget the timer, expect: cancel_timer}
   - {text: hold the timer, expect: pause_timer}
   # ---- lights and devices
-  - {text: it's too dark in here, expect: lights_on}
-  - {text: make the kitchen brighter, expect: set_brightness, slots: {area: [kitchen]}}
-  - {text: kill the lights, expect: lights_off}
-  - {text: lights out in the bedroom, expect: lights_off, slots: {area: [bedroom]}}
-  - {text: can i get some light in the living room, expect: lights_on, slots: {area: [living_room]}}
-  - {text: dim the office to thirty percent, expect: set_brightness, slots: {area: [office], percentage: 30}}
-  - {text: start the coffee maker, expect: device_on, slots: {entity: [switch.coffee_maker]}}
-  - {text: shut off the bedroom fan, expect: device_off, slots: {entity: [fan.bedroom_fan]}}
-  - {text: make it warmer, expect: set_temperature}
+  - {text: it's too dark in here, expect: turn_on_here}
+  - {text: make the kitchen brighter, expect: set_brightness_place, slots: {area: [kitchen]}}
+  - {text: kill the lights, expect: turn_off_here}
+  - {text: lights out in the bedroom, expect: turn_off_place, slots: {area: [bedroom]}}
+  - {text: can i get some light in the living room, expect: turn_on_place, slots: {area: [living_room]}}
+  - {text: dim the office to thirty percent, expect: set_brightness_place, slots: {area: [office], percentage: 30}}
+  - {text: start the coffee maker, expect: turn_on_device, slots: {entity: [switch.coffee_maker]}}
+  - {text: shut off the bedroom fan, expect: turn_off_device, slots: {entity: [fan.bedroom_fan]}}
+  - {text: make it warmer, expect: set_temperature_here}
   - {text: i'm cold, expect: null}
   # ---- covers and locks
-  - {text: let some light in, expect: open_covers}
-  - {text: shut the garage, expect: close_cover, slots: {entity: [cover.garage_door]}}
+  - {text: let some light in, expect: open_covers_here}
+  - {text: shut the garage, expect: close_covers_device, slots: {entity: [cover.garage_door]}}
   - {text: is the front door secure, expect: is_locked, slots: {entity: [lock.front_door]}}
   - {text: secure the house, expect: lock_all}
   # ---- time, date, weather

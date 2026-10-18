@@ -12,13 +12,18 @@ The chain, in order, each step only when the one before found nothing:
    picks the combination; a command that hears nothing runs at once. Off
    unless ``embedding_accept`` is set.
 3. **The model** picks the command when meaning did not: GLiNER (one label
-   per command, among the closest few that hear something) or an LLM
+   per command, among the closest few, or "not a command") or an LLM
    (commands are tools, their slots the parameters -- names as their spoken
    names, value lists as their values, numbers, durations and free text as
    text). Either way it is checked like a match: the command must be
    available on the satellite, names map back to ids, values to list values,
    and what was heard must be one of its combinations, exactly.
 4. **Fail**: the hint, as before.
+
+Commands described alike -- the versions of a library command, on this
+satellite, a device by name, an area or floor by name -- are one command to
+both steps (``label_of``), and what is heard in the sentence picks the
+version, as it picks a combination.
 
 Both steps are opt-in, per command (``fallback: [meaning, llm]``): a command
 nobody chose for a step is never run by it.
@@ -899,6 +904,32 @@ def needs_heard_slots(command: Command) -> bool:
     return command.takes_something
 
 
+def label_of(command: Command) -> str:
+    """What meaning and the model step know a command by: its description.
+    Commands that describe themselves alike are one choice to them -- the
+    versions of a library command (on this satellite, on a device by name, in
+    an area or floor by name), a copy in another group -- and what is heard in
+    the sentence picks among them, as it picks a combination."""
+    return command.description or command.id
+
+
+def kin(compiled: Any, command: Command) -> list[Command]:
+    """``command`` and the enabled commands that describe themselves alike."""
+    label = label_of(command)
+    return [command, *(c for c in compiled.commands.values() if c.id != command.id and not c.disabled and label_of(c) == label)]
+
+
+@dataclass
+class Fit:
+    """Which of a command's versions takes what the model heard."""
+
+    command: Command | None = None
+    slots: dict[str, Any] = field(default_factory=dict)
+    arguments: dict[str, Any] = field(default_factory=dict)
+    combination: list[str] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+
+
 def by_meaning(closest: dict[str, Any] | None, command: Command | None) -> tuple[bool, dict[str, Any]]:
     """Whether meaning is sure of the command, and why (not). It picks the
     command only: what was said in it is heard by the model."""
@@ -950,6 +981,9 @@ class Fallback:
         self.signature: str | None = None
         """What the LLM must have been loaded for."""
         self.status = "off" if llm is None else "waiting for the commands"
+        """The model step's state; without a model, why (the app says)."""
+        self.by = "GLiNER" if getattr(llm, "kind", "llm") == "gliner" else "LLM"
+        """What the model step is called in the trace."""
         self._thread: threading.Thread | None = None
 
     def prepare(self, engine: Any, wait: bool = False) -> None:
@@ -1025,21 +1059,37 @@ class Fallback:
                 scores = dict(sorted(scores.items(), key=lambda item: -item[1]))
             return scores
 
-        if self.embedding_accept and chosen(compiled, "meaning"):
-            near = closest()
+        nearest: list[Any] = []
+
+        def closest_once() -> Any:
+            """The closest command by meaning (one embedding, when first asked for)."""
+            if not nearest:
+                nearest.append(closest() if closest is not None else None)
+            return nearest[0]
+
+        if chosen(compiled, "meaning") and not self.embedding_accept:
+            found.trace["meaning"] = {"skipped": "turned off on the Settings page"}
+        elif self.embedding_accept and chosen(compiled, "meaning"):
+            near = closest_once()
             command = compiled.commands.get(command_of(near["intent"])) if near else None
             accept, why = by_meaning(near, command)
-            if accept and command is not None and "meaning" not in command.fallback:
+            mine = [c for c in kin(compiled, command) if "meaning" in c.fallback] if command is not None else []
+            if accept and not mine:
                 accept, why = False, {**why, "why": "not chosen for meaning"}
             found.trace["meaning"] = why
-            if accept and command is not None and satellite.available(command) is not None:
-                if not command.takes_something:
-                    if self._places_fit(command, {}, text, why):
-                        return Found(command, {}, "meaning", found.trace)
+            here = [c for c in mine if satellite.available(c) is not None]
+            if accept and here:
+                if not any(c.takes_something for c in here):
+                    for candidate in here:
+                        if self._places_fit(candidate, {}, text, why):
+                            return Found(candidate, {}, "meaning", found.trace)
                     return found
-                # Meaning picked the command; what was said in it, the model hears.
-                return self._fill(found, why, command, text, satellite)
+                # Meaning picked the command; what was said in it, the model
+                # hears, and that picks the version and the combination.
+                return self._fill(found, why, here, text, satellite)
         if llm is None or self.tools is None or not self.chosen or not text.strip():
+            if llm is None and self.chosen:
+                found.trace["llm"] = {"by": self.by, "skipped": self.status}
             return found
         gliner = getattr(llm, "kind", "llm") == "gliner"
         by = "GLiNER" if gliner else "LLM"
@@ -1051,7 +1101,7 @@ class Fallback:
 
         if gliner:
             found.trace["llm"] = trace
-            return self._pick_with_gliner(found, trace, text, compiled, satellite, by_similarity)
+            return self._pick_with_gliner(found, trace, text, compiled, satellite, by_similarity, closest_once)
         if self.closest_only and ranked is not None:
             allowed = set(self.chosen)
             order = [
@@ -1074,7 +1124,12 @@ class Fallback:
             if command is None or command.disabled or name not in self.chosen:
                 trace.setdefault("problems", []).append(f"no command {name}")
                 continue
-            slots, problems = self.tools.slots(command, arguments, text)
+            # It called one version of a command; what it gave picks the version.
+            members = [c for c in kin(compiled, command) if c.id in self.chosen]
+            available = [c for c in members if satellite.available(c) is not None]
+            fit = self._fit(available or [command], lambda _c, given=arguments: given, text)
+            command = fit.command or (available or [command])[0]
+            slots, problems = fit.slots, fit.problems
             close = by_similarity().get(command.id)
             floor = LLM_BARE_MIN_SIMILARITY if slots == match_slots(command, {}) else LLM_MIN_SIMILARITY
             if close is not None and close < floor:
@@ -1088,16 +1143,44 @@ class Fallback:
                 }
                 return found
             trace["command"] = command.id
+            if not available:
+                trace["problems"] = [satellite.why_unavailable(command)]
+                return found
             if problems:
                 trace["problems"] = problems
                 return found
-            if satellite.available(command) is None:
-                trace["problems"] = [satellite.why_unavailable(command)]
-                return found
-            if not self._places_fit(command, slots, text, trace):
-                return found
             return Found(command, slots, "llm", found.trace)
         return found
+
+    def _fit(self, members: list[Command], arguments_of: Any, text: str) -> Fit:
+        """Which of a command's versions takes what the model heard
+        (``arguments_of(version)``): its slots are one of its combinations,
+        and the sentence names no room or floor it leaves out. Of those, the
+        one that takes the most of it -- "play jazz on the Mark 2" is the
+        version that takes a device, not the one that plays it here. None
+        fitting: what was wrong with each."""
+        assert self.tools is not None
+        best: Fit | None = None
+        tried: list[Fit] = []
+        for command in members:
+            arguments = arguments_of(command)
+            slots, problems = self.tools.slots(command, arguments, text)
+            if not problems:
+                problems = [f"heard {place}, which it doesn't take" for place in self.tools.places_left(command, slots, text)]
+            combination = list(command.combination_for(set(slots) - set(command.behavior.slots)) or [])
+            fit = Fit(None if problems else command, slots, arguments, combination, problems)
+            tried.append(fit)
+            if fit.command is not None and (best is None or len(combination) > len(best.combination)):
+                best = fit
+        if best is not None:
+            return best
+        if len(tried) == 1:
+            return tried[0]
+        return Fit(
+            slots=tried[0].slots if tried else {},
+            arguments=tried[0].arguments if tried else {},
+            problems=[f"{command.id}: {problem}" for command, fit in zip(members, tried) for problem in fit.problems],
+        )
 
     def _places_fit(self, command: Command, slots: dict[str, Any], text: str, trace: dict[str, Any]) -> bool:
         """Whether the sentence names no room or floor the command left out;
@@ -1112,39 +1195,46 @@ class Fallback:
         llm = self.llm
         return llm is not None and self.tools is not None and llm.ready and llm.signature == self.signature
 
-    def _fill(self, found: Found, trace: dict[str, Any], command: Command, text: str, satellite: Any) -> Found:
+    def _fill(self, found: Found, trace: dict[str, Any], members: list[Command], text: str, satellite: Any) -> Found:
         """Meaning picked a command that hears something: the model hears what
-        was said in it (GLiNER its slots' entities; an LLM a call to it
-        alone), and that picks the combination -- nothing said is one too,
-        when the command has it."""
+        was said in it (GLiNER its versions' entity types; an LLM a call to
+        them alone), and that picks the version and its combination --
+        nothing said is one too, when it has it."""
         llm, tools = self.llm, self.tools
         if not self._model_ready() or not text.strip():
             trace["why"] = "it hears names, numbers or text, and there is no model to hear them"
             return found
         assert llm is not None and tools is not None
+        ids = [c.id for c in members]
         if getattr(llm, "kind", "llm") == "gliner":
-            types = self._entity_types([command.id])
+            types = self._entity_types(ids)
             out, seconds = llm.hear(text, types) if types else ({"entities": {}}, 0.0)
             entities = out.get("entities") or {}
-            arguments = self._gliner_arguments(command, entities, text)
+
+            def arguments_of(command: Command) -> dict[str, Any]:
+                return self._gliner_arguments(command, entities, text)
+
             trace.update(
                 heard_by="GLiNER",
                 entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
                 seconds=round(seconds, 3),
             )
         else:
-            calls, raw, seconds = llm.call(text, with_way_out(tools.subset([command.id]), llm.way_out))
-            arguments = next((a for n, a in calls if n == command.id), {})
+            calls, raw, seconds = llm.call(text, with_way_out(tools.subset(ids), llm.way_out))
+            given = next((a for n, a in calls if n in ids), {})
+
+            def arguments_of(command: Command) -> dict[str, Any]:
+                return given
+
             trace.update(heard_by="LLM", raw=raw, seconds=round(seconds, 3))
-        slots, problems = tools.slots(command, arguments, text)
-        trace["arguments"] = arguments
-        if problems:
-            trace["problems"] = problems
+        fit = self._fit(members, arguments_of, text)
+        trace["arguments"] = fit.arguments
+        if fit.command is None:
+            trace["problems"] = fit.problems
             return found
-        trace["combination"] = list(command.combination_for(set(slots) - set(command.behavior.slots)) or [])
-        if not self._places_fit(command, slots, text, trace):
-            return found
-        return Found(command, slots, "meaning", found.trace)
+        trace["command"] = fit.command.id
+        trace["combination"] = fit.combination
+        return Found(fit.command, fit.slots, "meaning", found.trace)
 
     def _entity_types(self, command_ids: list[str]) -> dict[str, str]:
         """What GLiNER looks for, for these commands' slots: label -> description."""
@@ -1157,51 +1247,61 @@ class Fallback:
         return types
 
     def _pick_with_gliner(
-        self, found: Found, trace: dict[str, Any], text: str, compiled: Any, satellite: Any, by_similarity: Any
+        self,
+        found: Found,
+        trace: dict[str, Any],
+        text: str,
+        compiled: Any,
+        satellite: Any,
+        by_similarity: Any,
+        closest: Any = None,
     ) -> Found:
-        """GLiNER picks among the commands that hear something (one label
-        each, its description), and what it hears in the sentence picks the
-        combination. It is given the closest ``top_k`` of them in meaning,
-        chosen or not -- with no others to tell it from, it would take anything
-        for the one there is ("never mind" played as music) -- and its pick
-        runs only when it was chosen, sure enough (``threshold``), ahead of
-        "not a command", available here, and what it heard is a combination
-        of it. Hearing nothing in it, it runs only when meaning puts the same
-        command first: there is nothing else to check it by."""
+        """GLiNER picks among the commands -- one label each, its description,
+        which a command's versions share -- or "not a command", and what it
+        hears in the sentence picks the version and the combination. It is
+        given the closest ``top_k`` in meaning, chosen or not -- with no others
+        to tell it from, it would take anything for the one there is ("never
+        mind" played as music) -- and its pick runs only when it was chosen,
+        sure enough (``threshold``), ahead of "not a command", available here,
+        and what it heard is a combination of it. Hearing nothing in it, it
+        runs only when meaning puts the same command first, ahead of the
+        everyday requests that are no command too: there is nothing else to
+        check it by ("thank you" was "say good night", "what's twelve times
+        eight" turned on repeat)."""
         llm, tools = self.llm, self.tools
         assert tools is not None
-        takes = {
-            c.id for c in compiled.commands.values()
-            if not c.disabled and c.id in tools.parameters and needs_heard_slots(c)
-        }
-        mine = takes & set(self.chosen)
-        if not mine:
-            trace["skipped"] = "none of its commands hears something (meaning takes those)"
-            return found
-        order = [c for c in by_similarity() if c in takes] or sorted(takes)
+        groups: dict[str, list[Command]] = {}
+        for command in compiled.commands.values():
+            if not command.disabled and command.id in tools.parameters and label_of(command) != NOT_A_COMMAND_LABEL:
+                groups.setdefault(label_of(command), []).append(command)
+        # Each label shown by its closest command, closest first (without an
+        # embedding model, every one).
+        shown: dict[str, str] = {}
+        for command_id in list(by_similarity()) or sorted(compiled.commands):
+            command = compiled.commands.get(command_id)
+            if command is not None and label_of(command) in groups:
+                shown.setdefault(label_of(command), command_id)
+        order = list(shown)
+        mine = {label for label, members in groups.items() if any(c.id in self.chosen for c in members)}
         candidates = order[: self.top_k] if self.top_k else order
         if not mine & set(candidates):
             trace["skipped"] = "none of its commands is close in meaning"
             return found
-        labels: dict[str, str] = {}
-        for command_id in candidates:
-            label = compiled.commands[command_id].description
-            labels[f"{label} ({command_id.replace('_', ' ')})" if label in labels else label] = command_id
-        types = self._entity_types(candidates)
-        out, seconds = llm.pick(text, [*labels, NOT_A_COMMAND_LABEL], types)
+        types = self._entity_types([c.id for label in candidates for c in groups[label]])
+        out, seconds = llm.pick(text, [*candidates, NOT_A_COMMAND_LABEL], types)
         probabilities = dict(out["classification"])
         none = probabilities.pop(NOT_A_COMMAND_LABEL)
-        scores = {labels[label]: p for label, p in probabilities.items()}
+        scores = {label: probabilities[label] for label in candidates}
         entities = out.get("entities") or {}
-        best = max(candidates, key=lambda c: scores[c])
+        best = max(candidates, key=lambda label: scores[label])
         trace.update(
-            candidates=candidates,
-            scores={c: round(p, 4) for c, p in scores.items()},
+            candidates=[shown[label] for label in candidates],
+            scores={shown[label]: round(p, 4) for label, p in scores.items()},
             not_a_command=round(none, 4),
             entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
             seconds=round(seconds, 3),
         )
-        trace["raw"] = f"{best} {scores[best]:.2f}, not a command {none:.2f}" + "".join(
+        trace["raw"] = f"{shown[best]} {scores[best]:.2f}, not a command {none:.2f}" + "".join(
             f"; {k}: " + ", ".join(f"\u201c{e[0]}\u201d {e[1]:.2f}" for e in v) for k, v in entities.items() if v
         )
         if none >= scores[best]:
@@ -1210,28 +1310,35 @@ class Fallback:
         if scores[best] < llm.threshold:
             trace["said"] = f"not sure enough ({scores[best]:.2f}, needs {llm.threshold:.2f})"
             return found
-        command = compiled.commands[best]
-        if best not in mine:
-            trace["refused"] = {"command": best, "why": "not chosen for it"}
+        members = [c for c in groups[best] if c.id in self.chosen]
+        if not members:
+            trace["refused"] = {"command": shown[best], "why": "not chosen for it"}
             return found
-        arguments = self._gliner_arguments(command, entities, text)
-        trace["arguments"] = arguments
-        slots, problems = tools.slots(command, arguments, text)
-        trace["command"] = best
-        if problems:
-            trace["problems"] = problems
+        available = [c for c in members if satellite.available(c) is not None]
+        if not available:
+            trace["command"] = members[0].id
+            trace["problems"] = [satellite.why_unavailable(members[0])]
             return found
-        combination = command.combination_for(set(slots) - set(command.behavior.slots))
-        trace["combination"] = list(combination or [])
-        if not combination and next(iter(by_similarity()), None) != best:
-            trace["refused"] = {"command": best, "why": "not what meaning puts first, and nothing was heard in it"}
+        fit = self._fit(available, lambda c: self._gliner_arguments(c, entities, text), text)
+        trace["arguments"] = fit.arguments
+        trace["command"] = (fit.command or available[0]).id
+        if fit.command is None:
+            trace["problems"] = fit.problems
             return found
-        if satellite.available(command) is None:
-            trace["problems"] = [satellite.why_unavailable(command)]
-            return found
-        if not self._places_fit(command, slots, text, trace):
-            return found
-        return Found(command, slots, "gliner", found.trace)
+        trace["combination"] = fit.combination
+        if not fit.combination:
+            near = closest() if closest is not None else None
+            first = compiled.commands.get(command_of(near["intent"])) if near else None
+            if first is None or label_of(first) != best:
+                trace["refused"] = {"command": fit.command.id, "why": "not what meaning puts first, and nothing was heard in it"}
+                return found
+            if near.get("next_similarity") is not None and near["next_similarity"] > near["similarity"]:
+                trace["refused"] = {
+                    "command": fit.command.id,
+                    "why": f"closer in meaning to {near['next']}, which is no command, and nothing was heard in it",
+                }
+                return found
+        return Found(fit.command, fit.slots, "gliner", found.trace)
 
     def _gliner_arguments(self, command: Command, entities: dict[str, list], text: str) -> dict[str, Any]:
         """A command's arguments from what GLiNER found: for each slot the

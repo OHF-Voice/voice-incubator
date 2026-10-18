@@ -373,7 +373,7 @@ function fallbackPanel() {
       h("span", { class: "badge" }, count(status.llm_commands)),
       h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
-      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks among commands that hear something — meaning takes the rest — in about a quarter of a second on a Raspberry Pi 5. An LLM takes any command but is slower and wrong more often; Hammer is licensed for non-commercial use only."),
+      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks a command itself, or “not a command”, in about a quarter of a second on a Raspberry Pi 5. A command's versions (on this satellite, a device, an area or floor) are one choice to it: what it hears picks the version. An LLM is slower and wrong more often; Hammer is licensed for non-commercial use only."),
       field("Commands it chooses from", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
       thresholdField,
       h("button", { class: "primary", onclick: save }, "Save")));
@@ -1143,7 +1143,10 @@ async function pageCommand(id, prefill) {
               if (e.target.checked) now.push(step);
               const ordered = ["meaning", "llm"].filter((x) => now.includes(x));
               if (ordered.length) spec.fallback = ordered; else delete spec.fallback;
-            } }), label))),
+            } }), label,
+            // Turned off for every command: ticked here, it still won't run.
+            ((state.status || {}).fallback || {})[step] === false
+              ? h("a", { class: "badge warn", href: "#/settings", title: "Turned off for every command under “When nothing matches” on the Settings page" }, "off in Settings") : null))),
           (id && ((state.store.details || {})[id] || {}).needs_said)
             ? "It hears something (a name, number, value or text): meaning picks the command, and the model hears what was said in it."
             : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Settings page.")),
@@ -1969,7 +1972,8 @@ function renderRecognition(rec) {
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
     rec.matched_by && rec.matched_by !== "ctc" && rec.matched_by !== "transcript" ? h("div", { class: "notice info" }, rec.matched_by === "llm" ? "Found by the LLM: nothing matched on keywords or examples." : rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
-      rec.fallback.meaning ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
+      rec.fallback.meaning && rec.fallback.meaning.skipped ? h("div", { class: "small" }, `By meaning: skipped (${rec.fallback.meaning.skipped})`) : null,
+      rec.fallback.meaning && !rec.fallback.meaning.skipped ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
         rec.fallback.meaning.heard_by ? h("div", { class: "muted" }, `${rec.fallback.meaning.heard_by} heard `, h("code", {}, JSON.stringify(rec.fallback.meaning.arguments || {})),
           rec.fallback.meaning.combination ? ` — said with ${rec.fallback.meaning.combination.length ? rec.fallback.meaning.combination.join(" and ") : "nothing"}` : "",
           rec.fallback.meaning.problems ? ` — not run: ${rec.fallback.meaning.problems.join("; ")}` : "") : null,

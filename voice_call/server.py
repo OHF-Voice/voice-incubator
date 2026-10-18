@@ -578,6 +578,10 @@ class VoiceCallApp:
         if isinstance(llm, GlinerPicker):
             llm.threshold = wanted["threshold"]
         fallback = Fallback(wanted["meaning"], llm, wanted["top_k"])
+        if llm is None:
+            # Why it won't run, for a command chosen for it.
+            fallback.by = "GLiNER" if wanted["model"] in GLINER_MODELS else "LLM"
+            fallback.status = self._llm_status or ("turned off on the Settings page" if not wanted["llm"] else "off")
         self.engine.fallback = fallback
         fallback.prepare(self.engine)
 

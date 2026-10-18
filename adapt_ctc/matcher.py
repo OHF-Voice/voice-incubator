@@ -23,7 +23,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -504,13 +504,15 @@ class Recognizer:
                 reason += f", within {margin:g} of {rival[1]} at {rival[0]:.2f}"
             result.reasons.append(reason)
 
-    def closest_by_meaning(self, texts: list[str]) -> dict | None:
+    def closest_by_meaning(self, texts: list[str], group: Callable[[str], Any] | None = None) -> dict | None:
         """The intent whose examples or description are closest in meaning to
         any of ``texts`` (transcripts), for saying what a command that matched
         nothing looks like it was trying to do. Never a match: returns
         ``{"intent", "text", "similarity", "next", "next_similarity"}``, where
-        ``next`` is the runner-up intent or built-in everyday request. None
-        without an embedder, descriptions or examples."""
+        ``next`` is the runner-up intent or built-in everyday request -- with
+        ``group``, the first intent not in the closest one's group (intents
+        that are one thing said different ways are no rivals). None without
+        an embedder, descriptions or examples."""
         texts = [t for t in texts if t and t.strip()]
         if self.embedder is None or not self._hint_owners or not texts:
             return None
@@ -522,7 +524,8 @@ class Recognizer:
                 closest[intent] = (float(similarity), text)
         ranked = sorted(closest.items(), key=lambda item: -item[1][0])
         intent, (similarity, text) = ranked[0]
-        rivals = [(s, other) for other, (s, _) in ranked[1:2]]
+        others = ranked[1:] if group is None else [r for r in ranked[1:] if group(r[0]) != group(intent)]
+        rivals = [(s, other) for other, (s, _) in others[:1]]
         if self._distractors:
             to_distractors = (queries @ self._distractor_vectors.T).max(axis=0)
             best = int(np.argmax(to_distractors))

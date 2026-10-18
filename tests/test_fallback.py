@@ -352,17 +352,17 @@ def everything():
             ("device_on", 0.4), ("light_color", 0.3), ("what_time", 0.2), ("set_alarm", 0.1)]
 
 
-def test_gliner_picks_among_the_closest_that_need_something_said():
+def test_gliner_picks_among_the_closest():
     stub = StubGliner({"add something to the shopping list": 0.8}, {"item": [("milk", 0.97, 8, 12)]})
     fallback, compiled = gliner_fallback(stub, ["add_item"])
     assert fallback.status == "ready" and stub.ready
     found = fallback.decide("we need milk", far, compiled, KITCHEN, everything)
     assert found.command.id == "add_item" and found.by == "gliner" and found.slots == {"item": "milk"}
-    # The chosen one among others to tell it from -- but not those that hear
-    # nothing (meaning's): what_time.
-    assert stub.labels[:5] == [
+    # The chosen one among others to tell it from, the closest 8 -- those that
+    # hear nothing too.
+    assert stub.labels[:-1] == [
         "add something to the shopping list", "set a timer", "set the brightness of the lights", "turn on the lights",
-        "turn on a device",
+        "turn on a device", "change the color of the lights", "tell the time", "set an alarm",
     ]
     assert stub.labels[-1] == "something else: a question, small talk or thanks"
     assert stub.types["item"] == "something to buy, or a task to do, as said" and "duration" in stub.types
@@ -412,10 +412,36 @@ def test_gliner_skips():
     fallback, compiled = gliner_fallback(stub, ["set_alarm"])
     found = fallback.decide("we need milk", far, compiled, KITCHEN, lambda: everything()[:5])
     assert found.trace["llm"]["skipped"] == "none of its commands is close in meaning" and stub.labels is None
-    # Only commands that hear nothing: meaning's, not GLiNER's.
+
+
+def test_gliner_picks_a_command_that_hears_nothing_too():
+    # One label among the others, and "not a command". Hearing nothing in it,
+    # it runs only when meaning puts it first too -- ahead of the everyday
+    # requests that are no command.
+    stub = StubGliner({"tell the time": 0.8})
     fallback, compiled = gliner_fallback(stub, ["what_time"])
-    found = fallback.decide("have you got the time", far, compiled, KITCHEN, everything)
-    assert "meaning takes those" in found.trace["llm"]["skipped"]
+
+    def time_first():
+        return [("what_time", 0.9), *[c for c in everything() if c[0] != "what_time"]]
+
+    def time_near():
+        return {"intent": "what_time", "similarity": 0.8, "next": "'tell me a joke'", "next_similarity": 0.5}
+
+    found = fallback.decide("have you got the time", time_near, compiled, KITCHEN, time_first)
+    assert found.command.id == "what_time" and found.by == "gliner" and found.slots == {}
+    assert "tell the time" in stub.labels and stub.labels[-1] == "something else: a question, small talk or thanks"
+    found = fallback.decide("have you got the time", lights_near, compiled, KITCHEN, everything)
+    assert found.command is None and "not what meaning puts first" in found.trace["llm"]["refused"]["why"]
+
+    def thanks_near():
+        return {"intent": "what_time", "similarity": 0.6, "next": "'thank you'", "next_similarity": 0.96}
+
+    found = fallback.decide("thank you", thanks_near, compiled, KITCHEN, time_first)
+    assert found.command is None and found.trace["llm"]["refused"]["why"] == (
+        "closer in meaning to 'thank you', which is no command, and nothing was heard in it")
+    stub.none = 0.9
+    found = fallback.decide("thank you", time_near, compiled, KITCHEN, time_first)
+    assert found.command is None and found.trace["llm"]["said"] == "not a command"
 
 
 def lights_near():
@@ -462,7 +488,7 @@ def test_gliner_hearing_nothing_runs_only_what_meaning_puts_first():
     def lights_first():
         return [("lights_on", 0.9), *[c for c in everything() if c[0] != "lights_on"]]
 
-    found = fallback.decide("some light please", far, compiled, KITCHEN, lights_first)
+    found = fallback.decide("some light please", lights_near, compiled, KITCHEN, lights_first)
     assert found.command.id == "lights_on" and found.slots == {} and found.trace["llm"]["combination"] == []
 
 
@@ -499,3 +525,111 @@ def test_a_room_said_must_be_taken():
     fallback, compiled = gliner_fallback(stub, ["device_on"])
     found = fallback.decide("start the coffee maker in the kitchen", far, compiled, KITCHEN, everything)
     assert found.command is None and found.trace["llm"]["problems"] == ["heard area Kitchen, which it doesn't take"]
+
+
+VERSIONS = {
+    "names": {
+        "areas": {"kitchen": {"name": "Kitchen"}},
+        "entities": {"media_player.mark_ii": {"name": "Mark 2"}},
+    },
+    "commands": {
+        "lights_off_here": {
+            "description": "turn off the lights",
+            "require": [["turn off"], ["lights"]],
+            "action": {"action": "light.turn_off", "target": "{{ target }}"},
+        },
+        "lights_off_place": {
+            "description": "turn off the lights",
+            "require": [["turn off"], ["lights"]],
+            "names": {"area": {"count": 1}},
+            "action": {"action": "light.turn_off", "target": "{{ target }}"},
+        },
+        "play_here": {
+            "description": "play music",
+            "require": [["play"]],
+            "wildcard": {"slot": "query", "after": ["play"], "to_end": True},
+            "music": "play",
+        },
+        "play_device": {
+            "description": "play music",
+            "require": [["play"]],
+            "optional": [["on"]],
+            "wildcard": {"slot": "query", "after": ["play"], "to_end": True},
+            "names": {"entity": {"count": 1, "domains": ["media_player"]}},
+            "combinations": [["entity", "query"]],
+            "music": "play",
+        },
+        "what_time": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
+    },
+}
+
+
+def versions_near():
+    return {"intent": "lights_off_here", "similarity": 0.88, "next": "'tell me a joke'", "next_similarity": 0.7}
+
+
+def versions_ranked():
+    return [("lights_off_here", 0.88), ("lights_off_place", 0.88), ("play_here", 0.5), ("play_device", 0.5), ("what_time", 0.2)]
+
+
+def test_meaning_picks_the_command_and_what_was_heard_picks_its_version():
+    compiled = chosen_for(VERSIONS, meaning=["lights_off_here", "lights_off_place"])
+    stub = StubGliner({})
+    fallback = Fallback(embedding_accept=True, llm=stub, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("kill the lights", versions_near, compiled, KITCHEN, versions_ranked)
+    assert found.command.id == "lights_off_here" and found.slots == {} and found.by == "meaning"
+    assert set(stub.types) == {"room"}  # what either version hears
+    stub.entities = {"room": [("the kitchen", 0.9, 16, 27)]}
+    found = fallback.decide("kill the lights in the kitchen", versions_near, compiled, KITCHEN, versions_ranked)
+    assert found.command.id == "lights_off_place" and found.slots == {"area": ["kitchen"]}
+    assert found.trace["meaning"]["command"] == "lights_off_place" and found.trace["meaning"]["combination"] == ["area"]
+    # Only the version for here chosen: the room said is left out, so nothing runs.
+    compiled = chosen_for(VERSIONS, meaning=["lights_off_here"])
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("kill the lights in the kitchen", versions_near, compiled, KITCHEN, versions_ranked)
+    assert found.command is None and found.trace["meaning"]["problems"] == ["heard area Kitchen, which it doesn't take"]
+
+
+def test_gliner_knows_a_command_by_one_label_and_hears_its_version():
+    stub = StubGliner({"play music": 0.8}, {"music": [("jazz", 0.95, 5, 9)], "device": [("the mark 2", 0.9, 13, 23)]})
+    fallback, compiled = gliner_fallback(stub, ["play_here", "play_device"], VERSIONS)
+
+    def play_first():
+        return [("play_here", 0.81), ("play_device", 0.8), ("what_time", 0.3), ("lights_off_here", 0.21), ("lights_off_place", 0.2)]
+
+    found = fallback.decide("play jazz on the mark 2", far, compiled, KITCHEN, play_first)
+    assert found.command.id == "play_device" and found.slots == {"entity": ["media_player.mark_ii"], "query": "jazz"}
+    assert stub.labels == ["play music", "tell the time", "turn off the lights", "something else: a question, small talk or thanks"]
+    assert found.trace["llm"]["candidates"] == ["play_here", "what_time", "lights_off_here"]
+    stub.entities = {"music": [("jazz", 0.95, 5, 9)]}
+    found = fallback.decide("play jazz", far, compiled, KITCHEN, play_first)
+    assert found.command.id == "play_here" and found.slots == {"query": "jazz"}
+
+
+def test_the_llm_calls_a_version_and_what_it_gave_picks_it():
+    compiled = chosen_for(VERSIONS, llm=["play_here", "play_device"])
+    llm = StubLLM('<tool_call>\n{"name": "play_here", "arguments": {"query": "jazz", "entity": "Mark 2"}}\n')
+    fallback = Fallback(llm=llm, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("play jazz on the mark 2", far, compiled, KITCHEN, None)
+    assert found.command.id == "play_device" and found.slots == {"entity": ["media_player.mark_ii"], "query": "jazz"}
+
+
+def test_a_step_turned_off_says_so():
+    # Chosen for a step that is turned off (Settings): the trace says why it
+    # did not run, instead of nothing.
+    compiled = chosen_for(STORE, meaning=["what_time"], llm=["what_time"])
+    fallback = Fallback(embedding_accept=False, llm=None)
+    fallback.status, fallback.by = "turned off on the Settings page", "GLiNER"
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("have you got the time", near, compiled, KITCHEN, ranked)
+    assert found.command is None
+    assert found.trace == {
+        "meaning": {"skipped": "turned off on the Settings page"},
+        "llm": {"by": "GLiNER", "skipped": "turned off on the Settings page"},
+    }
+    # Nothing chosen for them: nothing said.
+    compiled = compile_store(STORE)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    assert fallback.decide("have you got the time", near, compiled, KITCHEN, ranked).trace == {}

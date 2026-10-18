@@ -350,29 +350,47 @@ only by name, and "lock up" and "is everything locked" are every lock.
 
 ## When nothing matches
 
-Keywords and example sentences come first: in the audio, then -- when
-nothing matched there -- in the transcript the speech model wrote (the
-built-in TDT, or your Home Assistant STT), so "unlock the front door" heard
-plainly by the speech model runs even when the keyword evidence in the audio
-was weak. When they find nothing, two more steps can run a command -- but only a command you chose for them: tick them
-on the command's page, or "meaning" and "model" for many at once with
-**Choose commands** under "When nothing matches" on the **Settings** page. Commands
-from the library are not chosen until you choose them.
+In order, each only when the one before found nothing:
 
-- **Meaning** picks the chosen command a sentence is very close to: "kill
-  the lights in the office" for "turn off the lights". What was said in it
-  -- the room, a number, a name -- the model below hears, and that picks the
-  way of saying it (the office, or nothing named: the satellite's area). A
-  command that hears nothing runs at once. With the model turned off,
-  meaning runs only commands that hear nothing.
-- **A small model** picks one of its chosen commands and fills in what it
-  needs: "throw on my workout playlist", "take milk off the list", "give me
-  ten minutes for the pasta". By default it is GLiNER2.5 small, which comes
-  with the app: it picks only among commands that hear something (a name,
-  number, value or text) -- meaning takes the rest -- and adds about a
+1. **Keywords and example sentences**: in the audio, then -- when nothing
+   matched there -- in the transcript the speech model wrote (the built-in
+   TDT, or your Home Assistant STT), so "unlock the front door" heard plainly
+   by the speech model runs even when the keyword evidence in the audio was
+   weak. Typed text (the Test page) is read as said, word for word.
+2. **Skills** (Skills page): spelling, dates, the clock, units and
+   arithmetic answer exactly ("what's twelve times eight").
+3. **Meaning**, for the commands chosen for it (below).
+4. **A small model**, for the commands chosen for it (below).
+5. **The conversation agent** (Settings page), when there is one.
+6. **The Unknown command** (below).
+
+Choose commands for meaning and the model on the command's page, or many at
+once with **Choose commands** under "When nothing matches" on the
+**Settings** page, where each step can also be turned off for every command
+(a command's page then says "off in Settings", and a call's trace says why
+the step was skipped). Commands from the library are not chosen until you
+choose them.
+
+- **Meaning** picks the chosen command a sentence is very close to -- its
+  example sentences and description: "kill the lights in the office" for
+  "turn off the lights". What was said in it -- the room, a number, a name --
+  the model below hears, and that picks the way of saying it (the office, or
+  nothing named: the satellite's area). A command that hears nothing runs at
+  once. With the model turned off, meaning runs only commands that hear
+  nothing.
+- **A small model** picks one of its chosen commands, or "not a command",
+  and fills in what it needs: "throw on my workout playlist", "take milk off
+  the list", "give me ten minutes for the pasta", "have you got the time". By
+  default it is GLiNER2.5 small, which comes with the app, and adds about a
   quarter of a second on a Raspberry Pi 5, however many commands are chosen.
-  When it hears nothing in the sentence ("lights out"), its pick runs only if
-  meaning puts the same command first.
+  When it hears nothing in the sentence ("lights out", "how late is it"), its
+  pick runs only if meaning puts the same command first, ahead of the
+  everyday requests that are no command ("thank you").
+- A command's **versions** (on this satellite, a device by name, an area or
+  floor by name) are one choice to both: what was said picks the version --
+  "lights out in the bedroom" is Turn off the lights in an area or floor,
+  "lights out" the one for this satellite. So are any commands you describe
+  the same way.
   It compares the chosen commands with others close in meaning, chosen or
   not, and runs nothing when it is not sure (**Least sure it may be**, 0.3:
   lower runs more, and more by mistake), when the closest is one you did not

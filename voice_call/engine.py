@@ -47,6 +47,7 @@ from adapt_ctc.config import ConfigError, _phrase
 
 from . import skills
 from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, command_of, match_slots
+from .fallback import label_of
 from .store import Compiled
 from .voices import TypedText, VoiceChoice
 
@@ -558,10 +559,15 @@ class Engine:
             recognizer = self.recognizer
         texts = [t for t in (recognition.tdt_transcript, recognition.transcript) if t]
 
+        def same(intent: str) -> str:
+            # A command's versions, said alike, are no rivals to each other.
+            command = compiled.commands.get(command_of(intent))
+            return label_of(command) if command is not None else intent
+
         def closest() -> dict[str, Any] | None:
             if recognizer is None or self.embedder is None:
                 return None
-            return recognizer.closest_by_meaning(texts)
+            return recognizer.closest_by_meaning(texts, group=same)
 
         def ranked() -> list[tuple[str, float]]:
             if recognizer is None or self.embedder is None:
