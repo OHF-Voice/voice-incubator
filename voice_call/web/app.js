@@ -50,9 +50,11 @@ function iconFor(spec) {
   return spec && spec.icon && ICONS[spec.icon] ? spec.icon : KIND_ICONS[kindOf(spec || {})];
 }
 
-function icon(name, cls) {
+// An icon; `label`, when given, is what a screen reader says for it.
+function icon(name, cls, label) {
   const path = ICONS[name] || ICONS["mdi:message-text-outline"];
-  return h("span", { class: `icon ${cls || ""}`, title: name, html: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>` });
+  return h("span", { class: `icon ${cls || ""}`, title: label === undefined ? name : label || null, role: label ? "img" : null, "aria-label": label || null,
+    html: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>` });
 }
 
 // replaceChildren() would print null and false as text.
@@ -1541,8 +1543,7 @@ async function pageSatellite(key, opened) {
     fill(out, h("p", { class: "muted" }, speak.checked ? "Synthesizing and recognizing…" : "Recognizing…"));
     try {
       const record = await api("POST", "try", { text: input.value, satellite: s.key, run_actions: run.checked, speak: speak.checked });
-      fill(out, h("div", { class: "panel inset" }, renderOutcome(record), h("p", {}, h("a", { href: `#/session/${record.id}` }, "Full trace"))),
-        h("div", {}, ...(record.stages || []).filter((x) => ["recognition", "agent", "unknown", "action"].includes(x.stage)).map(renderStage)));
+      fill(out, h("div", { class: "panel inset" }, sessionGlance(record), pipeline(record), h("p", { class: "small" }, h("a", { href: `#/session/${record.id}` }, "Open its session"))));
     } catch (err) { fill(out, errorBox(err)); }
   }
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
@@ -2095,6 +2096,23 @@ function sessionKind(record, sats) {
   return record.kind === "try" ? "test" : record.kind;
 }
 
+// Its icon: its satellite's, or a test's or a replay's.
+function sessionIcon(record) {
+  if (record.kind === "try") return "mdi:keyboard-outline";
+  if (record.kind === "replay") return "mdi:replay";
+  return satelliteIcon(state.satellites.find((s) => s.key === (record.satellite || {}).id));
+}
+
+// What was heard or said, in quotes, without the stray punctuation
+// speech-to-text leaves at the start (", set the lights").
+function quoted(text) {
+  return `“${String(text).replace(/^[\s,.;:!?]+/, "")}”`;
+}
+
+function wakeTitle(wake) {
+  return wake && wake.probability !== undefined ? `window average ${prob(wake.probability)}, highest ${prob(wake.max_probability)}, cutoff ${prob(wake.cutoff)}` : null;
+}
+
 async function pageSessions(query) {
   const satellite = new URLSearchParams(query || "").get("satellite");
   await loadSatellites();
@@ -2103,28 +2121,37 @@ async function pageSessions(query) {
   const sats = satelliteLabels();
   const session = satellite && state.satellites.find((s) => s.key === satellite);
 
+  // A session: what was heard, big; what it ran and said; when, where and
+  // with which wake word.
+  const row = (c) => h("a", { class: "item session-row", href: `#/session/${c.id}` },
+    icon(sessionIcon(c), "big", null),
+    h("div", { class: "grow" },
+      h("div", { class: "heard" }, c.heard ? quoted(c.heard) : c.summary ? c.summary[0].toUpperCase() + c.summary.slice(1) : "…"),
+      c.command || c.said ? h("div", { class: "muted small" }, [c.command, c.said ? quoted(c.said) : null].filter(Boolean).join(" · ")) : null),
+    h("div", { class: "session-side" },
+      h("div", { class: "session-meta muted small" },
+        h("span", {}, time(c.started)),
+        h("span", { title: wakeTitle(c.wake) }, sessionKind(c, sats),
+          c.wake ? ` · ${c.wake.name || c.wake.wake_word}${c.wake.probability !== undefined ? ` ${prob(c.wake.probability)}` : ""}` : "")),
+      c.kept ? icon("mdi:waveform", "", "Audio kept") : null,
+      c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
+      h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome)));
+
   async function refresh() {
     const data = await api("GET", `calls${satellite ? `?satellite=${satellite}` : ""}`);
-    fill(list, ...(data.calls.length ? data.calls.map((c) => h("div", { class: "item clickable", onclick: () => { location.hash = `#/session/${c.id}`; } },
-      h("div", { style: "min-width:150px" }, h("div", {}, time(c.started)), h("div", { class: "muted small" }, sessionKind(c, sats)),
-        c.wake ? h("div", { class: "muted small", title: c.wake.probability !== undefined ? `window average ${prob(c.wake.probability)}, highest ${prob(c.wake.max_probability)}, cutoff ${prob(c.wake.cutoff)}` : "" },
-          c.wake.name || c.wake.wake_word, c.wake.probability !== undefined ? ` ${prob(c.wake.probability)}` : null) : null),
-      h("div", { class: "grow" }, c.summary || h("span", { class: "muted" }, "…")),
-      c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
-      c.kept ? h("span", { class: "badge", title: "audio kept" }, "♪ audio") : null,
-      h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome))) : [h("p", { class: "muted" }, "No sessions yet.")]));
+    fill(list, ...(data.calls.length ? data.calls.map(row) : [h("p", { class: "muted" }, "No sessions yet.")]));
   }
 
   const keep = h("input", { type: "checkbox", checked: settings.keep_audio, onchange: async (e) => { await api("PUT", "settings", { keep_audio: e.target.checked }); refreshStatus(); toast(e.target.checked ? "Keeping audio of every session" : "Not keeping audio"); } });
   const max = h("input", { type: "number", min: 1, value: settings.max_saved_calls, style: "width:80px", onchange: async (e) => { await api("PUT", "settings", { max_saved_calls: Number(e.target.value) }); toast("Saved"); } });
-  fill($main, 
-    h("div", { class: "row" }, h("h1", { class: "grow" }, satellite ? `Sessions on ${sats[satellite] || satellite}` : "Sessions"), satellite ? h("a", { href: "#/sessions" }, "All satellites") : null),
+  fill($main,
+    h("div", { class: "row" },
+      h("h1", { style: "margin:0; flex:1 0 auto" }, satellite ? `Sessions on ${sats[satellite] || satellite}` : "Sessions"),
+      satellite ? h("a", { href: "#/sessions" }, "All satellites") : null,
+      h("label", { class: "small" }, keep, "Keep every session", hint("Keeps the audio and full trace of every session — everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (on its page, under Test it) keeps its audio.")),
+      h("label", { class: "small" }, "At most", max)),
     session && session.debug ? h("div", { class: "notice warn" }, `Debugging ${session.name}${session.debug.dry_run ? " (dry run: nothing is executed)" : ""}. New sessions appear here as they happen.`) : null,
-    h("div", { class: "panel" },
-      h("div", { class: "row" },
-        h("label", {}, keep, "Keep every session", hint("Keeps the audio and full trace of every session — everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (on its page, under Test it) keeps its audio.")),
-        h("label", { class: "right" }, "At most", max))),
-    h("div", { class: "panel" }, list),
+    h("div", { class: "panel", style: "margin-top:12px" }, list),
   );
   await refresh();
   poll(refresh, 2000);
@@ -2216,22 +2243,65 @@ function recognitionSpans(record, offset) {
   return best.spans.map((s) => ({ start: offset + s.start, end: offset + s.end, color: SPAN_COLORS[s.role] || "rgba(0,0,0,.1)", label: null }));
 }
 
-function renderOutcome(record) {
+// Slots in a line: "area office · color blue".
+function slotsText(slots) {
+  return Object.entries(slots || {}).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ");
+}
+
+// Why Kaldi refused a wake word, in a few words.
+function wakeRejection(stage) {
+  if (!stage || stage.accepted) return null;
+  if (stage.error) return stage.error;
+  if (stage.rejected_by === "confusable") return `sounded like “${stage.confusable_words || "a confusable"}”`;
+  if (stage.rejected_by === "last") return "its last word was too far off";
+  if (stage.rejected_by === "prefix") return "its first words were too far off";
+  return stage.rejected_by ? `rejected by ${stage.rejected_by}` : "rejected";
+}
+
+// What a session came to: an icon, and a line.
+function sessionResult(record) {
   const rec = stageOf(record, "recognition");
-  const action = stageOf(record, "action");
-  const speech = stageOf(record, "speech");
-  if (!rec) return h("p", { class: "muted" }, record.summary || record.outcome);
-  return h("div", { class: "stack" },
-    h("div", { class: "row" },
-      h("span", { class: `badge ${OUTCOME_CLASS[record.outcome] || ""}` }, record.outcome),
-      rec.command ? h("span", {}, "Matched ", h("a", { href: `#/command/${rec.command}` }, rec.command), rec.decided_by && rec.decided_by !== "command" ? ` (${rec.decided_by})` : "") : h("span", { class: "muted" }, "No command matched")),
-    h("div", { class: "kv" },
-      h("div", {}, rec.text_source === "typed" ? "Read as" : "Heard"), h("div", {}, rec.recognition.transcript || "—"),
-      rec.recognition.tdt_transcript ? [h("div", {}, heardLabels(rec).text), h("div", {}, rec.recognition.tdt_transcript)] : null,
-      rec.slots && Object.keys(rec.slots).length ? [h("div", {}, "Slots"), h("div", {}, h("code", {}, JSON.stringify(rec.slots)))] : null,
-      !rec.command && llmNote(rec.fallback) ? [h("div", {}, rec.fallback.llm.by || "Model"), h("div", {}, llmNote(rec.fallback))] : null,
-      speech ? [h("div", {}, "Says"), h("div", {}, speech.text || h("span", { class: "muted" }, speech.silent ? "(nothing: it's silent)" : "(a short sound)"))] : null,
-      action && action.error ? [h("div", {}, "Error"), h("div", { class: "notice bad" }, action.error)] : null));
+  const agent = stageOf(record, "agent");
+  const unknown = stageOf(record, "unknown");
+  if (record.outcome === "wake rejected") {
+    const kaldi = (record.stages || []).filter((s) => s.stage === "wake_kaldi").pop();
+    const why = wakeRejection(kaldi);
+    return ["mdi:shield-off-outline", [`Wake word rejected${why ? `: ${why}` : ""}`]];
+  }
+  if (rec && rec.command) {
+    return ["mdi:flash-outline", [record.dry_run ? "Would run " : "Ran ", h("a", { href: `#/command/${rec.command}` }, rec.command),
+      rec.slots && Object.keys(rec.slots).length ? h("span", { class: "muted" }, ` (${slotsText(rec.slots)})`) : null]];
+  }
+  if (rec && rec.answer) return ["mdi:comment-question-outline", [`Answered by the ${rec.answer.skill || rec.answer.solver || rec.answer.kind} skill`]];
+  if (agent) {
+    const name = (agent.agent || "the conversation agent").replace(/^conversation\./, "");
+    if (!agent.asked) return ["mdi:robot-outline", [`Would ask ${name}`]];
+    if (agent.error) return ["mdi:robot-outline", [`Couldn't ask ${name}`]];
+    return ["mdi:robot-outline", [agent.understood ? `Answered by ${name}` : `${name} understood nothing`]];
+  }
+  if (unknown || (rec && !rec.command)) {
+    const closest = rec && rec.hint && rec.hint.intent;
+    return ["mdi:help-circle-outline", ["Not recognized", closest ? h("span", { class: "muted" }, ` (closest: ${closest})`) : null]];
+  }
+  return ["mdi:circle-medium", [record.summary || record.outcome]];
+}
+
+// A session at a glance: what was heard, what it came to, what was said,
+// and what went wrong.
+function sessionGlance(record) {
+  const rec = stageOf(record, "recognition");
+  const typed = stageOf(record, "typed");
+  const r = (rec && rec.recognition) || {};
+  const heard = r.tdt_transcript || r.transcript || (typed && typed.text) || "";
+  const speech = (record.stages || []).filter((s) => s.stage === "speech").pop();
+  const errors = (record.stages || []).filter((s) => s.error && ["action", "error", "speech_failed", "agent"].includes(s.stage)).map((s) => s.error);
+  const [resultIcon, result] = sessionResult(record);
+  return h("div", { class: "glance" },
+    heard ? h("div", { class: "glance-heard" }, icon(typed || (rec && rec.text_source === "typed") ? "mdi:keyboard-outline" : "mdi:ear-hearing", "", typed ? "Typed" : "Heard"), h("span", {}, quoted(heard))) : null,
+    h("div", { class: "glance-line" }, icon(resultIcon, "", "Result"), h("span", {}, ...result)),
+    speech ? h("div", { class: "glance-line" }, icon("mdi:volume-high", "", "Said"),
+      h("span", {}, speech.text ? quoted(speech.text) : h("span", { class: "muted" }, speech.silent ? "Nothing: it's silent" : "A short sound"))) : null,
+    errors.map((e) => h("div", { class: "notice bad" }, e)));
 }
 
 // What the fallback's model step (GLiNER or an LLM) came to when it ran no
@@ -2304,43 +2374,100 @@ function renderRecognition(rec) {
     h("details", {}, h("summary", {}, `Why the other ${rejected.length} didn't match`),
       ...rejected.map((x) => h("div", { class: "stage" },
         h("div", { class: "head" }, h("span", { class: "name" }, x.intent), x.heard_groups ? h("span", { class: "muted small" }, `${x.heard_groups} required group(s) heard`) : null),
-        ...(x.reasons || []).map((reason) => h("div", { class: "small muted" }, "– ", reason))))),
+        ...(x.reasons || []).map((reason) => h("div", { class: "small muted" }, "– ", reason.replace(" (--full-search shows the closest placement)", "")))))),
   );
 }
 
-function renderStage(stage) {
+// The steps of a session's pipeline: each one's icon, name, and a line on
+// how it went (status "ok", "bad", "warn" or "" for neither).
+const STEP_ICONS = {
+  call_start: "mdi:microphone", wake_kaldi: "mdi:shield-check-outline", wake_ratio: "mdi:scale-balance", wake_unverified: "mdi:shield-off-outline",
+  endpoint: "mdi:waveform", speaker: "mdi:account-voice", split: "mdi:content-cut", typed: "mdi:keyboard-outline", replay_of: "mdi:replay",
+  recognition: "mdi:ear-hearing", action: "mdi:flash-outline", skill_response: "mdi:comment-question-outline", agent: "mdi:robot-outline",
+  unknown: "mdi:help-circle-outline", speech: "mdi:volume-high", speech_failed: "mdi:volume-off", timer_ringing: "mdi:bell-ring-outline",
+  timer_stopped: "mdi:timer-off-outline", error: "mdi:alert-circle-outline",
+};
+const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
+const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", llm: "by the LLM" };
+
+function stepGlance(stage) {
+  const d = stage;
+  switch (stage.stage) {
+    case "call_start":
+      return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };
+    case "wake_kaldi":
+      return { title: d.offset ? "Verification, again" : "Verification", status: d.accepted ? "ok" : "bad", line: d.accepted ? `accepted${d.phrase ? ` “${d.phrase}”` : ""}` : wakeRejection(d) };
+    case "wake_ratio":
+      return { title: "Second opinion", status: d.overturned ? "ok" : "bad", line: d.overturned ? "accepted it after all" : "agreed: rejected" };
+    case "wake_unverified":
+      return { title: "Verification", status: "", line: "none for this wake word" };
+    case "endpoint":
+      return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command` };
+    case "speaker":
+      return { title: "Speaker", status: d.name ? "ok" : "", line: d.name ? `${d.name} (${num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized" };
+    case "split":
+      return { title: "Command starts", status: "", line: `at ${num(d.cut, 2)} s${d.phrase ? `, after “${d.phrase}”` : ""}` };
+    case "typed":
+      return { title: "Typed", status: "", line: `${quoted(d.text || "")}${d.spoken ? ", spoken and heard" : ""}` };
+    case "replay_of":
+      return { title: "Replay", status: "", line: `of ${d.call}` };
+    case "recognition":
+      if (d.command) return { title: "Recognition", status: "ok", line: `${d.command} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() };
+      if (d.answer) return { title: "Recognition", status: "ok", line: `a question for the ${d.answer.skill || d.answer.solver || d.answer.kind} skill` };
+      return { title: "Recognition", status: "warn", line: "no command" };
+    case "action": {
+      const calls = (d.sequence || []).map((x) => x.action || x.service).filter(Boolean);
+      const what = d.music ? `music: ${d.music.operation}` : d.timer ? "timer" : calls.length ? calls.join(", ") : "a response only";
+      const how = d.error ? "failed" : d.outcome && d.outcome !== "done" ? d.outcome.replace(/_/g, " ") : null;
+      return { title: d.dry_run ? "Action (dry run)" : "Action", status: d.error || d.outcome === "failed" ? "bad" : how ? "warn" : d.dry_run ? "" : "ok", line: [how, what].filter(Boolean).join(" · ") };
+    }
+    case "skill_response":
+      return { title: "Skill's response", status: d.error ? "warn" : "ok", line: `${d.skill} · ${d.level}${d.template ? " · your template" : ""}` };
+    case "agent": {
+      const name = (d.agent || "agent").replace(/^conversation\./, "");
+      if (!d.asked) return { title: "Conversation agent", status: "", line: `${name}: not asked (dry run)` };
+      if (d.error) return { title: "Conversation agent", status: "bad", line: `${name}: ${d.error}` };
+      return { title: "Conversation agent", status: d.understood && d.text ? "ok" : "warn", line: `${name}: ${d.understood ? "answered" : "understood nothing"} in ${Math.round((d.seconds || 0) * 1000)} ms` };
+    }
+    case "unknown":
+      return { title: "Unknown command", status: d.error ? "warn" : "", line: d.error ? "its response failed: said the default" : "said its response" };
+    case "speech":
+      return { title: "Said", status: "ok", line: d.text ? quoted(d.text) : d.silent ? "nothing (silent)" : "a short sound" };
+    case "speech_failed":
+      return { title: "Speaking", status: "bad", line: d.error || "failed" };
+    case "timer_ringing":
+      return { title: "Timer ringing", status: "warn", line: (d.timers || []).map((t) => t.name || `${Math.round(t.created_duration)} s`).join(", ") };
+    case "timer_stopped":
+      return { title: "Timer stopped", status: "ok", line: d.by === "stop" ? "by “stop” or a call" : d.by === "button" ? "by the center button" : d.by === "timeout" ? "rang out" : d.by || "" };
+    case "error":
+      return { title: "Error", status: "bad", line: d.error || "" };
+    default:
+      return { title: stage.stage, status: "", line: "" };
+  }
+}
+
+// A step's details: everything recorded about it.
+function stepDetails(stage) {
   const { stage: name, at, ...data } = stage;
-  let cls = "";
-  let body = null;
-  let head = name;
   if (name === "call_start") {
-    head = "Wake word detected";
-    body = h("div", { class: "small" }, data.name || data.wake_word || "—",
+    return h("div", { class: "small" }, data.name || data.wake_word || "—",
       data.probability !== undefined
         ? ` · probability ${prob(data.probability)} (window average; highest ${prob(data.max_probability)}) against a cutoff of ${prob(data.cutoff)}`
         : " · its firmware doesn't say the probability",
       ` · pre-roll ${num(data.preroll, 2)} s`);
-  } else if (name === "wake_kaldi") {
-    cls = data.accepted ? "ok" : "bad";
-    head = `Kaldi wake verification${data.offset ? ` (+${data.offset}s retry)` : ""}`;
-    body = h("div", { class: "small" }, data.accepted ? "accepted" : `rejected by ${data.rejected_by}`,
-      ` · phrase ${data.phrase || "—"} · wake ${num(data.wake_start)}–${num(data.split)}s · lr ${num(data.lr)} (prefix ${num(data.lr_prefix)}, last ${num(data.lr_last)}) · confusable ${data.confusable_words || "—"} by ${num(data.confusable_margin)} · ${num(data.decode_ms, 0)} ms`);
-  } else if (name === "wake_ratio") {
-    cls = data.overturned ? "ok" : "bad";
-    head = "Second opinion on the wake word";
-    body = h("div", { class: "small" }, data.overturned ? "overturned" : "agreed with", ` the ${data.rejected_by} rejection · score ${num(data.score)}`);
-  } else if (name === "split") {
-    head = "Where the command starts";
-    body = h("div", { class: "small" }, data.phrase ? `wake phrase “${data.phrase}” at ${data.wake_start}–${data.wake_end}s (CTC)` : "wake phrase not found again; Kaldi's end used",
-      ` · Kaldi ended it at ${data.kaldi_split}s · command from ${data.cut}s`);
-  } else if (name === "recognition") {
-    cls = data.command ? "ok" : "warn";
-    head = "Recognition";
-    body = renderRecognition(data);
-  } else if (name === "action") {
-    cls = data.error ? "bad" : "ok";
-    head = data.dry_run ? "Action (dry run: not executed)" : "Action";
-    body = h("div", {},
+  }
+  if (name === "wake_kaldi") {
+    return h("div", { class: "small" }, data.offset ? `retried ${data.offset} s later · ` : "", data.accepted ? "accepted" : `rejected by ${data.rejected_by}`,
+      ` · phrase ${data.phrase || "—"} · wake ${num(data.wake_start)}–${num(data.split)} s · lr ${num(data.lr)} (prefix ${num(data.lr_prefix)}, last ${num(data.lr_last)}) · confusable ${data.confusable_words || "—"} by ${num(data.confusable_margin)} · ${num(data.decode_ms, 0)} ms`);
+  }
+  if (name === "wake_ratio") return h("div", { class: "small" }, data.overturned ? "overturned" : "agreed with", ` the ${data.rejected_by} rejection · score ${num(data.score)}`);
+  if (name === "split") {
+    return h("div", { class: "small" }, data.phrase ? `wake phrase “${data.phrase}” at ${data.wake_start}–${data.wake_end} s (CTC)` : "wake phrase not found again; Kaldi's end used",
+      ` · Kaldi ended it at ${data.kaldi_split} s · command from ${data.cut} s`);
+  }
+  if (name === "recognition") return renderRecognition(data);
+  if (name === "action") {
+    return h("div", {},
       data.outcome ? h("div", { class: "small" }, "Outcome: ", h("code", {}, data.outcome)) : null,
       data.verbosity ? h("div", { class: "small" }, "Said: ", h("code", {}, data.verbosity.level), ` (${data.verbosity.why}`,
         data.verbosity.place ? `; ${data.verbosity.place.here ? "here" : "elsewhere"}${data.verbosity.place.said ? ", " + data.verbosity.place.said : ""}` : "", ")") : null,
@@ -2348,104 +2475,126 @@ function renderStage(stage) {
       data.music ? h("div", { class: "small" }, "Music: ", data.music.operation, " · own player ", data.music.own || "none",
         data.music.found ? [" · found ", h("code", {}, data.music.found.uri), ` (${data.music.found.media_type}, score ${data.music.found.score})`] : null) : null,
       data.music && data.music.players ? h("details", {}, h("summary", {}, "Players"), h("pre", {}, JSON.stringify(data.music.players, null, 2))) : null,
-      data.sequence && data.sequence.length ? h("div", {}, h("div", { class: "small muted" }, "Sequence"), h("pre", {}, JSON.stringify(data.sequence, null, 2))) : h("div", { class: "small muted" }, data.timer ? "Nothing to call." : "Only a response."),
+      data.sequence && data.sequence.length ? h("div", {}, h("div", { class: "small muted" }, "Sequence"), h("pre", {}, JSON.stringify(data.sequence, null, 2))) : null,
       h("details", {}, h("summary", {}, "Variables sent to Home Assistant"), h("pre", {}, JSON.stringify(data.variables, null, 2))),
       data.response !== null && data.response !== undefined ? h("div", {}, h("div", { class: "small muted" }, "Returned"), h("pre", {}, JSON.stringify(data.response, null, 2))) : null,
       data.error ? h("div", { class: "notice bad" }, data.error) : null);
-  } else if (name === "timer_ringing") {
-    cls = "warn";
-    head = "Timer ringing";
-    body = h("div", { class: "small" }, (data.timers || []).map((t) => t.name || `${Math.round(t.created_duration)} s`).join(", "));
-  } else if (name === "timer_stopped") {
-    head = "Timer stopped";
-    body = h("div", { class: "small" }, data.by === "stop" ? "by “stop” or a call" : data.by === "button" ? "by the center button" : data.by === "timeout" ? "rang out" : data.by, data.heard ? ` · heard ${data.heard}` : "");
-  } else if (name === "agent") {
-    cls = !data.asked ? "" : data.understood && data.text ? "ok" : data.error ? "bad" : "warn";
-    head = `Conversation agent${data.agent ? ` (${data.agent})` : ""}`;
-    body = h("div", { class: "small" }, !data.asked ? "Not asked: a dry run, and an agent can act in the home." : data.error ? ["Could not be asked: ", data.error] : [
+  }
+  if (name === "agent") {
+    return h("div", { class: "small" }, !data.asked ? "Not asked: a dry run, and an agent can act in the home." : data.error ? ["Could not be asked: ", data.error] : [
       data.understood ? ["Said “", data.text || "", "”"] : ["Understood nothing (", data.code || data.response_type, "): said the default."],
       h("div", { class: "muted" }, `${data.response_type || ""} in ${Math.round((data.seconds || 0) * 1000)} ms · ${data.continued ? "conversation kept from before" : "new conversation"}${data.conversation_id ? ` ${data.conversation_id}` : ""}${data.wants_answer ? " · it asked something back" : ""}`)]);
-  } else if (name === "unknown") {
-    cls = data.error ? "bad" : "ok";
-    head = "Unknown command";
-    body = h("div", { class: "small" }, data.error ? ["Could not render it (", data.error, "): said the default."] : data.said ? ["Says “", data.said, "”"] : "Rendered to nothing: said the default.");
-  } else if (name === "speech") {
-    head = "Said";
-    body = h("div", {}, data.text || h("span", { class: "muted" }, data.silent ? "(nothing: it's silent)" : "(a short sound)"));
-  } else if (name === "speaker") {
-    head = "Speaker";
-    body = h("div", { class: "small" }, data.name || "not recognized", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "");
-  } else {
-    body = Object.keys(data).length ? h("div", { class: "small muted" }, Object.entries(data).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")) : null;
   }
-  return h("div", { class: `stage ${cls}` },
-    h("div", { class: "head" }, h("span", { class: "name" }, head), h("span", { class: "muted small" }, `+${at}s`)),
-    body,
-    h("details", {}, h("summary", {}, "raw"), h("pre", {}, JSON.stringify(stage, null, 2))));
+  if (name === "unknown") return h("div", { class: "small" }, data.error ? ["Could not render it (", data.error, "): said the default."] : data.said ? ["Said “", data.said, "”"] : "Rendered to nothing: said the default.");
+  if (name === "skill_response") return h("div", { class: "small" }, data.error ? ["Its template failed (", data.error, "): said the built-in sentence. "] : null, data.said ? ["Said “", data.said, "”"] : null);
+  if (name === "speech") {
+    return h("div", { class: "small" }, data.text || h("span", { class: "muted" }, data.silent ? "(nothing: it's silent)" : "(a short sound)"),
+      data.tts ? h("div", { class: "muted" }, `by ${data.tts}${data.voice ? ` (${data.voice})` : ""} on ${data.on || "the satellite"}`) : null);
+  }
+  if (name === "replay_of") return h("div", { class: "small" }, "Replays ", h("a", { href: `#/session/${data.call}` }, data.call), " with today's commands.");
+  if (name === "speaker") return h("div", { class: "small" }, data.name || "not recognized", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "", data.margin !== null && data.margin !== undefined ? ` · margin ${num(data.margin)}` : "");
+  return Object.keys(data).length ? h("div", { class: "small muted" }, Object.entries(data).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")) : null;
+}
+
+// One step: when (seconds into the session), its icon, its name and how it
+// went; open it for the details. `extra`: more in its details.
+function stepRow(stage, before, extra) {
+  const glance = stepGlance(stage);
+  const status = STATUS[glance.status];
+  const at = Number(stage.at) || 0;
+  return h("details", { class: `step ${glance.status}` },
+    h("summary", {},
+      h("span", { class: "step-at", title: `${num(at - before, 2)} s after the step before` }, `+${at.toFixed(2)} s`),
+      h("span", { class: "step-icon" }, icon(STEP_ICONS[stage.stage] || "mdi:circle-medium", "", null)),
+      h("span", { class: "step-text" }, h("span", { class: "step-title" }, glance.title), glance.line ? h("span", { class: "step-line" }, glance.line) : null),
+      status ? icon(status[0], "step-status", status[1]) : h("span", { class: "step-status" })),
+    h("div", { class: "step-body" },
+      stepDetails(stage),
+      extra || null,
+      h("details", { class: "raw" }, h("summary", {}, "Raw"), h("pre", {}, JSON.stringify(stage, null, 2)))));
+}
+
+// A session's steps, in order. `extras`: more for a step's details, by its name.
+function pipeline(record, extras) {
+  const stages = record.stages || [];
+  return h("div", { class: "steps" }, stages.map((stage, i) => stepRow(stage, i ? Number(stages[i - 1].at) || 0 : 0, (extras || {})[stage.stage])));
 }
 
 async function pageSession(id) {
-  const record = await api("GET", `calls/${id}`);
-  const split = stageOf(record, "split");
-  const offset = split ? split.cut : 0;
+  const [record] = await Promise.all([api("GET", `calls/${id}`), state.satellites.length ? null : loadSatellites().catch(() => null)]);
   const out = h("div");
-  async function replay(runActions) {
+  async function replay() {
     fill(out, h("p", { class: "muted" }, "Replaying…"));
     try {
-      const result = await api("POST", `calls/${id}/replay`, { run_actions: runActions });
+      const result = await api("POST", `calls/${id}/replay`, { run_actions: false });
       location.hash = `#/session/${result.id}`;
     } catch (err) { fill(out, errorBox(err)); }
   }
   const rec = stageOf(record, "recognition");
   const heard = rec && rec.recognition ? (rec.recognition.tdt_transcript || rec.recognition.transcript || "") : "";
   // A satellite's audio (not a typed or synthesized test): whose voice it was.
-  const voice = record.audio && record.audio.call && record.kind !== "try" ? await voicePanel(record) : null;
-  fill($main, 
-    h("div", { class: "row" },
-      h("a", { href: "#/sessions" }, "← Sessions"),
-      h("h1", { class: "grow", style: "margin:0" }, `${sessionKind(record)} · ${time(record.started)}`),
-      h("span", { class: `badge ${OUTCOME_CLASS[record.outcome] || ""}` }, record.outcome),
-      record.dry_run && record.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null),
-    h("p", {}, record.summary),
-    h("div", { class: "row" },
-      record.audio && record.audio.call ? h("button", { onclick: () => replay(false) }, "Replay with today's commands (dry run)") : null,
-      heard ? h("button", { onclick: () => { pageCommand(null, { description: "", examples: [heard.replace(/[.?!]+$/, "")] }); } }, "Make a command from this") : null,
-      record.kept ? h("button", { class: "danger", onclick: async () => { if (confirm("Delete this session and its audio?")) { await api("DELETE", `calls/${id}`); location.hash = "#/sessions"; } } }, "Delete") : null),
-    out,
-    record.audio && Object.keys(record.audio).length ? h("div", { class: "panel" }, h("h2", {}, "Audio"),
-      record.audio.call ? [h("h3", {}, "Call (AGC): pre-roll, wake word, command"), waveform(record, "call", recognitionSpans(record, offset))] : null,
-      record.audio["call-aec"] ? [h("h3", {}, "Call (AEC)"), waveform(record, "call-aec", [])] : null,
-      record.audio.command ? [h("h3", {}, record.kind === "try" ? "Synthesized command" : "Command (endpointing cut)"), waveform(record, "command", record.kind === "try" ? recognitionSpans(record, 0) : [])] : null,
-      h("div", { class: "legend" }, ...Object.entries(SPAN_COLORS).map(([role, color]) => h("span", { style: `--c:${color}` }, role)))) :
-      h("div", { class: "panel muted small" }, "No audio kept for this session. Turn on debugging (Sessions page), or debug its satellite (its page, under Test it), to keep it."),
-    voice,
-    h("div", { class: "panel" }, h("h2", {}, "Pipeline"), ...(record.stages || []).map(renderStage)),
+  const voice = record.audio && record.audio.call && record.kind !== "try" ? await whoSpoke(record) : null;
+  const took = record.finished ? record.finished - record.started : null;
+  fill($main,
+    h("a", { href: "#/sessions" }, "← Sessions"),
+    h("div", { class: "row session-head" },
+      icon(sessionIcon(record), "big", null),
+      h("div", { class: "grow" },
+        h("h1", { style: "margin:0" }, sessionKind(record)),
+        h("div", { class: "muted small" }, [time(record.started), took !== null ? `${num(took, 1)} s` : null, record.dry_run && record.outcome !== "dry run" ? "dry run" : null].filter(Boolean).join(" · "))),
+      h("span", { class: `badge ${OUTCOME_CLASS[record.outcome] || ""}` }, record.outcome)),
+    h("div", { class: "panel" },
+      sessionGlance(record),
+      h("div", { class: "row", style: "margin-top:12px" },
+        record.audio && record.audio.call ? h("span", { class: "with-hint" }, h("button", { onclick: replay }, "Replay"), hint("Recognizes its audio again with today's commands, as a dry run: nothing happens in Home Assistant.")) : null,
+        heard ? h("button", { onclick: () => { pageCommand(null, { description: "", examples: [heard.replace(/^[\s,.;:!?]+/, "").replace(/[.?!]+$/, "")] }); } }, "Make a command") : null,
+        record.kept ? h("button", { class: "danger right", onclick: async () => { if (confirm("Delete this session and its audio?")) { await api("DELETE", `calls/${id}`); location.hash = "#/sessions"; } } }, "Delete") : null),
+      out),
+    h("div", { class: "panel" },
+      heading("h2", "Steps", "Seconds since the session started (the wake word, or what was typed). Open a step for everything recorded about it."),
+      pipeline(record, { speaker: voice })),
+    audioSection(record),
   );
   if (record.outcome === "in progress") poll(async () => { const next = await api("GET", `calls/${id}`); if (next.outcome !== "in progress") { stopPolling(); pageSession(id); } }, 1000);
 }
 
-// Who spoke in a session, and adding its voice to a speaker's: one already
-// known, or a new one.
-async function voicePanel(record) {
+// A session's audio, folded away: drawn when opened.
+function audioSection(record) {
+  if (!record.audio || !Object.keys(record.audio).length) {
+    return h("p", { class: "muted small" }, "No audio kept.", hint("Keep every session (on the Sessions page), or debug its satellite (its page, under Test it), to keep it."));
+  }
+  const split = stageOf(record, "split");
+  const offset = split ? split.cut : 0;
+  const body = h("div");
+  const section = h("details", { class: "panel fold" },
+    h("summary", {}, icon("mdi:chevron-right", "chevron", null), h("h2", {}, "Audio")),
+    body);
+  section.addEventListener("toggle", () => {
+    if (!section.open || body.childElementCount) return;
+    fill(body,
+      record.audio.call ? [h("h3", {}, "Call (AGC): pre-roll, wake word, command"), waveform(record, "call", recognitionSpans(record, offset))] : null,
+      record.audio["call-aec"] ? [h("h3", {}, "Call (AEC)"), waveform(record, "call-aec", [])] : null,
+      record.audio.command ? [h("h3", {}, record.kind === "try" ? "Synthesized command" : "Command (endpointing cut)"), waveform(record, "command", record.kind === "try" ? recognitionSpans(record, 0) : [])] : null,
+      h("div", { class: "legend" }, ...Object.entries(SPAN_COLORS).map(([role, color]) => h("span", { style: `--c:${color}` }, role))));
+  });
+  return section;
+}
+
+// Adding a session's voice to a speaker's: one already known, or a new one.
+// Shown in its Speaker step.
+async function whoSpoke(record) {
   let data;
   try { data = await api("GET", "speakers"); } catch (_) { return null; }
-  const found = stageOf(record, "speaker");
-  const said = !found ? "Not identified when it was heard."
-    : found.name ? `Recognized as ${found.name} (score ${num(found.score, 2)}).`
-      : found.best ? `Not recognized: closest ${found.best} (score ${num(found.score, 2)}).` : "Not recognized.";
-  if (!data.enabled) {
-    return h("div", { class: "panel" }, h("h2", {}, "Who spoke"), h("p", { class: "small" }, said),
-      h("p", { class: "muted small" }, "Speaker identification is turned off, so no voices are learned."));
-  }
+  if (!data.enabled) return h("p", { class: "muted small" }, "Speaker identification is off, so no voices are learned.");
   const NEW = "+new"; // never a speaker's name
+  const found = stageOf(record, "speaker");
   const pick = found && (found.name || found.best);
-  const who = h("select", {},
+  const who = h("select", { id: `who-${record.id}` },
     ...data.speakers.map((sp) => h("option", { value: sp.name, selected: sp.name === pick }, sp.name)),
     h("option", { value: NEW, selected: !data.speakers.length }, "A new speaker…"));
-  const name = h("input", { type: "text", placeholder: "Name" });
-  const nameField = h("span", {}, name);
+  const name = h("input", { type: "text", placeholder: "Name", "aria-label": "Name" });
   const out = h("div");
-  const update = () => { nameField.style.display = who.value === NEW ? "" : "none"; };
+  const update = () => { name.style.display = who.value === NEW ? "" : "none"; };
   who.addEventListener("change", update);
   update();
   async function add() {
@@ -2459,9 +2608,8 @@ async function voicePanel(record) {
         added.learned === 0 && who.value === NEW ? " A new voice from one session is a start: add a few more of theirs to make it sure." : ""));
     } catch (err) { out.append(errorBox(err)); }
   }
-  return h("div", { class: "panel" }, h("h2", {}, "Who spoke"),
-    h("p", { class: "small" }, said),
-    h("div", { class: "row" }, h("span", {}, "This is"), who, nameField, h("button", { class: "primary", onclick: add }, "Add this voice"),
+  return h("div", { style: "margin-top:8px" },
+    h("div", { class: "row" }, h("label", { for: who.id }, "This is"), who, name, h("button", { class: "primary", onclick: add }, "Add this voice"),
       hint("Adds the wake word and the command, as the satellite heard them, to that person's voice: they are recognized better from then on. Only add a session you know is theirs.")),
     out);
 }

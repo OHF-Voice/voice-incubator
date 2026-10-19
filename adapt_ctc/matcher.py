@@ -1443,7 +1443,7 @@ class Recognizer:
         closest = spotting.closest_of(terminals)
         if closest is None:
             if spotting.live:
-                return "; nothing close (--full-search shows the closest placement)"
+                return "; nothing close"
             return ""
         per_token, terminal, first, last = closest
         phrase = spotting.graph.meanings[terminal][0].phrase

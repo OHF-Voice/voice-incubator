@@ -156,6 +156,54 @@ h2.row { gap: 8px; align-items: center; }
 .stage.warn { border-left-color: var(--warn); }
 .stage .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .stage .head .name { font-weight: 600; }
+
+/* Sessions: a row each in the list -- what was heard, big. */
+a.session-row { color: inherit; flex-wrap: nowrap; }
+a.session-row:hover { text-decoration: none; background: var(--bg); }
+.session-row .heard { font-weight: 600; overflow-wrap: anywhere; }
+.session-side { flex: none; display: flex; align-items: center; gap: 10px; }
+.session-meta { display: flex; flex-direction: column; text-align: right; white-space: nowrap; }
+@media (max-width: 640px) {
+  a.session-row { flex-wrap: wrap; row-gap: 4px; }
+  .session-side { flex-basis: 100%; flex-wrap: wrap; gap: 4px 10px; padding-left: 40px; }
+  .session-meta { flex-direction: row; flex-wrap: wrap; gap: 0 6px; text-align: left; white-space: normal; }
+}
+/* A session: at a glance, then its steps. */
+.session-head { margin: 8px 0 12px; }
+.glance-heard { display: flex; gap: 10px; align-items: flex-start; font-size: 1.25rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
+.glance-heard .icon { width: 24px; height: 24px; margin-top: 3px; }
+.glance-line { display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; overflow-wrap: anywhere; }
+.glance-line .icon, .glance-heard .icon { color: var(--accent); }
+.steps { margin-top: 4px; }
+details.step > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 5px 4px; border-radius: 6px; color: inherit; font-size: inherit; }
+details.step > summary::-webkit-details-marker { display: none; }
+details.step > summary:hover { background: var(--bg); }
+.step-at { flex: none; width: 4.6em; text-align: right; color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.step-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--chip); }
+.step-icon .icon { width: 18px; height: 18px; }
+details.step.ok .step-icon { background: var(--ok-soft); }
+details.step.ok .step-icon .icon, .step-status.ok, details.step.ok .step-status { color: var(--ok); }
+details.step.bad .step-icon { background: var(--bad-soft); }
+details.step.bad .step-icon .icon, details.step.bad .step-status { color: var(--bad); }
+details.step.warn .step-icon { background: var(--warn-soft); }
+details.step.warn .step-icon .icon, details.step.warn .step-status { color: var(--warn); }
+.step-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+.step-title { font-weight: 600; }
+.step-line { color: var(--muted); font-size: 0.88rem; overflow-wrap: anywhere; }
+.step-status { flex: none; width: 18px; height: 18px; }
+.step-body { margin: 2px 0 10px calc(4.6em + 28px); padding: 4px 0 4px 16px; border-left: 2px solid var(--line); }
+.step-body details.raw { margin-top: 6px; }
+@media (max-width: 640px) {
+  .step-at { width: 3.9em; }
+  .step-body { margin-left: 4px; }
+}
+/* A panel that opens: its title is the summary. */
+details.fold > summary { list-style: none; display: flex; align-items: center; gap: 6px; color: inherit; font-size: inherit; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2 { margin: 0; }
+details.fold > summary .chevron { transition: transform .15s; }
+details.fold[open] > summary .chevron { transform: rotate(90deg); }
+details.fold[open] > summary { margin-bottom: 8px; }
 details > summary { cursor: pointer; color: var(--muted); font-size: 0.86rem; }
 
 .wave { position: relative; }

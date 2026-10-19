@@ -44,6 +44,26 @@ DEFAULTS = [
     "mdi:crosshairs-gps",
     "mdi:devices",
     "mdi:home-map-marker",
+    # Sessions: each step of the pipeline, how it went, and what a session was.
+    "mdi:shield-check-outline",
+    "mdi:shield-off-outline",
+    "mdi:scale-balance",
+    "mdi:waveform",
+    "mdi:account-voice",
+    "mdi:content-cut",
+    "mdi:ear-hearing",
+    "mdi:robot-outline",
+    "mdi:volume-high",
+    "mdi:volume-off",
+    "mdi:keyboard-outline",
+    "mdi:replay",
+    "mdi:bell-ring-outline",
+    "mdi:timer-off-outline",
+    "mdi:alert-circle-outline",
+    "mdi:circle-medium",
+    "mdi:check-circle",
+    "mdi:close-circle",
+    "mdi:alert-circle",
 ]
 # A satellite's icon: where it is, or what it is.
 SATELLITE_PICKER = [

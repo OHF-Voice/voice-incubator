@@ -694,7 +694,7 @@ Benchmarked on recorded VPE audio of four speakers (whosaidit): ~1% EER on AGC,
 ~0.5% on AEC; at 0.45, about 98% of household commands are accepted while 0.5%
 of an un-enrolled speaker's in the same room get through.
 
-**Enrolling.** On a kept session's page (Sessions), "Who spoke" adds its
+**Enrolling.** On a kept session's page (Sessions), its Speaker step adds its
 voice to a speaker, known or new; or enroll from recordings on the command
 line (below). Colors come from a fixed list of hues that stay distinct on the
 ring, skipping red (error) and the default cyan (nobody recognized). Saying

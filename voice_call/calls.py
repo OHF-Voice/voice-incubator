@@ -94,12 +94,30 @@ class CallRecord:
             out["stages"] = self.stages
             out["marks"] = self.marks
         else:
-            # For the list: the wake word, and what it came in with.
-            start = next((s for s in self.stages if s.get("stage") == "call_start"), None)
-            if start is not None:
+            out.update(self._glance())
+        return out
+
+    def _glance(self) -> dict[str, Any]:
+        """For the list: the wake word and what it came in with, what was
+        heard, the command it ran, and what was said."""
+        out: dict[str, Any] = {}
+        for stage in self.stages:
+            kind = stage.get("stage")
+            if kind == "call_start":
                 out["wake"] = {
-                    k: start[k] for k in ("wake_word", "name", "probability", "max_probability", "cutoff") if k in start
+                    k: stage[k]
+                    for k in ("wake_word", "name", "probability", "max_probability", "cutoff")
+                    if k in stage
                 }
+            elif kind == "typed" and stage.get("text"):
+                out["heard"] = stage["text"]
+            elif kind == "recognition":
+                heard = stage.get("recognition") or {}
+                out["heard"] = heard.get("tdt_transcript") or heard.get("transcript") or out.get("heard")
+                if stage.get("command"):
+                    out["command"] = stage["command"]
+            elif kind == "speech" and stage.get("text"):
+                out["said"] = stage["text"]
         return out
 
     @classmethod

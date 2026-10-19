@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **Sessions** are easier to read. The list shows what was heard, big, then
+  what it ran and said. A session's page starts the same way, then lists its
+  **steps**, each with an icon, its time since the session started, a line
+  on how it went and whether it succeeded; open one for its details. Audio is
+  folded away until opened, and "Who spoke" is in the Speaker step.
+  Rejection reasons no longer end "(--full-search shows the closest
+  placement)".
 - A satellite's settings are in **Music** (its player), **Input**
   (speech-to-text and its language) and **Output** (text-to-speech, its
   language and voice, and where responses are spoken): collapsed, each

@@ -536,10 +536,15 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   "Say it first" to have the app's voice speak it and recognize the audio
   instead, to test speech recognition too.
 - **Sessions** lists recent sessions -- everything from the wake word to the
-  answer -- with every stage: the probability the satellite's wake word model
-  came in with (against its cutoff; new voice_call firmware), wake word
-  verification, where the command was cut, the speaker, every command that
-  matched or was rejected and why, what ran and what was said.
+  answer: what was heard, what it ran and what it said. A session's page
+  puts that first, then its **steps** in order, each with its time since the
+  session started and whether it succeeded: the wake word (with the
+  probability the satellite's model came in with, against its cutoff; new
+  voice_call firmware), its verification, the end of speech, the speaker,
+  where the command starts, recognition, the action or answer, and what was
+  said. Open a step for everything recorded about it -- every command that
+  matched or was rejected and why, what was sent to Home Assistant -- and
+  **Audio** for the waveforms.
 - **Listen live** (a satellite's page, under Test it) plays what the satellite's
   microphone hears, as it hears it, and draws it: the level, the last few
   seconds, and what its voice activity and wake word models make of it --
@@ -547,15 +552,16 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   was detected. The satellite streams only while you listen, its ring blinks
   red the whole time, and it doesn't answer a wake word meanwhile. It needs
   the voice_call firmware from this version.
-- Turn on **debugging** on the Sessions page to keep every session's audio,
+- Tick **Keep every session** on the Sessions page to keep every session's audio,
   or debug one satellite (its page, under Test it). That keeps
   the satellite's audio and can be a **dry run**: nothing is executed, and
   you hear what would have been said. Kept sessions show their
   waveform with the wake word, the cut and the recognized words marked, and
   can be **replayed** through today's commands.
 - **Who spoke**: a kept session's voice can be added to a speaker's -- one
-  already known, or a new one -- so they are recognized better from then on
-  (and their name reaches commands as `speaker`).
+  already known, or a new one -- from its Speaker step, so they are
+  recognized better from then on (and their name reaches commands as
+  `speaker`).
 
 ## YAML
 

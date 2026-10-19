@@ -142,6 +142,10 @@ async def _scenario(tmp_path: Path) -> None:
         assert (start["probability"], start["max_probability"], start["cutoff"]) == (0.902, 1.0, 0.2)
         assert start["name"] == "Okay Nabu"
         assert app.calls.list()[0]["wake"]["probability"] == 0.902
+        # The list also says what was heard, what ran and what was said.
+        listed = app.calls.list()[0]
+        assert "lights" in listed["heard"]
+        assert (listed["command"], listed["said"]) == ("lights_on", "Turned on the lights.")
         assert {"split", "speaker", "recognition", "action", "speech"} <= set(stages)
         assert variables["speaker"] == {"name": None, "score": None}  # nobody enrolled
         split = next(s for s in record.stages if s["stage"] == "split")
