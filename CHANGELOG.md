@@ -2,6 +2,20 @@
 
 ## 0.2.0
 
+- **Home** replaces the Commands, Skills, Satellites and Test pages: a tile
+  for each satellite (name, area, wake word, what it runs), then the Home's
+  commands and skills grouped by what they're for (your own first), and the
+  Unknown command. A satellite's tile opens its page: its settings and icon,
+  its own commands and skills, and testing it (a typed sentence, listening
+  live, debugging). The Home's listening and speaking moved to Settings.
+- **Command groups are gone.** A command or skill is the Home's or one
+  satellite's own; a satellite takes the Home's unless told not to. Where a
+  satellite's own and the Home's take the same sentence, its own goes first:
+  duplicate one of the Home's onto a satellite to do something else there.
+  A command that was in groups loads as the Home's, and the Home page says
+  which.
+- A skill turned off for one satellite (before) no longer takes it away: a
+  satellite either takes all the Home's or none.
 - **Sessions** show the probability each wake word came in with -- the
   satellite model's window average that met the cutoff, its highest single
   inference, and the cutoff -- in the list and on a session's page. Needs

@@ -237,7 +237,7 @@ def test_the_chain():
     assert found.command.id == "what_time" and found.by == "meaning" and llm.given == "not asked"
 
     # The LLM picks something this satellite may not run: not run, said why.
-    limited = Satellite("sat", "Kids", "kitchen", command_groups=frozenset({"kids"}))
+    limited = Satellite("sat", "Kids", "kitchen", home=False)
     found = fallback.decide("we need milk", far, compiled, limited, ranked)
     assert found.command is None and found.trace["llm"]["skipped"] == "none of its commands is available here"
 
@@ -280,9 +280,9 @@ def test_only_chosen_commands():
     found = fallback.decide("can i get some light", far, compiled, KITCHEN, lights_close)
     assert found.command.id == "lights_on" and found.by == "llm"
     # Every chosen command whatever the satellite (one prefix); availability after.
-    limited = Satellite("sat", "Kids", "kitchen", command_groups=frozenset({"kids"}))
+    limited = Satellite("sat", "Kids", "kitchen", home=False)
     found = fallback.decide("can i get some light", far, compiled, limited, lights_close)
-    assert found.command is None and "command groups" in found.trace["llm"]["problems"][0]
+    assert found.command is None and "doesn't take" in found.trace["llm"]["problems"][0]
 
 
 def test_picks_must_be_close_in_meaning():

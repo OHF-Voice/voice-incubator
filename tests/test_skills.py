@@ -140,11 +140,15 @@ def test_not_questions():
         assert skills.answer(text) is None and skills.answer(text, last=True) is None
 
 
-def test_on_and_off():
+def test_the_homes_and_a_satellites_own():
     assert enabled() == frozenset(SKILLS)
-    # The home's setting, then the satellite's own.
+    # The Home's: each unless taken off it.
     assert enabled({"units": False}) == frozenset(SKILLS) - {"units"}
-    assert enabled({"units": False}, {"units": True, "spelling": False}) == frozenset(SKILLS) - {"spelling"}
+    # A satellite's own add to them; a false from before takes nothing away.
+    assert enabled({"units": False}, {"units": True, "spelling": False}) == frozenset(SKILLS)
+    # Not taking the Home's: its own only.
+    assert enabled({}, {"units": True}, takes_home=False) == {"units"}
+    assert enabled({}, None, takes_home=False) == frozenset()
     # Only true and false count; unknown skills are ignored.
     assert enabled({"units": "no", "nope": False}, None) == frozenset(SKILLS)
 

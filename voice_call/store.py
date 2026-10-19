@@ -24,10 +24,11 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from adapt_ctc.config import ConfigError, parse_config
 
-from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_groups, parse_unknown, shared_examples
+from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_unknown, shared_examples
 
 _LOGGER = logging.getLogger(__name__)
 
+# "groups": command groups, which are gone, read and left alone.
 STORE_KEYS = {"commands", "names", "lists", "groups", "unknown", "settings"}
 NAME_KINDS = ("entities", "areas", "floors")
 
@@ -100,8 +101,9 @@ class Compiled:
     commands: dict[str, Command]
     config: dict[str, Any] | None
     """None when no command is enabled."""
-    groups: dict[str, dict[str, str]] = field(default_factory=dict)
-    """Command groups: id -> name, description."""
+    legacy_groups: list[str] = field(default_factory=list)
+    """Commands that were in command groups, which are gone: they are the
+    Home's now (what the page asks to look at)."""
     twins: dict[str, tuple[str, ...]] = field(default_factory=dict)
     """Intents that say another's example sentences (a command's copy), by
     the intent the sentences went to (``shared_examples``)."""
@@ -122,16 +124,16 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     if unknown:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
     commands = parse_commands(data.get("commands") or {})
-    groups = parse_groups(data.get("groups"))
     unknown_response = parse_unknown(data.get("unknown"))
-    for command in commands.values():
-        unknown = [g for g in command.groups if g not in groups]
-        if unknown:
-            raise ConfigError(f"commands.{command.id}.groups: no group {unknown[0]!r} (add it under groups)")
+    legacy = [
+        str(command_id)
+        for command_id, spec in (data.get("commands") or {}).items()
+        if isinstance(spec, dict) and spec.get("groups")
+    ]
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, groups, shared_examples(commands)[1], unknown_response)
+    return Compiled(data, commands, config, legacy, shared_examples(commands)[1], unknown_response)
 
 
 @dataclass
@@ -229,18 +231,10 @@ class Store:
         return self.update(edit)
 
     def duplicate_command(
-        self,
-        command_id: str,
-        new_id: str,
-        title: str | None = None,
-        group: str | None = None,
-        new_group: tuple[str, str] | None = None,
-        replace: bool = False,
+        self, command_id: str, new_id: str, title: str | None = None, satellite: str | None = None
     ) -> Compiled:
-        """Copy a command, as saved, to ``new_id``, right after it. The copy
-        is in the original's command groups, or only in ``group`` -- or in
-        ``new_group`` (id, name), made for it. ``replace``: the original
-        leaves ``group``, where the copy takes its place."""
+        """Copy a command, as saved, to ``new_id``, right after it: on
+        ``satellite`` (its key), or the Home's (None)."""
 
         def edit(document: CommentedMap) -> None:
             commands = document["commands"]
@@ -249,29 +243,13 @@ class Store:
             if new_id in commands:
                 raise ConfigError(f"There is already a command {new_id!r}")
             spec = plain(commands[command_id])
+            spec.pop("groups", None)
             if title:
                 spec["title"] = title
-            target = group
-            if new_group is not None:
-                if document.get("groups") is None:
-                    document["groups"] = CommentedMap()
-                group_id, name = new_group
-                if group_id in document["groups"]:
-                    raise ConfigError(f"There is already a command group {group_id!r}")
-                document["groups"][group_id] = styled({"name": name})
-                target = group_id
-            if target is not None:
-                if target not in (document.get("groups") or {}):
-                    raise ConfigError(f"No command group {target!r}")
-                spec["groups"] = [target]
-                original = commands[command_id]
-                current = [str(g) for g in (original.get("groups") or [])]
-                if replace and target in current:
-                    keep = [g for g in current if g != target]
-                    if keep:
-                        original["groups"] = styled(keep)
-                    else:
-                        original.pop("groups", None)
+            if satellite:
+                spec["satellite"] = satellite
+            else:
+                spec.pop("satellite", None)
             commands.insert(list(commands).index(command_id) + 1, new_id, styled(spec))
 
         return self.update(edit)
@@ -279,46 +257,6 @@ class Store:
     def delete_command(self, command_id: str) -> Compiled:
         def edit(document: CommentedMap) -> None:
             document["commands"].pop(command_id, None)
-
-        return self.update(edit)
-
-    def put_group(
-        self, group_id: str, spec: dict[str, Any] | None, members: list[str] | None = None
-    ) -> Compiled:
-        """Add, change or (``spec`` None) delete a command group. ``members``,
-        when given, is exactly the commands in it; a deleted group leaves
-        every command."""
-
-        def edit(document: CommentedMap) -> None:
-            if document.get("groups") is None:
-                document["groups"] = CommentedMap()
-            groups = document["groups"]
-            if spec is None:
-                groups.pop(group_id, None)
-            else:
-                groups[group_id] = styled({k: v for k, v in spec.items() if v})
-            wanted = set(members or []) if spec is not None and members is not None else None
-            unknown = sorted((wanted or set()) - set(document["commands"]))
-            if unknown:
-                raise ConfigError(f"No command {unknown[0]!r}")
-            for command_id, command in document["commands"].items():
-                if not isinstance(command, dict):
-                    continue
-                current = [str(g) for g in (command.get("groups") or [])]
-                if spec is None or (wanted is not None and command_id not in wanted):
-                    keep = [g for g in current if g != group_id]
-                elif wanted is not None and group_id not in current:
-                    keep = [*current, group_id]
-                else:
-                    continue
-                if keep == current:
-                    continue
-                if keep:
-                    command["groups"] = styled(keep)
-                else:
-                    command.pop("groups", None)
-            if spec is None and not groups:
-                document.pop("groups", None)
 
         return self.update(edit)
 

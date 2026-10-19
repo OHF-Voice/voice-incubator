@@ -13,7 +13,7 @@ A command is one adapt-ctc intent plus what to do when it matches::
 
 ``title``, ``icon`` (a Material Design Icon, ``mdi:lightbulb``) and
 ``library`` (the library file it was added from, ``music``: where the
-Commands page lists it) are only for the UI.
+Home page lists it) are only for the UI.
 
 Listening is adapt-ctc's own vocabulary -- ``examples`` (sentences, or
 templates of them: ``(turn|switch) on the light[s]``), ``require``,
@@ -60,19 +60,15 @@ says the built-in sentence::
       done: Paused.
       no_timers: There's nothing to pause.
 
-``groups`` puts a command in command groups (defined at the top level of the
-store, ``groups: {kids: {name: Kids}}``). A group can be given to the whole
-home or to a satellite; a satellite with groups -- its own, else the home's --
-runs only the commands in them. Without any, every command is available
-everywhere. Groups are where a command is available: there is no ``scope``
-of its own, and no overrides -- a command that should do something else on
-some satellites is a copy of it, in a group given to them::
+``satellite`` puts a command on one satellite (by its key); without it, the
+command is the Home's, and runs on every satellite that takes the Home's
+commands (all do unless told not to: ``home: false`` in ``satellites.yaml``).
+A command that should do something else on one satellite is a copy of it on
+that satellite: there, its own copy goes first::
 
-    groups:
-      kids: {name: Kids' room, description: what the kids may ask for}
     commands:
-      lights_on:
-        groups: [kids]
+      lights_on_kids:
+        satellite: d83bdaa3d5f4
 
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
@@ -136,7 +132,7 @@ COMMAND_KEYS = {
     "title",
     "icon",
     "library",
-    "groups",
+    "satellite",
     "fallback",
     "combinations",
     *LISTEN_KEYS,
@@ -144,12 +140,13 @@ COMMAND_KEYS = {
 }
 # Keys a command no longer takes, and what to do instead.
 REMOVED_KEYS = {
-    "scope": "a command is available wherever its command groups are given: put it in a group, "
-    "and give the group to the satellites it is for (Satellites page)",
+    "scope": "a command is the Home's or one satellite's (satellite: its key)",
     "overrides": "make a copy of the command that does the other thing (Duplicate, on its page) "
-    "in a command group given to those satellites, and leave the original out of that group",
+    "on the satellite it is for: there, its own copy goes first",
 }
-GROUP_KEYS = {"name", "description"}
+LEGACY_KEYS = {"groups"}
+"""Read, and left alone: command groups are gone, and a command that was in
+some is the Home's (``Compiled.legacy_groups`` says which)."""
 FALLBACK_STEPS = ("meaning", "llm")
 
 # Shared settings for every home: the core intents' filler words and name
@@ -335,8 +332,8 @@ class Command:
     duration: bool = False
     disabled: bool = False
     title: str = ""
-    groups: tuple[str, ...] = ()
-    """The command groups it is in."""
+    satellite: str | None = None
+    """The satellite it is on (its key); None: the Home's."""
     fallback: tuple[str, ...] = ()
     """The steps after keywords and examples that may run it (FALLBACK_STEPS)."""
     combinations: tuple[tuple[str, ...], ...] = ((),)
@@ -364,10 +361,6 @@ class Command:
         wanted = set(heard)
         return next((c for c in self.combinations if set(c) == wanted), None)
 
-    def allowed(self, groups: frozenset[str] | None) -> bool:
-        """Whether a satellite limited to these command groups may run it
-        (None: not limited)."""
-        return groups is None or any(group in groups for group in self.groups)
 
 
 def closest_text(texts: dict[str, str], level: str) -> str | None:
@@ -397,7 +390,7 @@ def parse_command(command_id: str, spec: Any) -> Command:
     spec = _mapping(spec, where)
     for key in sorted(set(spec) & set(REMOVED_KEYS)):
         raise ConfigError(f"{where}.{key}: no longer used: {REMOVED_KEYS[key]}")
-    unknown = set(spec) - COMMAND_KEYS
+    unknown = set(spec) - COMMAND_KEYS - LEGACY_KEYS
     if unknown:
         raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
     if spec.get("icon") is not None and not ICON.match(str(spec["icon"])):
@@ -439,7 +432,7 @@ def parse_command(command_id: str, spec: Any) -> Command:
         duration,
         bool(spec.get("disabled", False)),
         str(spec.get("title") or ""),
-        _group_ids(spec.get("groups"), f"{where}.groups"),
+        _satellite(spec.get("satellite"), f"{where}.satellite"),
         _fallback_steps(spec.get("fallback"), f"{where}.fallback"),
         combinations,
         intents,
@@ -564,44 +557,12 @@ def _fallback_steps(value: Any, where: str) -> tuple[str, ...]:
     return tuple(step for step in FALLBACK_STEPS if step in value)
 
 
-def _group_ids(value: Any, where: str) -> tuple[str, ...]:
-    if value in (None, []):
-        return ()
-    if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, list):
-        raise ConfigError(f"{where}: a list of command group ids")
-    out = []
-    for group in value:
-        group = str(group)
-        if not COMMAND_ID.match(group):
-            raise ConfigError(f"{where}: {group!r} -- group ids are lowercase letters, digits and underscores")
-        if group not in out:
-            out.append(group)
-    return tuple(out)
-
-
-def parse_groups(data: Any) -> dict[str, dict[str, str]]:
-    """Command groups from a store's ``groups`` mapping: id -> name and
-    description. Raises ConfigError."""
-    if data in (None, {}):
-        return {}
-    groups = _mapping(data, "groups")
-    out = {}
-    for group_id, spec in groups.items():
-        group_id = str(group_id)
-        where = f"groups.{group_id}"
-        if not COMMAND_ID.match(group_id):
-            raise ConfigError(f"{where}: ids are lowercase letters, digits and underscores")
-        spec = _mapping(spec if spec is not None else {}, where)
-        unknown = set(spec) - GROUP_KEYS
-        if unknown:
-            raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)} (use name, description)")
-        out[group_id] = {
-            "name": str(spec.get("name") or group_id.replace("_", " ").capitalize()),
-            "description": str(spec.get("description") or ""),
-        }
-    return out
+def _satellite(value: Any, where: str) -> str | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{where}: a satellite's key")
+    return value.strip()
 
 
 UNKNOWN_KEYS = {"response"}
@@ -792,9 +753,10 @@ def _mapping(value: Any, where: str) -> dict:
 def shared_examples(commands: dict[str, Command]) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, ...]]]:
     """Every enabled command's intents, with each example sentence left only
     to the first that has it; and, for that one, the later intents that have
-    it too (its twins). A copy of a command in another group says the same
+    it too (its twins). A copy of a command on a satellite says the same
     sentences: adapt-ctc gives a sentence one intent, and the engine runs the
-    twin where the first is not available. An intent left with nothing to
+    twin where the first is not available, or where the twin is the
+    satellite's own. An intent left with nothing to
     listen for is only a twin."""
     intents: dict[str, dict[str, Any]] = {}
     twins: dict[str, list[str]] = {}

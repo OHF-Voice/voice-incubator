@@ -99,20 +99,20 @@ def test_typed_text_takes_an_example_only_typed_whole(engine):
         engine.build(compile_store(STORE))
 
 
-def test_a_copy_in_another_group_says_the_same_sentences(engine):
-    # Duplicated into the kids' group: the same example sentences and
-    # keywords, something else done there.
+def test_a_copy_on_a_satellite_says_the_same_sentences(engine):
+    # Duplicated onto the kids' satellite: the same example sentences and
+    # keywords, something else done there -- where its own goes first, though
+    # it takes the Home's too.
     lights = {
         "description": "turn on the lights", "examples": ["lights please"], "require": [["lights"], ["on"]],
-        "groups": ["home"], "response": "Lights.",
+        "response": "Lights.",
     }
     store = {
-        "groups": {"home": {"name": "Home"}, "kids": {"name": "Kids"}},
         "commands": {
             "lights": lights,
-            "kids_lights": {**lights, "groups": ["kids"], "response": "Night light."},
-            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "groups": ["kids"], "response": "Bedtime."},
-            "time": {"description": "tell the time", "examples": ["what time is it"], "groups": ["home"], "response": "Noon."},
+            "kids_lights": {**lights, "satellite": "k", "response": "Night light."},
+            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "satellite": "k", "response": "Bedtime."},
+            "time": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
         },
     }
     compiled = compile_store(store)
@@ -120,11 +120,12 @@ def test_a_copy_in_another_group_says_the_same_sentences(engine):
     # Only examples, all shared: only a twin.
     assert "time" not in compiled.config["intents"] and "kids_lights" in compiled.config["intents"]
     engine.build(compiled)
-    home = Satellite("h", "Kitchen", "kitchen", command_groups=frozenset({"home"}))
-    kids = Satellite("k", "Kids", "kids", command_groups=frozenset({"kids"}))
+    home = Satellite("h", "Kitchen", "kitchen")
+    kids = Satellite("k", "Kids", "kids")
+    alone = Satellite("k", "Kids", "kids", home=False)
     try:
         for text, satellite, command in [
-            ("lights please", home, "lights"), ("lights please", kids, "kids_lights"),
+            ("lights please", home, "lights"), ("lights please", kids, "kids_lights"), ("lights please", alone, "kids_lights"),
             ("turn the lights on", home, "lights"), ("turn the lights on", kids, "kids_lights"),
             ("what time is it", home, "time"), ("what time is it", kids, "kids_time"),
         ]:
@@ -138,18 +139,16 @@ def test_a_copy_in_another_group_says_the_same_sentences(engine):
 def test_a_copy_says_the_same_templates(engine):
     # A template is every sentence it stands for: a copy's, all the first's,
     # makes it a twin.
-    lights = {"description": "turn on the lights", "examples": ["(turn|switch) on the light[s]"], "groups": ["home"], "response": "Lights."}
-    store = {
-        "groups": {"home": {"name": "Home"}, "kids": {"name": "Kids"}},
-        "commands": {"lights": lights, "kids_lights": {**lights, "groups": ["kids"], "response": "Night light."}},
-    }
+    lights = {"description": "turn on the lights", "examples": ["(turn|switch) on the light[s]"], "response": "Lights."}
+    store = {"commands": {"lights": lights, "kids_lights": {**lights, "satellite": "k", "response": "Night light."}}}
     compiled = compile_store(store)
     assert compiled.twins == {"lights": ("kids_lights",)} and "kids_lights" not in compiled.config["intents"]
     engine.build(compiled)
-    kids = Satellite("k", "Kids", "kids", command_groups=frozenset({"kids"}))
+    kids = Satellite("k", "Kids", "kids")
     try:
         decision = engine.recognize_text("switch on the light", kids)
         assert decision.command.id == "kids_lights"
+        assert engine.recognize_text("switch on the light", Satellite("h", "Kitchen", "kitchen")).command.id == "lights"
     finally:
         engine.build(compile_store(STORE))
 

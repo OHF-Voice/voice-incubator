@@ -162,17 +162,25 @@ lights in the Office" says where, which "Turned on the lights" can't).
 Home Assistant's default does the same with the brief sentence. Templates see
 `place` too (`said`: "in the Kitchen", "upstairs"; `here`; `areas`), and a
 rendered response is tidied of the gap an empty variable leaves. A copy of the
-command in another command group can say more or less on its satellites.
+command on a satellite can say more or less there.
 
-**Copies in other groups.** A command that should do something else on some
-satellites is a copy of it (Duplicate, on its page) in a command group given
-to them, with the original left out of that group; there are no per-area or
-per-satellite overrides. The copy says the same example sentences, which
-adapt-ctc gives to one intent only: `commands.shared_examples` leaves each
-sentence to the first command that has it and records the later ones as its
-twins (`Compiled.twins`), and `Engine._take` runs a twin where the first is
-not in the satellite's groups. Identical keywords need nothing of the kind:
-both match, and the first available is taken.
+**The Home's and a satellite's own.** A command is the Home's, or one
+satellite's (`satellite: <key>` in `commands.yaml`); a satellite takes the
+Home's unless `home: false` in `satellites.yaml` (`Satellite.available`).
+Skills the same way: the Home's (`settings.yaml` `skills`, each on unless
+false) and a satellite's own (`satellites.yaml` `skills: {id: true}`). There
+are no command groups any more (a `groups` key is read and left alone: the
+command is the Home's, and the Home page lists it), and no per-area
+overrides. A command that should do something else on one satellite is a
+copy of it there (Duplicate, on its page), and on that satellite its own goes
+first. The copy says the same example sentences, which adapt-ctc gives to one
+intent only: `commands.shared_examples` leaves each sentence to the first
+command that has it and records the later ones as its twins
+(`Compiled.twins`), and `Engine._take` runs a twin where the first is not
+available, or where the twin is the satellite's own. Identical keywords both
+match at the same cost, and `Engine._take` takes the satellite's own first;
+so do meaning and the model step among a command's versions and copies
+(`Satellite.first`).
 
 ## Layout
 
@@ -185,8 +193,8 @@ both match, and the first available is taken.
 | `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
 | `voice_call/endpoint.py` | silero VAD endpointing |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
-| `voice_call/engine.py` | where the command starts, recognition, command groups, free text from TDT, hints |
-| `voice_call/commands.py` | the command schema: combinations, presets, groups, what happens |
+| `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
+| `voice_call/commands.py` | the command schema: combinations, presets, where it is, what happens |
 | `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
 | `voice_call/actions.py` | variables, `execute_script`, the response, the `voice_call_command` event |
 | `voice_call/calls.py` | per-call traces, saved audio, debug sessions |
@@ -767,7 +775,7 @@ for this app:
   which spells better than the CTC head.
 - **The transcript too.** When nothing matches in the audio, the same
   keyword and name matcher runs on the TDT or STT transcript, as typed text
-  is matched on the Test page (`Engine._match_transcript`: evidence made from
+  is matched by a satellite's Test it (`Engine._match_transcript`: evidence made from
   its words, `Vocabulary.text_log_probs`), before skills and the fallback.
   A strong speech model may hear plainly what the CTC evidence only half
   did: "Unlock front door." from Home Assistant Cloud, where the CTC head
@@ -930,7 +938,7 @@ announcement, and music is turned down while one plays.
 call ends at once. The acknowledgement sound (a command with nothing to say)
 is still streamed to the satellite.
 
-**Listening live.** The Test page's "Listen live" opens a WebSocket,
+**Listening live.** A satellite page's "Listen" opens a WebSocket,
 `/api/satellites/{key}/live`: binary messages are the microphone (16 kHz
 16-bit mono, batched as they pile up), JSON says `start`, `call` (a call
 starts or ends) and `end`. While anyone listens the app sends the device
@@ -1011,7 +1019,7 @@ when Home Assistant's registries change, so a player added later is found.
 Without the integration the app guesses: `up` + the MAC, else the only Music
 Assistant player whose device is ESPHome's model named like the satellite
 (several satellites flashed from one YAML share that name, so then none). The
-Satellites page can always pick one.
+satellite's page can always pick one.
 
 **Commands.** A `music:` operation is carried out by the app (like `timer:`):
 the player is one the command names, else the satellite's own, else -- to
@@ -1276,7 +1284,7 @@ need, so `voice_call/__init__.py` imports `llama_cpp` first.
 
 ## Trying typed text
 
-The Test page (`/api/try`) skips speech recognition: the typed text is the
+Test it, on a satellite's page (`/api/try`), skips speech recognition: the typed text is the
 transcript, and the CTC matcher reads evidence made from it
 (`Engine.recognize_text`, adapt-ctc `Vocabulary.text_log_probs`). Its spoken
 words (`adapt_ctc.text.spoken_words`: "10" is "ten", "&" is "and") are

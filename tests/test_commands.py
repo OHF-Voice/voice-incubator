@@ -1,9 +1,10 @@
-"""Commands: parsing, presets, slots, groups, and the store."""
+"""Commands: parsing, presets, slots, where they are (the Home's or a
+satellite's), and the store."""
 
 import pytest
 
 from adapt_ctc.config import ConfigError, parse_config
-from voice_call.commands import adapt_config, match_slots, parse_command, parse_commands, parse_groups
+from voice_call.commands import adapt_config, match_slots, parse_command, parse_commands
 from voice_call.engine import Satellite
 from voice_call.store import Store, compile_store
 
@@ -25,9 +26,9 @@ def test_everywhere_by_default():
 
 
 def test_scope_and_overrides_are_no_more():
-    # Where a command is available is its command groups'; what it does
-    # elsewhere is a copy of it, in a group of its own.
-    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*command group"):
+    # A command is the Home's or one satellite's; what it does elsewhere is a
+    # copy of it, on that satellite.
+    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*one satellite's"):
         command(scope={"areas": ["kitchen"]})
     with pytest.raises(ConfigError, match=r"commands\.lights\.overrides: no longer used: .*copy of the command"):
         command(overrides=[{"scope": {"areas": ["office"]}, "scene": "scene.office"}])
@@ -175,17 +176,23 @@ def test_on_and_off_stay_words(tmp_path):
     assert compiled.commands["off"].intent["exclude"] == ["on"]
 
 
-def test_command_groups_limit_a_satellite():
-    lights = command(groups=["kids", "downstairs"])
-    other = command()
-    assert lights.groups == ("kids", "downstairs") and other.groups == ()
-    kids = Satellite("sat1", "Kids", "kids_room", command_groups=frozenset({"kids"}))
-    anywhere = Satellite("sat2", "Kitchen", "kitchen")
-    assert kids.available(lights) is not None and kids.available(other) is None
-    assert kids.why_unavailable(other) == "not in this satellite's command groups"
-    # Not limited: groups change nothing.
-    assert anywhere.available(lights) is not None and anywhere.available(other) is not None
-    assert kids.as_dict()["command_groups"] == ["kids"] and anywhere.as_dict()["command_groups"] is None
+def test_the_homes_or_a_satellites():
+    home = command()
+    mine = command(satellite="sat1")
+    theirs = command(satellite="sat2")
+    assert home.satellite is None and mine.satellite == "sat1"
+    kitchen = Satellite("sat1", "Kitchen", "kitchen")
+    assert kitchen.available(home) is not None and kitchen.available(mine) is not None
+    assert kitchen.available(theirs) is None and kitchen.why_unavailable(theirs) == "on another satellite"
+    # Its own go first.
+    assert kitchen.first([theirs, home, mine]) == [mine, home]
+    # One that doesn't take the Home's runs only its own.
+    alone = Satellite("sat1", "Kids", "kids_room", home=False)
+    assert alone.available(home) is None and alone.available(mine) is not None
+    assert "doesn't take" in alone.why_unavailable(home)
+    assert alone.as_dict()["home"] is False and kitchen.as_dict()["home"] is True
+    with pytest.raises(ConfigError, match="satellite's key"):
+        command(satellite=["sat1"])
 
 
 def test_fallback_steps_are_chosen():
@@ -213,72 +220,33 @@ def test_choosing_commands_for_the_fallback(tmp_path):
         store.put_fallback({"llm": ["nope"]})
 
 
-def test_command_group_errors():
-    with pytest.raises(ConfigError, match="group ids"):
-        command(groups=["Kids Room"])
-    with pytest.raises(ConfigError, match="no group 'kids'"):
-        compile_store({"commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
-    with pytest.raises(ConfigError, match="unknown key"):
-        parse_groups({"kids": {"name": "Kids", "commands": []}})
-    groups = parse_groups({"kids_room": None, "night": {"name": "Night", "description": "quiet"}})
-    assert groups == {"kids_room": {"name": "Kids room", "description": ""}, "night": {"name": "Night", "description": "quiet"}}
+def test_command_groups_are_gone():
+    # Read and left alone: what was in a group is the Home's.
     compiled = compile_store({"groups": {"kids": {"name": "Kids"}}, "commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
-    assert compiled.groups == {"kids": {"name": "Kids", "description": ""}}
-
-
-def test_store_edits_command_groups(tmp_path):
-    store = Store(tmp_path)
-    store.save_text(
-        "commands:\n"
-        "  lights:\n    description: turn on the lights\n    require: [[turn on], [lights]]\n    response: ok\n"
-        "  time:\n    description: tell the time\n    examples: [what time is it]\n    response: Noon.\n"
-    )
-    store.put_group("kids", {"name": "Kids", "description": ""}, ["time"])
-    compiled = store.load()
-    assert compiled.groups["kids"]["name"] == "Kids"
-    assert compiled.commands["time"].groups == ("kids",) and compiled.commands["lights"].groups == ()
-    # Exactly these commands; a rename alone keeps the members.
-    store.put_group("kids", {"name": "Kids", "description": ""}, ["lights"])
-    store.put_group("night", {"name": "Night"}, ["lights", "time"])
-    store.put_group("kids", {"name": "Children", "description": "upstairs"})
-    compiled = store.load()
-    assert compiled.commands["lights"].groups == ("kids", "night") and compiled.commands["time"].groups == ("night",)
-    assert compiled.groups["kids"] == {"name": "Children", "description": "upstairs"}
-    with pytest.raises(ConfigError, match="No command 'nope'"):
-        store.put_group("kids", {"name": "Kids"}, ["nope"])
-    # Deleting a group takes every command out of it.
-    store.put_group("night", None)
-    store.put_group("kids", None)
-    compiled = store.load()
-    assert compiled.groups == {} and all(not c.groups for c in compiled.commands.values())
-    assert "groups" not in (tmp_path / "commands.yaml").read_text()
+    assert compiled.commands["lights"].satellite is None and compiled.legacy_groups == ["lights"]
 
 
 def test_store_duplicates_a_command(tmp_path):
     store = Store(tmp_path)
     store.save_text(
-        "groups:\n  home: {name: Home}\n  kids: {name: Kids}\n"
         "commands:\n"
         "  lights:\n    description: turn on the lights\n    require: [[turn on], [lights]]\n"
-        "    response: ok  # said\n    groups: [home, kids]\n"
+        "    response: ok  # said\n    groups: [kids]\n"
         "  time:\n    description: tell the time\n    examples: [what time is it]\n    response: Noon.\n"
     )
-    # In the original's groups, right after it.
+    # The Home's, right after it, without the groups that are gone.
     compiled = store.duplicate_command("lights", "lights_copy", "Lights, again")
     assert list(compiled.commands) == ["lights", "lights_copy", "time"]
-    assert compiled.commands["lights_copy"].groups == ("home", "kids") and compiled.commands["lights_copy"].title == "Lights, again"
-    # Only in one group, taking the original's place there.
-    compiled = store.duplicate_command("lights", "kids_lights", group="kids", replace=True)
-    assert compiled.commands["kids_lights"].groups == ("kids",) and compiled.commands["lights"].groups == ("home",)
-    # In a group made for it; the original keeps its own.
-    compiled = store.duplicate_command("time", "night_time", new_group=("night", "Night"))
-    assert compiled.groups["night"]["name"] == "Night" and compiled.commands["night_time"].groups == ("night",)
-    assert compiled.commands["time"].groups == ()
+    assert compiled.commands["lights_copy"].satellite is None and compiled.commands["lights_copy"].title == "Lights, again"
+    assert compiled.legacy_groups == ["lights"]
+    # On a satellite; a copy of it back on the Home.
+    compiled = store.duplicate_command("time", "kids_time", satellite="sat1")
+    assert compiled.commands["kids_time"].satellite == "sat1" and compiled.commands["time"].satellite is None
+    compiled = store.duplicate_command("kids_time", "time_again")
+    assert compiled.commands["time_again"].satellite is None
     assert "# said" in (tmp_path / "commands.yaml").read_text()
     with pytest.raises(ConfigError, match="already a command 'time'"):
         store.duplicate_command("lights", "time")
-    with pytest.raises(ConfigError, match="No command group 'nope'"):
-        store.duplicate_command("lights", "x", group="nope")
     with pytest.raises(FileNotFoundError):
         store.duplicate_command("nope", "x")
 

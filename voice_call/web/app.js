@@ -277,7 +277,8 @@ async function refreshStatus() {
     h("span", { class: `badge ${s.hass ? "ok" : "bad"}` }, s.hass ? "Home Assistant" : "Home Assistant offline"),
     h("span", { class: "badge" }, `${s.commands} command${s.commands === 1 ? "" : "s"}`),
   ];
-  if (Object.keys(s.debug_sessions || {}).length) badges.push(h("a", { class: "badge warn", href: "#/test" }, "debugging a satellite"));
+  const debugging = Object.keys(s.debug_sessions || {});
+  if (debugging.length) badges.push(h("a", { class: "badge warn", href: `#/satellite/${debugging[0]}` }, "debugging a satellite"));
   if (s.settings && s.settings.keep_audio) badges.push(h("span", { class: "badge warn" }, "keeping audio"));
   document.getElementById("status").replaceChildren(...badges);
   const banner = document.getElementById("banner");
@@ -318,31 +319,6 @@ function listensText(spec) {
   if (spec.examples && spec.examples.length) parts.push(`“${spec.examples[0]}”${spec.examples.length > 1 ? ` +${spec.examples.length - 1}` : ""}`);
   if (spec.require && spec.require.length) parts.push(asList(spec.require).map((g) => asList(g)[0]).join(" + "));
   return parts.join(" · ");
-}
-
-// Where a command group is given: "whole home", satellites by name.
-function groupUseText(groupId, use, sats) {
-  const parts = [];
-  if ((use.home || []).includes(groupId)) parts.push("whole home");
-  for (const [key, ids] of Object.entries(use.satellites || {})) if (ids.includes(groupId)) parts.push(sats[key] || key);
-  return parts.length ? `given to ${parts.join(", ")}` : "not given to anything yet";
-}
-
-function groupsPanel(store, sats) {
-  const groups = store.groups || {};
-  const use = store.group_use || {};
-  const ids = Object.keys(groups);
-  const members = (g) => Object.values(store.commands || {}).filter((spec) => asList(spec && spec.groups).includes(g)).length;
-  return h("div", { class: "panel" },
-    h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Command groups"),
-      h("button", { onclick: () => { location.hash = "#/group/"; } }, "New group")),
-    h("p", { class: "muted small" }, "A group given to the whole home or to a satellite limits it to the commands in the group. A satellite with groups of its own uses only those; without any groups, every command is available everywhere. Give groups on the Satellites page."),
-    ids.length ? h("div", { class: "list" }, ids.map((g) => h("div", { class: "item clickable", onclick: () => { location.hash = `#/group/${g}`; } },
-      icon("mdi:folder-outline", "big"),
-      h("div", { class: "grow" },
-        h("div", { class: "title" }, groups[g] && groups[g].name || g),
-        h("div", { class: "muted small" }, g, groups[g] && groups[g].description ? ` · ${groups[g].description}` : "", ` · ${groupUseText(g, use, sats)}`)),
-      h("span", { class: "badge" }, `${members(g)} command${members(g) === 1 ? "" : "s"}`)))) : null);
 }
 
 // What happens when nothing matched: the closest command by meaning, and
@@ -483,100 +459,13 @@ function agentPanel() {
   }
   return h("div", { class: "panel" },
     h("h2", {}, "Conversation agent"),
-    h("p", { class: "muted small" }, "What no command, ", h("a", { href: "#/skills" }, "skill"), " or step under “When nothing matches” took can go to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. “Can't look it up” waits for it: the agent may know the weather. What it doesn't understand either is the ", h("a", { href: "#/unknown" }, "Unknown command"), "'s."),
+    h("p", { class: "muted small" }, "What no command, ", h("a", { href: "#/home" }, "skill"), " or step under “When nothing matches” took can go to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. “Can't look it up” waits for it: the agent may know the weather. What it doesn't understand either is the ", h("a", { href: "#/unknown" }, "Unknown command"), "'s."),
     h("div", { class: "row" },
       field("Agent", agent, note),
       field("Keep a conversation for", h("label", {}, keep, "minutes"), "After its last answer on a satellite, the next sentence there continues the conversation (“how tall is it?”), as on the Voice PE. 0: every sentence starts a new one."),
       h("button", { class: "primary", onclick: save }, "Save")),
-    kept.length ? h("p", { class: "small" }, "Conversations kept: ", kept.map(([key, seconds]) => `${sats[key] || key || "the Test page"} (${Math.round(seconds)} s more)`).join(", ")) : null,
-    h("p", { class: "muted small" }, "A dry run never asks it, since an agent can act in your home: tick “Really run” on the Test page to try it. An LLM agent hears what the speech model wrote, mishearings and all."));
-}
-
-// Skills: questions answered without an LLM, each on or off for the whole
-// home, and per satellite.
-async function pageSkills() {
-  const [data] = await Promise.all([api("GET", "skills"), loadSatellites()]);
-  const sats = state.satellites || [];
-  async function put(id, body) {
-    try { await api("PUT", `skills/${id}`, body); toast("Saved"); await pageSkills(); }
-    catch (err) { toast(err.message); }
-  }
-  const card = (skill) => {
-    const homeOn = (data.home || {})[skill.id] !== false;
-    const home = h("input", { type: "checkbox", checked: homeOn, onchange: (e) => put(skill.id, { home: e.target.checked }) });
-    const perSatellite = sats.map((sat) => {
-      const own = ((data.satellites || {})[sat.key] || {})[skill.id];
-      const choice = h("select", { onchange: (e) => put(skill.id, { satellites: { [sat.key]: e.target.value === "" ? null : e.target.value === "on" } }) },
-        h("option", { value: "", selected: own === undefined }, `Default (${homeOn ? "on" : "off"})`),
-        h("option", { value: "on", selected: own === true }, "On"),
-        h("option", { value: "off", selected: own === false }, "Off"));
-      return h("label", { class: "skill-satellite" }, h("span", { class: "grow" }, sat.name), choice);
-    });
-    return h("div", { class: "panel" },
-      h("div", { class: "row", style: "align-items:flex-start" },
-        icon(skill.icon, "big"),
-        h("div", { class: "grow" },
-          h("h2", { style: "margin:0" }, skill.name),
-          h("div", { class: "muted small" }, skill.description),
-          h("div", { class: "small" }, skill.examples.map((e) => `“${e}”`).join(" · "))),
-        h("label", {}, home, "Whole home")),
-      sats.length ? h("div", { class: "skill-satellites" }, perSatellite) : null);
-  };
-  fill($main,
-    h("h1", {}, "Skills"),
-    h("p", { class: "muted" }, "Questions no command takes, answered exactly and at once, without an LLM: a skill parses the whole question and computes the answer, or leaves it to the next step. Turn each on or off for the whole home, and give a satellite its own setting where it should differ."),
-    h("p", { class: "muted small" }, "They answer before the steps after keywords and examples (meaning, the model) — except “Can't look it up”, which comes after them, so “do I need an umbrella” can still be your weather command, and after the conversation agent when there is one (Settings page)."),
-    ...data.skills.map(card));
-}
-
-// Commands as the library has them -- Basics, Covers and locks, Music,
-// Timers -- under your own (Custom), which come first.
-async function pageCommands() {
-  const [store] = await Promise.all([loadStore(), loadSatellites()]);
-  const sats = satelliteLabels();
-  const ids = Object.keys(store.commands || {});
-  const groupNames = Object.fromEntries(Object.entries(store.groups || {}).map(([g, spec]) => [g, (spec && spec.name) || g]));
-  const bySection = {};
-  for (const id of ids) {
-    const section = (store.details[id] || {}).library || "";
-    (bySection[section] = bySection[section] || []).push(id);
-  }
-  const item = (id) => {
-    const spec = store.commands[id] || {};
-    const detail = store.details[id] || {};
-    return h("div", { class: "item clickable", onclick: () => { location.hash = `#/command/${id}`; } },
-      icon(iconFor(spec), "big"),
-      h("div", { class: "grow" },
-        h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
-        h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
-      ...asList(spec.groups).map((g) => h("span", { class: "badge", title: "command group" }, groupNames[g] || g)),
-      asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
-      detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
-  };
-  const section = (title, iconName, members, empty, first) => h("div", { class: "panel" },
-    h("h2", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(members.length))),
-    h("div", { class: "list" }, first, members.map(item)), members.length ? null : empty);
-  // Always there: what is said when nothing understood a sentence.
-  const unknown = (store.unknown || {}).response;
-  const unknownItem = h("div", { class: "item clickable", onclick: () => { location.hash = "#/unknown"; } },
-    icon("mdi:help-circle-outline", "big"),
-    h("div", { class: "grow" },
-      h("div", { class: "title" }, "Unknown command"),
-      h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What is said when nothing understood a sentence. Default: the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.”")),
-    h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
-  fill($main,
-    h("div", { class: "row" }, h("h1", { class: "grow" }, "Commands"),
-      h("button", { class: "primary", onclick: () => newCommandDialog() }, "New command")),
-    store.error ? h("div", { class: "notice bad" }, store.error) : null,
-    ids.length ? groupsPanel(store, sats) : null,
-    section("Custom", "mdi:pencil-outline", bySection[""] || [],
-      h("p", { class: "muted small" }, ids.length
-        ? "Commands you make from scratch (New command, then Custom command) are listed here; the library's are below, as the library has them."
-        : "No voice commands yet. Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens."),
-      unknownItem),
-    ...(store.sections || []).filter((s) => (bySection[s.file] || []).length)
-      .map((s) => section(s.title, s.icon || "mdi:folder-outline", bySection[s.file])),
-  );
+    kept.length ? h("p", { class: "small" }, "Conversations kept: ", kept.map(([key, seconds]) => `${sats[key] || key || "typed with no satellite"} (${Math.round(seconds)} s more)`).join(", ")) : null,
+    h("p", { class: "muted small" }, "A dry run never asks it, since an agent can act in your home: tick “Really run” under a satellite's Test it to try it. An LLM agent hears what the speech model wrote, mishearings and all."));
 }
 
 // The Unknown command: what is said when nothing -- no command, skill, the
@@ -609,7 +498,7 @@ async function pageUnknown() {
   ];
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: "#/commands" }, "← Commands"),
+      h("a", { href: "#/home" }, "← Home"),
       h("h1", { class: "grow", style: "margin:0" }, "Unknown command"),
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
@@ -620,76 +509,22 @@ async function pageUnknown() {
         ...UNKNOWN_EXAMPLES.map((example) => h("button", { type: "button", class: "link", onclick: () => { area.value = example; area.focus(); } }, h("code", {}, example)))),
       h("h3", {}, "Variables"),
       h("div", { class: "kv" }, ...vars.flatMap(([name, text]) => [h("div", {}, h("code", {}, name)), h("div", {}, text)])),
-      h("p", { class: "muted small" }, "Type a sentence no command takes on the Test page to hear it.")),
-  );
-}
-
-// A command group: its name, and which commands are in it.
-async function pageGroup(id) {
-  const [store] = await Promise.all([loadStore(), loadSatellites()]);
-  const sats = satelliteLabels();
-  const isNew = !id;
-  const info = isNew ? { name: "", description: "" } : (store.groups || {})[id];
-  if (!info && !isNew) { fill($main, errorBox(`No command group ${id}`)); return; }
-  let groupId = id || "";
-  const name = h("input", { type: "text", value: (info && info.name) || "", placeholder: "Kids' room", oninput: (e) => { if (isNew && !idInput.dataset.touched) { groupId = slug(e.target.value); idInput.value = groupId; } } });
-  const idInput = h("input", { type: "text", value: groupId, disabled: !isNew, oninput: (e) => { idInput.dataset.touched = "1"; groupId = slug(e.target.value); } });
-  const description = h("input", { type: "text", value: (info && info.description) || "", style: "width:100%", placeholder: "what the kids may ask for" });
-  const errors = h("div");
-  const filter = h("input", { type: "search", placeholder: "Filter commands", style: "max-width:260px" });
-  const rows = Object.entries(store.commands || {}).map(([cid, spec]) => {
-    const box = h("input", { type: "checkbox", value: cid, checked: !isNew && asList(spec && spec.groups).includes(id) });
-    const row = h("label", { class: "item" }, box, icon(iconFor(spec || {}), "big"),
-      h("div", { class: "grow" }, h("div", { class: "title" }, (spec && (spec.title || spec.description)) || cid), h("div", { class: "muted small" }, cid)));
-    return { cid, spec, box, row };
-  });
-  filter.addEventListener("input", () => {
-    const text = filter.value.trim().toLowerCase();
-    for (const r of rows) r.row.style.display = !text || r.cid.includes(text) || String((r.spec && (r.spec.title || r.spec.description)) || "").toLowerCase().includes(text) ? "" : "none";
-  });
-  const all = (on) => rows.forEach((r) => { if (r.row.style.display !== "none") r.box.checked = on; });
-  async function save() {
-    fill(errors);
-    if (!groupId) { errors.append(errorBox("Give the group an id")); return; }
-    try {
-      await api("PUT", `groups/${groupId}`, { name: name.value, description: description.value, commands: rows.filter((r) => r.box.checked).map((r) => r.cid) });
-      toast("Saved"); refreshStatus();
-      if (isNew) location.hash = `#/group/${groupId}`; else pageGroup(groupId);
-    } catch (err) { errors.append(errorBox(err)); }
-  }
-  async function remove() {
-    if (!confirm(`Delete the command group ${name.value || id}? Its commands stay, in no group.`)) return;
-    try { await api("DELETE", `groups/${id}`); toast("Deleted"); location.hash = "#/commands"; }
-    catch (err) { errors.append(errorBox(err)); }
-  }
-  fill($main,
-    h("div", { class: "row" },
-      h("a", { href: "#/commands" }, "← Commands"),
-      h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command group" : (info.name || id)),
-      isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
-      h("button", { class: "primary", onclick: save }, "Save")),
-    errors,
-    h("div", { class: "panel" },
-      h("div", { class: "grid2" }, field("Name", name), field("Id", idInput, "Lowercase letters, digits and underscores.")),
-      field("Description", description),
-      isNew ? null : h("p", { class: "muted small" }, (([first, ...rest]) => first.toUpperCase() + rest.join(""))(groupUseText(id, store.group_use || {}, sats)), ". Give it on the Satellites page.")),
-    h("div", { class: "panel" },
-      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Commands in it"), filter,
-        h("button", { onclick: () => all(true) }, "All"), h("button", { onclick: () => all(false) }, "None")),
-      h("p", { class: "muted small" }, "A command can be in any number of groups."),
-      h("div", { class: "list" }, rows.map((r) => r.row))),
-    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
+      h("p", { class: "muted small" }, "Type a sentence no command takes on a satellite's page (Test it) to hear it.")),
   );
 }
 
 // The command editor. `spec` is edited in place; fields it does not know
 // about are kept as loaded.
-async function pageCommand(id, prefill) {
-  await loadStore();
+async function pageCommand(id, prefill, query) {
+  await Promise.all([loadStore(), loadSatellites()]);
   const areas = await areaLabels();
   const isNew = !id;
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
+  const wanted = new URLSearchParams(query || "").get("satellite");
+  if (isNew && wanted && !spec.satellite) spec.satellite = wanted;
+  // Back to where it is: the Home, or its satellite's page.
+  const back = () => (spec.satellite && state.satellites.some((x) => x.key === spec.satellite) ? `#/satellite/${spec.satellite}` : "#/home");
   let commandId = id || slug(spec.description) || "";
   const actionYaml = { value: await yamlDump(spec.action) };
   const errors = h("div");
@@ -744,7 +579,7 @@ async function pageCommand(id, prefill) {
     if (!confirm(`Delete the command ${id}?`)) return;
     await api("DELETE", `commands/${id}`);
     toast("Deleted");
-    location.hash = "#/commands";
+    location.hash = back();
   }
 
   // Fixed slots: the entity, area or floor the command targets.
@@ -1162,14 +997,11 @@ async function pageCommand(id, prefill) {
             field("Id", idInput, "Lowercase letters, digits and underscores."))),
         h("div", { class: "row" },
           h("label", {}, h("input", { type: "checkbox", checked: spec.disabled, onchange: (e) => { if (e.target.checked) spec.disabled = true; else delete spec.disabled; } }), "Turned off")),
-        Object.keys(state.store.groups || {}).length ? field("Command groups", h("div", { class: "wake-list" },
-          Object.entries(state.store.groups || {}).map(([g, info]) => h("label", {},
-            h("input", { type: "checkbox", checked: asList(spec.groups).includes(g), onchange: (e) => {
-              const now = asList(spec.groups).filter((x) => x !== g);
-              if (e.target.checked) now.push(g);
-              if (now.length) spec.groups = now; else delete spec.groups;
-            } }), (info && info.name) || g))),
-          "A satellite limited to command groups runs only the commands in them (Satellites page).") : null,
+        field("Where", h("select", { onchange: (e) => { if (e.target.value) spec.satellite = e.target.value; else delete spec.satellite; } },
+          h("option", { value: "", selected: !spec.satellite }, "The Home: every satellite that takes the Home's"),
+          ...state.satellites.map((x) => h("option", { value: x.key, selected: spec.satellite === x.key }, `Only ${x.name}`)),
+          spec.satellite && !state.satellites.some((x) => x.key === spec.satellite) ? h("option", { value: spec.satellite, selected: true }, `${spec.satellite} (not here any more)`) : null),
+          "On one satellite, it goes before the Home's commands that take the same sentence."),
         field("When nothing else matches", h("div", { class: "wake-list" },
           [["meaning", "Run it when a sentence is very close in meaning"], ["llm", "Let a small model pick it"]].map(([step, label]) => h("label", {},
             h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
@@ -1221,7 +1053,7 @@ async function pageCommand(id, prefill) {
   render();
   fill($main, 
     h("div", { class: "row" },
-      h("a", { href: "#/commands" }, "← Commands"),
+      h("a", { href: back() }, `← ${spec.satellite ? placeName(spec.satellite) : "Home"}`),
       h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command" : (spec.title || spec.description || id)),
       isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
       isNew ? null : h("button", { onclick: () => duplicateDialog(id) }, "Duplicate"),
@@ -1275,49 +1107,32 @@ function openDialog(title, content, cls) {
   return close;
 }
 
-// Duplicate a command, as saved: a copy to change, put in a command group to
-// do something else on the satellites the group is given to.
+// Duplicate a command, as saved: a copy to change -- on a satellite, to do
+// something else there, where it goes before the Home's.
 async function duplicateDialog(id) {
-  const store = await loadStore();
+  const [store] = await Promise.all([loadStore(), loadSatellites()]);
   const spec = store.commands[id] || {};
-  const groups = store.groups || {};
-  const own = asList(spec.groups);
-  const use = store.group_use || {};
-  const given = (use.home || []).length > 0 || Object.keys(use.satellites || {}).length > 0;
-  let copyId = `${id}_copy`;
-  for (let n = 2; store.commands[copyId]; n++) copyId = `${id}_copy_${n}`;
-  const idInput = h("input", { type: "text", value: copyId, oninput: (e) => { idInput.dataset.touched = "1"; } });
+  const from = (store.details[id] || {}).satellite || "";
+  const idInput = h("input", { type: "text", value: "" });
   const title = h("input", { type: "text", value: `${spec.title || spec.description || id} (copy)`, style: "width:100%" });
-  const NEW = "+new"; // never a group id
-  const group = h("select", {},
-    h("option", { value: "" }, own.length ? `Its groups (${own.map((g) => (groups[g] && groups[g].name) || g).join(", ")})` : "No group"),
-    ...Object.entries(groups).map(([g, info]) => h("option", { value: g }, `Only ${(info && info.name) || g}`)),
-    h("option", { value: NEW }, "Only a new group…"));
-  const groupName = h("input", { type: "text", placeholder: "Kids' room" });
-  const replace = h("input", { type: "checkbox", checked: true });
-  const replaceRow = h("label", { class: "small" }, replace, "");
+  const place = h("select", {},
+    h("option", { value: "", selected: !from }, "The Home"),
+    ...state.satellites.map((x) => h("option", { value: x.key, selected: from === x.key }, x.name)));
   const errors = h("div");
-  function update() {
-    groupName.parentElement.style.display = group.value === NEW ? "" : "none";
-    const g = group.value;
-    // The copy takes the original's place in a group they would share.
-    const shared = g && g !== NEW && own.includes(g);
-    replaceRow.style.display = shared ? "" : "none";
-    replaceRow.lastChild.textContent = shared ? ` Take ${spec.title || id}'s place in ${(groups[g] && groups[g].name) || g}: leave the original out of it` : "";
+  // An id that says where it is: lights_on_kitchen_vpe.
+  function suggest() {
+    if (idInput.dataset.touched) return;
+    let copyId = place.value ? `${id}_${slug(placeName(place.value))}` : `${id}_copy`;
+    for (let n = 2; store.commands[copyId]; n++) copyId = `${place.value ? `${id}_${slug(placeName(place.value))}` : `${id}_copy`}_${n}`;
+    idInput.value = copyId;
   }
-  group.addEventListener("change", update);
+  idInput.addEventListener("input", () => { idInput.dataset.touched = "1"; });
+  place.addEventListener("change", suggest);
+  suggest();
   async function create() {
     fill(errors);
-    const body = { new_id: slug(idInput.value), title: title.value.trim() };
-    if (group.value === NEW) {
-      if (!groupName.value.trim()) { errors.append(errorBox("Name the new group")); return; }
-      body.new_group = groupName.value.trim();
-    } else if (group.value) {
-      body.group = group.value;
-      body.replace = replace.checked && own.includes(group.value);
-    }
     try {
-      const result = await api("POST", `commands/${id}/duplicate`, body);
+      const result = await api("POST", `commands/${id}/duplicate`, { new_id: slug(idInput.value), title: title.value.trim(), satellite: place.value || null });
       close();
       toast(`Made ${result.id}`);
       refreshStatus();
@@ -1325,15 +1140,11 @@ async function duplicateDialog(id) {
     } catch (err) { errors.append(errorBox(err)); }
   }
   const close = openDialog(`Duplicate ${spec.title || spec.description || id}`, h("div", { class: "stack" },
-    h("p", { class: "muted small" }, "A copy of the command as it is saved, to change. To have it do something else on some satellites, put the copy in a command group given to them (Satellites page) and leave the original out of it."),
+    h("p", { class: "muted small" }, "A copy of the command as it is saved, to change. On a satellite, a copy goes before the Home's commands that take the same sentence: duplicate one of the Home's there to have it do something else on that satellite."),
+    field("Where", place),
     h("div", { class: "grid2" }, field("Id", idInput, "Lowercase letters, digits and underscores."), field("Title", title)),
-    field("Command groups", group),
-    field("New group's name", groupName),
-    replaceRow,
-    given ? null : h("p", { class: "notice warn small" }, "No groups are given to the home or a satellite yet, so every satellite runs every command — this copy and the original both — until they are."),
     errors,
-    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { type: "button", onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: create }, "Duplicate"))), "compact");
-  update();
+    h("div", { class: "row" }, h("span", { class: "grow" }, ""), h("button", { type: "button", onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: create }, "Duplicate"))), "compact");
   idInput.focus();
 }
 
@@ -1345,15 +1156,26 @@ async function duplicateDialog(id) {
 // name, in an area or floor by name. Each version is added on its own.
 const VARIANT_ICONS = { here: "mdi:crosshairs-gps", device: "mdi:devices", place: "mdi:home-map-marker" };
 
-async function newCommandDialog() {
-  let data, store;
+// `target`: where it goes -- the Home (null) or a satellite's key.
+async function newCommandDialog(target) {
+  let data, store, skillData;
   try {
-    [data, store] = await Promise.all([api("GET", "library"), loadStore()]);
+    [data, store, skillData] = await Promise.all([api("GET", "library"), loadStore(), api("GET", "skills"), loadSatellites()]);
   } catch (err) { toast(err.message); return; }
-  // Added: one of your commands has its id. A command whose id you changed is
+  const where = target ? placeName(target) : "the Home";
+  // Added: one of the commands there has its id, or its id and a suffix (a
+  // satellite's copy: play_music_kitchen). A command whose id you changed is
   // yours, and the library's can be added again.
-  const yours = new Set(Object.keys(store.commands || {}));
-  const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries()];
+  const here = Object.keys(store.commands || {}).filter((id) => ((store.details[id] || {}).satellite || null) === (target || null));
+  const yours = { has: (libraryId) => here.some((id) => id === libraryId || id.startsWith(`${libraryId}_`)) };
+  const skillsHere = new Set(target ? (skillData.satellites[target] || []) : skillData.home);
+  // On a satellite that takes the Home's: what it has from the Home already.
+  const sat = target ? state.satellites.find((x) => x.key === target) : null;
+  const homeIds = sat && sat.home ? Object.keys(store.commands || {}).filter((id) => !(store.details[id] || {}).satellite) : [];
+  const fromHome = (libraryId) => homeIds.some((id) => id === libraryId || id.startsWith(`${libraryId}_`));
+  const homeHas = h("span", { class: "badge", style: "margin-left:8px", title: "It runs here as the Home's. Add it to change it for this satellite only." }, "the Home's has it");
+  const QUESTIONS = "Questions";
+  const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries(), [QUESTIONS, "mdi:comment-question-outline"]];
   // Each command and its versions, in the library's order.
   const families = [];
   const byKey = new Map();
@@ -1373,14 +1195,14 @@ async function newCommandDialog() {
   const chips = h("div", { class: "row filter-chips" });
   const add = async (entry) => {
     try {
-      const result = await api("POST", "library/add", { file: entry.file, id: entry.id });
+      const result = await api("POST", "library/add", { file: entry.file, id: entry.id, satellite: target, new_id: target ? `${entry.id}_${slug(where)}` : undefined });
       toast(`Added ${result.id}`);
       close();
       refreshStatus();
       location.hash = `#/command/${result.id}`;
     } catch (err) { toast(err.message); }
   };
-  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = "#/command/"; } },
+  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = target ? `#/command/?satellite=${target}` : "#/command/"; } },
     icon("mdi:pencil-plus-outline", "big"),
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
       h("span", { class: "muted small" }, "Start from scratch: what it acts on, what to listen for, what happens.")));
@@ -1396,7 +1218,7 @@ async function newCommandDialog() {
     return h("div", { class: `item ${added ? "added" : ""}` },
       icon(iconName, "big"),
       h("div", { class: "grow" },
-        h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
+        h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : fromHome(entry.id) ? homeHas.cloneNode(true) : null),
         h("div", { class: "muted small" }, [description, listensText(entry.spec)].filter(Boolean).join(" · ")),
         entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
         entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
@@ -1425,24 +1247,46 @@ async function newCommandDialog() {
     });
     return details;
   };
+  // A skill: added there, or Add.
+  const skillMatches = (skill, words) => words.every((w) => [skill.name, skill.description, ...skill.examples, QUESTIONS].join(" ").toLowerCase().includes(w));
+  const skillRow = (skill) => {
+    const added = skillsHere.has(skill.id);
+    return h("div", { class: `item ${added ? "added" : ""}` },
+      icon(skill.icon, "big"),
+      h("div", { class: "grow" },
+        h("div", { class: "title" }, skill.name, h("span", { class: "badge", style: "margin-left:8px" }, "skill"),
+          added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : sat && sat.home && skillData.home.includes(skill.id) ? homeHas.cloneNode(true) : null),
+        h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
+      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}`; } }, "Open")
+        : h("button", { type: "button", class: "primary", onclick: async () => {
+          try {
+            await api("PUT", `skills/${skill.id}`, target ? { satellites: { [target]: true } } : { home: true });
+            toast(`Added ${skill.name}`); close(); route();
+          } catch (err) { toast(err.message); }
+        } }, "Add"));
+  };
   function render() {
     const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const shown = families.filter((f) => !group || f.group === group)
       .map((f) => [f, f.versions.filter((e) => matches(e, words))]).filter(([, versions]) => versions.length);
+    const skills = !group || group === QUESTIONS ? skillData.skills.filter((sk) => skillMatches(sk, words)) : [];
     fill(chips, ...[["", null, "All"], ...groups.map(([g, i]) => [g, i, g])].map(([value, ic, label]) => {
-      const count = families.filter((f) => (!value || f.group === value) && f.versions.some((e) => matches(e, words))).length;
+      const count = value === QUESTIONS ? skillData.skills.filter((sk) => skillMatches(sk, words)).length
+        : families.filter((f) => (!value || f.group === value) && f.versions.some((e) => matches(e, words))).length
+          + (value ? 0 : skillData.skills.filter((sk) => skillMatches(sk, words)).length);
       return h("button", { type: "button", class: `filter-chip ${group === value ? "on" : ""}`, "aria-pressed": String(group === value),
         onclick: () => { group = value; render(); } }, ic ? icon(ic) : null, `${label} (${count})`);
     }));
     fill(list, ...shown.map(([family, versions]) => (family.versions.length === 1 && !family.versions[0].variant
       ? row(versions[0], iconFor(versions[0].spec))
       : familyRow(family, versions, words.length > 0))),
-    shown.length ? null : h("p", { class: "muted" }, "No library command matches. Start a custom one above."));
+    ...skills.map(skillRow),
+    shown.length || skills.length ? null : h("p", { class: "muted" }, "Nothing in the library matches. Start a custom command above."));
   }
   search.addEventListener("input", render);
-  const close = openDialog("New command", [
+  const close = openDialog(`New command for ${where}`, [
     custom,
-    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own."),
+    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes."),
     search, chips,
     h("div", { class: "dialog-list" }, list)]);
   render();
@@ -1450,8 +1294,319 @@ async function newCommandDialog() {
 }
 
 async function pageLibrary() {
-  location.hash = "#/commands";
-  newCommandDialog();
+  location.hash = "#/home";
+  newCommandDialog(null);
+}
+
+// --------------------------------------------------------------------- home
+
+// Where a command or skill is: the Home's (null), or a satellite's key.
+const placeName = (key) => {
+  if (!key) return "the Home";
+  const s = state.satellites.find((x) => x.key === key);
+  return s ? s.name : key;
+};
+
+function satelliteIcon(s) {
+  return (s && s.icon && ICONS[s.icon]) ? s.icon : "mdi:speaker";
+}
+
+// Pick an icon from `choices`; `onPick(name | null)` (null: the default).
+function iconChooser(current, fallback, choices, onPick) {
+  const box = h("div");
+  const draw = (open, value) => {
+    const choice = (name, label) => h("button", { type: "button", class: `icon-choice ${(value || "") === (name || "") ? "on" : ""}`, title: label || name,
+      onclick: () => { onPick(name); draw(false, name); } }, icon(name || fallback));
+    fill(box, h("button", { type: "button", class: "icon-button", title: "Change the icon", onclick: () => draw(!open, value) }, icon(value || fallback, "big")),
+      open ? h("div", { class: "icon-grid" }, choice(null, "Default"), ...choices.map((n) => choice(n))) : null);
+  };
+  draw(false, current);
+  return box;
+}
+
+// One command, as listed on the Home or a satellite's page.
+function commandItem(store, id) {
+  const spec = store.commands[id] || {};
+  const detail = store.details[id] || {};
+  const elsewhere = detail.satellite && !state.satellites.some((s) => s.key === detail.satellite);
+  return h("div", { class: "item clickable", onclick: () => { location.hash = `#/command/${id}`; } },
+    icon(iconFor(spec), "big"),
+    h("div", { class: "grow" },
+      h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
+      h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
+    elsewhere ? h("span", { class: "badge warn", title: `Its satellite, ${detail.satellite}, isn't here: change where it is on its page` }, "satellite gone") : null,
+    asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
+    detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
+}
+
+function skillItem(skill) {
+  return h("div", { class: "item clickable", onclick: () => { location.hash = `#/skill/${skill.id}`; } },
+    icon(skill.icon, "big"),
+    h("div", { class: "grow" },
+      h("div", { class: "title" }, skill.name),
+      h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
+    h("span", { class: "badge accent" }, "skill"));
+}
+
+// Commands and skills grouped by what they're for: your own (Custom)
+// first, then the library's sections, then the skills (Questions).
+// `place`: the Home (null) or a satellite's key.
+function placedSections(store, skillData, place, emptyText) {
+  const known = new Set(state.satellites.map((s) => s.key));
+  const ids = Object.keys(store.commands || {}).filter((id) => {
+    const where = (store.details[id] || {}).satellite || null;
+    // A command whose satellite is gone is listed on the Home, to be moved.
+    return place ? where === place : (!where || !known.has(where));
+  });
+  const skillIds = new Set(place ? (skillData.satellites[place] || []) : skillData.home);
+  const skillsHere = skillData.skills.filter((s) => skillIds.has(s.id));
+  const bySection = {};
+  for (const id of ids) {
+    const section = (store.details[id] || {}).library || "";
+    (bySection[section] = bySection[section] || []).push(id);
+  }
+  const section = (title, iconName, items) => h("div", { class: "section" },
+    h("h3", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(items.length))),
+    h("div", { class: "list" }, items));
+  const out = [];
+  if ((bySection[""] || []).length) out.push(section("Custom", "mdi:pencil-outline", bySection[""].map((id) => commandItem(store, id))));
+  for (const s of store.sections || []) {
+    if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id))));
+  }
+  if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map(skillItem)));
+  return out.length ? out : [h("p", { class: "muted small" }, emptyText)];
+}
+
+function satelliteTile(s, wake) {
+  const own = (s.commands || []).length + (s.skills || []).length;
+  const summary = [
+    wakeWordName(wake, (s.wake_words_used || [])[0]),
+    s.home ? (own ? `the Home's + ${own} of its own` : "the Home's") : `only its own (${own})`,
+  ];
+  return h("a", { class: "tile", href: `#/satellite/${s.key}`, title: `Set up and test ${s.name}` },
+    h("div", { class: "row" }, icon(satelliteIcon(s), "big"), h("span", { class: "grow" }),
+      h("span", { class: `dot ${s.connected ? (s.in_call ? "accent" : "ok") : ""}`, title: s.connected ? (s.in_call ? "in a call" : "connected") : "offline" })),
+    h("div", { class: "title" }, s.name),
+    h("div", { class: "small" }, s.area_name || s.area || h("span", { class: "muted" }, "No area")),
+    h("div", { class: "muted small" }, summary.join(" · ")),
+    s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
+    s.ringing ? h("span", { class: "badge warn" }, "timer ringing") : null);
+}
+
+async function pageHome() {
+  const [store, sats, skillData, wake] = await Promise.all([
+    loadStore(), loadSatellites(), api("GET", "skills"),
+    api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
+  ]);
+  const unknown = (store.unknown || {}).response;
+  const unknownItem = h("div", { class: "item clickable", onclick: () => { location.hash = "#/unknown"; } },
+    icon("mdi:help-circle-outline", "big"),
+    h("div", { class: "grow" },
+      h("div", { class: "title" }, "Unknown command"),
+      h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What is said when nothing understood a sentence. Default: the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.”")),
+    h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
+  const legacy = store.legacy_groups || [];
+  fill($main,
+    h("h1", {}, "Home"),
+    store.error ? h("div", { class: "notice bad" }, store.error) : null,
+    state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
+    legacy.length ? h("div", { class: "notice warn" }, `Command groups are gone, so ${legacy.join(", ")} — in some before — ${legacy.length === 1 ? "is" : "are"} the Home's now, on every satellite that takes the Home's. Meant for one satellite? Open it and change where it is.`) : null,
+    h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
+      : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
+    h("div", { class: "panel" },
+      h("div", { class: "row" },
+        h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
+        h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "New command")),
+      h("p", { class: "muted small" }, "The Home's: they run on every satellite that takes the Home's — all do, unless one is set not to. A satellite's own are on its page."),
+      placedSections(store, skillData, null, "No voice commands yet. Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
+    h("div", { class: "panel" }, h("div", { class: "list" }, unknownItem)),
+  );
+}
+
+// ---------------------------------------------------------------- satellite
+
+// One satellite: what it is and how it listens and speaks, its own
+// commands and skills, and testing it.
+async function pageSatellite(key) {
+  const [sats, voices, wake, store, skillData] = await Promise.all([
+    loadSatellites(),
+    api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
+    api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
+    loadStore(),
+    api("GET", "skills"),
+  ]);
+  const s = sats.find((x) => x.key === key);
+  if (!s) { fill($main, h("a", { href: "#/home" }, "← Home"), errorBox(`No satellite ${key}`)); return; }
+  const areas = await areaLabels();
+  const settings = (state.status && state.status.settings) || {};
+  const label = (value) => value || "built-in";
+
+  // What it is.
+  let chosenIcon = s.icon || null;
+  const iconBox = iconChooser(s.icon, "mdi:speaker", SATELLITE_ICONS, (name) => { chosenIcon = name; });
+  const name = h("input", { type: "text", value: s.name });
+  const area = h("select", {}, h("option", { value: "" }, "No area"), ...Object.entries(areas).map(([id, text]) => h("option", { value: id, selected: s.area === id }, text)));
+  const own = s.voice || {};
+  const used = s.voice_used || {};
+  const stt = voiceSelect("stt", voices.stt, own.stt, label(settings.stt));
+  const tts = voiceSelect("tts", voices.tts, own.tts, label(settings.tts));
+  const sttLanguage = languagePicker(voices.stt, stt, own.stt_language, settings.stt_language || "automatic", settings.stt);
+  const ttsLanguage = languagePicker(voices.tts, tts, own.tts_language, settings.tts_language || "automatic", settings.tts);
+  const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "", ttsLanguage);
+  const speakOn = h("select", {},
+    h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
+    ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
+  const found = s.media_player_picked ? null : s.media_player;
+  const player = h("select", {},
+    h("option", { value: "" }, found ? `Its Sendspin player (${found})` : "Its Sendspin player (not found)"),
+    ...(s.music_players || []).map((m) => h("option", { value: m.entity_id, selected: s.media_player_picked && s.media_player === m.entity_id }, `${m.name} (${m.entity_id})`)));
+  const save = async () => {
+    try {
+      await api("PUT", `satellites/${s.key}`, {
+        name: name.value, area: area.value || null, icon: chosenIcon, media_player: player.value || null,
+        stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
+        stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
+      });
+      toast("Saved"); pageSatellite(key);
+    } catch (err) { toast(err.message); }
+  };
+
+  // Its commands and skills.
+  const takesHome = h("input", { type: "checkbox", checked: s.home, onchange: async (e) => {
+    try { await api("PUT", `satellites/${s.key}`, { home: e.target.checked }); toast(e.target.checked ? "Takes the Home's" : "Only its own"); pageSatellite(key); }
+    catch (err) { toast(err.message); }
+  } });
+
+  // Testing it: a sentence typed, as if said here.
+  const input = h("input", { type: "text", class: "grow", placeholder: "turn on the lights" });
+  const run = h("input", { type: "checkbox" });
+  const speak = h("input", { type: "checkbox" });
+  const out = h("div");
+  async function go() {
+    fill(out, h("p", { class: "muted" }, speak.checked ? "Synthesizing and recognizing…" : "Recognizing…"));
+    try {
+      const record = await api("POST", "try", { text: input.value, satellite: s.key, run_actions: run.checked, speak: speak.checked });
+      fill(out, h("div", { class: "panel inset" }, renderOutcome(record), h("p", {}, h("a", { href: `#/session/${record.id}` }, "Full trace"))),
+        h("div", {}, ...(record.stages || []).filter((x) => ["recognition", "agent", "unknown", "action"].includes(x.stage)).map(renderStage)));
+    } catch (err) { fill(out, errorBox(err)); }
+  }
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+
+  fill($main,
+    h("div", { class: "row" },
+      h("a", { href: "#/home" }, "← Home"),
+      icon(satelliteIcon(s), "big"),
+      h("h1", { class: "grow", style: "margin:0" }, s.name),
+      h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : "offline"),
+      s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
+      h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")),
+    s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
+    h("div", { class: "panel" },
+      h("h2", {}, "Settings"),
+      h("div", { class: "row", style: "align-items:flex-start" },
+        field("Icon", iconBox),
+        h("div", { class: "row grow" }, field("Name", name), field("Area", area), field("Music player", player))),
+      h("p", { class: "muted small" }, "Its area is what “the lights” means here. With the Voice Call integration, it is the area of its device in Home Assistant, and can be changed in either place."),
+      h("div", { class: "row" },
+        field("Speech-to-text", stt), field("Language", sttLanguage),
+        field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
+        field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
+      h("div", { class: "row" }, h("button", { class: "primary", onclick: save }, "Save")),
+      h("details", { class: "small", style: "margin-top:8px" }, h("summary", {}, "About it"),
+        h("div", { class: "kv", style: "margin-top:6px" },
+          h("div", {}, "Id"), h("div", {}, h("code", {}, s.key)),
+          h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
+          h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
+          h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
+          h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)", " · ", h("a", { href: "#/wake" }, "change")),
+          h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
+          h("div", {}, "Listens with"), h("div", {}, used.stt ? [h("code", {}, used.stt), used.stt_language ? ` (${used.stt_language})` : ""] : "the built-in TDT model", " after the built-in matcher"),
+          h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice || used.tts_language ? ` (${[used.tts_language, used.tts_voice].filter(Boolean).join(", ")})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in"),
+          s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
+    h("div", { class: "panel" },
+      h("div", { class: "row" },
+        h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
+        h("button", { class: "primary", onclick: () => newCommandDialog(s.key) }, "New command")),
+      h("label", {}, takesHome, "Take the Home's commands and skills too"),
+      h("p", { class: "muted small" }, s.home
+        ? ["Its own, below, and ", h("a", { href: "#/home" }, "the Home's"), ". Where its own and the Home's take the same sentence, its own goes first: duplicate one of the Home's here to do something else on this satellite."]
+        : "Only its own, below: the Home's commands and skills don't run here."),
+      placedSections(store, skillData, s.key, "None of its own yet.")),
+    h("div", { class: "panel" },
+      h("h2", {}, "Test it"),
+      h("p", { class: "muted small" }, "What you type is recognized like a command said here, after the wake word, as if every word had been heard exactly as typed: no speech recognition."),
+      h("div", { class: "row" }, input, h("button", { class: "primary", onclick: go }, "Test")),
+      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run, which never asks the conversation agent)"),
+      h("label", { class: "small" }, speak, "Say it first: spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient."),
+      out,
+      liveSection(s),
+      debugSection(s)),
+  );
+}
+
+// ----------------------------------------------------------------- skills
+
+// A skill: what it answers, and where -- the Home, and satellites of their own.
+async function pageSkill(id) {
+  const [data, sats] = await Promise.all([api("GET", "skills"), loadSatellites()]);
+  const skill = data.skills.find((x) => x.id === id);
+  if (!skill) { fill($main, h("a", { href: "#/home" }, "← Home"), errorBox(`No skill ${id}`)); return; }
+  async function put(body) {
+    try { await api("PUT", `skills/${id}`, body); toast("Saved"); pageSkill(id); }
+    catch (err) { toast(err.message); }
+  }
+  const onHome = data.home.includes(id);
+  fill($main,
+    h("div", { class: "row" },
+      h("a", { href: "#/home" }, "← Home"),
+      icon(skill.icon, "big"),
+      h("h1", { class: "grow", style: "margin:0" }, skill.name),
+      h("span", { class: "badge accent" }, "skill")),
+    h("div", { class: "panel" },
+      h("p", {}, skill.description),
+      h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · ")),
+      h("p", { class: "muted small" }, "A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. ",
+        skill.last ? "This one comes after the steps that run when nothing else matches (meaning, the model), so “do I need an umbrella” can still be your weather command, and after the conversation agent when there is one."
+          : "It answers before the steps that run when nothing else matches (meaning, the model)."),
+      h("h3", {}, "Where it answers"),
+      h("label", {}, h("input", { type: "checkbox", checked: onHome, onchange: (e) => put({ home: e.target.checked }) }), "The Home's: on every satellite that takes the Home's"),
+      sats.length ? h("div", { class: "wake-list", style: "margin-top:8px" }, sats.map((sat) => h("label", { title: sat.home && onHome ? "It answers there as the Home's already" : "" },
+        h("input", { type: "checkbox", checked: (data.satellites[sat.key] || []).includes(id), onchange: (e) => put({ satellites: { [sat.key]: e.target.checked } }) }),
+        `${sat.name}'s own`, sat.home && onHome ? h("span", { class: "muted small" }, " (has it as the Home's)") : null))) : null),
+  );
+}
+
+// The Home's speech-to-text, text-to-speech and built-in speech model, which
+// a satellite uses unless it has its own.
+async function speechPanel() {
+  const voices = await api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] }));
+  const settings = (state.status && state.status.settings) || {};
+  const globalStt = voiceSelect("stt", voices.stt, settings.stt);
+  const globalTts = voiceSelect("tts", voices.tts, settings.tts);
+  const globalSttLanguage = languagePicker(voices.stt, globalStt, settings.stt_language);
+  const globalTtsLanguage = languagePicker(voices.tts, globalTts, settings.tts_language);
+  const globalVoice = voicePicker(globalTts, settings.tts_voice, undefined, globalTtsLanguage);
+  const models = (state.status && state.status.tdt_models) || [];
+  const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
+    `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
+  return h("div", { class: "panel" },
+    h("h2", {}, "Listening and speaking"),
+    h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own on its page). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
+    voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
+    field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
+    state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
+    h("div", { class: "row" },
+      field("Speech-to-text", globalStt), field("Language", globalSttLanguage),
+      field("Text-to-speech", globalTts), field("Language", globalTtsLanguage), field("Voice", globalVoice),
+      h("button", { class: "primary", onclick: async () => {
+        try {
+          await api("PUT", "settings", {
+            stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null,
+            stt_language: languageValue(globalSttLanguage), tts_language: languageValue(globalTtsLanguage), tdt_model: tdtModel.value,
+          });
+          await refreshStatus(); toast("Saved"); pageSettings();
+        } catch (err) { toast(err.message); }
+      } }, "Save")));
 }
 
 // ------------------------------------------------------------------- names
@@ -1587,28 +1742,6 @@ function voicePicker(ttsSelect, value, inherit, languageSelect) {
   if (languageSelect) languageSelect.addEventListener("change", () => { value = undefined; load(); });
   load();
   return select;
-}
-
-// Command groups to tick. With `inherit` (a satellite), unticking "its own"
-// follows the default (every satellite's). `.picked()` is the ids ticked, or null.
-function groupChooser(groups, picked, inherit) {
-  const ids = Object.keys(groups);
-  const own = h("input", { type: "checkbox", checked: !inherit || !!(picked && picked.length) });
-  const boxes = ids.map((g) => ({ g, box: h("input", { type: "checkbox", value: g, checked: (picked && picked.length ? picked : inherit || []).includes(g) }) }));
-  function update() {
-    const following = inherit && !own.checked;
-    for (const { g, box } of boxes) {
-      if (following) box.checked = (inherit || []).includes(g);
-      box.disabled = following;
-    }
-  }
-  own.addEventListener("change", update);
-  update();
-  const el = h("div", { class: "wake-words" },
-    inherit ? h("label", { class: "small" }, own, "Its own command groups (otherwise the default)") : null,
-    h("div", { class: "wake-list" }, boxes.map(({ g, box }) => h("label", {}, box, (groups[g] && groups[g].name) || g))));
-  el.picked = () => (inherit && !own.checked ? null : boxes.filter((b) => b.box.checked).map((b) => b.g));
-  return el;
 }
 
 // ---------------------------------------------------------------- wake words
@@ -1860,121 +1993,6 @@ async function pageWakeWords(query) {
   );
 }
 
-async function pageSatellites() {
-  const [sats, voices, wake] = await Promise.all([
-    loadSatellites(),
-    api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
-    api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
-  ]);
-  const areas = await areaLabels();
-  const settings = (state.status && state.status.settings) || {};
-  const globalStt = voiceSelect("stt", voices.stt, settings.stt);
-  const globalTts = voiceSelect("tts", voices.tts, settings.tts);
-  const globalSttLanguage = languagePicker(voices.stt, globalStt, settings.stt_language);
-  const globalTtsLanguage = languagePicker(voices.tts, globalTts, settings.tts_language);
-  const globalVoice = voicePicker(globalTts, settings.tts_voice, undefined, globalTtsLanguage);
-  const models = (state.status && state.status.tdt_models) || [];
-  const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
-    `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
-  const label = (value, kind) => value || (kind === "stt" ? "built-in" : "built-in");
-  const store = await loadStore();
-  const groups = store.groups || {};
-  const hasGroups = Object.keys(groups).length > 0;
-  const homeGroups = (store.group_use && store.group_use.home) || [];
-  const globalGroups = groupChooser(groups, homeGroups);
-  fill($main, 
-    h("h1", {}, "Satellites"),
-    h("p", { class: "muted" }, "Each satellite's area is what “the lights” means there, and what commands scoped to an area follow. With the Voice Call integration it is the area of the satellite's own device in Home Assistant."),
-    state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
-    hasGroups ? h("div", { class: "panel" },
-      h("h2", {}, "Command groups"),
-      h("p", { class: "muted small" }, "Given to the whole home, satellites without groups of their own run only the commands in these. None ticked: every command. ", h("a", { href: "#/commands" }, "Edit the groups"), "."),
-      globalGroups,
-      h("div", { class: "row" }, h("button", { class: "primary", onclick: async () => {
-        try { await api("PUT", "settings", { command_groups: globalGroups.picked() }); await refreshStatus(); toast("Saved"); pageSatellites(); }
-        catch (err) { toast(err.message); }
-      } }, "Save"))) : null,
-    h("div", { class: "panel" },
-      h("h2", {}, "Listening and speaking"),
-      h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own below). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
-      voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
-      field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
-      state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
-      h("div", { class: "row" },
-        field("Speech-to-text", globalStt), field("Language", globalSttLanguage),
-        field("Text-to-speech", globalTts), field("Language", globalTtsLanguage), field("Voice", globalVoice),
-        h("button", { class: "primary", onclick: async () => {
-          try {
-            await api("PUT", "settings", {
-              stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null,
-              stt_language: languageValue(globalSttLanguage), tts_language: languageValue(globalTtsLanguage), tdt_model: tdtModel.value,
-            });
-            await refreshStatus(); toast("Saved"); pageSatellites();
-          } catch (err) { toast(err.message); }
-        } }, "Save"))),
-    sats.length ? null : h("div", { class: "panel muted" }, "No satellite has connected yet."),
-    ...sats.map((s) => {
-      const name = h("input", { type: "text", value: s.name });
-      const area = h("select", {}, h("option", { value: "" }, "No area"), ...Object.entries(areas).map(([id, label]) => h("option", { value: id, selected: s.area === id }, label)));
-      const own = s.voice || {};
-      const used = s.voice_used || {};
-      const stt = voiceSelect("stt", voices.stt, own.stt, label(settings.stt));
-      const tts = voiceSelect("tts", voices.tts, own.tts, label(settings.tts));
-      const sttLanguage = languagePicker(voices.stt, stt, own.stt_language, settings.stt_language || "automatic", settings.stt);
-      const ttsLanguage = languagePicker(voices.tts, tts, own.tts_language, settings.tts_language || "automatic", settings.tts);
-      const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "", ttsLanguage);
-      const speakOn = h("select", {},
-        h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
-        ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
-      const commandGroups = hasGroups ? groupChooser(groups, s.command_groups, homeGroups) : null;
-      const found = s.media_player_picked ? null : s.media_player;
-      const player = h("select", {},
-        h("option", { value: "" }, found ? `Its Sendspin player (${found})` : "Its Sendspin player (not found)"),
-        ...(s.music_players || []).map((m) => h("option", { value: m.entity_id, selected: s.media_player_picked && s.media_player === m.entity_id }, `${m.name} (${m.entity_id})`)));
-      return h("div", { class: "panel" },
-        h("div", { class: "row" },
-          h("h2", { class: "grow", style: "margin:0" }, s.name),
-          h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : "offline"),
-          s.debug ? h("a", { class: "badge warn", href: `#/test?satellite=${s.key}` }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
-          h("a", { href: `#/test?satellite=${s.key}` }, "Test it")),
-        h("div", { class: "kv small", style: "margin:8px 0" },
-          h("div", {}, "Id"), h("div", {}, h("code", {}, s.key)),
-          h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
-          h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
-          h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)", " · ", h("a", { href: "#/wake" }, "change")),
-          h("div", {}, "Commands"), h("div", {}, s.command_groups_used ? ["only those in ", s.command_groups_used.map((g) => (groups[g] && groups[g].name) || g).join(", "), s.command_groups ? " (its own)" : ""] : "every command"),
-          h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
-          h("div", {}, "Listens with"), h("div", {}, used.stt ? [h("code", {}, used.stt), used.stt_language ? ` (${used.stt_language})` : ""] : "the built-in TDT model", " after the built-in matcher"),
-          h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice || used.tts_language ? ` (${[used.tts_language, used.tts_voice].filter(Boolean).join(", ")})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in")),
-        s.timers && s.timers.length ? h("div", { class: "small" }, h("b", {}, "Timers: "),
-          s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · ")) : null,
-        s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
-        h("div", { class: "row" },
-          field("Name", name), field("Area", area), field("Music player", player)),
-        commandGroups ? field("Command groups", commandGroups) : null,
-        h("div", { class: "row" },
-          field("Speech-to-text", stt), field("Language", sttLanguage),
-          field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
-          field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
-        h("div", { class: "row" },
-          h("button", { class: "primary", onclick: async () => {
-            try {
-              await api("PUT", `satellites/${s.key}`, {
-                name: name.value, area: area.value || null, media_player: player.value || null,
-                stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
-                stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
-                ...(commandGroups ? { command_groups: commandGroups.picked() } : {}),
-              });
-              toast("Saved"); pageSatellites();
-            }
-            catch (err) { toast(err.message); }
-          } }, "Save")),
-      );
-    }),
-  );
-}
-
 // ---------------------------------------------------------------- sessions
 
 const OUTCOME_CLASS = { answered: "ok", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
@@ -2014,7 +2032,7 @@ async function pageSessions(query) {
       h("div", { class: "row" },
         h("label", {}, keep, "Debugging: keep the audio and full trace of every session"),
         h("label", { class: "right" }, "keep at most", max, "sessions")),
-      h("p", { class: "muted small" }, "A session is everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (", h("a", { href: "#/test" }, "Test page"), ") keeps its audio.")),
+      h("p", { class: "muted small" }, "A session is everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (on its page, under Test it) keeps its audio.")),
     h("div", { class: "panel" }, list),
   );
   await refresh();
@@ -2138,7 +2156,7 @@ function llmNote(fallback) {
 }
 
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT
-// entity), or typed on the Test page and read as spoken words.
+// entity), or typed (a satellite's Test it) and read as spoken words.
 function heardLabels(rec) {
   if (rec.text_source === "typed") return { ctc: "Read as", text: "Typed" };
   return { ctc: "CTC heard", text: `${rec.text_source && rec.text_source !== "TDT" ? rec.text_source : "TDT"} heard` };
@@ -2308,7 +2326,7 @@ async function pageSession(id) {
       record.audio["call-aec"] ? [h("h3", {}, "Call (AEC)"), waveform(record, "call-aec", [])] : null,
       record.audio.command ? [h("h3", {}, record.kind === "try" ? "Synthesized command" : "Command (endpointing cut)"), waveform(record, "command", record.kind === "try" ? recognitionSpans(record, 0) : [])] : null,
       h("div", { class: "legend" }, ...Object.entries(SPAN_COLORS).map(([role, color]) => h("span", { style: `--c:${color}` }, role)))) :
-      h("div", { class: "panel muted small" }, "No audio kept for this session. Turn on debugging (Sessions page), or debug its satellite (Test page), to keep it."),
+      h("div", { class: "panel muted small" }, "No audio kept for this session. Turn on debugging (Sessions page), or debug its satellite (its page, under Test it), to keep it."),
     voice,
     h("div", { class: "panel" }, h("h2", {}, "Pipeline"), ...(record.stages || []).map(renderStage)),
   );
@@ -2358,48 +2376,6 @@ async function voicePanel(record) {
 }
 
 // -------------------------------------------------------------------- test
-
-async function pageTest(query) {
-  await loadSatellites();
-  const satOptions = (blank) => [blank ? h("option", { value: "" }, blank) : null,
-    ...state.satellites.map((s) => h("option", { value: s.key }, `${s.name}${s.area_name ? ` (${s.area_name})` : ""}${s.connected ? "" : " — offline"}`))];
-  const input = h("input", { type: "text", class: "grow", placeholder: "turn on the kitchen lights" });
-  const sat = h("select", {}, satOptions("no satellite"));
-  const run = h("input", { type: "checkbox" });
-  const speak = h("input", { type: "checkbox" });
-  const out = h("div");
-  async function go() {
-    fill(out, h("p", { class: "muted" }, speak.checked ? "Synthesizing and recognizing…" : "Recognizing…"));
-    try {
-      const record = await api("POST", "try", { text: input.value, satellite: sat.value || null, run_actions: run.checked, speak: speak.checked });
-      fill(out, h("div", { class: "panel" }, renderOutcome(record), h("p", {}, h("a", { href: `#/session/${record.id}` }, "Full trace"))),
-        h("div", { class: "panel" }, ...(record.stages || []).filter((s) => ["recognition", "agent", "unknown", "action"].includes(s.stage)).map(renderStage)));
-    } catch (err) { fill(out, errorBox(err)); }
-  }
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
-
-  // One satellite: debugging it, and listening to it live.
-  const wanted = new URLSearchParams(query || "").get("satellite");
-  const picked = state.satellites.find((s) => s.key === wanted) || state.satellites.find((s) => s.connected) || state.satellites[0];
-  const satellite = h("select", { onchange: () => { location.hash = `#/test?satellite=${satellite.value}`; } }, satOptions(null));
-  if (picked) satellite.value = picked.key;
-  if (picked) sat.value = picked.key;
-  fill($main,
-    h("h1", {}, "Test"),
-    h("div", { class: "panel" },
-      h("h2", {}, "A sentence"),
-      h("p", { class: "muted small" }, "What you type is recognized like a command said on that satellite, after the wake word, as if every word had been heard exactly as typed: no speech recognition. Commands, skills and questions all read your text as it is."),
-      h("div", { class: "row" }, input, sat, h("button", { class: "primary", onclick: go }, "Test")),
-      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run, which never asks the conversation agent)"),
-      h("label", { class: "small" }, speak, "Say it first: spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient.")),
-    out,
-    picked ? h("div", { class: "panel" },
-      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "A satellite"), satellite),
-      liveSection(picked),
-      debugSection(picked)) : h("div", { class: "panel muted" }, "No satellite has connected yet: debugging one, and listening to it, wait for one."),
-  );
-  input.focus();
-}
 
 // Debugging a satellite: every session's audio and trace kept, and maybe a
 // dry run (nothing is executed; what would be said is said).
@@ -2643,8 +2619,10 @@ function liveSection(s) {
 // command: the fallback, the conversation agent, responses; and the YAML.
 async function pageSettings() {
   await Promise.all([refreshStatus(), loadSatellites()]);
+  const speech = await speechPanel();
   fill($main,
     h("h1", {}, "Settings"),
+    speech,
     fallbackPanel(),
     agentPanel(),
     responsesPanel(),
@@ -2682,35 +2660,38 @@ async function pageYaml() {
 
 async function route() {
   stopPolling();
-  const hash = location.hash || "#/commands";
+  const hash = location.hash || "#/home";
   const [path, query] = hash.slice(2).split("?");
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    const parent = { command: "commands", group: "commands", unknown: "commands", fallback: "settings", yaml: "settings", session: "sessions" }[page];
+    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", yaml: "settings", session: "sessions" }[page];
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
-    if (page === "commands") await pageCommands();
-    else if (page === "command") await pageCommand(arg || null);
-    else if (page === "group") await pageGroup(arg || null);
+    if (page === "home") await pageHome();
+    else if (page === "command") await pageCommand(arg || null, null, query);
+    else if (page === "skill") await pageSkill(arg);
+    else if (page === "satellite") await pageSatellite(arg);
     else if (page === "unknown") await pageUnknown();
     else if (page === "fallback") await pageFallback();
-    else if (page === "skills") await pageSkills();
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
-    else if (page === "satellites") await pageSatellites();
     else if (page === "wake") await pageWakeWords(query);
     else if (page === "sessions") await pageSessions(query);
     else if (page === "session") await pageSession(arg);
-    else if (page === "test") await pageTest(query);
-    // Old links: the Calls and Try pages.
+    // Old links: the Commands, Skills, Satellites and Test pages (now the
+    // Home and each satellite's), the Calls and Try pages.
+    else if (page === "test" || page === "try") {
+      const key = new URLSearchParams(query || "").get("satellite");
+      location.hash = key ? `#/satellite/${key}` : "#/home";
+    }
+    else if (["commands", "skills", "satellites", "group"].includes(page)) location.hash = "#/home";
     else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
     else if (page === "call") location.hash = `#/session/${arg}`;
-    else if (page === "try") location.hash = "#/test";
     else if (page === "settings") await pageSettings();
     else if (page === "yaml") await pageYaml();
-    else await pageCommands();
+    else await pageHome();
   } catch (err) {
     fill($main, errorBox(err));
   }

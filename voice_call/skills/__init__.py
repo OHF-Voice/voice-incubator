@@ -7,9 +7,11 @@ questions"): each parses the whole question *and* computes an answer, or
 lets it fall through -- on 180 held-out questions none of their answers was
 wrong.
 
-Every skill is on unless turned off: for the whole home (``settings.yaml``
-``skills: {spelling: false}``) or for one satellite (``satellites.yaml``, the
-same), the satellite's own setting winning.
+Every skill is the Home's unless taken off it (``settings.yaml``
+``skills: {spelling: false}``), and answers on every satellite that takes the
+Home's commands and skills. A satellite may also be given a skill of its own
+(``satellites.yaml``: ``skills: {spelling: true}``) -- one the Home doesn't
+have, or for a satellite that doesn't take the Home's.
 
 When they are asked, in ``SKILLS`` order:
 
@@ -61,18 +63,24 @@ class Answer:
         }
 
 
-def enabled(home: Any = None, own: Any = None) -> frozenset[str]:
-    """The skills that are on: each as the satellite's own setting (``own``)
-    says, else the home's, else on."""
-    out = set()
-    for skill_id in SKILLS:
-        on = True
-        for setting in (home, own):
-            if isinstance(setting, dict) and isinstance(setting.get(skill_id), bool):
-                on = setting[skill_id]
-        if on:
-            out.add(skill_id)
-    return frozenset(out)
+def home_skills(home: Any = None) -> frozenset[str]:
+    """The Home's skills: each unless ``home`` (``settings.yaml``) turns it
+    off."""
+    home = home if isinstance(home, dict) else {}
+    return frozenset(skill_id for skill_id in SKILLS if home.get(skill_id) is not False)
+
+
+def own_skills(own: Any = None) -> frozenset[str]:
+    """A satellite's own skills: each its setting gives it. (False, from
+    before the Home's could be left out, takes nothing away.)"""
+    own = own if isinstance(own, dict) else {}
+    return frozenset(skill_id for skill_id in SKILLS if own.get(skill_id) is True)
+
+
+def enabled(home: Any = None, own: Any = None, takes_home: bool = True) -> frozenset[str]:
+    """The skills that answer on a satellite: its own, and the Home's when it
+    takes them."""
+    return own_skills(own) | (home_skills(home) if takes_home else frozenset())
 
 
 def answer(text: str, on: frozenset[str] | None = None, last: bool = False) -> Answer | None:

@@ -321,7 +321,7 @@ class Session:
     wake_cutoffs: dict[str, float] = field(default_factory=dict)
     """The cutoffs they were pushed at."""
     listeners: set[asyncio.Queue] = field(default_factory=set)
-    """Someone listening live (the Test page): each gets the microphone as it
+    """Someone listening live (a satellite's page): each gets the microphone as it
     comes, between calls (the device streams it while monitored) and in them."""
     live_call: bool = False
     """Listeners were told a call started, and not yet that it ended."""
@@ -671,7 +671,7 @@ class VoiceCallApp:
             "media_player": media_player,
             "voice": choose(self.store.settings, stored),
             "device_media_player": self.hass.catalog.device_media_player(key) if key else None,
-            "command_groups": self.satellite_command_groups(key),
+            "home": stored.get("home") is not False,
             "skills": self.satellite_skills(key),
         }
         if link is not None and link.device_id:
@@ -719,23 +719,11 @@ class VoiceCallApp:
             loaded = await asyncio.to_thread(self.engine.use_tdt, wanted)
         self.tdt_status = None if loaded else f"could not load {wanted.name}; kept {self.engine.tdt_dir}"
 
-    def satellite_command_groups(self, key: str | None) -> frozenset[str] | None:
-        """The command groups a satellite is limited to: its own, else every
-        satellite's; None (every command) without any. Groups that no longer
-        exist are left out."""
-        compiled = self.engine.compiled if self.engine is not None else None
-        known = compiled.groups if compiled is not None else {}
-        for source in (self.store.satellite(key or "").get("command_groups"), self.store.settings.get("command_groups")):
-            picked = frozenset(str(g) for g in source or () if str(g) in known)
-            if picked:
-                return picked
-        return None
-
     def satellite_skills(self, key: str | None) -> frozenset[str]:
-        """The skills that answer on a satellite: each as its own setting says,
-        else the home's, else on (voice_call/skills/)."""
-        own = self.store.satellite(key).get("skills") if key else None
-        return skills.enabled(self.store.settings.get("skills"), own)
+        """The skills that answer on a satellite: its own, and the Home's
+        when it takes them (voice_call/skills/). No satellite: the Home's."""
+        stored = self.store.satellite(key) if key else {}
+        return skills.enabled(self.store.settings.get("skills"), stored.get("skills"), stored.get("home") is not False)
 
     def _remember_satellite(self, session: Session) -> None:
         entry = self.store.satellites.setdefault(session.satellite, {})

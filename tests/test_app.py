@@ -239,26 +239,32 @@ async def _scenario(tmp_path: Path) -> None:
             assert tried["dry_run"]
             assert len(hass.scripts) == scripts  # nothing ran since the debug session started
 
-            # Command groups: a satellite given "kids" runs only its commands.
+            # The Home's commands, and a satellite's own: one that doesn't
+            # take the Home's runs only its own.
             async def tried_command(text):
                 record = await (await http.post("/api/try", json={"text": text, "satellite": MAC})).json()
                 return next(s for s in record["stages"] if s["stage"] == "recognition")
 
-            assert (await (await http.put("/api/groups/kids", json={"name": "Kids", "commands": ["what_time"]})).json())["ok"]
-            assert (await http.put(f"/api/satellites/{MAC}", json={"command_groups": ["kids"]})).status == 200
+            copied = await (await http.post("/api/commands/what_time/duplicate", json={"new_id": "kids_time", "satellite": MAC})).json()
+            assert copied["ok"] and app.engine.compiled.commands["kids_time"].satellite == MAC
+            store_data = await (await http.get("/api/store")).json()
+            assert store_data["details"]["kids_time"]["satellite"] == MAC and store_data["details"]["what_time"]["satellite"] is None
+            assert (await http.post("/api/commands/what_time/duplicate", json={"new_id": "x", "satellite": "nope"})).status == 400
+            assert (await http.put(f"/api/satellites/{MAC}", json={"home": False, "icon": "mdi:sofa"})).status == 200
+            assert app.store.satellites[MAC]["home"] is False and app.store.satellites[MAC]["icon"] == "mdi:sofa"
             recognition = await tried_command("turn on the lights")
             assert recognition["command"] is None
-            assert recognition["skipped"][0] == {"command": "lights_on", "why": "not in this satellite's command groups"}
-            assert (await tried_command("what time is it"))["command"] == "what_time"
-            # The home's groups, where a satellite has none of its own.
-            assert (await http.put(f"/api/satellites/{MAC}", json={"command_groups": None})).status == 200
-            assert (await http.put("/api/settings", json={"command_groups": ["kids"]})).status == 200
-            assert (await tried_command("turn on the lights"))["command"] is None
-            assert (await http.put("/api/settings", json={"command_groups": ["nope"]})).status == 400
-            # Deleting the group frees every satellite.
-            assert (await http.delete("/api/groups/kids")).status == 200
-            assert "command_groups" not in app.store.settings
+            assert recognition["skipped"][0] == {"command": "lights_on", "why": "the Home's, which this satellite doesn't take"}
+            assert (await tried_command("what time is it"))["command"] == "kids_time"
+            listed = next(s for s in (await (await http.get("/api/satellites")).json())["satellites"] if s["key"] == MAC)
+            assert listed["home"] is False and listed["icon"] == "mdi:sofa" and listed["commands"] == ["kids_time"]
+            assert (await http.put(f"/api/satellites/{MAC}", json={"icon": "sofa"})).status == 400
+            # Taking the Home's again: its own copy still goes first.
+            assert (await http.put(f"/api/satellites/{MAC}", json={"home": True, "icon": None})).status == 200
+            assert "home" not in app.store.satellites[MAC] and "icon" not in app.store.satellites[MAC]
             assert (await tried_command("turn on the lights"))["command"] == "lights_on"
+            assert (await tried_command("what time is it"))["command"] == "kids_time"
+            assert (await http.delete("/api/commands/kids_time")).status == 200
 
             # Commands chosen for the fallback steps; meaning can't take one
             # that needs something said.
@@ -294,26 +300,35 @@ async def _scenario(tmp_path: Path) -> None:
             record = await app.try_text("what are the top news headlines", MAC)
             assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, I can't look that up."
 
-            # Skills, on or off for the home and per satellite.
+            # Skills: the Home's (each unless taken off it), and a
+            # satellite's own.
             async def said(text, satellite=MAC):
                 record = await app.try_text(text, satellite)
                 return next(s for s in record.stages if s["stage"] == "speech")["text"]
 
             listed = await (await http.get("/api/skills")).json()
             assert [s["id"] for s in listed["skills"]] == ["spelling", "dates", "clock", "units", "arithmetic", "live"]
-            assert (await http.put("/api/skills/arithmetic", json={"satellites": {MAC: False}})).status == 200
-            assert app.store.satellites[MAC]["skills"] == {"arithmetic": False}
+            assert "arithmetic" in listed["home"] and listed["satellites"].get(MAC, []) == []
+            assert (await http.put("/api/skills/arithmetic", json={"home": False})).status == 200
+            assert app.store.settings["skills"] == {"arithmetic": False}
             assert await said("what is twelve times eight") != "It's 96."
-            assert await said("what is twelve times eight", None) == "It's 96."  # the home's: on
-            assert (await http.put("/api/skills/arithmetic", json={"home": False, "satellites": {MAC: True}})).status == 200
-            assert await said("what is twelve times eight") == "It's 96."  # its own: on
             assert await said("what is twelve times eight", None) != "It's 96."
+            assert (await http.put("/api/skills/arithmetic", json={"satellites": {MAC: True}})).status == 200
+            assert await said("what is twelve times eight") == "It's 96."  # its own
+            assert await said("what is twelve times eight", None) != "It's 96."
+            # Its own still answer when it doesn't take the Home's.
+            spelled = await said("how do you spell cat")
+            assert (await http.put(f"/api/satellites/{MAC}", json={"home": False})).status == 200
+            assert await said("what is twelve times eight") == "It's 96."
+            assert await said("how do you spell cat") != spelled
+            assert (await http.put(f"/api/satellites/{MAC}", json={"home": True})).status == 200
             satellites = (await (await http.get("/api/satellites")).json())["satellites"]
-            assert next(s for s in satellites if s["key"] == MAC)["skills"] == {"arithmetic": True}
-            assert (await http.put("/api/skills/arithmetic", json={"home": True, "satellites": {MAC: None}})).status == 200
+            assert next(s for s in satellites if s["key"] == MAC)["skills"] == ["arithmetic"]
+            assert (await http.put("/api/skills/arithmetic", json={"home": True, "satellites": {MAC: False}})).status == 200
             assert "skills" not in app.store.settings and "skills" not in app.store.satellites[MAC]
             assert (await http.put("/api/skills/nope", json={"home": False})).status == 404
             assert (await http.put("/api/skills/live", json={"satellites": {MAC: "off"}})).status == 400
+            assert (await http.put("/api/skills/live", json={"satellites": {"nope": True}})).status == 400
 
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."

@@ -26,10 +26,10 @@ from adapt_ctc.template import TemplateError, expand
 
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
-from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, NUMBER_PRESETS, VERBOSITY, parse_command
+from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
-from .skills import SKILLS
+from .skills import SKILLS, home_skills, own_skills
 from .store import NAME_KINDS, compile_store, dump, plain
 from .protocol import SAMPLE_RATE
 from .voices import language_code
@@ -97,12 +97,10 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/names/{kind}/{id}", api.put_name),
             web.delete("/api/names/{kind}/{id}", api.delete_name),
             web.put("/api/lists/{name}", api.put_list),
-            web.put("/api/groups/{id}", api.put_group),
             web.put("/api/unknown", api.put_unknown),
             web.put("/api/fallback", api.put_fallback),
             web.get("/api/skills", api.skills),
             web.put("/api/skills/{id}", api.put_skill),
-            web.delete("/api/groups/{id}", api.delete_group),
             web.delete("/api/lists/{name}", api.delete_list),
             web.get("/api/library", api.library),
             web.post("/api/library/add", api.library_add),
@@ -342,6 +340,8 @@ class Api:
                 command = parse_command(command_id, spec)
                 details[command_id] = {
                     "library": library_of(command_id, spec),
+                    # Its satellite's key; None: the Home's.
+                    "satellite": command.satellite,
                     "does": command.behavior.does,
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": needs_heard_slots(command),
@@ -351,20 +351,25 @@ class Api:
                     "question": command.behavior.question,
                 }
             except ConfigError as err:
-                details[command_id] = {"error": str(err), "library": library_of(command_id, spec if isinstance(spec, dict) else {})}
+                details[command_id] = {
+                    "error": str(err),
+                    "library": library_of(command_id, spec if isinstance(spec, dict) else {}),
+                    "satellite": spec.get("satellite") if isinstance(spec, dict) else None,
+                }
         return web.json_response(
             {
                 "commands": commands,
                 "details": details,
-                # Where the Commands page lists them: the library's sections.
+                # Where the Home and satellite pages list them: the library's sections.
                 "sections": library_sections()[0],
                 "names": {kind: (data.get("names") or {}).get(kind) or {} for kind in NAME_KINDS},
                 "lists": data.get("lists") or {},
-                "groups": data.get("groups") or {},
                 # What is said when nothing understood a sentence.
                 "unknown": data.get("unknown") or {},
-                # Where each group is given: the whole home, and satellites.
-                "group_use": self._group_use(),
+                # Command groups are gone: what was in one is the Home's now.
+                "legacy_groups": [
+                    command_id for command_id, spec in commands.items() if isinstance(spec, dict) and spec.get("groups")
+                ],
                 "error": error,
             }
         )
@@ -393,29 +398,24 @@ class Api:
             spec = _from_form(body.get("spec") or {})
         spec = _clean(spec)
         parse_command(command_id, spec)
+        if spec.get("satellite"):
+            self._satellite_key(spec["satellite"])
         compiled = self.app.store.put_command(command_id, spec, body.get("old_id"))
         return await self._saved(compiled)
 
     async def duplicate_command(self, request: web.Request) -> web.Response:
-        """A copy of a command (``new_id``, ``title``), in its groups, only in
-        ``group`` (``replace``: taking the original's place there), or only in
-        a group made for it (``new_group``: its name)."""
+        """A copy of a command (``new_id``, ``title``) on ``satellite`` (its
+        key), or the Home's (null)."""
         command_id = request.match_info["id"]
         body = await _json_or_empty(request)
         new_id = str(body.get("new_id") or f"{command_id}_copy").strip()
         if not COMMAND_ID.match(new_id):
             raise ConfigError("Id: lowercase letters, digits and underscores")
-        new_group = None
-        if str(body.get("new_group") or "").strip():
-            name = str(body["new_group"]).strip()
-            new_group = (SAFE_ID.sub("_", name.lower()).strip("_") or "group", name)
         compiled = self.app.store.duplicate_command(
             command_id,
             new_id,
             str(body.get("title") or "").strip() or None,
-            str(body["group"]) if body.get("group") else None,
-            new_group,
-            bool(body.get("replace")),
+            self._satellite_key(body.get("satellite")),
         )
         await self.app.apply(compiled)
         return web.json_response({"ok": True, "id": new_id})
@@ -491,41 +491,6 @@ class Api:
     async def delete_list(self, request: web.Request) -> web.Response:
         return await self._saved(self.app.store.put_list(request.match_info["name"], None))
 
-    # ------------------------------------------------------- command groups
-
-    def _group_use(self) -> dict[str, Any]:
-        store = self.app.store
-        satellites = {
-            key: list(entry.get("command_groups") or [])
-            for key, entry in store.satellites.items()
-            if entry.get("command_groups")
-        }
-        return {"home": list(store.settings.get("command_groups") or []), "satellites": satellites}
-
-    def _group_ids(self, value: Any) -> list[str]:
-        if not value:
-            return []
-        if not isinstance(value, list):
-            raise ConfigError("command_groups: expected a list of group ids")
-        compiled = self.app.engine.compiled if self.app.engine else None
-        known = compiled.groups if compiled is not None else {}
-        unknown = [str(v) for v in value if str(v) not in known]
-        if unknown:
-            raise ConfigError(f"command_groups: no group {unknown[0]!r}")
-        return list(dict.fromkeys(str(v) for v in value))
-
-    async def put_group(self, request: web.Request) -> web.Response:
-        """A command group's name and description, and (``commands``, when
-        given) exactly which commands are in it."""
-        group_id = request.match_info["id"]
-        body = await request.json()
-        spec = {"name": str(body.get("name") or "").strip(), "description": str(body.get("description") or "").strip()}
-        members = body.get("commands")
-        if members is not None and not isinstance(members, list):
-            raise ConfigError("commands: expected a list of command ids")
-        compiled = self.app.store.put_group(group_id, spec, None if members is None else [str(m) for m in members])
-        return await self._saved(compiled)
-
     async def put_unknown(self, request: web.Request) -> web.Response:
         """The Unknown command's ``response`` template; empty: the built-in."""
         body = await request.json()
@@ -547,20 +512,21 @@ class Api:
     # --------------------------------------------------------------- skills
 
     async def skills(self, request: web.Request) -> web.Response:
-        """Every skill, the home's settings (absent: on), and each satellite's
-        own (absent: as the home)."""
+        """Every skill, the Home's (each unless taken off it), and each
+        satellite's own (given to it)."""
         store = self.app.store
         return web.json_response(
             {
                 "skills": [skill.to_json() for skill in SKILLS.values()],
-                "home": store.settings.get("skills") or {},
-                "satellites": {key: entry.get("skills") or {} for key, entry in store.satellites.items()},
+                "home": sorted(home_skills(store.settings.get("skills"))),
+                "satellites": {key: sorted(own_skills(entry.get("skills"))) for key, entry in store.satellites.items()},
             }
         )
 
     async def put_skill(self, request: web.Request) -> web.Response:
-        """Turn a skill on or off: ``home`` (true or false), and ``satellites``
-        (``{key: true | false | null}``, null: as the home)."""
+        """Put a skill on the Home or take it off (``home``: true or false),
+        and give it to satellites or take it from them (``satellites``:
+        ``{key: true | false}``)."""
         skill_id = request.match_info["id"]
         if skill_id not in SKILLS:
             raise FileNotFoundError(f"No skill {skill_id}")
@@ -577,43 +543,32 @@ class Api:
             store.save_settings()
         satellites = body.get("satellites") or {}
         if not isinstance(satellites, dict):
-            raise ConfigError("satellites: expected {satellite: true, false or null}")
+            raise ConfigError("satellites: expected {satellite: true or false}")
         for key, on in satellites.items():
             if on is not None and not isinstance(on, bool):
-                raise ConfigError(f"satellites.{key}: true, false or null")
-            entry = store.satellites.setdefault(str(key), {})
-            own = entry.setdefault("skills", {})
-            if on is None:
-                own.pop(skill_id, None)
+                raise ConfigError(f"satellites.{key}: true or false")
+            entry = store.satellites.setdefault(self._satellite_key(key) or "", {})
+            own = {k: True for k in own_skills(entry.get("skills"))}
+            if on:
+                own[skill_id] = True
             else:
-                own[skill_id] = on
-            if not own:
-                entry.pop("skills")
+                own.pop(skill_id, None)
+            if own:
+                entry["skills"] = own
+            else:
+                entry.pop("skills", None)
         if satellites:
             store.save_satellites()
         return web.json_response({"ok": True})
 
-    async def delete_group(self, request: web.Request) -> web.Response:
-        """Delete a group: every command leaves it, and it is no longer given
-        to the home or any satellite."""
-        group_id = request.match_info["id"]
-        compiled = self.app.store.put_group(group_id, None)
-        store = self.app.store
-        if group_id in (store.settings.get("command_groups") or []):
-            store.settings["command_groups"] = [g for g in store.settings["command_groups"] if g != group_id]
-            if not store.settings["command_groups"]:
-                del store.settings["command_groups"]
-            store.save_settings()
-        changed = False
-        for entry in store.satellites.values():
-            if group_id in (entry.get("command_groups") or []):
-                entry["command_groups"] = [g for g in entry["command_groups"] if g != group_id]
-                if not entry["command_groups"]:
-                    del entry["command_groups"]
-                changed = True
-        if changed:
-            store.save_satellites()
-        return await self._saved(compiled)
+    def _satellite_key(self, value: Any) -> str | None:
+        """A satellite's key, or None (the Home)."""
+        if value in (None, "", "home"):
+            return None
+        key = str(value)
+        if key not in self.app.store.satellites and key not in self.app.sessions:
+            raise ConfigError(f"No satellite {key!r}")
+        return key
 
     # -------------------------------------------------------------- library
 
@@ -635,6 +590,9 @@ class Api:
         spec = copy.deepcopy(entry["spec"])
         spec["title"] = entry["title"]
         spec["library"] = entry["file"]
+        satellite = self._satellite_key(body.get("satellite"))
+        if satellite:
+            spec["satellite"] = satellite
         # Shared lists it uses, unless yours already has one by that name.
         have = self.app.store.load().data.get("lists") or {}
         for name, values in entry["lists"].items():
@@ -703,6 +661,11 @@ class Api:
     async def satellites(self, request: web.Request) -> web.Response:
         app = self.app
         keys = list(dict.fromkeys([*app.store.satellites, *app.sessions]))
+        compiled = app.engine.compiled if app.engine is not None else None
+        own_commands: dict[str, list[str]] = {}
+        for command in (compiled.commands.values() if compiled is not None else ()):
+            if command.satellite:
+                own_commands.setdefault(command.satellite, []).append(command.id)
         out = []
         for key in keys:
             stored = app.store.satellite(key)
@@ -720,15 +683,12 @@ class Api:
                     # Its own pick (absent: as every satellite), and what it
                     # listens for: what was pushed, or what will be.
                     "wake_words": stored.get("wake_words"),
-                    # Its own command groups (absent: every satellite's), and
-                    # what it is limited to (None: every command).
-                    "command_groups": stored.get("command_groups"),
-                    "command_groups_used": (
-                        sorted(satellite.command_groups) if satellite.command_groups is not None else None
-                    ),
-                    # Its own skill settings (the rest as the home's), and the
-                    # skills that answer on it.
-                    "skills": stored.get("skills") or {},
+                    "icon": stored.get("icon"),
+                    # Whether it takes the Home's commands and skills, and
+                    # its own: commands (by id) and skills.
+                    "home": satellite.home,
+                    "commands": own_commands.get(key, []),
+                    "skills": sorted(own_skills(stored.get("skills"))),
                     "skills_used": sorted(satellite.skills or ()),
                     "wake_words_used": (
                         session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
@@ -797,13 +757,20 @@ class Api:
                     entry[option] = value
                 else:
                     entry.pop(option, None)
-        if "command_groups" in body:
-            # Empty: as every satellite.
-            picked = self._group_ids(body["command_groups"])
-            if picked:
-                entry["command_groups"] = picked
+        if "icon" in body:
+            icon = str(body["icon"] or "")
+            if icon and not ICON.match(icon):
+                raise ConfigError("icon: a Material Design Icon, like mdi:sofa")
+            if icon:
+                entry["icon"] = icon
             else:
-                entry.pop("command_groups", None)
+                entry.pop("icon", None)
+        if "home" in body:
+            # Absent: it takes the Home's commands and skills.
+            if body["home"] is False:
+                entry["home"] = False
+            else:
+                entry.pop("home", None)
         if "wake_words" in body:
             # Empty: as every satellite.
             picked = self._wake_word_ids(body["wake_words"])
@@ -1012,13 +979,6 @@ class Api:
             self.app.store.save_settings()
             # Loading takes a while; the UI follows it in the status.
             asyncio.ensure_future(self.app.change_tdt())
-        if "command_groups" in body:
-            # Empty: every command, on satellites without groups of their own.
-            picked = self._group_ids(body["command_groups"])
-            if picked:
-                settings["command_groups"] = picked
-            else:
-                settings.pop("command_groups", None)
         if "wake_words" in body:
             picked = self._wake_word_ids(body["wake_words"])
             if picked:

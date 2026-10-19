@@ -24,13 +24,30 @@ satellite:
 Without the integration the app still works, but satellites have no timers and
 their areas are kept by the app.
 
-## Satellites
+## The Home and its satellites
 
-Satellites on the network are found and connected to automatically. On the
-**Satellites** page, give each one a name and an area (with the integration,
-that is the area of its device in Home Assistant, and can be changed in either
-place). The area is what "the lights" means there. The floor comes from the
-area.
+The **Home** page starts with a tile for each satellite -- its name, area,
+wake word, and whether it takes the Home's commands -- then the Home's
+**commands and skills**, grouped by what they're for (your own first, under
+**Custom**), and the **Unknown command** at the bottom.
+
+Satellites on the network are found and connected to automatically. Click a
+satellite's tile for its page:
+
+- **Settings**: its name, icon and area (with the integration, that is the
+  area of its device in Home Assistant, and can be changed in either place),
+  its music player, and how it listens and speaks. The area is what "the
+  lights" means there. The floor comes from the area.
+- **Commands and skills**: its own, and whether it takes the Home's too (it
+  does unless you untick it).
+- **Test it**: type a sentence as if said there, listen to it live, and
+  debug it.
+
+A command or skill is **the Home's** -- run on every satellite that takes the
+Home's -- or **one satellite's own**. A satellite that doesn't take the
+Home's runs only its own. Where a satellite's own command and one of the
+Home's take the same sentence, its own goes first: to have a command do
+something else on one satellite, duplicate it there and change the copy.
 
 ### Wake words
 
@@ -75,7 +92,7 @@ in `wake_words.yaml`.
 
 The app listens and speaks with models of its own, or with Home Assistant's
 **speech-to-text** and **text-to-speech** entities: chosen for every satellite
-at the top of the Satellites page, and per satellite below it.
+on the Settings page, and on each satellite's own page.
 
 - **Speech-to-text.** Commands are always matched on the satellite's audio
   first. The STT entity writes what the built-in TDT model would otherwise:
@@ -99,14 +116,17 @@ at the top of the Satellites page, and per satellite below it.
 
 ## Commands
 
-The **Commands** page lists your commands as the library has them -- Basics,
+The Home page lists the Home's commands as the library has them -- Basics,
 Covers and locks, Music, Timers -- with the ones you made from scratch first,
-under **Custom**. A command from the library stays in its section when you
-change it, rename it or duplicate it.
+under **Custom**, and the skills under **Questions**; a satellite's page lists
+its own the same way. A command from the library stays in its section when
+you change it, rename it or duplicate it.
 
-**New command** on the Commands page offers the library's commands --
-search them, or show one group (Basics, Covers and locks, Music, Timers) --
-and, always at the top, a custom command made from scratch. Most of the
+**New command**, on the Home page or a satellite's, adds to that place: the
+library's commands and skills -- search them, or show one group (Basics,
+Covers and locks, Music, Timers, Questions) -- and, always at the top, a
+custom command made from scratch. On a satellite's, what it already has from
+the Home is marked. Most of the
 library's commands come in **versions**, for what they act on; open one
 ("Play music") to pick:
 
@@ -218,33 +238,19 @@ added again. A command has:
   `{outcome: nobody_home}`. An outcome without a response of its own says the
   built-in sentence (a timer's, or the script's `speech`), never the done
   one.
-- **Duplicate** (at the top of its page) makes a copy to change: to have a
-  command do something else on some satellites, put the copy in a command
-  group given to them and leave the original out of that group -- the dialog
-  can do both. The copy says the same example sentences; each satellite runs
-  the one in its groups.
-- **Command groups**: any number of the groups the command is in (below).
+- **Where**: the Home's, or one satellite's own.
+- **Duplicate** (at the top of its page) makes a copy to change, on the Home
+  or a satellite: to have a command do something else on one satellite, put
+  the copy there. The copy says the same example sentences and keywords; on
+  that satellite its own goes first, everywhere else the Home's.
 
-### Command groups
+A command another satellite has, or the Home's on a satellite that doesn't
+take them, is not run there: it says "It looks like you're trying to …, but
+that isn't set up here."
 
-A command group is a set of commands -- "Kids", "Guests", "Night" -- made on
-the **Commands** page, where you tick the commands in it. A command can be in
-any number of groups; its editor has the same ticks.
-
-Groups are given on the **Satellites** page, to the whole home or to one
-satellite:
-
-- A satellite with groups of its own runs **only** the commands in them.
-- A satellite without its own uses the groups given to the whole home.
-- With no groups given anywhere, every command is available, as before.
-
-Groups are where a command is available: a command has no "where" of its own.
-To keep one to some satellites -- unlocking the front door, say -- put it in
-a group given only to them, and give the others groups without it.
-
-A command outside a satellite's groups is not run there: it says "It looks
-like you're trying to …, but that isn't set up here." Deleting a group takes
-every command out of it and takes it away from the home and the satellites.
+Command groups are gone. A command that was in some loads as the Home's, and
+the Home page says which: open one meant for one satellite and change where
+it is.
 
 ### What Home Assistant gets
 
@@ -317,7 +323,7 @@ actions (`create_timer`, `cancel_timer`, `get_timers` ...).
 Music plays on **Music Assistant**'s players. A satellite running a Sendspin
 client (the Voice Call firmware does) shows up in Music Assistant by itself,
 and the Voice Call integration finds that player from the satellite's MAC
-address; the Satellites page shows it and can pick another. Add the commands from the
+address; the satellite's page shows it and can pick another. Add the commands from the
 library's **Music** group:
 
 - "play Miles Davis", "play the album Kind of Blue", "play my chill
@@ -371,8 +377,8 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
   is; the area or floor you name, else the satellite's area, says which. When
   the satellite's area has none of that type, every one in the home is meant.
   When there are none, it says so.
-- Unlocking works for anyone the satellite hears: keep the command to the
-  satellites that should with a command group.
+- Unlocking works for anyone the satellite hears: put the command on the
+  satellites that should have it, not the Home.
 
 Opening, closing and "is it open" come in versions: by type in the
 satellite's area ("open the blinds"), a cover by name ("open the skylight"),
@@ -387,9 +393,10 @@ In order, each only when the one before found nothing:
    matched there -- in the transcript the speech model wrote (the built-in
    TDT, or your Home Assistant STT), so "unlock the front door" heard plainly
    by the speech model runs even when the keyword evidence in the audio was
-   weak. Typed text (the Test page) is read as said, word for word.
-2. **Skills** (Skills page): spelling, dates, the clock, units and
-   arithmetic answer exactly ("what's twelve times eight").
+   weak. Typed text (a satellite's Test it) is read as said, word for word.
+2. **Skills** (Questions, on the Home page or a satellite's): spelling,
+   dates, the clock, units and arithmetic answer exactly ("what's twelve
+   times eight").
 3. **Meaning**, for the commands chosen for it (below).
 4. **A small model**, for the commands chosen for it (below).
 5. **The conversation agent** (Settings page), when there is one.
@@ -497,7 +504,7 @@ sentence continues it, so "who wrote The Odyssey?" ... "when did he live?"
 follows on. Skills still answer first, except "Can't look it up", which waits
 for the agent: it may know the weather.
 
-A dry run (the Test page without "Really run", or a dry-run debug session)
+A dry run (Test it without "Really run", or a dry-run debug session)
 never asks the agent, since it can act in your home.
 
 ## Names
@@ -512,8 +519,8 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
 
 ## Testing, sessions and debugging
 
-- **Test** recognizes a sentence as if said on a satellite and heard word for
-  word -- no speech recognition, so commands, skills and questions read
+- **Test it**, on a satellite's page, recognizes a sentence as if said there
+  and heard word for word -- no speech recognition, so commands, skills and questions read
   exactly what you typed -- without running anything unless you ask. Tick
   "Say it first" to have the app's voice speak it and recognize the audio
   instead, to test speech recognition too.
@@ -522,7 +529,7 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   came in with (against its cutoff; new voice_call firmware), wake word
   verification, where the command was cut, the speaker, every command that
   matched or was rejected and why, what ran and what was said.
-- **Listen live** (Test page, under "A satellite") plays what the satellite's
+- **Listen live** (a satellite's page, under Test it) plays what the satellite's
   microphone hears, as it hears it, and draws it: the level, the last few
   seconds, and what its voice activity and wake word models make of it --
   each one's probability against its cutoff, with a mark where a wake word
@@ -530,7 +537,7 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   red the whole time, and it doesn't answer a wake word meanwhile. It needs
   the voice_call firmware from this version.
 - Turn on **debugging** on the Sessions page to keep every session's audio,
-  or debug one satellite (Test page: pick it under "A satellite"). That keeps
+  or debug one satellite (its page, under Test it). That keeps
   the satellite's audio and can be a **dry run**: nothing is executed, and
   you hear what would have been said. Kept sessions show their
   waveform with the wake word, the cut and the recognized words marked, and
@@ -552,8 +559,6 @@ names:
     kitchen: {name: Kitchen}
 lists:
   colors: {red: [red, crimson], blue: blue}
-groups:
-  kids: {name: Kids}
 commands:
   ecobee_warmer:
     description: warm up the house
@@ -567,7 +572,7 @@ commands:
     response: Warming up.
   lights_on:
     description: turn on the lights
-    groups: [kids]
+    satellite: d83bdaa3d5f4  # only this satellite's; without it, the Home's
     require: [[turn on, turn ... on], [light, lights]]
     names: {area: {count: 1}, floor: {count: 1}}
     combinations: [[], [area], [floor]]  # nothing named: the satellite's area

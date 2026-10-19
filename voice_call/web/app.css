@@ -226,3 +226,19 @@ details.family .versions .item:first-child { border-top: 1px solid var(--line); 
   .thresholds { grid-template-columns: max-content 7.5em; }
   .thresholds .help { grid-column: 1 / -1; margin-bottom: 6px; }
 }
+
+/* The Home: a tile per satellite, then the Home's commands and skills. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 16px; }
+.tile {
+  display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); min-width: 0;
+}
+a.tile:hover { border-color: var(--accent); text-decoration: none; }
+.tile .title { font-weight: 600; overflow-wrap: anywhere; }
+.tile .badge { align-self: flex-start; margin-top: 4px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; }
+.dot.ok { background: var(--ok); }
+.dot.accent { background: var(--accent); }
+.section + .section { margin-top: 10px; }
+.section h3 { gap: 8px; color: var(--muted); }
+.panel.inset { background: var(--bg); margin-top: 10px; }

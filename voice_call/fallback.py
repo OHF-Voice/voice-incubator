@@ -908,7 +908,7 @@ def label_of(command: Command) -> str:
     """What meaning and the model step know a command by: its description.
     Commands that describe themselves alike are one choice to them -- the
     versions of a library command (on this satellite, on a device by name, in
-    an area or floor by name), a copy in another group -- and what is heard in
+    an area or floor by name), a copy on a satellite -- and what is heard in
     the sentence picks among them, as it picks a combination."""
     return command.description or command.id
 
@@ -1077,7 +1077,7 @@ class Fallback:
             if accept and not mine:
                 accept, why = False, {**why, "why": "not chosen for meaning"}
             found.trace["meaning"] = why
-            here = [c for c in mine if satellite.available(c) is not None]
+            here = satellite.first(mine)
             if accept and here:
                 if not any(c.takes_something for c in here):
                     for candidate in here:
@@ -1126,7 +1126,7 @@ class Fallback:
                 continue
             # It called one version of a command; what it gave picks the version.
             members = [c for c in kin(compiled, command) if c.id in self.chosen]
-            available = [c for c in members if satellite.available(c) is not None]
+            available = satellite.first(members)
             fit = self._fit(available or [command], lambda _c, given=arguments: given, text)
             command = fit.command or (available or [command])[0]
             slots, problems = fit.slots, fit.problems
@@ -1314,7 +1314,7 @@ class Fallback:
         if not members:
             trace["refused"] = {"command": shown[best], "why": "not chosen for it"}
             return found
-        available = [c for c in members if satellite.available(c) is not None]
+        available = satellite.first(members)
         if not available:
             trace["command"] = members[0].id
             trace["problems"] = [satellite.why_unavailable(members[0])]
