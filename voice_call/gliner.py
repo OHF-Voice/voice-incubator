@@ -2,17 +2,18 @@
 the tokenizers library -- for the command fallback (voice_call/fallback.py).
 
 The networks are exported once with the gliner2 package
-(scripts/export_gliner.py): the encoder (4-bit weights), the boundary head in
-two parts -- the evidence candidate spans are chosen from, and the chosen
-candidates' scores -- and the classifier's weights. Choosing the candidates
-(top boundaries, pairing, a quota per entity type, de-duplication) branches on
-sizes and needs a stable sort, so it is done here, in numpy. What the gliner2
-package does around the networks is ported for the two tasks the fallback
-needs, entities (with descriptions) and one classification: the prompt and
-its marker positions, word splitting, and decoding (thresholds, abstention,
-flat overlap resolution). Against the gliner2 package on 131 of the fallback
-benchmark's inputs: identical tokens, positions and entities, probabilities
-within 3e-6 (README "When nothing matches").
+(scripts/export_gliner.py): the encoder (8-bit weights, a 4-bit embedding),
+the boundary head in two parts -- the evidence candidate spans are chosen
+from, and the chosen candidates' scores -- and the classifier's weights.
+Choosing the candidates (top boundaries, pairing, a quota per entity type,
+de-duplication) branches on sizes and needs a stable sort, so it is done here,
+in numpy. What the gliner2 package does around the networks is ported for the
+two tasks the fallback needs, entities (with descriptions) and one
+classification: the prompt and its marker positions, word splitting, and
+decoding (thresholds, abstention, flat overlap resolution). Against the
+gliner2 package on 131 of the fallback benchmark's inputs: identical tokens,
+positions and entities, probabilities within 3e-6 (README "When nothing
+matches").
 
 Ported from fastino-ai/GLiNER2 (Apache-2.0): processor.py
 (_format_input_with_mapping, _transform_schema, _normalize_text),
@@ -82,8 +83,8 @@ class GlinerOnnx:
         options.inter_op_num_threads = 1
         providers = ["CPUExecutionProvider"]
         # Constant folding precomputes parts of the encoder (DeBERTa's relative
-        # positions) in full precision: ~125 MB more for a 4-bit encoder, and
-        # ~30% faster.
+        # positions) in full precision: ~125 MB more (measured with a 4-bit
+        # encoder), and ~30% faster.
         self.encoder = ort.InferenceSession(
             str(model_dir / encoder), options, providers=providers,
             disabled_optimizers=["ConstantFolding"] if low_memory else None,

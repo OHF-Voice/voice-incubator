@@ -1127,18 +1127,31 @@ lights in this satellite's area and refused as "too close" to the same
 command for an area or floor, and GLiNER chose among identical labels.
 
 It runs without PyTorch: onnxruntime, numpy and the tokenizers library
-(about 50 ms a sentence on a desktop, 0.22-0.28 s on a Raspberry Pi 5 with 4
-threads; 424 MB at peak with it loaded, of which ~110 MB is the tokenizer).
+(about 50 ms a sentence on a desktop, 0.27-0.36 s on a Raspberry Pi 5 with 4
+threads; 440 MB at peak with it loaded, of which ~110 MB is the tokenizer).
 The networks are exported once by `scripts/export_gliner.py` (it needs
 torch and the gliner2 package, in a venv of its own) into
-`models/gliner2.5-small-v1-onnx` (70 MB), which `script/stage_build` copies
-into the image: the encoder with 4-bit weights (MatMulNBits; int8 with
-quantized activations breaks DeBERTa-v3 -- not a command right), and the
-boundary head split in two around the candidate spans, which are chosen in
-numpy (it branches on sizes and needs a stable sort, which ONNX lacks). The
+`models/gliner2.5-small-v1-onnx` (78 MB), which `script/stage_build` copies
+into the image: the encoder with 8-bit weights and a 4-bit embedding
+(MatMulNBits), and the boundary head split in two around the candidate
+spans, which are chosen in numpy (it branches on sizes and needs a stable
+sort, which ONNX lacks). The
 rest of what the gliner2 package does -- the prompt, word splitting,
 decoding -- is ported. Against the package, on 131 of the benchmark's inputs:
 identical tokens, positions and entities, probabilities within 3e-6.
+
+**The encoder's precision.** With 4-bit weights throughout (60 MB) the
+small model clipped spans: "for the shopping list, add apples please" added
+*add apples*, and so did 1 of 5 rephrasings; full precision (285 MB) and
+the base model found *apples* in all six. The 4-bit layers did it -- a 4-bit
+embedding alone changed nothing -- so the layers are 8-bit (onnxruntime
+quantizes an embedding to 4 bits only). That behaves like full precision: on
+the eight-command benchmark both 4-bit and 8-bit get 17 of 34 right, refuse
+30 of 30 and run nothing wrong; 8-bit gains "can you play something by the
+beatles" and loses "can i get some light in the living room" (refused, as
+full precision does). On a Pi 5 it is 15-25% slower than 4-bit and 20 MB
+bigger at peak. int8 with quantized activations breaks DeBERTa-v3 (base: not
+a command right; small: *add apples* in 4 of the 6).
 
 **An LLM instead.** Its tools are the commands' descriptions plus how they
 are said (their examples, else the first keyword of each required group).

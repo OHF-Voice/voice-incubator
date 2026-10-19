@@ -21,7 +21,7 @@ cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
 if [[ -d models/parakeet-tdt-v3-int8 ]]; then
     cp -a models/parakeet-tdt-v3-int8 local/models/
 fi
-# The command fallback's default model (70 MB), from scripts/export_gliner.py.
+# The command fallback's default model (78 MB), from scripts/export_gliner.py.
 if [[ -d models/gliner2.5-small-v1-onnx ]]; then
     cp -a models/gliner2.5-small-v1-onnx local/models/
 else

@@ -421,7 +421,7 @@ choose them.
   and fills in what it needs: "throw on my workout playlist", "take milk off
   the list", "give me ten minutes for the pasta", "have you got the time". By
   default it is GLiNER2.5 small, which comes with the app, and adds about a
-  quarter of a second on a Raspberry Pi 5, however many commands are chosen.
+  third of a second on a Raspberry Pi 5, however many commands are chosen.
   When it hears nothing in the sentence ("lights out", "how late is it"), its
   pick runs only if meaning puts the same command first, ahead of the
   everyday requests that are no command ("thank you").

@@ -81,3 +81,24 @@ def test_extraction():
     # Single-label: probabilities that sum to one.
     single = model.extract("thank you", None, ("command", labels), multi_label=False)
     assert abs(sum(single["classification"].values()) - 1.0) < 1e-5
+
+
+@needs_model
+def test_spans_are_not_clipped():
+    # As a call gave it (commands closest in meaning, their entity types):
+    # with 4-bit layers the small model added "add apples".
+    from voice_call.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
+
+    model = GlinerOnnx(MODEL, threads=2)
+    labels = [
+        "add something to the shopping list", "skip to the next song", "never mind, cancel the request",
+        "pause the music", "resume the music", "tell the date", "play an artist, album, song, playlist or genre",
+        "move the music to another speaker", "something else: a question, small talk or thanks",
+    ]
+    types = {
+        "item": "something to buy, or a task to do, as said",
+        "music": "an artist, album, song, playlist or genre to play",
+        "device": "a device, appliance or other thing in the home, like the coffee maker, the bedroom fan or the front door",
+    }
+    out = model.extract("For the shopping list, add apples please.", types, ("command", labels))
+    assert [e[0] for e in out["entities"]["item"]] == ["apples"]

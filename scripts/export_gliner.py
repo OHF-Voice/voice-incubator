@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Export a GLiNER2.5 checkpoint for voice_call/gliner.py: ONNX networks, a
-4-bit encoder, the classifier's weights and the tokenizer, into
+"""Export a GLiNER2.5 checkpoint for voice_call/gliner.py: ONNX networks, an
+8-bit encoder, the classifier's weights and the tokenizer, into
 models/<name>-onnx -- then check the result against the gliner2 package.
 
 Needs what the app does not: torch, gliner2 and onnxscript. In a venv of its
@@ -13,9 +13,12 @@ own (Python 3.10-3.12; torch from download.pytorch.org/whl/cpu):
 What is exported, and what voice_call/gliner.py does instead:
 
 - ``encoder.onnx``: the DeBERTa encoder, input ids -> token states; then
-  ``encoder-q4.onnx``, its weights in 4 bits (onnxruntime's MatMulNBits,
-  block 32, the embedding too). int8 (dynamic, activations quantized) is not
-  made: it breaks DeBERTa-v3 -- no command right on the fallback benchmark.
+  ``encoder-w8.onnx``, what the app runs: its layers' weights in 8 bits and
+  its embedding in 4 (onnxruntime's MatMulNBits, block 32; activations stay
+  float, and the embedding can only be 4). With 4-bit layers the small model
+  clips spans worse: "add apples" was the item in "for the shopping list,
+  add apples please". int8 (dynamic, activations quantized) is not made: it
+  breaks DeBERTa-v3 -- no command right on the fallback benchmark.
 - ``boundary_a.onnx``: word and entity-type states -> boundary states, start
   and end logits, inside evidence, the candidate pool's projections, null and
   count logits.
@@ -44,6 +47,7 @@ import numpy as np
 import torch
 
 ROOT = Path(__file__).resolve().parent.parent
+ENCODER = "encoder-w8.onnx"
 
 
 class Encoder(torch.nn.Module):
@@ -182,17 +186,19 @@ def export(model, out: Path) -> None:
 
 
 def quantize(out: Path) -> None:
+    """``ENCODER``: the layers' weights in 8 bits, then the embedding's in 4."""
     import onnx  # pylint: disable=import-outside-toplevel
     from onnxruntime.quantization.matmul_nbits_quantizer import (  # pylint: disable=import-outside-toplevel
         MatMulNBitsQuantizer,
     )
 
     logging.getLogger("onnxruntime.quantization.matmul_nbits_quantizer").setLevel(logging.WARNING)
-    quantizer = MatMulNBitsQuantizer(
-        onnx.load(str(out / "encoder.onnx")), block_size=32, is_symmetric=True, op_types_to_quantize=("MatMul", "Gather")
-    )
-    quantizer.process()
-    quantizer.model.save_model_to_file(str(out / "encoder-q4.onnx"), use_external_data_format=False)
+    model = onnx.load(str(out / "encoder.onnx"))
+    for bits, ops in ((8, ("MatMul",)), (4, ("Gather",))):
+        quantizer = MatMulNBitsQuantizer(model, bits=bits, block_size=32, is_symmetric=True, op_types_to_quantize=ops)
+        quantizer.process()
+        model = quantizer.model.model
+    onnx.save(model, str(out / ENCODER))
 
 
 def check(model, out: Path, encoder: str) -> None:
@@ -259,9 +265,9 @@ def main() -> int:
     tokenizer = model.processor.tokenizer
     settings = {
         "model": args.checkpoint,
-        "encoder": "encoder-q4.onnx",
+        "encoder": ENCODER,
         "source": f"https://huggingface.co/{args.checkpoint} (Apache-2.0), exported by scripts/export_gliner.py, "
-        "encoder 4-bit (MatMulNBits, block 32)",
+        "encoder 8-bit, embedding 4-bit (MatMulNBits, block 32)",
         **{key: getattr(bs, key) for key in ("pair_temperature", "classification_temperature", "abstention_threshold",
                                              "overlap_policy", "adaptive_threshold")},
         "pool": {"top_k": pool.pool_boundary_top_k, "size": pool.pool_size, "min_per_query": pool.min_pool_per_query},
@@ -270,9 +276,9 @@ def main() -> int:
     }
     assert not settings["adaptive_threshold"] and settings["overlap_policy"] == "flat", settings
     (out / "gliner2_onnx.json").write_text(json.dumps(settings, indent=1))
-    for encoder in ("encoder.onnx", "encoder-q4.onnx"):
+    for encoder in ("encoder.onnx", ENCODER):
         check(model, out, encoder)
-    (out / "encoder.onnx").unlink()  # the app uses the 4-bit one
+    (out / "encoder.onnx").unlink()  # the app uses the 8-bit one
     print(f"-> {out}")
     return 0
 

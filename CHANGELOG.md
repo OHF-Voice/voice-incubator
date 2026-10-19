@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **GLiNER's encoder is 8-bit** (a 4-bit embedding; 78 MB, was 60). With
+  4-bit weights it clipped what it heard: "for the shopping list, add apples
+  please" added *add apples*. It now finds what full precision does, at about
+  a third of a second on a Pi 5 (a quarter before). Re-export with
+  `scripts/export_gliner.py`.
 - **Sessions** are easier to read. The list shows what was heard, big, then
   what it ran and said. A session's page starts the same way, then lists its
   **steps**, each with an icon, its time since the session started, a line
