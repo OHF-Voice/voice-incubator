@@ -378,6 +378,50 @@ const LEVELS = [
 ];
 const levelName = (value) => ({ silent: "silent", beep: "beep", brief: "brief", specific: "specific", verbose: "verbose" }[value] || value);
 
+// When a satellite stops listening: a voice activity detector, and how much
+// speech and silence it takes. An empty box is the default shown in it.
+const VAD_NAMES = { silero: "Silero VAD", micro: "microVAD" };
+
+function endOfSpeechPanel() {
+  const status = (state.status && state.status.end_of_speech) || {};
+  const set = status.set || {};
+  const defaults = status.defaults || {};
+  const vad = h("select", {}, Object.entries(status.vads || {}).map(([id, v]) => h("option", { value: id, selected: (set.vad || defaults.vad) === id, disabled: !v.installed },
+    `${v.name}${v.installed ? "" : " (not installed)"}${id === defaults.vad ? " (default)" : ""}`)));
+  const number = (key, step, max) => defaultNumber(set[key], defaults[key], step, max);
+  const inputs = {
+    speech_threshold: number("speech_threshold", 0.05, 1),
+    silence_threshold: number("silence_threshold", 0.05, 1),
+    speech_seconds: number("speech_seconds", 0.05, 3),
+    silence_seconds: number("silence_seconds", 0.1, 5),
+    resume_seconds: number("resume_seconds", 0.05, 2),
+    max_seconds: number("max_seconds", 1, 60),
+  };
+  async function save(body) {
+    try { await api("PUT", "settings", { end_of_speech: body }); toast("Saved"); await refreshStatus(); pageSettings(); }
+    catch (err) { toast(err.message); }
+  }
+  const values = () => ({
+    vad: vad.value === defaults.vad ? null : vad.value,
+    ...Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, numberOrNull(input)])),
+  });
+  return h("div", { class: "panel" },
+    heading("h2", "End of speech", "When a satellite stops listening: once you have started speaking, after enough silence. A voice activity detector says how likely each moment of the audio is to be speech."),
+    h("div", { class: "row" },
+      field("Detector", vad, "Silero VAD judges 32 ms at a time and notices the end of speech soonest. microVAD, microWakeWord's, judges 10 ms at a time and is smoother, but notices the end about half a second later: give it a shorter silence. It says nothing for its first 0.76 s.")),
+    h("div", { class: "row" },
+      field("Speech at", inputs.speech_threshold, "Audio this likely to be speech, or more, is speech."),
+      field("Silence below", inputs.silence_threshold, "Speech lasts until the likelihood falls below this; in between, nothing changes. Lower holds on through quiet words.")),
+    h("div", { class: "row" },
+      field("Speech to start (s)", inputs.speech_seconds, "Speech that starts the command. Until then, silence ends nothing: the satellite waits for you."),
+      field("Silence to end (s)", inputs.silence_seconds, "Silence after speech that ends the command. Shorter answers sooner; longer lets you pause. The default is the app's option, “End-of-command silence”."),
+      field("Speech to resume (s)", inputs.resume_seconds, "Speech in a row that starts the silence over. Shorter sounds — a cough, a click — only pause it."),
+      field("Longest command (s)", inputs.max_seconds, "From the wake word: the satellite stops listening then, whatever it heard.")),
+    h("div", { class: "row" },
+      h("button", { class: "primary", onclick: () => save(values()) }, "Save"),
+      h("button", { onclick: () => save(null) }, "Restore defaults")));
+}
+
 // What a command that beeps says when it acted out of sight.
 function responsesPanel() {
   const verbosity = (state.status && state.status.verbosity) || {};
@@ -2402,7 +2446,7 @@ function stepGlance(stage) {
     case "wake_unverified":
       return { title: "Verification", status: "", line: "none for this wake word" };
     case "endpoint":
-      return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command` };
+      return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command${d.vad ? ` · ${VAD_NAMES[d.vad] || d.vad}` : ""}` };
     case "speaker":
       return { title: "Speaker", status: d.name ? "ok" : "", line: d.name ? `${d.name} (${num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized" };
     case "split":
@@ -2490,6 +2534,11 @@ function stepDetails(stage) {
   if (name === "speech") {
     return h("div", { class: "small" }, data.text || h("span", { class: "muted" }, data.silent ? "(nothing: it's silent)" : "(a short sound)"),
       data.tts ? h("div", { class: "muted" }, `by ${data.tts}${data.voice ? ` (${data.voice})` : ""} on ${data.on || "the satellite"}`) : null);
+  }
+  if (name === "endpoint" && data.vad) {
+    const s = data.settings || {};
+    return h("div", { class: "small" }, `${VAD_NAMES[data.vad] || data.vad}: ${num(data.speech_seconds, 2)} s of speech, ${num(data.silence_seconds, 2)} s of silence at the end`,
+      h("div", { class: "muted" }, `speech at ${num(s.speech_threshold)}, silence below ${num(s.silence_threshold)} · ${num(s.speech_seconds)} s to start, ${num(s.silence_seconds)} s to end, ${num(s.resume_seconds)} s to resume`));
   }
   if (name === "replay_of") return h("div", { class: "small" }, "Replays ", h("a", { href: `#/session/${data.call}` }, data.call), " with today's commands.");
   if (name === "speaker") return h("div", { class: "small" }, data.name || "not recognized", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "", data.margin !== null && data.margin !== undefined ? ` · margin ${num(data.margin)}` : "");
@@ -2860,6 +2909,7 @@ async function pageSettings() {
   fill($main,
     h("h1", {}, "Settings"),
     speechPanel(),
+    endOfSpeechPanel(),
     fallbackPanel(),
     agentPanel(),
     responsesPanel(),

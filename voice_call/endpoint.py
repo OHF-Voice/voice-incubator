@@ -1,18 +1,156 @@
-"""End-of-command detection with pysilero-vad."""
+"""End-of-command detection: a voice activity detector's probabilities, with
+hysteresis -- Silero VAD (pysilero-vad) or microVAD (pymicro-vad).
+
+Each chunk of audio is speech or silence. Speech begins at ``speech_threshold``
+and lasts until the probability falls below ``silence_threshold``; between the
+two, a chunk is what the one before it was. The command has begun after
+``speech_seconds`` of speech -- until then, silence ends nothing -- and ends
+after ``silence_seconds`` of silence. Speech in the silence starts it over only
+after ``resume_seconds`` in a row: shorter sounds (a cough, a click) pause it.
+"""
 
 from __future__ import annotations
 
 import logging
-
-from pysilero_vad import SileroVoiceActivityDetector
+from dataclasses import asdict, dataclass, fields, replace
+from typing import Any, Callable
 
 from .protocol import BYTE_RATE, BYTES_PER_SAMPLE
 
 _LOGGER = logging.getLogger(__name__)
 
-# pysilero-vad consumes exactly 512 samples (32 ms) of 16 kHz 16-bit mono.
-CHUNK_BYTES = 512 * BYTES_PER_SAMPLE
-CHUNK_SECONDS = CHUNK_BYTES / BYTE_RATE
+VADS = {"silero": "Silero VAD", "micro": "microVAD"}
+
+LIMITS = {
+    "speech_threshold": (0.05, 0.99),
+    "silence_threshold": (0.01, 0.99),
+    "speech_seconds": (0.0, 3.0),
+    "silence_seconds": (0.3, 5.0),
+    "resume_seconds": (0.0, 2.0),
+    "max_seconds": (3.0, 60.0),
+}
+"""Each number's range, inclusive."""
+
+
+@dataclass(frozen=True)
+class EndOfSpeech:
+    """How the end of a command is found: the Settings page's "End of speech"
+    (settings.yaml ``end_of_speech``), over the app's options."""
+
+    vad: str = "silero"
+    speech_threshold: float = 0.5
+    """A chunk this likely to be speech, or more, is speech."""
+    silence_threshold: float = 0.35
+    """Below this, silence; between the two, what the chunk before was.
+    Silero's own default (its threshold less 0.15)."""
+    speech_seconds: float = 0.2
+    """Speech before the command has begun."""
+    silence_seconds: float = 1.0
+    """Silence after it that ends it."""
+    resume_seconds: float = 0.1
+    """Speech in a row that starts the silence over."""
+    max_seconds: float = 15.0
+    """The longest a command may be, from the wake word."""
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def parse(value: Any, base: EndOfSpeech) -> EndOfSpeech:
+    """``value`` (what is stored: a mapping, any key may be left out) over
+    ``base``. Raises ValueError naming what is wrong."""
+    if value is None:
+        return base
+    if not isinstance(value, dict):
+        raise ValueError("end_of_speech: expected a mapping")
+    known = {f.name for f in fields(EndOfSpeech)}
+    unknown = sorted(set(value) - known)
+    if unknown:
+        raise ValueError(f"end_of_speech: unknown {', '.join(unknown)} (use {', '.join(sorted(known))})")
+    changes: dict[str, Any] = {}
+    for key, item in value.items():
+        if item is None:
+            continue
+        if key == "vad":
+            if item not in VADS:
+                raise ValueError(f"end_of_speech.vad: one of {', '.join(VADS)}")
+            changes[key] = item
+            continue
+        low, high = LIMITS[key]
+        try:
+            number = float(item)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"end_of_speech.{key}: a number from {low:g} to {high:g}") from err
+        if not low <= number <= high:
+            raise ValueError(f"end_of_speech.{key}: a number from {low:g} to {high:g}")
+        changes[key] = number
+    settings = replace(base, **changes)
+    if settings.silence_threshold > settings.speech_threshold:
+        raise ValueError(
+            f"end_of_speech: the silence threshold ({settings.silence_threshold:g}) is above "
+            f"the speech threshold ({settings.speech_threshold:g})"
+        )
+    return settings
+
+
+def micro_available() -> bool:
+    try:
+        import pymicro_vad  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
+    except ImportError:
+        return False
+    return True
+
+
+class Detector:
+    """A VAD over fixed-size chunks: each one's probability of speech, or
+    None while it has nothing to say yet."""
+
+    chunk_bytes: int
+
+    def __call__(self, chunk: bytes) -> float | None:
+        raise NotImplementedError
+
+
+class SileroDetector(Detector):
+    """pysilero-vad: 512 samples (32 ms) a chunk."""
+
+    chunk_bytes = 512 * BYTES_PER_SAMPLE
+
+    def __init__(self) -> None:
+        from pysilero_vad import SileroVoiceActivityDetector  # pylint: disable=import-outside-toplevel
+
+        self._vad = SileroVoiceActivityDetector()
+
+    def __call__(self, chunk: bytes) -> float | None:
+        return self._vad.process_chunk(chunk)
+
+
+class MicroDetector(Detector):
+    """pymicro-vad (microWakeWord's VAD): 160 samples (10 ms) a chunk. It says
+    nothing (-1) for its first 0.76 s, while its window fills; its
+    probabilities are smoother than Silero's, and fall about half a second
+    after the speech does."""
+
+    chunk_bytes = 160 * BYTES_PER_SAMPLE
+
+    def __init__(self) -> None:
+        from pymicro_vad import MicroVad  # pylint: disable=import-outside-toplevel
+
+        self._vad = MicroVad()
+
+    def __call__(self, chunk: bytes) -> float | None:
+        probability = self._vad.process_10ms(chunk)
+        return None if probability < 0 else probability
+
+
+def detector(vad: str) -> Detector:
+    """``vad``'s detector; Silero when microVAD is not installed."""
+    if vad == "micro":
+        try:
+            return MicroDetector()
+        except ImportError:
+            _LOGGER.warning("pymicro-vad is not installed; using Silero VAD")
+    return SileroDetector()
 
 
 class Endpointer:
@@ -20,15 +158,17 @@ class Endpointer:
 
     def __init__(
         self,
-        threshold: float = 0.5,
-        silence_seconds: float = 1.0,
-        min_speech_seconds: float = 0.2,
+        settings: EndOfSpeech | None = None,
+        make_detector: Callable[[str], Detector] = detector,
     ) -> None:
-        self._vad = SileroVoiceActivityDetector()
-        self._threshold = threshold
-        self._silence_seconds = silence_seconds
-        self._min_speech_seconds = min_speech_seconds
+        self.settings = settings or EndOfSpeech()
+        self._detector = make_detector(self.settings.vad)
+        self.vad = "micro" if isinstance(self._detector, MicroDetector) else self.settings.vad
+        self._chunk_seconds = self._detector.chunk_bytes / BYTE_RATE
         self._leftover = b""
+        self._run = 0.0
+        """Speech in a row, since the last silence."""
+        self.speaking = False
         self.speech_seconds = 0.0
         self.silence_seconds = 0.0
         self.speech_started = False
@@ -36,28 +176,35 @@ class Endpointer:
     def process(self, pcm: bytes) -> bool:
         """Feed command audio; True once the command has ended."""
         self._leftover += pcm
-
-        while len(self._leftover) >= CHUNK_BYTES:
-            chunk = self._leftover[:CHUNK_BYTES]
-            self._leftover = self._leftover[CHUNK_BYTES:]
-
-            if self._vad.process_chunk(chunk) >= self._threshold:
-                self.speech_seconds += CHUNK_SECONDS
-                self.silence_seconds = 0.0
-                if (
-                    not self.speech_started
-                    and self.speech_seconds >= self._min_speech_seconds
-                ):
-                    self.speech_started = True
-                    _LOGGER.debug("Speech started")
-            elif self.speech_started:
-                self.silence_seconds += CHUNK_SECONDS
-                if self.silence_seconds >= self._silence_seconds:
-                    _LOGGER.info(
-                        "Command ended (%.2fs speech, %.2fs silence)",
-                        self.speech_seconds,
-                        self.silence_seconds,
-                    )
-                    return True
-
+        size, seconds, settings = self._detector.chunk_bytes, self._chunk_seconds, self.settings
+        while len(self._leftover) >= size:
+            chunk = self._leftover[:size]
+            self._leftover = self._leftover[size:]
+            probability = self._detector(chunk)
+            if probability is None:
+                continue
+            self.speaking = probability >= (
+                settings.silence_threshold if self.speaking else settings.speech_threshold
+            )
+            if self.speaking:
+                self.speech_seconds += seconds
+                self._run += seconds
+                if not self.speech_started:
+                    if self.speech_seconds >= settings.speech_seconds - 1e-9:
+                        self.speech_started = True
+                        _LOGGER.debug("Speech started")
+                elif self._run >= settings.resume_seconds - 1e-9:
+                    self.silence_seconds = 0.0
+            else:
+                self._run = 0.0
+                if self.speech_started:
+                    self.silence_seconds += seconds
+                    if self.silence_seconds >= settings.silence_seconds - 1e-9:
+                        _LOGGER.info(
+                            "Command ended (%s: %.2fs speech, %.2fs silence)",
+                            VADS[self.vad],
+                            self.speech_seconds,
+                            self.silence_seconds,
+                        )
+                        return True
         return False

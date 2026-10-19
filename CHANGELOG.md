@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **End of speech** on the Settings page: Silero VAD (as before) or
+  microVAD, the thresholds speech starts at and falls back to silence below
+  (0.5 and 0.35: between them nothing changes), the speech that starts a
+  command (0.2 s), the silence that ends it (the `silence_seconds` option),
+  the speech that starts that silence over (0.1 s: shorter sounds only pause
+  it) and the longest command (15 s). A session's End of speech step says
+  which detector ended it. Below 0.5 now counts as silence only under 0.35,
+  and a sound under 0.1 s no longer restarts the silence.
 - **GLiNER's encoder is 8-bit** (a 4-bit embedding; 78 MB, was 60). With
   4-bit weights it clipped what it heard: "for the shopping list, add apples
   please" added *add apples*. It now finds what full precision does, at about

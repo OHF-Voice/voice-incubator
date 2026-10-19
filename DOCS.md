@@ -115,6 +115,31 @@ page.
   call ends, and music turns down meanwhile. A command with nothing
   to say still plays its short sound on the satellite itself.
 
+### End of speech
+
+A satellite stops listening once you have started speaking and then gone
+quiet long enough. **End of speech**, on the Settings page, sets how:
+
+- **Detector**: **Silero VAD** (the default) judges 32 ms of audio at a
+  time and notices the end of speech soonest. **microVAD**, microWakeWord's
+  voice activity detector, judges 10 ms at a time and is smoother, but
+  notices the end about half a second later, so give it a shorter silence;
+  it says nothing for its first 0.76 s.
+- **Speech at** (0.5) and **Silence below** (0.35): audio at least this
+  likely to be speech is speech, and speech lasts until the likelihood falls
+  below the second; in between, nothing changes.
+- **Speech to start** (0.2 s): speech before the command has begun. Until
+  then, silence ends nothing.
+- **Silence to end** (the app's `silence_seconds` option, 1 s): silence
+  after speech that ends the command.
+- **Speech to resume** (0.1 s): speech in a row that starts that silence
+  over; a shorter sound (a cough, a click) only pauses it.
+- **Longest command** (15 s, from the wake word): it stops listening then,
+  whatever it heard.
+
+A session's **End of speech** step says which detector ended it, and with
+what.
+
 ## Commands
 
 The Home page lists the Home's commands as the library has them -- Basics,
@@ -618,5 +643,6 @@ commands:
   Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again
   here, so it can be generous. A cutoff set on the Wake words page wins.
 - `speaker_threshold`: how closely a voice must match to be identified.
-- `silence_seconds`: silence that ends a command.
+- `silence_seconds`: silence that ends a command. **Silence to end**, on the
+  Settings page, wins.
 - `debug_logging`: verbose logs.

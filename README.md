@@ -17,8 +17,9 @@ one call at a time:
    rejection ends the call, unless the second opinion overturns it (below). An
    acceptance also yields the **split point**: where the wake phrase ends and
    the command begins;
-3. **endpointing** — `pysilero-vad` watches the command audio for trailing
-   silence;
+3. **endpointing** — a voice activity detector (`pysilero-vad`, or
+   `pymicro-vad` set on the Settings page) watches the command audio for
+   trailing silence, with hysteresis on its probabilities and on time;
 4. **recognition** — the app's own commands (made in its web UI, kept in
    `commands.yaml`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
    Parakeet's CTC output, after the wake phrase as that same output places it
@@ -191,7 +192,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
 | `voice_call/wake.py` | Kaldi wake verification and split point |
 | `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
-| `voice_call/endpoint.py` | silero VAD endpointing |
+| `voice_call/endpoint.py` | endpointing: Silero VAD or microVAD, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
 | `voice_call/commands.py` | the command schema: combinations, presets, where it is, what happens |

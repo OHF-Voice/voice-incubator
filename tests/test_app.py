@@ -295,6 +295,19 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/settings", json={"beep_elsewhere": "brief"})).status == 200
             assert (await (await http.get("/api/status")).json())["verbosity"]["beep_elsewhere"] == "brief"
             assert (await http.put("/api/fallback", json={"meaning": [], "llm": []})).status == 200
+            # End of speech: what is set over the options, a null for a default.
+            ends = (await (await http.get("/api/status")).json())["end_of_speech"]
+            assert ends["used"]["vad"] == "silero" and ends["set"] == {}
+            assert ends["vads"]["micro"]["name"] == "microVAD"
+            assert (await http.put("/api/settings", json={"end_of_speech": {"vad": "nope"}})).status == 400
+            assert (await http.put("/api/settings", json={"end_of_speech": {"silence_threshold": 0.8}})).status == 400
+            assert (await http.put("/api/settings", json={"end_of_speech": {"vad": "micro", "silence_seconds": 0.6}})).status == 200
+            assert app.end_of_speech().vad == "micro" and app.end_of_speech().silence_seconds == 0.6
+            assert (await http.put("/api/settings", json={"end_of_speech": {"silence_seconds": None}})).status == 200
+            assert app.store.settings["end_of_speech"] == {"vad": "micro"}
+            assert app.end_of_speech().silence_seconds == app.options.silence_seconds
+            assert (await http.put("/api/settings", json={"end_of_speech": None})).status == 200
+            assert "end_of_speech" not in app.store.settings and app.end_of_speech().vad == "silero"
 
             # A question no command takes is answered exactly by a skill; one
             # about now or here is not a skill's.

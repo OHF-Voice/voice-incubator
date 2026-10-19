@@ -5,6 +5,7 @@ icu-rbnf>=0.2.0
 numpy>=2,<3
 onnxruntime>=1.20
 piper-tts>=1.8,<2
+pymicro-vad>=2,<3
 pysilero-vad>=3,<4
 PyYAML>=6.0
 ruamel.yaml>=0.18

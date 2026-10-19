@@ -25,7 +25,8 @@ from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
 from .discover import Device, Discovery
-from .endpoint import Endpointer
+from .endpoint import VADS, EndOfSpeech, Endpointer, micro_available
+from .endpoint import parse as parse_end_of_speech
 from .fallback import (
     DEFAULT_FALLBACK_MODEL,
     GLINER_MODELS,
@@ -614,6 +615,32 @@ class VoiceCallApp:
         catalog = self.hass.catalog
         entity = catalog.entities.get(entity_id) if catalog is not None else None
         return entity.area_id if entity is not None else None
+
+    def end_of_speech_base(self) -> EndOfSpeech:
+        """The defaults under the Settings page's: the options
+        ``silence_seconds`` (the app's option, ``--silence``) and
+        ``max_command_seconds``."""
+        return EndOfSpeech(silence_seconds=self.options.silence_seconds, max_seconds=self.options.max_command_seconds)
+
+    def end_of_speech(self) -> EndOfSpeech:
+        """``settings.yaml`` ``end_of_speech`` (the Settings page) over
+        ``end_of_speech_base``."""
+        base = self.end_of_speech_base()
+        try:
+            return parse_end_of_speech(self.store.settings.get("end_of_speech"), base)
+        except ValueError as err:
+            _LOGGER.warning("Ignoring end_of_speech in settings.yaml: %s", err)
+            return base
+
+    def end_of_speech_status(self) -> dict[str, Any]:
+        """For the Settings page: what is used, what is set there, and the
+        defaults under it."""
+        return {
+            "used": self.end_of_speech().to_json(),
+            "set": dict(self.store.settings.get("end_of_speech") or {}),
+            "defaults": self.end_of_speech_base().to_json(),
+            "vads": {key: {"name": name, "installed": key != "micro" or micro_available()} for key, name in VADS.items()},
+        }
 
     def beep_elsewhere(self) -> str:
         """``settings.yaml`` ``beep_elsewhere``: what a command that beeps
@@ -1276,13 +1303,10 @@ class VoiceCallApp:
 
     async def _watchdog(self, session: Session, call: Call) -> None:
         """End the call even if the VAD never fires or audio stops arriving."""
-        await asyncio.sleep(self.options.max_command_seconds)
+        longest = self.end_of_speech().max_seconds
+        await asyncio.sleep(longest)
         if session.call is call and not call.finished:
-            _LOGGER.warning(
-                "[%s] Command exceeded %.1fs; ending",
-                session,
-                self.options.max_command_seconds,
-            )
+            _LOGGER.warning("[%s] Command exceeded %.1fs; ending", session, longest)
             call.finished = True
             if call.record is not None:
                 self.calls.finish(call.record, "timeout", "", self._call_audio(call))
@@ -1428,7 +1452,7 @@ class VoiceCallApp:
             )
 
         self._place_split(call, verdict)
-        call.endpointer = Endpointer(silence_seconds=self.options.silence_seconds)
+        call.endpointer = Endpointer(self.end_of_speech())
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:
@@ -1511,7 +1535,21 @@ class VoiceCallApp:
             "[%s] Command audio: %.2fs", session, len(call.command) / BYTE_RATE
         )
         if record is not None:
-            record.stage("endpoint", command_seconds=round(len(call.command) / BYTE_RATE, 3))
+            ended = call.endpointer
+            record.stage(
+                "endpoint",
+                command_seconds=round(len(call.command) / BYTE_RATE, 3),
+                **(
+                    {
+                        "vad": ended.vad,
+                        "speech_seconds": round(ended.speech_seconds, 2),
+                        "silence_seconds": round(ended.silence_seconds, 2),
+                        "settings": ended.settings.to_json(),
+                    }
+                    if ended is not None
+                    else {}
+                ),
+            )
             record.marks["end"] = len(call.audio) / BYTE_RATE
 
         # Speaker ID runs beside recognition -- its own lock and threads -- and

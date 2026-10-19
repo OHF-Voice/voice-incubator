@@ -16,7 +16,8 @@ configuration:
   silence_seconds:
     name: End-of-command silence
     description: >-
-      Seconds of silence after speech that end a command.
+      Seconds of silence after speech that end a command. "Silence to end"
+      on the Settings page wins over this.
   debug_logging:
     name: Debug logging
     description: >-

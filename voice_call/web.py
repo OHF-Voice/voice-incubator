@@ -26,6 +26,7 @@ from adapt_ctc.template import TemplateError, expand
 
 from . import music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
+from .endpoint import parse as parse_end_of_speech
 from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
@@ -323,6 +324,7 @@ class Api:
                     "music_levels": music.level_examples(),
                 },
                 "verbosity": {"levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere()},
+                "end_of_speech": app.end_of_speech_status(),
             }
         )
 
@@ -987,6 +989,27 @@ class Api:
                 raise ConfigError("fallback_threshold: a number from 0 to 1")
             settings["fallback_threshold"] = threshold
             fallback_changed = True
+        # End of speech: each value set, or null for the default under it;
+        # null for the whole of it restores every default.
+        if "end_of_speech" in body:
+            value = body["end_of_speech"]
+            if value is None:
+                settings.pop("end_of_speech", None)
+            else:
+                if not isinstance(value, dict):
+                    raise ConfigError("end_of_speech: expected a mapping")
+                merged = {**(settings.get("end_of_speech") or {}), **value}
+                merged = {k: v for k, v in merged.items() if v is not None}
+                try:
+                    parse_end_of_speech(merged, self.app.end_of_speech_base())
+                except ValueError as err:
+                    raise ConfigError(str(err)) from err
+                if merged:
+                    settings["end_of_speech"] = {
+                        k: v if k == "vad" else float(v) for k, v in merged.items()
+                    }
+                else:
+                    settings.pop("end_of_speech", None)
         if "beep_elsewhere" in body:
             if body["beep_elsewhere"] not in VERBOSITY[1:]:
                 raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY[1:])}")
