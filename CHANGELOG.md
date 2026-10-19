@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- The UI says less: each page and panel is a title and, at most, a sentence.
+  The rest is behind a **?** beside the title or label -- shown on hover, on
+  focus, or with a click or tap, and read by screen readers -- and labels
+  and titles no longer repeat the page's ("Preferred", not "Preferred wake
+  word", on the Wake words page). Field labels are now real labels of
+  their controls.
 - A **skill's page** sets how much it says -- brief ("96."), specific
   ("It's 96.", the default) or verbose ("Twelve times eight is 96.") -- and a
   response of your own for any level, a Home Assistant template. It takes

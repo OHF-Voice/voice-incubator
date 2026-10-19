@@ -89,8 +89,51 @@ function errorBox(err) {
   return h("div", { class: "notice bad" }, String(err.message || err));
 }
 
+// More about something, for whoever wants it: a small "?" that shows it on
+// hover, on focus, or when clicked or tapped -- and that a screen reader
+// reads as its description.
+let hints = 0;
+function hint(text) {
+  if (text === null || text === undefined || text === "") return null;
+  const id = `hint-${++hints}`;
+  const tip = h("span", { class: "hint-text", id, role: "tooltip", hidden: true }, text);
+  const button = h("button", { type: "button", class: "hint", "aria-label": "More", "aria-describedby": id, "aria-expanded": "false" }, "?");
+  // Near the right edge, it opens leftwards.
+  const place = () => { tip.classList.toggle("flip", button.getBoundingClientRect().left > window.innerWidth / 2); };
+  button.addEventListener("mouseenter", place);
+  button.addEventListener("focus", place);
+  button.addEventListener("click", (e) => {
+    place();
+    e.preventDefault();
+    e.stopPropagation();
+    const open = tip.hidden;
+    for (const other of document.querySelectorAll(".hint-text.pinned")) { other.hidden = true; other.classList.remove("pinned"); }
+    tip.hidden = !open;
+    tip.classList.toggle("pinned", open);
+    button.setAttribute("aria-expanded", String(open));
+  });
+  return h("span", { class: "hint-wrap" }, button, tip);
+}
+document.addEventListener("click", () => {
+  for (const tip of document.querySelectorAll(".hint-text.pinned")) { tip.hidden = true; tip.classList.remove("pinned"); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") for (const tip of document.querySelectorAll(".hint-text.pinned")) { tip.hidden = true; tip.classList.remove("pinned"); }
+});
+
+// A labelled control; `help` goes in a hint beside the label.
+let fields = 0;
 function field(label, control, help) {
-  return h("div", { class: "field" }, h("span", { class: "label" }, label), control, help ? h("span", { class: "help" }, help) : null);
+  const labelled = control instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA"].includes(control.tagName);
+  if (labelled && !control.id) control.id = `field-${++fields}`;
+  return h("div", { class: "field" },
+    h("div", { class: "label-row" }, h(labelled ? "label" : "span", { class: "label", for: labelled ? control.id : null }, label), hint(help)),
+    control);
+}
+
+// A heading with its hint.
+function heading(tag, text, help, attrs) {
+  return h(tag, { ...(attrs || {}), class: `with-hint ${(attrs && attrs.class) || ""}` }, text, hint(help));
 }
 
 function time(ts) {
@@ -341,9 +384,8 @@ function responsesPanel() {
     catch (err) { toast(err.message); }
   } }, ...LEVELS.filter(([value]) => value !== "silent").map(([value, label]) => h("option", { value, selected: (verbosity.beep_elsewhere || "specific") === value }, value === "beep" ? "Beep anyway" : label)));
   return h("div", { class: "panel" },
-    h("h2", {}, "Responses"),
-    h("p", { class: "muted small" }, "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."),
-    field("A command that beeps, when it acted somewhere else", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — it says this instead. Home Assistant's own says the brief one."));
+    heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."),
+    field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."));
 }
 
 function fallbackPanel() {
@@ -356,7 +398,7 @@ function fallbackPanel() {
   const topK = h("input", { type: "number", min: 1, max: 64, value: status.top_k || 8, style: "width:70px" });
   const threshold = h("input", { type: "number", min: 0, max: 1, step: 0.05, value: status.threshold ?? 0.3, style: "width:80px" });
   const isGliner = () => (models[model.value] || {}).kind === "gliner";
-  const thresholdField = field("Least sure it may be", threshold, "GLiNER's probability for the command it picks, which must also beat “not a command”. Higher refuses more.");
+  const thresholdField = field("Threshold", threshold, "GLiNER's probability for the command it picks, which must also beat “not a command”. Higher refuses more.");
   const showThreshold = () => { thresholdField.style.display = isGliner() ? "" : "none"; };
   model.addEventListener("change", showThreshold);
   showThreshold();
@@ -369,18 +411,17 @@ function fallbackPanel() {
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
-    h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "When nothing matches"),
+    h("div", { class: "row" }, heading("h2", "When nothing matches", "Keywords and example sentences come first. When they find nothing, these may run a command — only one chosen for it, here or on the command's page.", { class: "grow", style: "margin:0" }),
       h("button", { onclick: () => { location.hash = "#/fallback"; } }, "Choose commands")),
-    h("p", { class: "muted small" }, "Keywords and example sentences come first. When they find nothing, these can run a command — only one chosen for it, here or on the command's page:"),
-    h("label", {}, meaning, "Run the command closest in meaning, when it is very close (“kill the lights in the office”); the model hears the room",
+    h("label", {}, meaning, "By meaning", hint("Runs the command a sentence is very close to in meaning (“kill the lights in the office”); the model hears what was said in it, such as the room."),
       h("span", { class: "badge" }, count(status.meaning_commands)),
       status.meaning_available === false ? h("span", { class: "badge" }, "needs the embedding model") : null),
-    h("label", {}, llm, "Let a small model pick a command and fill in what it needs (“I'm in the mood for jazz”)",
+    h("label", {}, llm, "By model", hint("A small model picks a command and fills in what it needs (“I'm in the mood for jazz”)."),
       h("span", { class: "badge" }, count(status.llm_commands)),
       h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
       field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks a command itself, or “not a command”, in about a quarter of a second on a Raspberry Pi 5. A command's versions (on this satellite, a device, an area or floor) are one choice to it: what it hears picks the version. An LLM is slower and wrong more often; Hammer is licensed for non-commercial use only."),
-      field("Commands it chooses from", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
+      field("Choices", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
       thresholdField,
       h("button", { class: "primary", onclick: save }, "Save")));
 }
@@ -426,10 +467,9 @@ async function pageFallback() {
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
     h("div", { class: "panel" },
-      h("div", { class: "row" }, h("h2", { class: "grow", style: "margin:0" }, "Commands"), filter,
+      h("div", { class: "row" }, heading("h2", "Commands", "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (the model hears the names, numbers or text said in it), and “model” lets a small model pick it and fill in what it needs (GLiNER picks only commands that hear something). A command not chosen is never run by them.", { class: "grow", style: "margin:0" }), filter,
         h("button", { onclick: () => all("meaning", true) }, "All by meaning"), h("button", { onclick: () => all("llm", true) }, "All by model"),
         h("button", { onclick: () => { all("meaning", false); all("llm", false); } }, "None")),
-      h("p", { class: "muted small" }, "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (the model hears the names, numbers or text said in it), and “model” lets a small model pick it and fill in what it needs (GLiNER picks only commands that hear something). A command not chosen is never run by them."),
       h("div", { class: "list" }, rows.map((r) => r.row))),
     h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
   );
@@ -439,7 +479,7 @@ async function pageFallback() {
 // conversation kept on each satellite.
 function agentPanel() {
   const status = (state.status && state.status.agent) || {};
-  const agent = h("select", {}, h("option", { value: "" }, "None"),
+  const agent = h("select", { "aria-label": "Conversation agent" }, h("option", { value: "" }, "None"),
     status.agent ? h("option", { value: status.agent, selected: true }, status.agent) : null);
   const note = h("span");
   api("GET", "agents").then((data) => {
@@ -458,14 +498,12 @@ function agentPanel() {
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
-    h("h2", {}, "Conversation agent"),
-    h("p", { class: "muted small" }, "What no command, ", h("a", { href: "#/home" }, "skill"), " or step under “When nothing matches” took can go to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. “Can't look it up” waits for it: the agent may know the weather. What it doesn't understand either is the ", h("a", { href: "#/unknown" }, "Unknown command"), "'s."),
+    heading("h2", "Conversation agent", ["What no command, skill or step under “When nothing matches” took goes to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. What it doesn't understand either is the Unknown command's. A dry run never asks it, since an agent can act in your home. An LLM agent hears what the speech model wrote, mishearings and all."]),
     h("div", { class: "row" },
-      field("Agent", agent, note),
-      field("Keep a conversation for", h("label", {}, keep, "minutes"), "After its last answer on a satellite, the next sentence there continues the conversation (“how tall is it?”), as on the Voice PE. 0: every sentence starts a new one."),
+      h("div", { class: "field" }, agent, note),
+      field("Keep for", h("label", {}, keep, "minutes"), "After its last answer on a satellite, the next sentence there continues the conversation (“how tall is it?”), as on the Voice PE. 0: every sentence starts a new one."),
       h("button", { class: "primary", onclick: save }, "Save")),
-    kept.length ? h("p", { class: "small" }, "Conversations kept: ", kept.map(([key, seconds]) => `${sats[key] || key || "typed with no satellite"} (${Math.round(seconds)} s more)`).join(", ")) : null,
-    h("p", { class: "muted small" }, "A dry run never asks it, since an agent can act in your home: tick “Really run” under a satellite's Test it to try it. An LLM agent hears what the speech model wrote, mishearings and all."));
+    kept.length ? h("p", { class: "small" }, "Kept: ", kept.map(([key, seconds]) => `${sats[key] || key || "typed with no satellite"} (${Math.round(seconds)} s more)`).join(", ")) : null);
 }
 
 // The Unknown command: what is said when nothing -- no command, skill, the
@@ -499,17 +537,17 @@ async function pageUnknown() {
   fill($main,
     h("div", { class: "row" },
       h("a", { href: "#/home" }, "← Home"),
-      h("h1", { class: "grow", style: "margin:0" }, "Unknown command"),
+      heading("h1", "Unknown command", "When nothing understood a sentence — no command, no skill, nothing that runs when nothing matches, nor the conversation agent — the satellite says this. Something understood but impossible as said (“the fan in the office” where there is none) still says why. Type a sentence no command takes under a satellite's Test it to hear it.", { class: "grow", style: "margin:0" }),
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
     h("div", { class: "panel" },
-      h("p", { class: "muted" }, "When nothing understood a sentence — no command, no skill, nothing that runs when nothing matches, nor the conversation agent — the satellite says this. Left empty, it says the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.” Something understood but impossible as said (“the fan in the office” where there is none) still says why."),
+      h("p", { class: "muted small" }, "Empty: the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.”"),
       field("Response", area, "A Home Assistant template. Something that renders to nothing says the default."),
       h("div", { class: "row small" }, h("span", { class: "muted" }, "Start from:"),
         ...UNKNOWN_EXAMPLES.map((example) => h("button", { type: "button", class: "link", onclick: () => { area.value = example; area.focus(); } }, h("code", {}, example)))),
-      h("h3", {}, "Variables"),
-      h("div", { class: "kv" }, ...vars.flatMap(([name, text]) => [h("div", {}, h("code", {}, name)), h("div", {}, text)])),
-      h("p", { class: "muted small" }, "Type a sentence no command takes on a satellite's page (Test it) to hear it.")),
+      h("div", { class: "row small" }, h("span", { class: "muted" }, "Variables:"),
+        ...vars.map(([name, text]) => h("span", { class: "var" }, h("code", {}, name), hint(text)))),
+      )
   );
 }
 
@@ -651,8 +689,8 @@ async function pageCommand(id, prefill, query) {
       } else if (mode === "action") {
         const area = h("textarea", { class: "code", oninput: (e) => { yamlBox.value = e.target.value; } });
         area.value = yamlBox.value;
-        control = field("Action (Home Assistant script syntax; one action or a list)", area,
-          "Templates see slots, satellite, speaker, target and command. target: \"{{ target }}\" is what was named, or else the satellite's area.");
+        control = field("Action", area,
+          "Home Assistant script syntax: one action or a list. Templates see slots, satellite, speaker, target and command. target: \"{{ target }}\" is what was named, or else the satellite's area.");
       }
       fill(wrap, radios, control, verbosityField(), responsesEditor());
     }
@@ -686,7 +724,9 @@ async function pageCommand(id, prefill, query) {
     let byLevel = null;
     // The done response: one for every level, or one for each (brief,
     // specific, verbose) with the built-in sentences as placeholders.
-    function doneEditor(placeholder, levelDefaults, big) {
+    const LEVEL_HELP = "A level without one says the closest written (less first). Keep the brief one fixed — no templates — so text-to-speech can cache it.";
+    function doneEditor(placeholder, levelDefaults, big, more) {
+      const help = more ? `${LEVEL_HELP} ${more}` : LEVEL_HELP;
       const done = responses().done;
       if (byLevel === null) byLevel = Boolean(done && typeof done === "object");
       const toggle = h("button", { type: "button", class: "link", onclick: () => {
@@ -706,9 +746,9 @@ async function pageCommand(id, prefill, query) {
       if (!byLevel) {
         const area = h("textarea", { class: big ? "" : "short", placeholder: placeholder || (levelDefaults && levelDefaults.specific) || "", oninput: (e) => { const next = responses(); next.done = e.target.value; setResponses(next); } });
         area.value = typeof done === "string" ? done : "";
-        return field(h("span", {}, "When it's done ", toggle), area);
+        return field(h("span", {}, "When it's done ", toggle), area, help);
       }
-      const boxes = LEVELS.filter(([level]) => level !== "beep" && level !== "silent").map(([level, label]) => {
+      const boxes = LEVELS.filter(([level]) => level !== "beep" && level !== "silent").map(([level]) => {
         const area = h("textarea", { class: "short", placeholder: (levelDefaults && levelDefaults[level]) || (level === "brief" ? "A fixed sentence, e.g. Turned on the lights." : ""), oninput: (e) => {
           const next = responses();
           const d = next.done && typeof next.done === "object" ? { ...next.done } : {};
@@ -717,11 +757,10 @@ async function pageCommand(id, prefill, query) {
           setResponses(next);
         } });
         area.value = done && typeof done === "object" ? done[level] || "" : "";
-        return field(label, area);
+        return field(level[0].toUpperCase() + level.slice(1), area);
       });
-      return h("div", {}, h("div", { class: "label" }, "When it's done ", toggle),
-        h("div", { class: "grid2" }, ...boxes),
-        h("span", { class: "help" }, "A level without one says the closest written (less first). Keep the brief one fixed — no templates — so text-to-speech can cache it."));
+      return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "When it's done ", toggle), hint(help)),
+        h("div", { class: "grid2" }, ...boxes));
     }
     function keepOutcomes(allowed) {
       if (!("response" in target)) return;
@@ -742,10 +781,10 @@ async function pageCommand(id, prefill, query) {
       };
       const vars = "Rendered by Home Assistant with the same variables, plus result: what a script returned, result.outcome, and result.speech (what is said without a response).";
       if (mode === "nothing") {
-        return h("p", { class: "muted small" }, "It ends the conversation and does nothing else (“never mind”). To say something, choose Only respond; for the acknowledgement sound, set How much it says to Beep.");
+        return h("p", { class: "muted small" }, "Ends the conversation, and that's all (“never mind”).", hint("To say something, choose Only respond; for the acknowledgement sound, set How much it says to Beep."));
       }
       if (mode === "respond") {
-        return h("div", {}, doneEditor("Spoken response template, e.g. It's {{ now().strftime('%H:%M') }}", null, true), h("span", { class: "help" }, vars));
+        return doneEditor("It's {{ now().strftime('%H:%M') }}", null, true, vars);
       }
       const rows = [];
       if (mode === "music") {
@@ -756,8 +795,8 @@ async function pageCommand(id, prefill, query) {
           if (key !== "done") rows.push(field(labels[key] || key, box(key, example || "(a short sound)", false)));
         }
         rows.push(field("If it fails", box("failed", info.failed, false), "Home Assistant or Music Assistant refused."));
-        return h("div", {}, h("div", { class: "label" }, "Responses"),
-          h("p", { class: "muted small" }, "Each outcome says its own sentence (shown) unless you give one here. Templates also see player (the one it acted on), players and, when it searched, media (name, artist, media_type, uri).", " ", vars),
+        return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "Responses"),
+            hint(`Each outcome says its own sentence (shown) unless you give one here. Templates also see player (the one it acted on), players and, when it searched, media (name, artist, media_type, uri). ${vars}`)),
           doneEditor(said.done, levels, false),
           h("div", { class: "grid2" }, ...rows));
       }
@@ -769,8 +808,8 @@ async function pageCommand(id, prefill, query) {
           if (key !== "done") rows.push(field(labels[key] || key, box(key, example, false)));
         }
         rows.push(field("If it fails", box("failed", info.failed, false), `Home Assistant refused. Without the Voice Call integration it says "${info.timer_failed}"`));
-        return h("div", {}, h("div", { class: "label" }, "Responses"),
-          h("p", { class: "muted small" }, "Each outcome says its own sentence (shown) unless you give one here. Templates also see timer (the timer it was about) and timers.", " ", vars),
+        return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "Responses"),
+            hint(`Each outcome says its own sentence (shown) unless you give one here. Templates also see timer (the timer it was about) and timers. ${vars}`)),
           doneEditor(said.done, levels, false),
           h("div", { class: "grid2" }, ...rows));
       }
@@ -791,11 +830,11 @@ async function pageCommand(id, prefill, query) {
           render();
         };
         return h("div", { class: "row" }, name, h("button", { type: "button", onclick: add }, "Add an outcome"),
-          h("span", { class: "help" }, "A script picks one by returning outcome (stop with response_variable: {outcome: nobody_home})."));
+          hint("A script picks one by returning outcome (stop with response_variable: {outcome: nobody_home})."));
       })() : null;
       return h("div", {}, doneEditor(mode === "script" ? "Spoken response template; without one, the script's speech is said" : "Spoken response template, e.g. Turned on the lights {{ place.said }}", null, false),
         h("div", { class: "grid2" }, ...rows), extra,
-        h("p", { class: "muted small" }, "Optional. ", vars, " place says where it acted: place.said (“in the Kitchen”), place.here, place.areas. Nothing to say plays a short sound."));
+        h("p", { class: "muted small" }, "Optional.", hint(`${vars} place says where it acted: place.said (“in the Kitchen”), place.here, place.areas. Nothing to say plays a short sound.`)));
     }
     render();
     return wrap;
@@ -830,7 +869,7 @@ async function pageCommand(id, prefill, query) {
                   if (e.target.checked) ids.push(nid);
                   update({ ids: ids.length ? ids : undefined });
                 } }), typeof entry === "string" ? entry : entry.name)))) :
-              h("div", { class: "small muted" }, `No ${plural} have names yet — add them on the Names page. Names are never taken from Home Assistant automatically.`),
+              h("div", { class: "small muted" }, `No ${plural} have names yet: add them on the Names page.`),
             type === "entity" ? field("Only these domains", chipsInput(r.domains || [], (v) => update({ domains: v.length ? v : undefined }), "light, switch")) : null) : null);
       }));
     }
@@ -862,9 +901,9 @@ async function pageCommand(id, prefill, query) {
           extra.push(h("label", {}, key, h("input", { type: "number", value: obj[key] ?? "", style: "width:80px", onchange: (e) => { if (e.target.value === "") delete spec.number[key]; else spec.number[key] = Number(e.target.value); } })));
         }
       }
-      fill(wrap, h("div", { class: "row" }, select, ...extra),
-        preset === "duration" ? h("p", { class: "small muted" }, "Heard as “ten minutes”, “an hour and a half”: slots.duration has hours, minutes, seconds, total_seconds and text (HH:MM:SS).") : null,
-        preset === "percentage" ? h("p", { class: "small muted" }, "0–100, multiples of 10 preferred where the audio is unsure (fifteen vs fifty).") : null);
+      fill(wrap, h("div", { class: "row" }, select, ...extra,
+        preset === "duration" ? hint("Heard as “ten minutes”, “an hour and a half”: slots.duration has hours, minutes, seconds, total_seconds and text (HH:MM:SS).") : null,
+        preset === "percentage" ? hint("0–100, multiples of 10 preferred where the audio is unsure (fifteen vs fifty).") : null));
     }
     render();
     return wrap;
@@ -916,7 +955,6 @@ async function pageCommand(id, prefill, query) {
         h("div", { class: "grid2" },
           field("Starts right after", chipsInput(w.after || [], (v) => { w.after = v; }, "add, put"), "Must also be keywords of the command."),
           mode === "to_end" ? null : field("Ends right before", chipsInput(w.before || [], (v) => { w.before = v; }, "to, on"))),
-        h("p", { class: "small muted" }, "Free text is re-read from the TDT transcript for spelling. Keep it bounded: the fewer words it may take, the fewer mishearings it swallows."),
       );
     }
     render();
@@ -954,7 +992,7 @@ async function pageCommand(id, prefill, query) {
   }
   function renderCombos() {
     const slots = heardSlots();
-    if (!slots.length) { fill(combosWrap, h("p", { class: "muted small" }, "It listens for no names, number, values or text: there is one way to say it.")); return; }
+    if (!slots.length) { fill(combosWrap, h("p", { class: "muted small" }, "One: it hears nothing said.")); return; }
     const combos = spec.combinations || [slots];
     const set = (next) => {
       if (next.length === 1 && next[0].length === slots.length) delete spec.combinations;
@@ -998,12 +1036,12 @@ async function pageCommand(id, prefill, query) {
         h("div", { class: "row" },
           h("label", {}, h("input", { type: "checkbox", checked: spec.disabled, onchange: (e) => { if (e.target.checked) spec.disabled = true; else delete spec.disabled; } }), "Turned off")),
         field("Where", h("select", { onchange: (e) => { if (e.target.value) spec.satellite = e.target.value; else delete spec.satellite; } },
-          h("option", { value: "", selected: !spec.satellite }, "The Home: every satellite that takes the Home's"),
-          ...state.satellites.map((x) => h("option", { value: x.key, selected: spec.satellite === x.key }, `Only ${x.name}`)),
+          h("option", { value: "", selected: !spec.satellite }, "The Home"),
+          ...state.satellites.map((x) => h("option", { value: x.key, selected: spec.satellite === x.key }, x.name)),
           spec.satellite && !state.satellites.some((x) => x.key === spec.satellite) ? h("option", { value: spec.satellite, selected: true }, `${spec.satellite} (not here any more)`) : null),
-          "On one satellite, it goes before the Home's commands that take the same sentence."),
+          "The Home's run on every satellite that takes the Home's. One satellite's goes before the Home's commands that take the same sentence."),
         field("When nothing else matches", h("div", { class: "wake-list" },
-          [["meaning", "Run it when a sentence is very close in meaning"], ["llm", "Let a small model pick it"]].map(([step, label]) => h("label", {},
+          [["meaning", "By meaning"], ["llm", "By model"]].map(([step, label]) => h("label", {},
             h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
               const now = asList(spec.fallback).filter((x) => x !== step);
               if (e.target.checked) now.push(step);
@@ -1016,24 +1054,21 @@ async function pageCommand(id, prefill, query) {
           (id && ((state.store.details || {})[id] || {}).needs_said)
             ? "It hears something (a name, number, value or text): meaning picks the command, and the model hears what was said in it."
             : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Settings page.")),
-      h("div", { class: "panel" }, h("h2", {}, "Target"),
-        h("p", { class: "muted small" }, "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
+      h("div", { class: "panel" }, heading("h2", "Target", "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
         targetEditor(spec)),
       h("div", { class: "panel" }, h("h2", {}, "Listen for"),
         ((info) => field("Example sentences", h("div", {},
           chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box),
           "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."))(examplesInfo(spec.examples || [])),
-        h("h3", {}, "Keywords"),
-        h("p", { class: "muted small" }, "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
+        heading("h3", "Keywords", "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
         field("Required", groupsEditor(spec.require, (v) => { spec.require = v; }, "Add a required group")),
         field("Optional", groupsEditor(spec.optional, (v) => { spec.optional = v; }, "Add an optional group"), "Words that may be said and should not count against the match."),
         field("Must not hear", chipsInput(spec.exclude || [], (v) => { spec.exclude = v; }, "is, are"), "A statement is not a command: “the door is locked”."),
         h("h3", {}, "Names"), namesEditor(),
         h("h3", {}, "Number"), numberEditor(),
         h("h3", {}, "Value lists"), listsEditor(),
-        h("h3", {}, "Free text"), wildcardEditor(),
-        h("h3", {}, "Ways to say it"),
-        h("p", { class: "muted small" }, "What it hears is never optional: each way below is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
+        heading("h3", "Free text", "Re-read from the TDT transcript for spelling. Keep it bounded: the fewer words it may take, the fewer mishearings it swallows."), wildcardEditor(),
+        heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
         combosWrap),
       h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml)),
     );
@@ -1140,8 +1175,7 @@ async function duplicateDialog(id) {
     } catch (err) { errors.append(errorBox(err)); }
   }
   const close = openDialog(`Duplicate ${spec.title || spec.description || id}`, h("div", { class: "stack" },
-    h("p", { class: "muted small" }, "A copy of the command as it is saved, to change. On a satellite, a copy goes before the Home's commands that take the same sentence: duplicate one of the Home's there to have it do something else on that satellite."),
-    field("Where", place),
+    field("Where", place, "On a satellite, a copy goes before the Home's commands that take the same sentence: duplicate one of the Home's there to have it do something else on that satellite."),
     h("div", { class: "grid2" }, field("Id", idInput, "Lowercase letters, digits and underscores."), field("Title", title)),
     errors,
     h("div", { class: "row" }, h("span", { class: "grow" }, ""), h("button", { type: "button", onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: create }, "Duplicate"))), "compact");
@@ -1205,7 +1239,7 @@ async function newCommandDialog(target) {
   const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = target ? `#/command/?satellite=${target}` : "#/command/"; } },
     icon("mdi:pencil-plus-outline", "big"),
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
-      h("span", { class: "muted small" }, "Start from scratch: what it acts on, what to listen for, what happens.")));
+      h("span", { class: "muted small" }, "Start from scratch.")));
   const matches = (entry, words) => {
     const text = [entry.title, entry.description, entry.id, entry.group, entry.family_title, entry.family_description, listensText(entry.spec)].join(" ").toLowerCase();
     return words.every((w) => text.includes(w));
@@ -1286,7 +1320,7 @@ async function newCommandDialog(target) {
   search.addEventListener("input", render);
   const close = openDialog(`Add to ${where}`, [
     custom,
-    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes."),
+    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or from the library:", hint("Adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes.")),
     search, chips,
     h("div", { class: "dialog-list" }, list)]);
   render();
@@ -1329,22 +1363,22 @@ function commandItem(store, id) {
   const spec = store.commands[id] || {};
   const detail = store.details[id] || {};
   const elsewhere = detail.satellite && !state.satellites.some((s) => s.key === detail.satellite);
-  return h("div", { class: "item clickable", onclick: () => { location.hash = `#/command/${id}`; } },
+  return h("div", { class: "item clickable", title: `${id}: ${spec.description || ""}`, onclick: () => { location.hash = `#/command/${id}`; } },
     icon(iconFor(spec), "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
-      h("div", { class: "muted small" }, id, " · ", spec.description || "", listensText(spec) ? ` · ${listensText(spec)}` : "")),
+      h("div", { class: "muted small" }, listensText(spec) || spec.description || id)),
     elsewhere ? h("span", { class: "badge warn", title: `Its satellite, ${detail.satellite}, isn't here: change where it is on its page` }, "satellite gone") : null,
     asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
     detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
 }
 
 function skillItem(skill, place) {
-  return h("div", { class: "item clickable", onclick: () => { location.hash = `#/skill/${skill.id}${place ? `?satellite=${place}` : ""}`; } },
+  return h("div", { class: "item clickable", title: skill.description, onclick: () => { location.hash = `#/skill/${skill.id}${place ? `?satellite=${place}` : ""}`; } },
     icon(skill.icon, "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, skill.name),
-      h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
+      h("div", { class: "muted small" }, skill.examples.map((e) => `“${e}”`).join(" · "))),
     h("span", { class: "badge accent" }, "skill"));
 }
 
@@ -1403,7 +1437,7 @@ async function pageHome() {
     icon("mdi:help-circle-outline", "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, "Unknown command"),
-      h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What is said when nothing understood a sentence. Default: the closest command (“It looks like you're trying to …”), or “Sorry, I didn't understand that.”")),
+      h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What's said when nothing understood a sentence.")),
     h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
   const legacy = store.legacy_groups || [];
   fill($main,
@@ -1415,10 +1449,9 @@ async function pageHome() {
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
     h("div", { class: "panel" },
       h("div", { class: "row" },
-        h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
+        heading("h2", "Commands and skills", "The Home's: they run on every satellite that takes the Home's — all do, unless one is set not to. A satellite's own are on its page.", { class: "grow", style: "margin:0" }),
         h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "Add")),
-      h("p", { class: "muted small" }, "The Home's: they run on every satellite that takes the Home's — all do, unless one is set not to. A satellite's own are on its page."),
-      placedSections(store, skillData, null, "No voice commands yet. Press Add: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
+      placedSections(store, skillData, null, "No commands yet: press Add.")),
     h("div", { class: "panel" }, h("div", { class: "list" }, unknownItem)),
   );
 }
@@ -1505,8 +1538,9 @@ async function pageSatellite(key) {
       h("h2", {}, "Settings"),
       h("div", { class: "row", style: "align-items:flex-start" },
         field("Icon", iconBox),
-        h("div", { class: "row grow" }, field("Name", name), field("Area", area), field("Music player", player))),
-      h("p", { class: "muted small" }, "Its area is what “the lights” means here. With the Voice Call integration, it is the area of its device in Home Assistant, and can be changed in either place."),
+        h("div", { class: "row grow" }, field("Name", name),
+          field("Area", area, "What “the lights” means here. With the Voice Call integration, it is the area of its device in Home Assistant, and can be changed in either place."),
+          field("Music player", player))),
       h("div", { class: "row" },
         field("Speech-to-text", stt), field("Language", sttLanguage),
         field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
@@ -1527,17 +1561,13 @@ async function pageSatellite(key) {
       h("div", { class: "row" },
         h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
         h("button", { class: "primary", onclick: () => newCommandDialog(s.key) }, "Add")),
-      h("label", {}, takesHome, "Take the Home's commands and skills too"),
-      h("p", { class: "muted small" }, s.home
-        ? ["Its own, below, and ", h("a", { href: "#/home" }, "the Home's"), ". Where its own and the Home's take the same sentence, its own goes first: duplicate one of the Home's here to do something else on this satellite."]
-        : "Only its own, below: the Home's commands and skills don't run here."),
+      h("label", {}, takesHome, "Include the Home's", hint("Its own, below, and the Home's commands and skills. Where its own and the Home's take the same sentence, its own goes first: duplicate one of the Home's here to do something else on this satellite.")),
       placedSections(store, skillData, s.key, "None of its own yet.")),
     h("div", { class: "panel" },
-      h("h2", {}, "Test it"),
-      h("p", { class: "muted small" }, "What you type is recognized like a command said here, after the wake word, as if every word had been heard exactly as typed: no speech recognition."),
+      heading("h2", "Test it", "What you type is recognized like a command said here, after the wake word, as if every word had been heard exactly as typed: no speech recognition."),
       h("div", { class: "row" }, input, h("button", { class: "primary", onclick: go }, "Test")),
-      h("label", { class: "small" }, run, "Really run the command in Home Assistant (otherwise a dry run, which never asks the conversation agent)"),
-      h("label", { class: "small" }, speak, "Say it first: spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient."),
+      h("label", { class: "small" }, run, "Really run it", hint("Otherwise a dry run: nothing happens in Home Assistant, and the conversation agent isn't asked.")),
+      h("label", { class: "small" }, speak, "Say it first", hint("Spoken by the app's voice and recognized from the audio, to test speech recognition too. Synthesized speech is cleaner than a room, so treat a match then as necessary, not sufficient.")),
       out,
       liveSection(s),
       debugSection(s)),
@@ -1583,7 +1613,7 @@ async function pageSkill(id, query) {
       ? h("div", { class: "grid2" }, ...data.levels.map((level) => {
         const area = h("textarea", { class: "short", placeholder: levels[level] || "", oninput: (e) => { if (e.target.value) response[level] = e.target.value; else delete response[level]; } });
         area.value = response[level] || "";
-        return field(LABELS[level] || level, area);
+        return field(level[0].toUpperCase() + level.slice(1), area);
       }))
       : (() => {
         const area = h("textarea", { class: "short", placeholder: levels.specific || "", oninput: (e) => { response = e.target.value; } });
@@ -1591,9 +1621,8 @@ async function pageSkill(id, query) {
         return area;
       })();
     fill(editor,
-      field("How much it says", select, `A question always answers. For “${example.question || skill.examples[0]}”: ${data.levels.map((level) => `${level} “${levels[level] || "—"}”`).join(", ")}.`),
-      h("div", { class: "field" }, h("span", { class: "label" }, "Response ", toggle), boxes,
-        h("span", { class: "help" }, "Empty: the built-in sentence (shown greyed, for the example). A level without one says the closest written (less first). A template, rendered by Home Assistant, sees answer (“96”), question (as asked), response (the built-in sentence at this level), satellite and speaker. If it can't be rendered, the built-in sentence is said.")));
+      field("Level", select, `A question always answers. For “${example.question || skill.examples[0]}”: ${data.levels.map((level) => `${level} “${levels[level] || "—"}”`).join(", ")}.`),
+      h("div", { class: "field" }, h("div", { class: "label-row" }, h("span", { class: "label" }, "Template ", toggle), hint("Empty: the built-in sentence (shown greyed, for the example). A level without one says the closest written (less first). A template, rendered by Home Assistant, sees answer (“96”), question (as asked), response (the built-in sentence at this level), satellite and speaker. If it can't be rendered, the built-in sentence is said.")), boxes));
   }
   render();
   async function save() {
@@ -1619,8 +1648,8 @@ async function pageSkill(id, query) {
     there ? null : h("div", { class: "notice info" }, `${skill.name} isn't on ${placeName(place)}: add it with Add on ${place ? "its page" : "the Home page"}.`),
     h("div", { class: "panel" },
       h("p", {}, skill.description),
-      h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · ")),
-      h("p", { class: "muted small" }, "A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model). How it answers is the same wherever it's added.")),
+      h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · "), hint("A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model). How it answers is the same wherever it's added.")),
+    ),
     h("div", { class: "panel" }, h("h2", {}, "Responses"), editor,
       h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save"))),
   );
@@ -1628,8 +1657,14 @@ async function pageSkill(id, query) {
 
 // The Home's speech-to-text, text-to-speech and built-in speech model, which
 // a satellite uses unless it has its own.
-async function speechPanel() {
-  const voices = await api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] }));
+// Drawn at once, filled in when Home Assistant's voices have been listed.
+function speechPanel() {
+  const panel = h("div", { class: "panel" }, heading("h2", "Listening and speaking"), h("p", { class: "muted small" }, "Loading…"));
+  api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })).then((voices) => fillSpeechPanel(panel, voices));
+  return panel;
+}
+
+function fillSpeechPanel(panel, voices) {
   const settings = (state.status && state.status.settings) || {};
   const globalStt = voiceSelect("stt", voices.stt, settings.stt);
   const globalTts = voiceSelect("tts", voices.tts, settings.tts);
@@ -1639,9 +1674,8 @@ async function speechPanel() {
   const models = (state.status && state.status.tdt_models) || [];
   const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
     `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
-  return h("div", { class: "panel" },
-    h("h2", {}, "Listening and speaking"),
-    h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own on its page). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
+  fill(panel,
+    heading("h2", "Listening and speaking", "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own on its page). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
     voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
     field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
     state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
@@ -1693,7 +1727,7 @@ async function pageNames() {
             h("button", { class: "link", onclick: () => edit(itemId, entry) }, "edit"),
             h("button", { class: "link", onclick: async () => { if (!confirm(`Remove the name for ${itemId}?`)) return; try { await api("DELETE", `names/${plural}/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); } } }, "remove"))))) :
         h("p", { class: "muted" }, "None yet."),
-      field(`Add a name for a Home Assistant ${kind}`, hassPicker(kind, (item) => edit(item.id, null, item))),
+      field("Add", hassPicker(kind, (item) => edit(item.id, null, item)), "Pick from Home Assistant; its name and aliases are offered as a starting point."),
       form);
   });
 
@@ -1712,11 +1746,9 @@ async function pageNames() {
   }
 
   fill($main, 
-    h("h1", {}, "Names"),
-    h("p", { class: "muted" }, "What things are called when spoken. Each name points at one Home Assistant id. Nothing is taken from Home Assistant automatically: its names and aliases are offered as suggestions."),
+    heading("h1", "Names", "What things are called when spoken. Each name points at one Home Assistant id. Nothing is taken from Home Assistant automatically: its names and aliases are offered as suggestions."),
     ...sections,
-    h("div", { class: "panel" }, h("h2", {}, "Shared value lists"),
-      h("p", { class: "muted small" }, "Lists a command's value slots can use: colors, modes, presets."),
+    h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets."),
       Object.keys(store.lists).length ? h("div", { class: "list" }, ...Object.entries(store.lists).map(([name, values]) => h("div", { class: "item" },
         h("div", { class: "grow" }, h("b", {}, name), h("div", { class: "muted small" }, valuesToText(values).split("\n").join(" · "))),
         h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
@@ -1835,12 +1867,14 @@ function wakeWordEditor(word, wake, reload) {
     defaultNumber((tuning.thresholds || {})[key], defaults.thresholds[key], "0.01", 10)]));
   const second = defaultNumber(tuning.second_opinion, defaults.second_opinion, "0.05", 10);
   const thresholdBox = h("div", {},
-    h("h3", {}, "Thresholds"),
-    h("p", { class: "muted small" }, "How the verifier decides. Empty: the default, shown greyed. They were measured for “okay nabu” on a Voice PE: change them a little at a time, and test from where people stand."),
+    heading("h3", "Thresholds", "How the verifier decides. Empty: the default, shown greyed. They were measured for “okay nabu” on a Voice PE: change them a little at a time, and test from where people stand."),
     h("div", { class: "thresholds" },
       ...[...THRESHOLD_FIELDS.map(([key, label, help]) => [label, thresholds[key], help]),
         ["Second opinion", second, "A wake word refused on its last or first words is accepted anyway when the speech model scores it at or below this. Higher overturns more. A confusable's refusal stands."]]
-        .flatMap(([label, input, help]) => [h("span", { class: "label" }, label), input, h("span", { class: "help" }, help)])));
+        .flatMap(([label, input, help]) => {
+          input.id = input.id || `field-${++fields}`;
+          return [h("div", { class: "label-row" }, h("label", { class: "label", for: input.id }, label), hint(help)), input];
+        })));
 
   function shown() {
     restore.style.display = !word.custom && (confusables.length !== defaults.confusables.length || confusables.some((c) => !defaults.confusables.includes(c))) ? "" : "none";
@@ -1870,9 +1904,7 @@ function wakeWordEditor(word, wake, reload) {
     if (ask !== asked) return;
     const missing = data.words.filter((w) => !pron[w.word] || guessed.has(w.word));
     fill(words, data.words.length ? h("details", { open: missing.length > 0 || null },
-      h("summary", {}, `Pronunciations: ${data.words.length} word${data.words.length === 1 ? "" : "s"} not in the verifier's dictionary`),
-      h("p", { class: "muted small" }, "In the model's phones, the stress mark before the vowel it falls on. A guess (from espeak) is filled in where none was given: check it before saving. ",
-        h("a", { href: "#/wake", onclick: (e) => { e.preventDefault(); phones.open = !phones.open; } }, "The phones")),
+      h("summary", {}, `Pronunciations (${data.words.length})`, hint(`Words not in the verifier's dictionary, in the model's phones (below), the stress mark before the vowel it falls on. A guess (from espeak) is filled in where none was given: check it before saving.`)),
       h("div", { class: "kv" }, data.words.flatMap((w) => {
         if (!pron[w.word] && w.guess) { pron[w.word] = w.guess; guessed.add(w.word); }
         const input = h("input", { type: "text", value: pron[w.word] || "", placeholder: "n ˈæ b u", style: "width:14em" });
@@ -1911,15 +1943,13 @@ function wakeWordEditor(word, wake, reload) {
   renderChips();
   check();
   return h("div", { class: "wake-editor" },
-    field("Cutoff on the satellite", cutoff,
+    field("Cutoff", cutoff,
       `How sure the satellite's own model must be before it wakes, from 0 to ${wake.max_cutoff}. Lower hears it from further away and fires more often on other speech: `
       + (verifier ? "the verifier refuses those, but the ring lights and the music ducks while it checks. "
         : "nothing checks it again, so it wakes. ")
       + (word.custom ? `It was trained for ${num(word.manifest_cutoff)}.` : "The default was measured with its verifier.")),
-    h("h3", {}, "Confusables"),
-    h("p", { class: "muted small" }, verifier
-      ? "Phrases that sound like it and must not wake the satellite. Each is decoded against the wake word, and the wake word is refused when one fits better. One too close refuses the real wake word too, said quickly or from across the room."
-      : "It isn't verified: nothing checks the satellite's detection. Give it confusables — phrases that sound like it and must not wake the satellite — and it is verified here like the built-in ones, which lets it run at a lower cutoff."),
+    heading("h3", "Confusables", "Phrases that sound like it and must not wake the satellite. Each is decoded against the wake word, and the wake word is refused when one fits better. One too close refuses the real wake word too, said quickly or from across the room."),
+    verifier ? null : h("p", { class: "muted small" }, "Not verified: add some to verify it.", hint("Nothing checks the satellite's detection. With confusables it is verified here like the built-in ones, which lets it run at a lower cutoff.")),
     chipsBox, restore, words, phones, problem,
     thresholdBox,
     h("div", { class: "row" }, saveButton,
@@ -1939,7 +1969,7 @@ async function pageWakeWords(query) {
   const option = (w, selected) => h("option", { value: w.id, selected: selected || null }, w.name);
   const reload = () => pageWakeWords(location.hash.split("?")[1]);
 
-  const preferred = h("select", { style: "max-width:320px" }, runs.map((w) => option(w, w.id === wake.preferred)));
+  const preferred = h("select", { style: "max-width:320px", "aria-label": "Preferred wake word" }, runs.map((w) => option(w, w.id === wake.preferred)));
   const satRows = sats.map((s) => {
     const own = (s.wake_words || [])[0];
     const select = h("select", {},
@@ -1995,13 +2025,11 @@ async function pageWakeWords(query) {
 
   const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
   fill($main,
-    h("h1", {}, "Wake words"),
-    h("p", { class: "muted" }, "What a satellite listens for before a command. Each listens for one: the preferred wake word, or one of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly."),
+    heading("h1", "Wake words", "What a satellite listens for before a command. Each listens for one: the preferred wake word, or one of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly."),
     wake.error ? h("div", { class: "notice warn" }, wake.error) : null,
     h("div", { class: "panel" },
-      h("h2", {}, "Preferred wake word"),
-      field("Wake word", preferred, "Every satellite listens for this one, unless given another below."),
-      h("div", { class: "row" }, h("button", { class: "primary", onclick: async () => {
+      heading("h2", "Preferred", "Every satellite listens for this one, unless given its own below."),
+      h("div", { class: "row" }, preferred, h("button", { class: "primary", onclick: async () => {
         try { await api("PUT", "settings", { wake_words: [preferred.value] }); await refreshStatus(); toast("Saved"); reload(); }
         catch (err) { toast(err.message); }
       } }, "Save"))),
@@ -2021,13 +2049,12 @@ async function pageWakeWords(query) {
         } catch (err) { toast(err.message); }
       } }, "Save"))) : null,
     h("div", { class: "panel" },
-      h("h2", {}, "Each wake word"),
-      h("p", { class: "muted small" }, h("b", {}, "Built in"), " wake words are verified. ", h("b", {}, "Custom"), " ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — run at the cutoff they were trained for, unverified until given confusables."),
+      heading("h2", "Tuning", "Built-in wake words are verified. Custom ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — run at the cutoff they were trained for, unverified until given confusables."),
       filter, list),
     h("div", { class: "panel" },
-      h("h2", {}, "Add a custom wake word"),
+      h("h2", {}, "Upload"),
       h("div", { class: "row" },
-        field("Its .json and .tflite", upload, wake.custom_dir ? ["Pick both together. They can also be put in ", h("code", {}, wake.custom_dir), "."] : "Pick both together."),
+        field("Files", upload, ["A custom wake word's microWakeWord manifest (.json) and model (.tflite), picked together.", wake.custom_dir ? [" They can also be put in ", h("code", {}, wake.custom_dir), "."] : null]),
         h("button", { onclick: async () => {
           if (!upload.files.length) return toast("Pick the .json and the .tflite");
           const form = new FormData();
@@ -2080,9 +2107,8 @@ async function pageSessions(query) {
     session && session.debug ? h("div", { class: "notice warn" }, `Debugging ${session.name}${session.debug.dry_run ? " (dry run: nothing is executed)" : ""}. New sessions appear here as they happen.`) : null,
     h("div", { class: "panel" },
       h("div", { class: "row" },
-        h("label", {}, keep, "Debugging: keep the audio and full trace of every session"),
-        h("label", { class: "right" }, "keep at most", max, "sessions")),
-      h("p", { class: "muted small" }, "A session is everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (on its page, under Test it) keeps its audio.")),
+        h("label", {}, keep, "Keep every session", hint("Keeps the audio and full trace of every session — everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (on its page, under Test it) keeps its audio.")),
+        h("label", { class: "right" }, "At most", max))),
     h("div", { class: "panel" }, list),
   );
   await refresh();
@@ -2420,8 +2446,8 @@ async function voicePanel(record) {
   }
   return h("div", { class: "panel" }, h("h2", {}, "Who spoke"),
     h("p", { class: "small" }, said),
-    h("div", { class: "row" }, h("span", {}, "This is"), who, nameField, h("button", { class: "primary", onclick: add }, "Add this voice")),
-    h("p", { class: "muted small" }, "Adds the wake word and the command, as the satellite heard them, to that person's voice: they are recognized better from then on. Only add a session you know is theirs."),
+    h("div", { class: "row" }, h("span", {}, "This is"), who, nameField, h("button", { class: "primary", onclick: add }, "Add this voice"),
+      hint("Adds the wake word and the command, as the satellite heard them, to that person's voice: they are recognized better from then on. Only add a session you know is theirs.")),
     out);
 }
 
@@ -2442,10 +2468,10 @@ function debugSection(s) {
     } catch (err) { toast(err.message); }
   };
   fill(wrap,
-    h("h3", {}, "Debugging", s.debug ? h("span", { class: "badge warn", style: "margin-left:8px" }, `on${s.debug.dry_run ? " · dry run" : ""}`) : null),
-    h("p", { class: "muted small" }, "Keeps the audio of every session on this satellite, from the pre-roll before the wake word to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
+    h("h3", { class: "with-hint" }, "Debugging", hint("Keeps the audio of every session on this satellite, from the pre-roll before the wake word to the end of the command, with every stage of the pipeline. In a dry run nothing is executed: you hear what would have been said."),
+      s.debug ? h("span", { class: "badge warn" }, `on${s.debug.dry_run ? " · dry run" : ""}`) : null),
     h("div", { class: "row" },
-      h("label", {}, dry, "Dry run (don't run commands)"),
+      h("label", {}, dry, "Dry run"),
       s.debug ? h("button", { onclick: () => set(false) }, "Stop debugging") : h("button", { class: "primary", onclick: () => set(true) }, "Start debugging"),
       s.debug ? h("button", { onclick: () => set(true) }, "Update") : null,
       h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")));
@@ -2657,8 +2683,7 @@ function liveSection(s) {
   const why = !s.connected ? "It is offline." : s.can_listen === false ? "Its firmware can't stream outside calls: flash the newer voice_call firmware to listen live." : "";
   if (why) button.disabled = true;
   return h("div", {},
-    h("h3", {}, "Listen live"),
-    h("p", { class: "muted small" }, "Hear what its microphone hears, now, and see what its voice activity and wake word models make of it. It streams only while you listen, its ring blinks red the whole time, and it doesn't answer a wake word meanwhile: a detection is only marked here. Near the satellite, use headphones or untick “Play it here”: it would hear itself."),
+    heading("h3", "Listen live", "Hear what its microphone hears, now, and see what its voice activity and wake word models make of it. It streams only while you listen, its ring blinks red the whole time, and it doesn't answer a wake word meanwhile: a detection is only marked here. Near the satellite, use headphones or untick “Play it here”: it would hear itself."),
     h("div", { class: "row" }, button, h("label", { class: "small" }, play, "Play it here"), why ? h("span", { class: "muted small" }, why) : note),
     view);
 }
@@ -2669,10 +2694,9 @@ function liveSection(s) {
 // command: the fallback, the conversation agent, responses; and the YAML.
 async function pageSettings() {
   await Promise.all([refreshStatus(), loadSatellites()]);
-  const speech = await speechPanel();
   fill($main,
     h("h1", {}, "Settings"),
-    speech,
+    speechPanel(),
     fallbackPanel(),
     agentPanel(),
     responsesPanel(),
@@ -2682,7 +2706,7 @@ async function pageSettings() {
         icon("mdi:code-braces", "big"),
         h("div", { class: "grow" },
           h("div", { class: "title" }, "Edit commands.yaml"),
-          h("div", { class: "muted small" }, "Everything the Commands and Names pages edit, in one file: commands, groups, names and value lists. Commands written here may use anything adapt-ctc supports.")))),
+          h("div", { class: "muted small" }, "Commands, names and value lists, in one file.")))),
   );
 }
 
@@ -2694,13 +2718,12 @@ async function pageYaml() {
   area.value = data.text;
   const errors = h("div");
   fill($main, 
-    h("div", { class: "row" }, h("a", { href: "#/settings" }, "← Settings"), h("h1", { class: "grow", style: "margin:0" }, "commands.yaml"),
+    h("div", { class: "row" }, h("a", { href: "#/settings" }, "← Settings"), heading("h1", "commands.yaml", "Everything the UI edits, in one file. Hand edits made on disk are picked up too. Commands written here may use anything adapt-ctc supports, including entities outside the UI's domains.", { class: "grow", style: "margin:0" }),
       h("button", { class: "primary", onclick: async () => {
         fill(errors, );
         try { await api("PUT", "yaml", { text: area.value }); toast("Saved"); refreshStatus(); }
         catch (err) { errors.append(errorBox(err)); }
       } }, "Save")),
-    h("p", { class: "muted small" }, "Everything the UI edits, in one file. Hand edits made on disk are picked up too. Commands written here may use anything adapt-ctc supports, including entities outside the UI's domains."),
     errors,
     h("div", { class: "panel" }, area),
   );

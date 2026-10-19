@@ -38,8 +38,8 @@ satellite's tile for its page:
   area of its device in Home Assistant, and can be changed in either place),
   its music player, and how it listens and speaks. The area is what "the
   lights" means there. The floor comes from the area.
-- **Commands and skills**: its own, and whether it takes the Home's too (it
-  does unless you untick it).
+- **Commands and skills**: its own, and whether it takes the Home's too
+  (**Include the Home's**, ticked unless you untick it).
 - **Test it**: type a sentence as if said there, listen to it live, and
   debug it.
 
@@ -70,7 +70,7 @@ where each wake word is tuned.
 
 Open a wake word on the Wake words page to change:
 
-- **Its cutoff on the satellite**: how sure the satellite's own model must be
+- **Its cutoff** on the satellite: how sure the satellite's own model must be
   before it wakes. Lower hears it from further away, and fires more often on
   other speech: for a checked wake word the app refuses those, but the ring
   lights and the music ducks while it checks.
@@ -430,7 +430,7 @@ choose them.
   "lights out" the one for this satellite. So are any commands you describe
   the same way.
   It compares the chosen commands with others close in meaning, chosen or
-  not, and runs nothing when it is not sure (**Least sure it may be**, 0.3:
+  not, and runs nothing when it is not sure (**Threshold**, 0.3:
   lower runs more, and more by mistake), when the closest is one you did not
   choose, or when the sentence is not a command at all. A small LLM can be
   picked instead: Granite 4.0 350M or Hammer 2.1 0.5B (non-commercial use
@@ -490,14 +490,14 @@ to the conversation agent, or else the Unknown command.
 Every skill is the Home's to begin with. Take one off the Home, or a
 satellite, on its page (opened from there); add one with **Add**.
 
-A skill's page sets **how much it says**, as a command's does:
+A skill's page sets its **level** -- how much it says, as a command's does:
 
 - **Brief**: the answer -- "96."
 - **Specific** (the default): the answer as a sentence -- "It's 96."
 - **Verbose**: the question said back with it -- "Twelve times eight is 96.",
   "There are 4 cups in a quart."
 
-and, for any level, a **response** of your own: a Home Assistant template
+and, for any level, a **template** of your own: a Home Assistant template
 seeing `answer` ("96"), `question`, `response` (the built-in sentence at
 that level), `satellite` and `speaker`. It's the same wherever the skill is
 added.
@@ -514,7 +514,7 @@ answer there (a setting, as the Voice PE's `conversation_timeout`), the next
 sentence continues it, so "who wrote The Odyssey?" ... "when did he live?"
 follows on. Skills still answer first.
 
-A dry run (Test it without "Really run", or a dry-run debug session)
+A dry run (Test it without "Really run it", or a dry-run debug session)
 never asks the agent, since it can act in your home.
 
 ## Names

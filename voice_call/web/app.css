@@ -108,7 +108,7 @@ textarea.code { min-height: 110px; }
 textarea.big { min-height: 60vh; }
 label { display: inline-flex; gap: 6px; align-items: center; }
 .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
-.field > .label { font-weight: 600; font-size: 0.9rem; }
+.field .label { font-weight: 600; font-size: 0.9rem; }
 .field > .help { color: var(--muted); font-size: 0.82rem; }
 
 .list { display: flex; flex-direction: column; }
@@ -219,13 +219,8 @@ details.family .versions .item:first-child { border-top: 1px solid var(--line); 
 .wake-editor { padding: 4px 4px 14px 30px; }
 .wake-editor h3 { margin: 14px 0 4px; font-size: 0.95rem; }
 .phones { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.thresholds { display: grid; grid-template-columns: max-content 7.5em 1fr; gap: 6px 12px; align-items: center; margin: 6px 0; }
+.thresholds { display: grid; grid-template-columns: max-content 7.5em; gap: 6px 12px; align-items: center; margin: 6px 0; }
 .thresholds .label { font-weight: 600; font-size: 0.9rem; }
-.thresholds .help { color: var(--muted); font-size: 0.82rem; }
-@media (max-width: 640px) {
-  .thresholds { grid-template-columns: max-content 7.5em; }
-  .thresholds .help { grid-column: 1 / -1; margin-bottom: 6px; }
-}
 
 /* The Home: a tile per satellite, then the Home's commands and skills. */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 16px; }
@@ -242,3 +237,22 @@ a.tile:hover { border-color: var(--accent); text-decoration: none; }
 .section + .section { margin-top: 10px; }
 .section h3 { gap: 8px; color: var(--muted); }
 .panel.inset { background: var(--bg); margin-top: 10px; }
+
+/* A hint: "?" beside a label or heading; its text on hover, focus or click. */
+.label-row { display: flex; align-items: center; gap: 4px; }
+.with-hint { display: flex; align-items: center; gap: 6px; }
+.hint-wrap { position: relative; display: inline-flex; vertical-align: middle; }
+button.hint {
+  width: 18px; height: 18px; padding: 0; border-radius: 50%; font-size: 0.72rem; font-weight: 700; line-height: 1;
+  color: var(--muted); background: var(--chip); border: 1px solid var(--line); cursor: help; flex: none;
+}
+button.hint:hover, button.hint:focus-visible, button.hint[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.hint-text {
+  position: absolute; top: calc(100% + 6px); left: -8px; z-index: 30; width: max-content; max-width: min(340px, 80vw);
+  padding: 8px 10px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18); color: var(--text); font-size: 0.84rem; font-weight: normal; line-height: 1.4;
+  white-space: normal; text-align: left;
+}
+.hint-wrap:hover .hint-text[hidden], .hint-wrap:focus-within .hint-text[hidden] { display: block; }
+.var { display: inline-flex; align-items: center; gap: 2px; }
+.hint-text.flip { left: auto; right: -8px; }
