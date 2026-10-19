@@ -746,7 +746,7 @@ class Api:
                     # As stored (absent: as every satellite) and as it comes out.
                     "voice": {
                         k: stored.get(k)
-                        for k in ("stt", "tts", "tts_voice", "speak_on", "stt_language", "tts_language")
+                        for k in ("stt", "tts", "tts_voice", "speak_on", "stt_language", "tts_language", "stt_audio")
                         if k in stored
                     },
                     "voice_used": satellite.voice.__dict__,
@@ -806,6 +806,12 @@ class Api:
                     entry[option] = value
                 else:
                     entry.pop(option, None)
+        if "stt_audio" in body:
+            entry_audio = _stt_audio(body["stt_audio"])
+            if entry_audio:
+                entry["stt_audio"] = entry_audio
+            else:
+                entry.pop("stt_audio", None)
         if "icon" in body:
             icon = str(body["icon"] or "")
             if icon and not ICON.match(icon):
@@ -959,6 +965,12 @@ class Api:
                     settings[option] = value
                 else:
                     settings.pop(option, None)
+        if "stt_audio" in body:
+            audio = _stt_audio(body["stt_audio"])
+            if audio:
+                settings["stt_audio"] = audio
+            else:
+                settings.pop("stt_audio", None)
         if "tts" in body and not settings.get("tts"):
             settings.pop("tts_voice", None)
             settings.pop("tts_language", None)
@@ -1411,6 +1423,16 @@ def _number(value: Any, name: str, low: float, high: float) -> float | None:
     if not low <= number <= high or math.isnan(number):
         raise ConfigError(f"{name}: a number from {low} to {high}")
     return number
+
+
+def _stt_audio(value: Any) -> str:
+    """The capture an STT entity hears: "agc", "aec", or "" for the default."""
+    from .voices import STT_AUDIO  # pylint: disable=import-outside-toplevel
+
+    value = str(value or "")
+    if value and value not in STT_AUDIO:
+        raise ConfigError(f"stt_audio: one of {', '.join(STT_AUDIO)}")
+    return value
 
 
 def _language(value: Any, option: str) -> str:

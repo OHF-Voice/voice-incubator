@@ -308,6 +308,15 @@ async def _scenario(tmp_path: Path) -> None:
             assert app.end_of_speech().silence_seconds == app.options.silence_seconds
             assert (await http.put("/api/settings", json={"end_of_speech": None})).status == 200
             assert "end_of_speech" not in app.store.settings and app.end_of_speech().vad == "silero"
+            # What an STT entity hears: AGC, or AEC; every satellite's, or its own.
+            assert (await http.put("/api/settings", json={"stt_audio": "loud"})).status == 400
+            assert (await http.put("/api/settings", json={"stt_audio": "aec"})).status == 200
+            assert app.store.settings["stt_audio"] == "aec"
+            assert (await http.put(f"/api/satellites/{MAC}", json={"stt_audio": "agc"})).status == 200
+            assert app.store.satellites[MAC]["stt_audio"] == "agc"
+            assert (await http.put(f"/api/satellites/{MAC}", json={"stt_audio": None})).status == 200
+            assert (await http.put("/api/settings", json={"stt_audio": None})).status == 200
+            assert "stt_audio" not in app.store.settings and "stt_audio" not in app.store.satellites[MAC]
 
             # A question no command takes is answered exactly by a skill; one
             # about now or here is not a skill's.
@@ -625,6 +634,21 @@ async def _voices(tmp_path: Path) -> None:
         assert hass.stt_requests[-1]["header"].endswith("language=de-DE")
         assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
         assert spoken[-1]["language"] == "de-DE"
+
+        # The AEC capture to the STT entity, when it is asked: taking no
+        # commands, this satellite needs the words.
+        stored.update(stt_audio="aec", home=False)
+        asked = len(hass.stt_requests)
+        await satellite.call(read_call(CALLS / "call-15788.wav"))
+        recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
+        assert len(hass.stt_requests) == asked + 1, recognition.get("stt")
+        assert recognition["stt"]["audio"] == {"channel": "aec"}
+        stored["stt_audio"] = "aec_boost"
+        await satellite.call(read_call(CALLS / "call-15788.wav"))
+        recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
+        assert recognition["stt"]["audio"]["channel"] == "aec" and "gain_db" in recognition["stt"]["audio"]
+        for key in ("stt_audio", "home"):
+            stored.pop(key)
 
         # The multilingual TDT model, picked and loaded while running.
         if (ROOT / "models/parakeet-tdt-v3-int8").exists():

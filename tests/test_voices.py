@@ -31,6 +31,16 @@ def test_every_satellite_unless_its_own():
     assert choose({"stt_language": "de"}, {}).stt_language is None
 
 
+def test_the_capture_stt_hears():
+    settings = {"stt": "stt.whisper", "stt_audio": "aec"}
+    assert choose(settings, {}).stt_audio == "aec"
+    assert choose(settings, {"stt_audio": "agc"}).stt_audio == "agc"
+    assert choose({"stt": "stt.whisper"}, {}).stt_audio == "agc"
+    assert choose({"stt_audio": "aec"}, {}).stt_audio == "agc"  # no entity: the built-in model hears AGC
+    assert choose({"stt": "stt.whisper", "stt_audio": "loud"}, {}).stt_audio == "agc"
+    assert choose(settings, {"stt_audio": "aec_boost"}).stt_audio == "aec_boost"
+
+
 def test_language_codes():
     assert language_code("de-DE") == "de-DE" and language_code("") == "" and language_code("pt_BR") == "pt_BR"
     with pytest.raises(ValueError):

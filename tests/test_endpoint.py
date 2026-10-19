@@ -127,3 +127,29 @@ def test_why_a_call_timed_out():
     call.endpointer.process(bytes(CHUNK * 300))
     why, details = VoiceCallApp._timed_out(call)  # pylint: disable=protected-access
     assert why == "3.0 s of speech, never 1 s of silence" and details["speech_seconds"] == 3.0
+
+
+def test_stt_hears_the_same_stretch_of_the_aec_capture():
+    import numpy as np  # pylint: disable=import-outside-toplevel
+
+    from voice_call.server import AEC_LEAD_SAMPLES, aec_for_stt  # pylint: disable=import-outside-toplevel
+
+    rng = np.random.default_rng(1)
+    sound = (rng.standard_normal(64000) * 3000).clip(-32767, 32767)
+    # AEC runs ahead of AGC, ~25 dB lower; both pre-rolls end at the detection.
+    for preroll, aec_preroll in ((24000, 24000), (24000, 25600)):
+        extra = aec_preroll - preroll
+        agc = np.concatenate([np.zeros(AEC_LEAD_SAMPLES), sound])[:60000]
+        aec = np.concatenate([np.zeros(extra), sound * 0.056])[: 60000 + extra]
+        cut = 30000
+        command = agc[cut:] / 32768.0
+        pcm = aec.astype("<i2").tobytes()
+        heard, info = aec_for_stt(pcm, len(agc), preroll, aec_preroll)(command)
+        assert info == {"channel": "aec"} and len(heard) == len(command)
+        assert np.corrcoef(heard, command)[0, 1] > 0.99  # the same stretch, as captured
+        assert abs(np.abs(heard).max() / np.abs(command).max() - 0.056) < 0.001
+        heard, info = aec_for_stt(pcm, len(agc), preroll, aec_preroll, boost=True)(command)
+        assert info["channel"] == "aec" and 20 <= info["gain_db"] <= 30
+        assert abs(20 * np.log10(np.abs(heard).max()) + 3) < 0.1  # a -3 dBFS peak
+    command = np.ones(100, dtype=np.float32) * 0.1
+    assert aec_for_stt(b"", 1000, 100, 100)(command) == (command, {"channel": "agc", "why": "no AEC capture"})

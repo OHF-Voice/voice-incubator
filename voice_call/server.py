@@ -124,6 +124,39 @@ def _pcm_to_float(pcm: bytes) -> np.ndarray:
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
+AEC_LEAD_SAMPLES = 905
+"""How far the AEC capture runs ahead of the AGC one: the pipeline between
+the XMOS's two taps (README "Two captures per call", 56.5 ms)."""
+STT_PEAK = 10 ** (-3 / 20)
+STT_MAX_GAIN = 10 ** (30 / 20)
+
+
+def aec_for_stt(aec: bytes, agc_samples: int, preroll: int, aec_preroll: int, boost: bool = False) -> Any:
+    """What an STT entity hears from the AEC capture: the stretch the command
+    was cut from in AGC (``agc_samples`` long, its pre-roll ``preroll``). The
+    two are lined up on the detection, which ends both pre-rolls (each its
+    own length), less the 56.5 ms the AEC tap runs ahead of AGC's: AGC is
+    the later stage in the XMOS pipeline. As captured, or with ``boost``
+    raised to a -3 dBFS peak, by at most 30 dB (the tap is recorded ~25 dB
+    below AGC). Without it, the AGC audio."""
+
+    def pick(command: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+        if not aec:
+            return command, {"channel": "agc", "why": "no AEC capture"}
+        cut = agc_samples - len(command)
+        start = max(0, cut - preroll + aec_preroll - AEC_LEAD_SAMPLES)
+        out = _pcm_to_float(aec[start * 2 : (start + len(command)) * 2])
+        if len(out) < len(command) // 2:
+            return command, {"channel": "agc", "why": "the AEC capture is short"}
+        if not boost:
+            return out, {"channel": "aec"}
+        peak = float(np.abs(out).max()) if len(out) else 0.0
+        gain = min(STT_MAX_GAIN, STT_PEAK / peak) if peak > 0 else 1.0
+        return out * gain, {"channel": "aec", "gain_db": round(20 * math.log10(gain), 1)}
+
+    return pick
+
+
 # Parakeet's TDT head, which writes example sentences, free text and hints:
 # the English one beside the CTC model (parakeet-tdt_ctc-110m, int8 preferred)
 # or NVIDIA's multilingual parakeet-tdt-0.6b-v3 (25 European languages; it
@@ -1599,11 +1632,18 @@ class VoiceCallApp:
 
         satellite = self.satellite(session.satellite)
         transcriber = await self._transcriber(satellite)
+        agc = bytes(call.audio)
+        if transcriber is not None and satellite.voice.stt_audio != "agc":
+            transcriber.audio_for = aec_for_stt(
+                bytes(call.aec), len(agc) // 2, call.preroll_bytes // 2,
+                (call.aec_preroll_bytes or call.preroll_bytes) // 2,
+                boost=satellite.voice.stt_audio == "aec_boost",
+            )
         async with self._model_lock:
             assert self.engine is not None
             decision, split = await asyncio.to_thread(
                 self.engine.recognize_call,
-                _pcm_to_float(bytes(call.audio)),
+                _pcm_to_float(agc),
                 call.wake_start,
                 call.split_bytes / BYTE_RATE,
                 satellite,
@@ -1876,6 +1916,20 @@ class VoiceCallApp:
             return record
         self._place_split(call, verdict)
         transcriber = await self._transcriber(satellite)
+        if transcriber is not None and satellite.voice.stt_audio != "agc":
+            aec_path = self.calls.audio_path(call_id, "call-aec")
+            aec = b""
+            if aec_path is not None:
+                with wave.open(str(aec_path), "rb") as wav:
+                    aec = wav.readframes(wav.getnframes())
+            aec_preroll = next(
+                (s.get("aec_preroll") for s in old.stages if s.get("stage") == "call_start"), None
+            )
+            transcriber.audio_for = aec_for_stt(
+                aec, len(pcm) // 2, ms_to_bytes(preroll * 1000) // 2,
+                ms_to_bytes((aec_preroll or preroll) * 1000) // 2,
+                boost=satellite.voice.stt_audio == "aec_boost",
+            )
         async with self._model_lock:
             assert self.engine is not None
             decision, split = await asyncio.to_thread(

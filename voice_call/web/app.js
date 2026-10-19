@@ -1543,6 +1543,7 @@ async function pageSatellite(key, opened) {
   const sttLanguage = languagePicker(voices.stt, stt, own.stt_language, settings.stt_language || "automatic", settings.stt);
   const ttsLanguage = languagePicker(voices.tts, tts, own.tts_language, settings.tts_language || "automatic", settings.tts);
   const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "", ttsLanguage);
+  const sttAudio = sttAudioSelect(own.stt_audio, settings.stt_audio || "agc");
   const speakOn = h("select", {},
     h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
     ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
@@ -1555,8 +1556,9 @@ async function pageSatellite(key, opened) {
   const groups = [
     settingsGroup("music", "Music", s.media_player ? playerName(s.media_player) : "no player found", opened,
       h("div", { class: "row" }, field("Player", player, "Where music asked for here plays. Its Sendspin player in Music Assistant unless you pick another."))),
-    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language].filter(Boolean).join(" · "), opened,
-      h("div", { class: "row" }, field("Speech-to-text", stt, "Asked only when the words are needed: free text, example sentences, hints. Commands are matched on the audio first."), field("Language", sttLanguage))),
+    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language, used.stt && used.stt_audio !== "agc" ? (used.stt_audio === "aec_boost" ? "AEC, boosted" : "AEC") : null].filter(Boolean).join(" · "), opened,
+      h("div", { class: "row" }, field("Speech-to-text", stt, "Asked only when the words are needed: free text, example sentences, hints. Commands are matched on the audio first."), field("Language", sttLanguage),
+        field("Audio", sttAudio, STT_AUDIO_HINT))),
     settingsGroup("output", "Output", [used.tts || "Piper", used.tts_language, used.tts_voice, used.speak_on ? `on ${used.speak_on}` : null].filter(Boolean).join(" · "), opened,
       h("div", { class: "row" }, field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
         field("Speak on", speakOn, "With a text-to-speech entity: this satellite, or another media player. The acknowledgement sound stays here."))),
@@ -1567,6 +1569,7 @@ async function pageSatellite(key, opened) {
         name: name.value, area: area.value || null, icon: chosenIcon, media_player: player.value || null,
         stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
         stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
+        stt_audio: sttAudio.value || null,
       });
       toast("Saved"); pageSatellite(key, new Set(groups.filter((g) => g.open).map((g) => g.dataset.group)));
     } catch (err) { toast(err.message); }
@@ -1731,6 +1734,7 @@ function fillSpeechPanel(panel, voices) {
   const globalSttLanguage = languagePicker(voices.stt, globalStt, settings.stt_language);
   const globalTtsLanguage = languagePicker(voices.tts, globalTts, settings.tts_language);
   const globalVoice = voicePicker(globalTts, settings.tts_voice, undefined, globalTtsLanguage);
+  const globalSttAudio = sttAudioSelect(settings.stt_audio);
   const models = (state.status && state.status.tdt_models) || [];
   const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
     `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
@@ -1740,13 +1744,14 @@ function fillSpeechPanel(panel, voices) {
     field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
     state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
     h("div", { class: "row" },
-      field("Speech-to-text", globalStt), field("Language", globalSttLanguage),
+      field("Speech-to-text", globalStt), field("Language", globalSttLanguage), field("Audio", globalSttAudio, STT_AUDIO_HINT),
       field("Text-to-speech", globalTts), field("Language", globalTtsLanguage), field("Voice", globalVoice),
       h("button", { class: "primary", onclick: async () => {
         try {
           await api("PUT", "settings", {
             stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null,
             stt_language: languageValue(globalSttLanguage), tts_language: languageValue(globalTtsLanguage), tdt_model: tdtModel.value,
+            stt_audio: globalSttAudio.value === "agc" ? null : globalSttAudio.value,
           });
           await refreshStatus(); toast("Saved"); pageSettings();
         } catch (err) { toast(err.message); }
@@ -1829,6 +1834,15 @@ function voiceSelect(kind, entities, value, inherit) {
   for (const e of entities) options.push(h("option", { value: e.entity_id, selected: value === e.entity_id }, e.entity_id));
   if (value && value !== "builtin" && !entities.some((e) => e.entity_id === value)) options.push(h("option", { value, selected: true }, `${value} (not found)`));
   return h("select", {}, ...options);
+}
+
+// The capture a speech-to-text entity hears; with `inherit`, "Default" first.
+const STT_AUDIO_HINT = "What the speech-to-text entity hears. AGC: the microphone with automatic gain, as commands are matched. AEC: echo-cancelled, with the satellite's own playback (its music, its voice) taken out — about 25 dB quieter, as captured, or boosted to a normal level for an entity that doesn't level it itself. Sound from other speakers is in both.";
+function sttAudioSelect(value, inherit) {
+  const name = { agc: "AGC", aec: "AEC (echo-cancelled)", aec_boost: "AEC, boosted" };
+  return h("select", {},
+    inherit !== undefined ? h("option", { value: "", selected: !value }, `Default (${name[inherit] || name.agc})`) : null,
+    ...Object.entries(name).map(([id, label]) => h("option", { value: id, selected: inherit === undefined ? (value || "agc") === id : value === id }, label)));
 }
 
 function voiceSelectValue(select, inheritable) {
@@ -2383,6 +2397,7 @@ function renderRecognition(rec) {
     h("div", { class: "kv" },
       h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
       h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run")),
+      rec.stt && rec.stt.asked && rec.stt.audio ? [h("div", {}, "Sent"), h("div", {}, rec.stt.audio.channel === "aec" ? (rec.stt.audio.gain_db !== undefined ? `AEC, boosted ${num(rec.stt.audio.gain_db, 1)} dB` : "AEC") : `AGC${rec.stt.audio.why ? ` (${rec.stt.audio.why})` : ""}`)] : null,
       r.unspellable ? [h("div", {}, "Not in the model's pieces"), h("div", {}, r.unspellable.join(", "))] : null,
       r.lead_in ? [h("div", {}, "Lead-in ignored"), h("div", {}, r.lead_in)] : null,
       h("div", {}, "Timing"), h("div", { class: "small" }, Object.entries(rec.timings || {}).map(([k, v]) => `${k} ${Math.round(v * 1000)} ms`).join(" · "))),

@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **The audio a speech-to-text entity hears** (Settings, and a satellite's
+  Input): AGC, as before, or the echo-cancelled AEC capture -- as captured,
+  or boosted to a normal level. The AEC stretch is cut to match the AGC
+  command, 56.5 ms earlier, from its own pre-roll.
 - **A timeout says why**, in the session list and its Timed out step: the
   satellite's audio stopped arriving, the wake word was still being checked,
   no speech was heard, or speech never ended in enough silence -- with how

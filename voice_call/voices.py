@@ -41,6 +41,10 @@ AUTO = "auto"
 """A satellite's own choice of the TTS entity's default voice."""
 LANGUAGE = "en"
 STT_TIMEOUT = 15.0
+STT_AUDIO = ("agc", "aec", "aec_boost")
+"""What an STT entity hears: the satellite's AGC capture (what commands are
+recognized from), or its AEC capture (the satellite's own playback taken out)
+-- as captured, or boosted to a normal level."""
 
 
 @dataclass
@@ -56,6 +60,9 @@ class VoiceChoice:
     stt_language: str | None = None
     tts_language: str | None = None
     """None: the entity's best match for English."""
+    stt_audio: str = "agc"
+    """The capture the STT entity hears: ``agc``, ``aec`` or ``aec_boost``
+    (STT_AUDIO)."""
 
 
 def choose(settings: dict[str, Any], stored: dict[str, Any]) -> VoiceChoice:
@@ -74,6 +81,7 @@ def choose(settings: dict[str, Any], stored: dict[str, Any]) -> VoiceChoice:
         speak_on=(str(stored["speak_on"]) if tts and stored.get("speak_on") else None),
         stt_language=pick("stt_language") if stt else None,
         tts_language=pick("tts_language") if tts else None,
+        stt_audio=(pick("stt_audio") if stt and pick("stt_audio") in STT_AUDIO else "agc"),
     )
 
 
@@ -111,10 +119,17 @@ class HassTranscriber:
         self.error: str | None = None
         self.seconds: float | None = None
         self._text: str | None = None
+        self.audio_for: Any = None
+        """The audio to send in place of the command's (AGC) audio: a function
+        of it, returning the audio and what it is (server.aec_for_stt)."""
+        self.audio: dict[str, Any] = {"channel": "agc"}
 
     def transcribe(self, audio: np.ndarray) -> str:
         if self._text is None:
-            pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+            sent = audio
+            if self.audio_for is not None:
+                sent, self.audio = self.audio_for(audio)
+            pcm = (np.clip(sent, -1.0, 1.0) * 32767).astype("<i2").tobytes()
             started = time.perf_counter()
             future = asyncio.run_coroutine_threadsafe(
                 self.hass.speech_to_text(self.entity_id, pcm, self.language), self.loop
@@ -146,6 +161,7 @@ class HassTranscriber:
             "text": self._text,
             "seconds": round(self.seconds, 3) if self.seconds is not None else None,
             "error": self.error,
+            "audio": self.audio,
         }
 
 
