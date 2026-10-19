@@ -1,18 +1,11 @@
-"""Can't look it up: anything about now or here -- the weather, news,
-scores, prices, what's open -- gets "Sorry, I can't look that up.", where the
-question model would only make something up.
-
-``is_live`` also keeps such questions away from the other skills (a number
-in "who won the 2024 final" is not arithmetic) and from the question model,
-whether or not this skill is on."""
+"""Whether a question is about now or here -- the weather, news, scores,
+prices, what's open. Not a skill: it keeps such questions away from the
+skills (a number in "who won the 2024 final" is not arithmetic), which leave
+them to the conversation agent, or else the Unknown command."""
 
 from __future__ import annotations
 
 import re
-
-from .common import Skill
-
-LIVE_REPLY = "Sorry, I can't look that up."
 
 LIVE_PATTERNS = [
     r"\b(weather|forecast|temperature outside|outside|rain(ing)?|snow(ing)?|sunny|cloudy|windy|wind|humid(ity)?|umbrella|jacket|coat|storm|thunder|hail|frost|uv index|air quality|aqi|pollen|smoke)\b",
@@ -63,22 +56,3 @@ def is_live(q):
     if len({c.rstrip("s") for c in CURRENCIES.findall(s)}) > 1:
         return True
     return any(re.search(p, s) for p in LIVE_PATTERNS)
-
-
-def answer(text: str) -> str | None:
-    return LIVE_REPLY if is_live(text) else None
-
-
-SKILL = Skill(
-    id="live",
-    name="Can't look it up",
-    description="Questions about now or here — the weather, news, scores, prices, opening hours — get “Sorry, I can't look that up.” instead of a guess.",
-    examples=("what's the weather tomorrow", "who won the game last night", "what time does Costco close"),
-    icon="mdi:web-off",
-    answer=answer,
-    kind="live",
-    # After the command fallback: "do I need an umbrella" may still be the
-    # weather command.
-    last=True,
-    live_too=True,
-)

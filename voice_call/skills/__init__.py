@@ -13,19 +13,20 @@ Home's commands and skills. A satellite may also be given a skill of its own
 (``satellites.yaml``: ``skills: {spelling: true}``) -- one the Home doesn't
 have, or for a satellite that doesn't take the Home's.
 
-When they are asked, in ``SKILLS`` order:
+They are asked in ``SKILLS`` order, before the command fallback (meaning,
+the LLM) -- they are instant and never wrong: spelling first ("how do you
+spell weather" is not about the weather), then, unless the question is about
+now or here (``live.is_live``: left to the conversation agent, or the Unknown
+command), dates, clock arithmetic, units, arithmetic.
 
 Each gets the question normalized (``common.normalize``): "What’s",
 "50°F", "12 × 8", "½ cup" and "$80" as a typed question, or another
 speech-to-text, may write them, in the words the grammars read.
 
-1. Before the command fallback (meaning, the LLM) -- they are instant and
-   never wrong: spelling first ("how do you spell weather" is not about the
-   weather), then, unless the question is about now or here
-   (``live.is_live``), dates, clock arithmetic, units, arithmetic.
-2. After it, when it found nothing: the live notice ("do I need an
-   umbrella" may still be the weather command). Then the question model
-   (voice_call/questions.py).
+Each answers at three levels (``common.LEVELS``): brief ("96."), specific
+("It's 96.", the default) and verbose ("Twelve times eight is 96."). Which,
+and a template of your own for any of them (rendered by Home Assistant), is
+the skill's page's (``settings.yaml`` ``skill_responses``).
 """
 
 from __future__ import annotations
@@ -33,34 +34,41 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from . import arithmetic, clock, dates, live, spelling, units
-from .common import Skill, normalize
+from . import arithmetic, clock, dates, spelling, units
+from .common import DEFAULT_LEVEL, LEVELS, Reply, Skill, normalize
 from .live import is_live
 
 SKILLS: dict[str, Skill] = {
-    skill.id: skill
-    for skill in (spelling.SKILL, dates.SKILL, clock.SKILL, units.SKILL, arithmetic.SKILL, live.SKILL)
+    skill.id: skill for skill in (spelling.SKILL, dates.SKILL, clock.SKILL, units.SKILL, arithmetic.SKILL)
 }
 
 
 @dataclass
 class Answer:
-    """What a question comes to."""
+    """What a question comes to: a skill's answer, said at every level."""
 
     kind: str
-    """exact | live (a skill's) | knowledge (the question model's)"""
+    """exact: a skill's."""
     text: str | None = None
+    """As said at the default level (``DEFAULT_LEVEL``)."""
     skill: str | None = None
     """The skill that answered."""
     seconds: float | None = None
+    reply: Reply | None = None
+    question: str = ""
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "kind": self.kind,
             "text": self.text,
             "skill": self.skill,
             "seconds": None if self.seconds is None else round(self.seconds, 3),
         }
+        if self.reply is not None:
+            out["answer"] = self.reply.answer
+            out["levels"] = {level: self.reply.at(level) for level in LEVELS}
+            out["question"] = self.question
+        return out
 
 
 def home_skills(home: Any = None) -> frozenset[str]:
@@ -83,15 +91,14 @@ def enabled(home: Any = None, own: Any = None, takes_home: bool = True) -> froze
     return own_skills(own) | (home_skills(home) if takes_home else frozenset())
 
 
-def answer(text: str, on: frozenset[str] | None = None, last: bool = False) -> Answer | None:
-    """The first answer from the skills that are ``on`` (None: every one), of
-    those asked before the command fallback, or (``last``) after it."""
+def answer(text: str, on: frozenset[str] | None = None) -> Answer | None:
+    """The first answer from the skills that are ``on`` (None: every one)."""
     text = normalize(text)
     if not text:
         return None
     live_question: bool | None = None
     for skill in SKILLS.values():
-        if skill.last != last or (on is not None and skill.id not in on):
+        if on is not None and skill.id not in on:
             continue
         if not skill.live_too:
             if live_question is None:
@@ -99,9 +106,38 @@ def answer(text: str, on: frozenset[str] | None = None, last: bool = False) -> A
             if live_question:
                 continue
         try:
-            said = skill.answer(text)
+            found = skill.answer(text)
         except (ValueError, OverflowError, KeyError, ZeroDivisionError):
-            said = None
-        if said:
-            return Answer(skill.kind, said, skill.id)
+            found = None
+        if found:
+            return Answer("exact", found.at(DEFAULT_LEVEL), skill.id, reply=found, question=text)
     return None
+
+
+def skill_response(settings: dict[str, Any], skill_id: str) -> dict[str, Any]:
+    """How a skill answers, as its page set it (``settings.yaml``
+    ``skill_responses``): ``verbosity`` (a level, ``DEFAULT_LEVEL`` unless
+    set), and ``response`` -- a template for every level, or one for some
+    (``{brief, specific, verbose}``) -- by level, the closest written for a
+    level without one (less first, as commands.closest_text)."""
+    config = ((settings or {}).get("skill_responses") or {}).get(skill_id) or {}
+    level = config.get("verbosity") if config.get("verbosity") in LEVELS else DEFAULT_LEVEL
+    response = config.get("response")
+    if isinstance(response, str):
+        written = {lvl: response for lvl in LEVELS} if response.strip() else {}
+    elif isinstance(response, dict):
+        written = {lvl: str(response[lvl]) for lvl in LEVELS if str(response.get(lvl) or "").strip()}
+    else:
+        written = {}
+    by_level = {}
+    for lvl in LEVELS:
+        if lvl in written:
+            by_level[lvl] = written[lvl]
+            continue
+        # The closest written: less said first, then more.
+        at = LEVELS.index(lvl)
+        order = [LEVELS[i] for i in range(at - 1, -1, -1)] + [LEVELS[i] for i in range(at + 1, len(LEVELS))]
+        found = next((written[o] for o in order if o in written), None)
+        if found is not None:
+            by_level[lvl] = found
+    return {"verbosity": level, "response": by_level}

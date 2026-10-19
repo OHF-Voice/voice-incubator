@@ -6,16 +6,21 @@ from __future__ import annotations
 import math
 import re
 
-from .common import FRACTIONS, N, ORDINAL_POW, Skill, clean, fmt, parse_num, sentence
+from .common import FRACTIONS, N, ORDINAL_POW, Skill, clean, fmt, parse_num, reply
 
 
-def solve(q):
+def asked(q):
+    """What is asked, without "what's": "twelve times eight"."""
     s = clean(q)
     s = re.sub(r"^(what|what's|whats|how much) (is|are)? ?", "", s)
     s = re.sub(r"^(what's|whats) ", "", s)
     s = re.sub(r"\bmultiplied by\b|\bx\b", "times", s)
     s = re.sub(r"\bover\b", "divided by", s)
-    s = re.sub(r"\bthe (sum|total) of\b", "sum of", s).strip()
+    return re.sub(r"\bthe (sum|total) of\b", "sum of", s).strip()
+
+
+def solve(q):
+    s = asked(q)
 
     if m := re.fullmatch(rf"the square root of {N}", s) or re.fullmatch(rf"square root of {N}", s):
         v = parse_num(m.group(1))
@@ -66,17 +71,18 @@ def solve(q):
 MONEY = re.compile(r"\b(dollars?|euros?|pounds?|yen|cents?|bucks?)\b", re.I)
 
 
-def answer(text: str) -> str | None:
+def answer(text: str):
     """With money in it ("15% of $80"), in that money: "It's 12 dollars."."""
     money = {m.lower().rstrip("s") for m in MONEY.findall(text)}
     if len(money) > 1:
         return None  # a conversion: not arithmetic
-    found = solve(MONEY.sub(" ", text) if money else text)
-    if found is None or not money:
-        return sentence(found)
-    unit = money.pop()
-    plural = "" if unit == "yen" or found == "1" else "s"
-    return sentence(f"{found} {unit}{plural}")
+    plain = MONEY.sub(" ", text) if money else text
+    found = solve(plain)
+    if found is not None and money:
+        unit = money.pop()
+        found = f"{found} {unit}{'' if unit == 'yen' or found == '1' else 's'}"
+    expression = " ".join(asked(plain).split())
+    return reply(found, text, f"{expression} is {found}" if expression else None)
 
 
 SKILL = Skill(

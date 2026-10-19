@@ -122,7 +122,7 @@ under **Custom**, and the skills under **Questions**; a satellite's page lists
 its own the same way. A command from the library stays in its section when
 you change it, rename it or duplicate it.
 
-**New command**, on the Home page or a satellite's, adds to that place: the
+**Add**, on the Home page or a satellite's, adds to that place: the
 library's commands and skills -- search them, or show one group (Basics,
 Covers and locks, Music, Timers, Questions) -- and, always at the top, a
 custom command made from scratch. On a satellite's, what it already has from
@@ -469,9 +469,10 @@ there is none) still says why.
 
 ## Skills
 
-The **Skills** tab: questions no command takes, answered exactly and at once,
-without an LLM. Each is computed, never guessed -- a question a skill can't
-read whole is left to the next step:
+Skills (under **Questions** on the Home page, or a satellite's) answer
+questions no command takes, exactly and at once, without an LLM. Each is
+computed, never guessed -- a question a skill can't read whole is left to
+the next step:
 
 - **Spelling**: "how do you spell necessary".
 - **Dates**: "what day is Christmas", "is 2028 a leap year", "how many days
@@ -480,16 +481,26 @@ read whole is left to the next step:
 - **Unit conversions**: "how many cups in a quart", "100 Fahrenheit in
   Celsius", "5 miles in kilometers".
 - **Math**: "what's twelve times eight", "15 percent of 80".
-- **Can't look it up**: questions about now or here -- the weather, news,
-  scores, prices, what's open -- get "Sorry, I can't look that up" (unless a
-  command of yours answers them, like the library's weather command).
 
 They read questions however they are written -- "What's 50°F in Celsius?",
-"12 × 8", "¼ cup", "$80" -- as well as spoken.
+"12 × 8", "¼ cup", "$80" -- as well as spoken. A question about now or here
+-- the weather, news, scores, prices, what's open -- is no skill's: it goes
+to the conversation agent, or else the Unknown command.
 
-Each is on unless you turn it off, for the whole home or for one satellite:
-a satellite set "on" or "off" for a skill keeps that whatever the home's
-setting.
+Every skill is the Home's to begin with. Take one off the Home, or a
+satellite, on its page (opened from there); add one with **Add**.
+
+A skill's page sets **how much it says**, as a command's does:
+
+- **Brief**: the answer -- "96."
+- **Specific** (the default): the answer as a sentence -- "It's 96."
+- **Verbose**: the question said back with it -- "Twelve times eight is 96.",
+  "There are 4 cups in a quart."
+
+and, for any level, a **response** of your own: a Home Assistant template
+seeing `answer` ("96"), `question`, `response` (the built-in sentence at
+that level), `satellite` and `speaker`. It's the same wherever the skill is
+added.
 
 ## Conversation agent
 
@@ -501,8 +512,7 @@ and what it doesn't understand either is the Unknown command's.
 Each satellite keeps a conversation with it: for 5 minutes after its last
 answer there (a setting, as the Voice PE's `conversation_timeout`), the next
 sentence continues it, so "who wrote The Odyssey?" ... "when did he live?"
-follows on. Skills still answer first, except "Can't look it up", which waits
-for the agent: it may know the weather.
+follows on. Skills still answer first.
 
 A dry run (Test it without "Really run", or a dry-run debug session)
 never asks the agent, since it can act in your home.

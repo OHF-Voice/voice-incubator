@@ -1311,25 +1311,28 @@ Ported from llama.cpp's smart-home-qa-bench (`router.py`, and its model
 results). When no command is meant -- after the CTC matcher, and around the
 command fallback -- a question still gets an answer:
 
-1. **Skills** (`voice_call/skills/`, one module each, the Skills tab): spelling,
-   dates, clock arithmetic, unit conversions, arithmetic -- grammars that
-   must parse the whole question *and* compute an answer, or let it fall
-   through. Before the command fallback: they are instant and never wrong
-   when they answer. Spelling first ("how do you spell weather" is not about
-   the weather); the others only for a question that is not about now or
-   here.
-2. **The live skill**: anything about now or here (weather, news, scores,
-   prices, opening hours, "tonight", "last night") gets "Sorry, I can't look
-   that up." After the command fallback, so "do I need an umbrella" can
-   still be the weather command.
-3. **A Home Assistant conversation agent** (`voice_call/agent.py`;
+1. **Skills** (`voice_call/skills/`, one module each, Questions on the Home
+   page): spelling, dates, clock arithmetic, unit conversions, arithmetic --
+   grammars that must parse the whole question *and* compute an answer, or
+   let it fall through. Before the command fallback: they are instant and
+   never wrong when they answer. Spelling first ("how do you spell weather"
+   is not about the weather); the others only for a question that is not
+   about now or here (`skills/live.py` `is_live`: weather, news, scores,
+   prices, opening hours, "tonight", "last night"). Each answers at three
+   levels (`common.Reply`: brief "96.", specific "It's 96.", verbose
+   "Twelve times eight is 96." -- the question said back where the skill
+   can't say it with the answer); `settings.yaml` `skill_responses` picks
+   one and may give a template per level, which the server renders through
+   Home Assistant (`VoiceCallApp._skill_says`, the built-in sentence when it
+   can't). The "can't look it up" skill, which answered questions about now
+   or here, is gone: those go to the agent, or the Unknown command.
+2. **A Home Assistant conversation agent** (`voice_call/agent.py`;
    `settings.yaml` `agent`, none unless chosen): everything else -- not only
    questions -- through `conversation/process`, with the satellite's
    `device_id` (Home Assistant 2026.10 and later; sent without it to an older
    one) and its `conversation_id`, kept for `agent_keep_minutes` (5, the
    Voice PE's `conversation_timeout`) after the agent's last answer on that
-   satellite. With an agent, the live skill waits for it (`Engine.agent_answers`:
-   the server asks the agent, then the live skill). An answer that is Home
+   satellite. An answer that is Home
    Assistant's `no_intent_match` counts as none. A dry run never asks it: an
    agent can act. This replaced a small question LLM (Granite 4.0 350M or
    Gemma 3 1B in llama.cpp, for what read as a question); the benchmark

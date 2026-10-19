@@ -29,7 +29,8 @@ from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
-from .skills import SKILLS, home_skills, own_skills
+from .skills import LEVELS, SKILLS, home_skills, own_skills
+from .skills import answer as skill_answer
 from .store import NAME_KINDS, compile_store, dump, plain
 from .protocol import SAMPLE_RATE
 from .voices import language_code
@@ -512,12 +513,23 @@ class Api:
     # --------------------------------------------------------------- skills
 
     async def skills(self, request: web.Request) -> web.Response:
-        """Every skill, the Home's (each unless taken off it), and each
-        satellite's own (given to it)."""
+        """Every skill -- how it answers (``responses``: its level and your
+        templates, as set) and what it says at each level for its first
+        example (``example``) -- the Home's (each unless taken off it), and
+        each satellite's own (given to it)."""
         store = self.app.store
+        configured = store.settings.get("skill_responses") or {}
+        out = []
+        for skill in SKILLS.values():
+            item = skill.to_json()
+            item["responses"] = configured.get(skill.id) or {}
+            found = skill_answer(skill.examples[0], frozenset({skill.id}))
+            item["example"] = found.to_json() if found is not None else None
+            out.append(item)
         return web.json_response(
             {
-                "skills": [skill.to_json() for skill in SKILLS.values()],
+                "skills": out,
+                "levels": list(LEVELS),
                 "home": sorted(home_skills(store.settings.get("skills"))),
                 "satellites": {key: sorted(own_skills(entry.get("skills"))) for key, entry in store.satellites.items()},
             }
@@ -525,13 +537,48 @@ class Api:
 
     async def put_skill(self, request: web.Request) -> web.Response:
         """Put a skill on the Home or take it off (``home``: true or false),
-        and give it to satellites or take it from them (``satellites``:
-        ``{key: true | false}``)."""
+        give it to satellites or take it from them (``satellites``:
+        ``{key: true | false}``), and how it answers (``verbosity``: a level,
+        null for the default; ``response``: a template for every level, or
+        ``{brief, specific, verbose}``, empty for the built-in sentences)."""
         skill_id = request.match_info["id"]
         if skill_id not in SKILLS:
             raise FileNotFoundError(f"No skill {skill_id}")
         body = await request.json()
         store = self.app.store
+        if "verbosity" in body or "response" in body:
+            configured = store.settings.setdefault("skill_responses", {})
+            entry = dict(configured.get(skill_id) or {})
+            if "verbosity" in body:
+                level = body["verbosity"]
+                if level in (None, ""):
+                    entry.pop("verbosity", None)
+                elif level not in LEVELS:
+                    raise ConfigError(f"verbosity: one of {', '.join(LEVELS)}")
+                else:
+                    entry["verbosity"] = level
+            if "response" in body:
+                response = body["response"]
+                if isinstance(response, dict):
+                    unknown = set(response) - set(LEVELS)
+                    if unknown:
+                        raise ConfigError(f"response: by level ({', '.join(LEVELS)}), not {sorted(unknown)}")
+                    response = {k: str(v).strip() for k, v in response.items() if str(v or "").strip()}
+                elif response is not None and not isinstance(response, str):
+                    raise ConfigError("response: a template, or one for each level")
+                if isinstance(response, str):
+                    response = response.strip()
+                if response:
+                    entry["response"] = response
+                else:
+                    entry.pop("response", None)
+            if entry:
+                configured[skill_id] = entry
+            else:
+                configured.pop(skill_id, None)
+            if not configured:
+                store.settings.pop("skill_responses", None)
+            store.save_settings()
         if "home" in body:
             home = store.settings.setdefault("skills", {})
             if body["home"] is False:

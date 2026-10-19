@@ -1,5 +1,5 @@
-"""Skills: questions answered without an LLM, each on or off for the home or
-a satellite."""
+"""Skills: questions answered without an LLM, at three levels, the Home's or
+a satellite's own."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import importlib
 import pytest
 
 from voice_call import skills
-from voice_call.skills import SKILLS, Answer, enabled
+from voice_call.skills import SKILLS, enabled, skill_response
 from voice_call.skills.common import normalize
-from voice_call.skills.live import LIVE_REPLY
+from voice_call.skills.live import is_live
 
 
 @pytest.mark.parametrize(
@@ -38,10 +38,30 @@ from voice_call.skills.live import LIVE_REPLY
     ],
 )
 def test_exact_answers(question, said, skill):
-    assert skills.answer(question) == Answer("exact", said, skill)
-    assert skills.answer(question, last=True) is None  # asked before the command fallback
+    found = skills.answer(question)
+    assert (found.kind, found.text, found.skill) == ("exact", said, skill)
     # Turned off: not answered, by it or another.
     assert skills.answer(question, frozenset(SKILLS) - {skill}) is None
+
+
+@pytest.mark.parametrize(
+    ("question", "brief", "verbose"),
+    [
+        ("What is twelve times eight?", "96.", "Twelve times eight is 96."),
+        ("what's 15 percent of $80", "12 dollars.", "15 percent of 80 is 12 dollars."),
+        ("how many cups are in a quart", "4.", "There are 4 cups in a quart."),
+        ("how many ounces are in a cup", "8.", "There are 8 fluid ounces in a cup."),
+        ("what is 5 miles in kilometers", "8.047 kilometers.", "5 miles is 8.047 kilometers."),
+        ("convert 100 fahrenheit to celsius", "37.8 degrees Celsius.", "100 degrees Fahrenheit is 37.8 degrees Celsius."),
+        ("what time is 45 minutes after 3 pm", "3:45 PM.", "45 minutes after 3 pm is 3:45 PM."),
+        # Said back as asked, where the skill can't say it with the answer.
+        ("Is 2024 a leap year?", "Yes.", "Is 2024 a leap year? Yes."),
+        ("How do you spell rhythm?", "R, H, Y, T, H, M.", "Rhythm. R, H, Y, T, H, M. Rhythm."),
+    ],
+)
+def test_every_level(question, brief, verbose):
+    levels = skills.answer(question).to_json()["levels"]
+    assert (levels["brief"], levels["verbose"]) == (brief, verbose)
 
 
 @pytest.mark.parametrize(
@@ -50,11 +70,10 @@ def test_exact_answers(question, said, skill):
      "how many euros is a dollar", "what time does Cosco close?", "how much is 1 bitcoin in dollars"],
 )
 def test_live_questions(question):
-    # Not for the other skills (a number in it is not arithmetic)...
+    # Not for the skills (a number in it is not arithmetic): the agent's, or
+    # the Unknown command's.
+    assert is_live(question)
     assert skills.answer(question) is None
-    # ...but the live notice, after the command fallback.
-    assert skills.answer(question, last=True) == Answer("live", LIVE_REPLY, "live")
-    assert skills.answer(question, frozenset(SKILLS) - {"live"}, last=True) is None
 
 
 @pytest.mark.parametrize(
@@ -93,7 +112,8 @@ def test_live_questions(question):
     ],
 )
 def test_written_out(question, said, skill):
-    assert skills.answer(question) == Answer("exact", said, skill)
+    found = skills.answer(question)
+    assert (found.text, found.skill) == (said, skill)
 
 
 @pytest.mark.parametrize(
@@ -123,11 +143,11 @@ def test_normalize():
 
 
 def test_money_is_live_when_converted():
-    assert skills.answer("how many euros is a dollar", last=True) is not None
-    assert skills.answer("what is 80 € in dollars", last=True) is not None
-    assert skills.answer("what is 5 pounds in dollars", last=True) is not None
-    assert skills.answer("what's $5 plus $3", last=True) is None
-    assert skills.answer("what's 3.5 kg in pounds", last=True) is None
+    assert is_live("how many euros is a dollar")
+    assert is_live(normalize("what is 80 € in dollars"))
+    assert is_live("what is 5 pounds in dollars")
+    assert not is_live(normalize("what's $5 plus $3"))
+    assert not is_live("what's 3.5 kg in pounds")
 
 
 def test_spelling_comes_first():
@@ -137,7 +157,7 @@ def test_spelling_comes_first():
 
 def test_not_questions():
     for text in ("thank you", "turn on the lights", "we need milk", "what's the capital of France", ""):
-        assert skills.answer(text) is None and skills.answer(text, last=True) is None
+        assert skills.answer(text) is None
 
 
 def test_the_homes_and_a_satellites_own():
@@ -160,7 +180,7 @@ def test_each_skill_is_its_own_module():
         assert skill.name and skill.description and skill.examples and skill.icon.startswith("mdi:")
         # Each says its own examples are its own.
         for example in skill.examples:
-            found = skills.answer(example, last=skill.last)
+            found = skills.answer(example)
             assert found is not None and found.skill == skill_id, example
 
 
@@ -179,3 +199,18 @@ def test_days_until(monkeypatch):
     assert skills.answer("how many days until october 16th").text == "It's 1 day."
     assert skills.answer("how many weeks until halloween").text == "It's 2 weeks."
     assert skills.answer("how many days until valentine's day").text == "It's 122 days."
+
+
+def test_responses_as_set():
+    assert skill_response({}, "arithmetic") == {"verbosity": "specific", "response": {}}
+    settings = {"skill_responses": {"arithmetic": {"verbosity": "verbose", "response": {"brief": "{{ answer }}!"}}}}
+    # A level without one says the closest written.
+    assert skill_response(settings, "arithmetic") == {
+        "verbosity": "verbose",
+        "response": {"brief": "{{ answer }}!", "specific": "{{ answer }}!", "verbose": "{{ answer }}!"},
+    }
+    settings = {"skill_responses": {"dates": {"verbosity": "loud", "response": "{{ response }}"}}}
+    assert skill_response(settings, "dates") == {
+        "verbosity": "specific",
+        "response": {"brief": "{{ response }}", "specific": "{{ response }}", "verbose": "{{ response }}"},
+    }

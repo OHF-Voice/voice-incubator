@@ -292,13 +292,13 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await (await http.get("/api/status")).json())["verbosity"]["beep_elsewhere"] == "brief"
             assert (await http.put("/api/fallback", json={"meaning": [], "llm": []})).status == 200
 
-            # A question no command takes is answered: exactly, or (not here:
-            # there is no question model) as live.
+            # A question no command takes is answered exactly by a skill; one
+            # about now or here is not a skill's.
             record = await app.try_text("what is twelve times eight", MAC)
             assert record.outcome == "answered"
             assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "It's 96."
             record = await app.try_text("what are the top news headlines", MAC)
-            assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, I can't look that up."
+            assert record.outcome == "not recognized"
 
             # Skills: the Home's (each unless taken off it), and a
             # satellite's own.
@@ -307,7 +307,24 @@ async def _scenario(tmp_path: Path) -> None:
                 return next(s for s in record.stages if s["stage"] == "speech")["text"]
 
             listed = await (await http.get("/api/skills")).json()
-            assert [s["id"] for s in listed["skills"]] == ["spelling", "dates", "clock", "units", "arithmetic", "live"]
+            assert [s["id"] for s in listed["skills"]] == ["spelling", "dates", "clock", "units", "arithmetic"]
+            math = next(s for s in listed["skills"] if s["id"] == "arithmetic")
+            assert math["example"]["levels"]["verbose"] == "Twelve times eight is 96." and math["responses"] == {}
+
+            # How much a skill says, and what: a template for a level.
+            assert (await http.put("/api/skills/arithmetic", json={"verbosity": "verbose"})).status == 200
+            assert await said("what is twelve times eight") == "Twelve times eight is 96."
+            body = {"verbosity": "brief", "response": {"brief": "{{ answer }}, {{ speaker.name or 'friend' }}"}}
+            assert (await http.put("/api/skills/arithmetic", json=body)).status == 200
+            assert app.store.settings["skill_responses"]["arithmetic"] == body
+            assert await said("what is twelve times eight") == "96, friend"
+            record = app.calls.recent[-1]
+            assert next(s for s in record.stages if s["stage"] == "skill_response")["template"] == body["response"]["brief"]
+            assert (await http.put("/api/skills/arithmetic", json={"verbosity": "loud"})).status == 400
+            assert (await http.put("/api/skills/arithmetic", json={"response": {"shouted": "x"}})).status == 400
+            assert (await http.put("/api/skills/arithmetic", json={"verbosity": None, "response": ""})).status == 200
+            assert "skill_responses" not in app.store.settings
+            assert await said("what is twelve times eight") == "It's 96."
             assert "arithmetic" in listed["home"] and listed["satellites"].get(MAC, []) == []
             assert (await http.put("/api/skills/arithmetic", json={"home": False})).status == 200
             assert app.store.settings["skills"] == {"arithmetic": False}
@@ -327,8 +344,9 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/skills/arithmetic", json={"home": True, "satellites": {MAC: False}})).status == 200
             assert "skills" not in app.store.settings and "skills" not in app.store.satellites[MAC]
             assert (await http.put("/api/skills/nope", json={"home": False})).status == 404
-            assert (await http.put("/api/skills/live", json={"satellites": {MAC: "off"}})).status == 400
-            assert (await http.put("/api/skills/live", json={"satellites": {"nope": True}})).status == 400
+            assert (await http.put("/api/skills/live", json={"home": False})).status == 404
+            assert (await http.put("/api/skills/units", json={"satellites": {MAC: "off"}})).status == 400
+            assert (await http.put("/api/skills/units", json={"satellites": {"nope": True}})).status == 400
 
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
@@ -390,7 +408,7 @@ async def _scenario(tmp_path: Path) -> None:
             app.agent.conversations[MAC].at -= 301
             await agent_said("who wrote the iliad")
             assert "conversation_id" not in hass.conversations[-1]
-            # Skills still answer first; a live question is the agent's.
+            # Skills answer first; a question about now or here is the agent's.
             assert (await agent_said("what is twelve times eight"))[0] == "It's 96."
             assert (await agent_said("what are the top news headlines"))[0] == "conversation.chatty heard what are the top news headlines"
             # What it doesn't understand either is the Unknown command's.
@@ -401,9 +419,8 @@ async def _scenario(tmp_path: Path) -> None:
             record = await app.try_text("who wrote the odyssey", MAC)
             assert len(hass.conversations) == asked + 1
             assert next(s for s in record.stages if s["stage"] == "agent")["asked"] is False
-            assert await said("what are the top news headlines") == "Sorry, I can't look that up."
             assert (await http.put("/api/settings", json={"agent": None})).status == 200
-            assert "agent" not in app.store.settings and not app.engine.agent_answers
+            assert "agent" not in app.store.settings
             assert (await http.put("/api/settings", json={"agent_keep_minutes": -1})).status == 400
 
             # Listening live: the satellite streams its microphone while

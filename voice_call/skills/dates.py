@@ -8,7 +8,7 @@ import calendar
 import datetime as dt
 import re
 
-from .common import N, Skill, clean, parse_num, sentence
+from .common import N, Skill, clean, parse_num, reply
 
 MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
 DAYS = [d.lower() for d in calendar.day_name]
@@ -113,8 +113,8 @@ def solve(q):
     return None
 
 
-def answer(text: str) -> str | None:
-    return sentence(solve(text))
+def answer(text: str):
+    return reply(solve(text), text)
 
 
 SKILL = Skill(

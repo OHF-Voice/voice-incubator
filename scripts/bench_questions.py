@@ -33,6 +33,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from bench_fallback import library_store  # noqa: E402
 
 from voice_call import skills  # noqa: E402
+from voice_call.skills.common import normalize  # noqa: E402
+from voice_call.skills.live import is_live  # noqa: E402
 from voice_call.store import compile_store  # noqa: E402
 
 
@@ -87,7 +89,7 @@ async def main() -> int:
         question = row["question"]
         started = time.perf_counter()
         if args.text:
-            answer = skills.answer(question) or skills.answer(question, last=True)
+            answer = skills.answer(question)
             heard, command = question, None
             answer = answer.to_json() if answer else None
         else:
@@ -95,7 +97,9 @@ async def main() -> int:
             decision = engine.recognize_command(_pcm_to_float(pcm), satellite)
             heard, command, answer = decision.transcript, decision.command.id if decision.command else None, decision.answer
         seconds = time.perf_counter() - started
-        kind = "command" if command else (answer or {}).get("kind") or "nothing"
+        # A question about now or here is no skill's (skills.live.is_live):
+        # counted as "live" when the skills left it alone for that.
+        kind = "command" if command else (answer or {}).get("kind") or ("live" if is_live(normalize(question)) else "nothing")
         live = row.get("online_required") == "yes" or row.get("resource_class") == "live_online"
         right = None
         if kind == "exact" and row.get("expected_answer"):

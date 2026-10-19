@@ -1257,7 +1257,7 @@ async function newCommandDialog(target) {
         h("div", { class: "title" }, skill.name, h("span", { class: "badge", style: "margin-left:8px" }, "skill"),
           added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : sat && sat.home && skillData.home.includes(skill.id) ? homeHas.cloneNode(true) : null),
         h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
-      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}`; } }, "Open")
+      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}${target ? `?satellite=${target}` : ""}`; } }, "Open")
         : h("button", { type: "button", class: "primary", onclick: async () => {
           try {
             await api("PUT", `skills/${skill.id}`, target ? { satellites: { [target]: true } } : { home: true });
@@ -1284,7 +1284,7 @@ async function newCommandDialog(target) {
     shown.length || skills.length ? null : h("p", { class: "muted" }, "Nothing in the library matches. Start a custom command above."));
   }
   search.addEventListener("input", render);
-  const close = openDialog(`New command for ${where}`, [
+  const close = openDialog(`Add to ${where}`, [
     custom,
     h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or start from the library: adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes."),
     search, chips,
@@ -1339,8 +1339,8 @@ function commandItem(store, id) {
     detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
 }
 
-function skillItem(skill) {
-  return h("div", { class: "item clickable", onclick: () => { location.hash = `#/skill/${skill.id}`; } },
+function skillItem(skill, place) {
+  return h("div", { class: "item clickable", onclick: () => { location.hash = `#/skill/${skill.id}${place ? `?satellite=${place}` : ""}`; } },
     icon(skill.icon, "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, skill.name),
@@ -1373,7 +1373,7 @@ function placedSections(store, skillData, place, emptyText) {
   for (const s of store.sections || []) {
     if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id))));
   }
-  if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map(skillItem)));
+  if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map((skill) => skillItem(skill, place))));
   return out.length ? out : [h("p", { class: "muted small" }, emptyText)];
 }
 
@@ -1416,9 +1416,9 @@ async function pageHome() {
     h("div", { class: "panel" },
       h("div", { class: "row" },
         h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
-        h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "New command")),
+        h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "Add")),
       h("p", { class: "muted small" }, "The Home's: they run on every satellite that takes the Home's — all do, unless one is set not to. A satellite's own are on its page."),
-      placedSections(store, skillData, null, "No voice commands yet. Press New command: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
+      placedSections(store, skillData, null, "No voice commands yet. Press Add: start from one in the library, or make your own — pick what it targets, give example sentences or keywords, and choose what happens.")),
     h("div", { class: "panel" }, h("div", { class: "list" }, unknownItem)),
   );
 }
@@ -1526,7 +1526,7 @@ async function pageSatellite(key) {
     h("div", { class: "panel" },
       h("div", { class: "row" },
         h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
-        h("button", { class: "primary", onclick: () => newCommandDialog(s.key) }, "New command")),
+        h("button", { class: "primary", onclick: () => newCommandDialog(s.key) }, "Add")),
       h("label", {}, takesHome, "Take the Home's commands and skills too"),
       h("p", { class: "muted small" }, s.home
         ? ["Its own, below, and ", h("a", { href: "#/home" }, "the Home's"), ". Where its own and the Home's take the same sentence, its own goes first: duplicate one of the Home's here to do something else on this satellite."]
@@ -1546,33 +1546,83 @@ async function pageSatellite(key) {
 
 // ----------------------------------------------------------------- skills
 
-// A skill: what it answers, and where -- the Home, and satellites of their own.
-async function pageSkill(id) {
-  const [data, sats] = await Promise.all([api("GET", "skills"), loadSatellites()]);
+// A skill: what it answers, and how -- its level, and a response of your own
+// for any level. Opened from the Home or a satellite (?satellite=), it can be
+// taken off there; it's added with Add on the Home or a satellite's page.
+async function pageSkill(id, query) {
+  const place = new URLSearchParams(query || "").get("satellite");
+  const [data] = await Promise.all([api("GET", "skills"), loadSatellites()]);
   const skill = data.skills.find((x) => x.id === id);
-  if (!skill) { fill($main, h("a", { href: "#/home" }, "← Home"), errorBox(`No skill ${id}`)); return; }
-  async function put(body) {
-    try { await api("PUT", `skills/${id}`, body); toast("Saved"); pageSkill(id); }
-    catch (err) { toast(err.message); }
+  const back = place ? `#/satellite/${place}` : "#/home";
+  if (!skill) { fill($main, h("a", { href: back }, "← Back"), errorBox(`No skill ${id}`)); return; }
+  const there = place ? (data.satellites[place] || []).includes(id) : data.home.includes(id);
+  const saved = skill.responses || {};
+  let verbosity = saved.verbosity || "";
+  let response = typeof saved.response === "string" || !saved.response ? (saved.response || "") : { ...saved.response };
+  const example = skill.example || { levels: {}, question: skill.examples[0] };
+  const levels = example.levels || {};
+  const LABELS = { brief: "Brief: the answer", specific: "Specific: the answer as a sentence", verbose: "Verbose: the question said back with it" };
+
+  const editor = h("div");
+  function render() {
+    const select = h("select", { style: "max-width:360px", onchange: (e) => { verbosity = e.target.value; } },
+      h("option", { value: "", selected: !verbosity }, "Default (specific)"),
+      ...data.levels.map((level) => h("option", { value: level, selected: verbosity === level }, LABELS[level] || level)));
+    const byLevel = typeof response === "object";
+    const toggle = h("button", { type: "button", class: "link", onclick: () => {
+      if (byLevel) {
+        const only = Object.keys(response).filter((k) => response[k]);
+        if (only.length > 1 && !confirm("Keep only the specific one, for every level?")) return;
+        response = response.specific || response[only[0]] || "";
+      } else {
+        response = response ? { specific: response } : {};
+      }
+      render();
+    } }, byLevel ? "One for every level" : "One for each level");
+    const boxes = byLevel
+      ? h("div", { class: "grid2" }, ...data.levels.map((level) => {
+        const area = h("textarea", { class: "short", placeholder: levels[level] || "", oninput: (e) => { if (e.target.value) response[level] = e.target.value; else delete response[level]; } });
+        area.value = response[level] || "";
+        return field(LABELS[level] || level, area);
+      }))
+      : (() => {
+        const area = h("textarea", { class: "short", placeholder: levels.specific || "", oninput: (e) => { response = e.target.value; } });
+        area.value = response || "";
+        return area;
+      })();
+    fill(editor,
+      field("How much it says", select, `A question always answers. For “${example.question || skill.examples[0]}”: ${data.levels.map((level) => `${level} “${levels[level] || "—"}”`).join(", ")}.`),
+      h("div", { class: "field" }, h("span", { class: "label" }, "Response ", toggle), boxes,
+        h("span", { class: "help" }, "Empty: the built-in sentence (shown greyed, for the example). A level without one says the closest written (less first). A template, rendered by Home Assistant, sees answer (“96”), question (as asked), response (the built-in sentence at this level), satellite and speaker. If it can't be rendered, the built-in sentence is said.")));
   }
-  const onHome = data.home.includes(id);
+  render();
+  async function save() {
+    try {
+      await api("PUT", `skills/${id}`, { verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() });
+      toast("Saved"); pageSkill(id, query);
+    } catch (err) { toast(err.message); }
+  }
+  async function takeOff() {
+    if (!confirm(`Take ${skill.name} off ${placeName(place)}?`)) return;
+    try {
+      await api("PUT", `skills/${id}`, place ? { satellites: { [place]: false } } : { home: false });
+      toast("Taken off"); location.hash = back;
+    } catch (err) { toast(err.message); }
+  }
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: "#/home" }, "← Home"),
+      h("a", { href: back }, `← ${place ? placeName(place) : "Home"}`),
       icon(skill.icon, "big"),
       h("h1", { class: "grow", style: "margin:0" }, skill.name),
-      h("span", { class: "badge accent" }, "skill")),
+      there ? h("button", { class: "danger", onclick: takeOff }, place ? `Take off ${placeName(place)}` : "Take off the Home") : null,
+      h("button", { class: "primary", onclick: save }, "Save")),
+    there ? null : h("div", { class: "notice info" }, `${skill.name} isn't on ${placeName(place)}: add it with Add on ${place ? "its page" : "the Home page"}.`),
     h("div", { class: "panel" },
       h("p", {}, skill.description),
       h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · ")),
-      h("p", { class: "muted small" }, "A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. ",
-        skill.last ? "This one comes after the steps that run when nothing else matches (meaning, the model), so “do I need an umbrella” can still be your weather command, and after the conversation agent when there is one."
-          : "It answers before the steps that run when nothing else matches (meaning, the model)."),
-      h("h3", {}, "Where it answers"),
-      h("label", {}, h("input", { type: "checkbox", checked: onHome, onchange: (e) => put({ home: e.target.checked }) }), "The Home's: on every satellite that takes the Home's"),
-      sats.length ? h("div", { class: "wake-list", style: "margin-top:8px" }, sats.map((sat) => h("label", { title: sat.home && onHome ? "It answers there as the Home's already" : "" },
-        h("input", { type: "checkbox", checked: (data.satellites[sat.key] || []).includes(id), onchange: (e) => put({ satellites: { [sat.key]: e.target.checked } }) }),
-        `${sat.name}'s own`, sat.home && onHome ? h("span", { class: "muted small" }, " (has it as the Home's)") : null))) : null),
+      h("p", { class: "muted small" }, "A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model). How it answers is the same wherever it's added.")),
+    h("div", { class: "panel" }, h("h2", {}, "Responses"), editor,
+      h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save"))),
   );
 }
 
@@ -2184,7 +2234,7 @@ function renderRecognition(rec) {
     rec.skipped && rec.skipped.length ? h("div", { class: "notice warn" }, "Passed over: ", rec.skipped.map((s) => `${s.command} (${s.why})`).join(", ")) : null,
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
-      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : rec.answer.kind === "live" ? "needs live information" : `answered (${rec.answer.kind})`)) : null,
+      h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : `answered (${rec.answer.kind})`)) : null,
     rec.matched_by === "transcript" ? h("div", { class: "notice info" }, `Found by keywords in the ${rec.text_source && rec.text_source !== "TDT" ? `transcript from ${rec.text_source}` : "TDT transcript"}: the audio's own evidence wasn't enough.`) : null,
     !rec.command && rec.transcript_pass ? h("div", { class: "small muted" }, `Keywords on the transcript (“${rec.transcript_pass.text}”): `,
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
@@ -2671,7 +2721,7 @@ async function route() {
   try {
     if (page === "home") await pageHome();
     else if (page === "command") await pageCommand(arg || null, null, query);
-    else if (page === "skill") await pageSkill(arg);
+    else if (page === "skill") await pageSkill(arg, query);
     else if (page === "satellite") await pageSatellite(arg);
     else if (page === "unknown") await pageUnknown();
     else if (page === "fallback") await pageFallback();

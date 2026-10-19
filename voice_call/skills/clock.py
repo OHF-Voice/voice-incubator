@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import re
 
-from .common import N, WORD_NUM, Skill, clean, parse_num, sentence
+from .common import N, NUM_RE, WORD_NUM, Skill, clean, parse_num, reply
+
+NUM_RE_GROUPLESS = rf"(?:{NUM_RE})"
 
 
 def parse_clock(s):
@@ -46,17 +48,20 @@ def show_clock(mins):
 
 
 def solve(q):
+    """The time, and what was asked ("45 minutes after 3 pm"); None."""
     s = clean(q)
-    if m := re.fullmatch(rf"(?:what(?: is|'s)|what time is) {N} (minutes?|hours?) (before|after|from|past) (.+)", s):
-        v, u, rel, t = parse_num(m.group(1)), m.group(2), m.group(3), parse_clock(_clock_digits(m.group(4)))
+    if m := re.fullmatch(rf"(?:what(?: is|'s)|what time is) ({NUM_RE_GROUPLESS} (?:minutes?|hours?) (?:before|after|from|past) .+)", s):
+        inner = re.fullmatch(rf"{N} (minutes?|hours?) (before|after|from|past) (.+)", m.group(1))
+        v, u, rel, t = parse_num(inner.group(1)), inner.group(2), inner.group(3), parse_clock(_clock_digits(inner.group(4)))
         if v is not None and t is not None:
             delta = v * (60 if u.startswith("hour") else 1)
-            return show_clock(int(t + (-delta if rel == "before" else delta)))
+            return show_clock(int(t + (-delta if rel == "before" else delta))), m.group(1)
     return None
 
 
-def answer(text: str) -> str | None:
-    return sentence(solve(text))
+def answer(text: str):
+    found = solve(text)
+    return reply(found[0], text, f"{found[1]} is {found[0]}") if found else None
 
 
 SKILL = Skill(

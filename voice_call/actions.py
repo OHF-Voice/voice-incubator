@@ -186,11 +186,12 @@ def unknown_variables(
     }
 
 
-async def say_unknown(
+async def render_said(
     hass: HomeAssistant, template: str, values: dict[str, Any]
 ) -> tuple[str | None, str | None]:
-    """The Unknown command's response, rendered: ``(said, error)``; said is
-    None when it renders to nothing or cannot be rendered."""
+    """A response template of yours -- the Unknown command's, a skill's --
+    rendered: ``(said, error)``; said is None when it renders to nothing or
+    cannot be rendered."""
     try:
         said = _tidy(await hass.render_template(template, values))
     except (HassError, ConnectionError, OSError, TimeoutError) as err:

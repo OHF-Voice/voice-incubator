@@ -273,9 +273,6 @@ class Engine:
         self.placer = self.placer_for(WAKE_PHRASES)
         self.fallback: Any = None
         """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
-        self.agent_answers = False
-        """A Home Assistant conversation agent gets what nothing here took
-        (the server asks it, voice_call/agent.py): the live skill waits for it."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
         self.entity_area: Any = None
@@ -507,7 +504,6 @@ class Engine:
             if recognition.tdt_transcript and getattr(transcriber, "source", "TDT") != "typed":
                 self._match_transcript(decision, recognition.tdt_transcript, compiled, recognizer, satellite)
         if decision.command is None and decision.refused is None:
-            text = recognition.tdt_transcript or recognition.transcript or ""
             # Each transcript, TDT's first: one may hear "fifty degrees F in
             # Celsius" where the other heard "FN Celsius".
             transcripts = dict.fromkeys(t for t in (recognition.tdt_transcript, recognition.transcript) if t)
@@ -517,12 +513,6 @@ class Engine:
                 decision.answer = exact.to_json()
             elif self.fallback is not None and compiled.commands:
                 self._fall_back(decision, recognition, compiled, satellite)
-            if decision.command is None and decision.answer is None and decision.refused is None and not self.agent_answers:
-                # Last, so the fallback could still take "do I need an
-                # umbrella" -- and after the agent, when there is one.
-                answer = skills.answer(text, satellite.skills, last=True)
-                if answer is not None:
-                    decision.answer = answer.to_json()
         if decision.refused is not None:
             decision.hint = decision.refused
             decision.message = decision.refused["text"]

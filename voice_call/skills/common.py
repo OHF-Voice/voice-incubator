@@ -10,6 +10,28 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 
+LEVELS = ("brief", "specific", "verbose")
+"""How much a skill says (commands.SPOKEN): the answer alone ("96."), as a
+sentence ("It's 96."), or with the question said back ("Twelve times eight
+is 96."). A question always answers, so never silent or a beep."""
+
+DEFAULT_LEVEL = "specific"
+
+
+@dataclass(frozen=True)
+class Reply:
+    """What a skill found: the answer itself ("96"), and how it is said at
+    each level (``LEVELS``)."""
+
+    answer: str
+    brief: str
+    specific: str
+    verbose: str
+
+    def at(self, level: str) -> str:
+        return getattr(self, level) if level in LEVELS else self.specific
+
+
 @dataclass(frozen=True)
 class Skill:
     """A kind of question answered without an LLM. ``answer`` parses the whole
@@ -21,13 +43,8 @@ class Skill:
     description: str
     examples: tuple[str, ...]
     icon: str
-    answer: Callable[[str], str | None]
+    answer: Callable[[str], Reply | None]
     """The question, normalized (``normalize``) -> what is said, or None."""
-    kind: str = "exact"
-    """exact | live: what the answer is, for the call's trace."""
-    last: bool = False
-    """Asked after the command fallback (meaning, the LLM) has found nothing,
-    not before."""
     live_too: bool = False
     """Asked even when the question is about now or here (live.is_live)."""
 
@@ -38,9 +55,27 @@ class Skill:
             "description": self.description,
             "examples": list(self.examples),
             "icon": self.icon,
-            "kind": self.kind,
-            "last": self.last,
         }
+
+
+def reply(answer: str | None, question: str, restated: str | None = None, brief: str | None = None) -> Reply | None:
+    """``answer`` at every level: brief, the answer ("96."); specific, as a
+    sentence ("It's 96."); verbose, ``restated`` ("twelve times eight is 96"),
+    else the question said back first ("Is 2024 a leap year? Yes.")."""
+    if answer is None:
+        return None
+    specific = sentence(answer)
+    if restated:
+        verbose = _period(restated[:1].upper() + restated[1:])
+    else:
+        asked = re.sub(r"[?!.\s]+$", "", question.strip())
+        verbose = f"{asked[:1].upper()}{asked[1:]}? {specific}" if asked else specific
+    return Reply(answer, brief or _period(answer), specific, verbose)
+
+
+def _period(text: str) -> str:
+    text = text.strip()
+    return text if text[-1:] in ".?!" else text + "."
 
 
 _UNITS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "

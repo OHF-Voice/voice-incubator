@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- A **skill's page** sets how much it says -- brief ("96."), specific
+  ("It's 96.", the default) or verbose ("Twelve times eight is 96.") -- and a
+  response of your own for any level, a Home Assistant template. It takes
+  the skill off the Home, or the satellite it was opened from; Add adds it.
+- **Can't look it up** is gone: a question about now or here goes to the
+  conversation agent, or else the Unknown command.
+- **New command** is now **Add**, on the Home and a satellite's page, and
+  offers skills too.
 - **Home** replaces the Commands, Skills, Satellites and Test pages: a tile
   for each satellite (name, area, wake word, what it runs), then the Home's
   commands and skills grouped by what they're for (your own first), and the

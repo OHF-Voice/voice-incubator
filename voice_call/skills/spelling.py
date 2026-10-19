@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import re
 
-from .common import Skill
+from .common import Reply, Skill
 
 SPELL_RE = re.compile(r"^(?:hey |ok |okay )?(?:how (?:do|should|would|can) (?:you|i|we) spell|how is|can you spell|spell|what is the spelling of|what's the spelling of)\s+(?:the word\s+)?\"?([a-z][a-z'\-]*)\"?(?: spelled)?[?.!]*$", re.I)
 
 
-def answer(text: str) -> str | None:
+def answer(text: str) -> Reply | None:
     m = SPELL_RE.match(text.strip())
     if not m:
         return None
     word = m.group(1)
     # Commas, so the voice says each letter: "A-C-C" comes out as "AC".
     letters = ", ".join(c.upper() for c in word if c.isalpha())
-    return f"{word.capitalize()} is spelled {letters}."
+    return Reply(
+        letters,
+        f"{letters}.",
+        f"{word.capitalize()} is spelled {letters}.",
+        # As in a spelling bee: the word, its letters, the word.
+        f"{word.capitalize()}. {letters}. {word.capitalize()}.",
+    )
 
 
 SKILL = Skill(

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from .common import N, Skill, clean, fmt, parse_num, sentence
+from .common import N, Skill, clean, fmt, parse_num, reply
 
 # unit -> (dimension, size in base unit)
 UNITS = {
@@ -81,6 +81,8 @@ def plural(u, v):
 
 
 def solve(q):
+    """The answer, and it said with the question ("there are 4 cups in a
+    quart"); None."""
     s = clean(q)
     s = re.sub(r"\s+(in us cooking|in cooking)$", "", s)
     temp = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how hot is|how cold is)?\s*{N} (?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)(?:\s+(?:in|to|into|as|and)\s+|(?<=\b[cfk])n\s*)(?:degrees? )?(celsius|centigrade|fahrenheit|kelvin|c|f|k)", s)
@@ -91,12 +93,14 @@ def solve(q):
             return None
         c = (v - 32) * 5 / 9 if a == "f" else v - 273.15 if a == "k" else v
         out = c * 9 / 5 + 32 if b == "f" else c + 273.15 if b == "k" else c
-        name = {"f": "Fahrenheit", "c": "Celsius", "k": "kelvin"}[b]
-        return f"{fmt(round(out, 1))} degrees {name}"
+        names = {"f": "Fahrenheit", "c": "Celsius", "k": "kelvin"}
+        found = f"{fmt(round(out, 1))} degrees {names[b]}"
+        return found, f"{fmt(v)} degrees {names[a]} is {found}"
     m = (re.fullmatch(r"how many (.+?) (?:are )?(?:there )?(?:in|per|make up|make|in a single) (.+)", s)
          or re.fullmatch(r"how many (.+?) (?:is|are) (?:in )?(.+)", s))
     if m:
         b, rest = m.group(1), m.group(2)
+        said = rest
         n = 1.0
         # "one and a half quarts", "2 quarts"; else "a quart", "one quart".
         mm = re.fullmatch(rf"{N}\s*(.+)", rest)
@@ -107,19 +111,25 @@ def solve(q):
         ua, ub = unit(rest), unit(b)
         if ua and ub:
             r = convert(n, ua, ub)
-            return None if r is None else fmt(r)
+            if r is None:
+                return None
+            return fmt(r), f"there {'is' if r == 1 else 'are'} {fmt(r)} {plural(_ounces(ub, ua)[0], r)} in {said}"
         return None
     m = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how many [a-z ]+ is)\s*{N}\s+(.+?)\s+(?:in|to|into|as)\s+(.+)", s)
     if m:
         v, ua, ub = parse_num(m.group(1)), unit(m.group(2)), unit(m.group(3))
         if v is not None and ua and ub:
             r = convert(v, ua, ub)
-            return None if r is None else f"{fmt(r)} {plural(_ounces(ua, ub)[1], r)}"
+            if r is None:
+                return None
+            found = f"{fmt(r)} {plural(_ounces(ua, ub)[1], r)}"
+            return found, f"{fmt(v)} {plural(_ounces(ua, ub)[0], v)} is {found}"
     return None
 
 
 def answer(text: str) -> str | None:
-    return sentence(solve(text))
+    found = solve(text)
+    return reply(found[0], text, found[1]) if found else None
 
 
 SKILL = Skill(

@@ -20,6 +20,7 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 
 from . import actions, skills, timers
+from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
@@ -636,9 +637,6 @@ class VoiceCallApp:
     def configure_agent(self) -> None:
         wanted = self.agent_settings()
         self.agent.configure(wanted["agent"], wanted["keep_minutes"] * 60)
-        if self.engine is not None:
-            # The live skill ("can't look that up") waits for the agent.
-            self.engine.agent_answers = wanted["agent"] is not None
 
     def agent_status(self) -> dict[str, Any]:
         return {**self.agent_settings(), "conversations": self.agent.status()}
@@ -1605,20 +1603,17 @@ class VoiceCallApp:
             said = await self._ask_agent(decision, satellite, dry_run, record)
             if said:
                 return said, "answered", f"{decision.transcript!r}: {self.agent.agent_id}'s answer"
-            # "Can't look that up", which waited for the agent.
-            late = skills.answer(decision.transcript, satellite.skills, last=True)
-            if late is not None:
-                decision.answer = late.to_json()
         if decision.command is None and decision.answer is not None and decision.answer.get("text"):
             answer = decision.answer
-            return answer["text"], "answered", f"{decision.transcript!r}: {answer['kind']} answer"
+            said = await self._skill_says(answer, satellite, speaker, record)
+            return said, "answered", f"{decision.transcript!r}: {answer.get('skill') or answer['kind']}'s answer"
         if decision.command is None:
             message = decision.message or actions.SORRY
             compiled = self.engine.compiled if self.engine is not None else None
             if compiled is not None and compiled.unknown and decision.refused is None:
                 # Nothing understood it: the Unknown command says what to say.
                 values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, self.hass.catalog)
-                said, error = await actions.say_unknown(self.hass, compiled.unknown, values)
+                said, error = await actions.render_said(self.hass, compiled.unknown, values)
                 if record is not None:
                     record.stage("unknown", said=said, error=error, variables=values)
                 if said:
@@ -1640,6 +1635,32 @@ class VoiceCallApp:
             record.stage("action", **outcome.to_json())
         state = "error" if outcome.error else ("dry run" if dry_run else "done")
         return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
+
+    async def _skill_says(
+        self, answer: dict[str, Any], satellite: Satellite, speaker: dict[str, Any], record: CallRecord | None
+    ) -> str:
+        """A skill's answer as its page says: at its level (specific unless
+        set), or that level's template of yours, rendered by Home Assistant
+        -- else, when it can't be, the built-in sentence."""
+        config = skill_response(self.store.settings, str(answer.get("skill") or ""))
+        level = config["verbosity"]
+        built_in = (answer.get("levels") or {}).get(level) or answer["text"]
+        template = config["response"].get(level)
+        said, error = built_in, None
+        if template:
+            values = {
+                "answer": answer.get("answer"),
+                "question": answer.get("question"),
+                "response": built_in,
+                "satellite": satellite.as_dict(),
+                "speaker": speaker or {"name": None, "score": None},
+            }
+            rendered, error = await actions.render_said(self.hass, template, values)
+            said = rendered or built_in
+        answer.update(text=said, level=level)
+        if record is not None and (template or level != skills.DEFAULT_LEVEL):
+            record.stage("skill_response", skill=answer.get("skill"), level=level, template=template or None, said=said, error=error)
+        return said
 
     async def _ask_agent(
         self, decision: Decision, satellite: Satellite, dry_run: bool, record: CallRecord | None
