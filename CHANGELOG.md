@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- A satellite's settings are in **Music** (its player), **Input**
+  (speech-to-text and its language) and **Output** (text-to-speech, its
+  language and voice, and where responses are spoken): collapsed, each
+  saying what it uses.
 - The UI says less: each page and panel is a title and, at most, a sentence.
   The rest is behind a **?** beside the title or label -- shown on hover, on
   focus, or with a click or tap, and read by screen readers -- and labels

@@ -92,7 +92,8 @@ in `wake_words.yaml`.
 
 The app listens and speaks with models of its own, or with Home Assistant's
 **speech-to-text** and **text-to-speech** entities: chosen for every satellite
-on the Settings page, and on each satellite's own page.
+on the Settings page, and under **Input** and **Output** on each satellite's
+page.
 
 - **Speech-to-text.** Commands are always matched on the satellite's audio
   first. The STT entity writes what the built-in TDT model would otherwise:
@@ -323,7 +324,7 @@ actions (`create_timer`, `cancel_timer`, `get_timers` ...).
 Music plays on **Music Assistant**'s players. A satellite running a Sendspin
 client (the Voice Call firmware does) shows up in Music Assistant by itself,
 and the Voice Call integration finds that player from the satellite's MAC
-address; the satellite's page shows it and can pick another. Add the commands from the
+address; the satellite's page shows it under **Music** and can pick another. Add the commands from the
 library's **Music** group:
 
 - "play Miles Davis", "play the album Kind of Blue", "play my chill

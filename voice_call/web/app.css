@@ -203,6 +203,20 @@ details.family + details.family > summary, .item + details.family > summary { bo
 details.family > summary .chevron { width: 18px; height: 18px; transition: transform .15s; }
 details.family[open] > summary .chevron { transform: rotate(90deg); }
 details.family .versions { padding-left: 30px; }
+/* A satellite's Music, Input and Output: rows that open to their settings. */
+.settings-groups { margin: 8px 0; border-top: 1px solid var(--line); }
+details.settings-group { border-bottom: 1px solid var(--line); }
+details.settings-group > summary { list-style: none; display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; padding: 8px 4px; color: inherit; font-size: inherit; }
+details.settings-group > summary::-webkit-details-marker { display: none; }
+details.settings-group > summary:hover { background: var(--bg); }
+details.settings-group > summary .title { font-weight: 600; }
+details.settings-group > summary .chevron { width: 18px; height: 18px; align-self: center; transition: transform .15s; }
+details.settings-group[open] > summary .chevron { transform: rotate(90deg); }
+details.settings-group > summary .muted { min-width: 0; overflow-wrap: anywhere; }
+.group-body { padding: 0 4px 8px 32px; }
+.group-body .field { min-width: 0; max-width: 100%; }
+.group-body select { max-width: 100%; }
+@media (max-width: 640px) { .group-body { padding-left: 4px; } }
 details.family .versions .item:first-child { border-top: 1px solid var(--line); }
 @media (max-width: 640px) {
   .overlay { padding: 0; }

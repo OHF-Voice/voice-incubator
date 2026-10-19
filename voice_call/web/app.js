@@ -1458,9 +1458,20 @@ async function pageHome() {
 
 // ---------------------------------------------------------------- satellite
 
+// A section of a satellite's settings: collapsed unless in `opened`, with
+// what it uses in its summary.
+function settingsGroup(id, title, summary, opened, ...body) {
+  const group = h("details", { class: "settings-group", "data-group": id },
+    h("summary", {}, icon("mdi:chevron-right", "chevron"), h("span", { class: "title" }, title), h("span", { class: "muted small" }, summary)),
+    h("div", { class: "group-body" }, ...body));
+  group.open = !!(opened && opened.has(id));
+  return group;
+}
+
 // One satellite: what it is and how it listens and speaks, its own
-// commands and skills, and testing it.
-async function pageSatellite(key) {
+// commands and skills, and testing it. `opened`: the settings sections left
+// open (after a save).
+async function pageSatellite(key, opened) {
   const [sats, voices, wake, store, skillData] = await Promise.all([
     loadSatellites(),
     api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
@@ -1493,6 +1504,17 @@ async function pageSatellite(key) {
   const player = h("select", {},
     h("option", { value: "" }, found ? `Its Sendspin player (${found})` : "Its Sendspin player (not found)"),
     ...(s.music_players || []).map((m) => h("option", { value: m.entity_id, selected: s.media_player_picked && s.media_player === m.entity_id }, `${m.name} (${m.entity_id})`)));
+  // Music, Input and Output: collapsed, each saying in its summary what it uses.
+  const playerName = (id) => ((s.music_players || []).find((m) => m.entity_id === id) || {}).name || id;
+  const groups = [
+    settingsGroup("music", "Music", s.media_player ? playerName(s.media_player) : "no player found", opened,
+      h("div", { class: "row" }, field("Player", player, "Where music asked for here plays. Its Sendspin player in Music Assistant unless you pick another."))),
+    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language].filter(Boolean).join(" · "), opened,
+      h("div", { class: "row" }, field("Speech-to-text", stt, "Asked only when the words are needed: free text, example sentences, hints. Commands are matched on the audio first."), field("Language", sttLanguage))),
+    settingsGroup("output", "Output", [used.tts || "Piper", used.tts_language, used.tts_voice, used.speak_on ? `on ${used.speak_on}` : null].filter(Boolean).join(" · "), opened,
+      h("div", { class: "row" }, field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
+        field("Speak on", speakOn, "With a text-to-speech entity: this satellite, or another media player. The acknowledgement sound stays here."))),
+  ];
   const save = async () => {
     try {
       await api("PUT", `satellites/${s.key}`, {
@@ -1500,7 +1522,7 @@ async function pageSatellite(key) {
         stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
         stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
       });
-      toast("Saved"); pageSatellite(key);
+      toast("Saved"); pageSatellite(key, new Set(groups.filter((g) => g.open).map((g) => g.dataset.group)));
     } catch (err) { toast(err.message); }
   };
 
@@ -1539,12 +1561,8 @@ async function pageSatellite(key) {
       h("div", { class: "row", style: "align-items:flex-start" },
         field("Icon", iconBox),
         h("div", { class: "row grow" }, field("Name", name),
-          field("Area", area, "What “the lights” means here. With the Voice Call integration, it is the area of its device in Home Assistant, and can be changed in either place."),
-          field("Music player", player))),
-      h("div", { class: "row" },
-        field("Speech-to-text", stt), field("Language", sttLanguage),
-        field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
-        field("Speak responses on", speakOn, "With a text-to-speech entity: this satellite, or another media player.")),
+          field("Area", area, "What “the lights” means here. With the Voice Call integration, it is the area of its device in Home Assistant, and can be changed in either place."))),
+      h("div", { class: "settings-groups" }, ...groups),
       h("div", { class: "row" }, h("button", { class: "primary", onclick: save }, "Save")),
       h("details", { class: "small", style: "margin-top:8px" }, h("summary", {}, "About it"),
         h("div", { class: "kv", style: "margin-top:6px" },
@@ -1553,9 +1571,6 @@ async function pageSatellite(key) {
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
           h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)", " · ", h("a", { href: "#/wake" }, "change")),
-          h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
-          h("div", {}, "Listens with"), h("div", {}, used.stt ? [h("code", {}, used.stt), used.stt_language ? ` (${used.stt_language})` : ""] : "the built-in TDT model", " after the built-in matcher"),
-          h("div", {}, "Speaks with"), h("div", {}, used.tts ? [h("code", {}, used.tts), used.tts_voice || used.tts_language ? ` (${[used.tts_language, used.tts_voice].filter(Boolean).join(", ")})` : "", " on ", h("code", {}, used.speak_on || s.device_media_player || "?"), used.speak_on ? "; the acknowledgement sound stays here" : ""] : "Piper, built in"),
           s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
     h("div", { class: "panel" },
       h("div", { class: "row" },
