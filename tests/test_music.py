@@ -25,8 +25,8 @@ def players(own="idle", kitchen="idle", **attrs):
     }
 
 
-def chosen(operation, states, named=None, paused=()):
-    choice = music.choose(operation, states, OWN, named, [KITCHEN], list(paused))
+def chosen(operation, states, named=None, paused=(), nearby=(KITCHEN,), sent=()):
+    choice = music.choose(operation, states, OWN, named, list(nearby), list(paused), list(sent))
     return [p.entity_id for p in choice.players], choice.outcome
 
 
@@ -48,6 +48,24 @@ def test_resume_what_voice_paused():
     assert chosen("resume", states, paused=[KITCHEN]) == ([KITCHEN], None)
     assert chosen("resume", states) == ([OWN], None)
     assert chosen("resume", players(own="playing")) == ([], "already")
+
+
+def test_following_the_music_it_sent_elsewhere():
+    # Moved to (or played on) the kitchen, which is not in the satellite's
+    # area: with nothing playing here, what names no player follows it.
+    away = {"nearby": (), "sent": (KITCHEN,)}
+    assert chosen("volume_down", players(kitchen="playing"), **away) == ([KITCHEN], None)
+    assert chosen("pause", players(kitchen="playing"), **away) == ([KITCHEN], None)
+    assert chosen("status", players(kitchen="playing"), **away) == ([KITCHEN], None)
+    assert chosen("next", players(kitchen="playing"), **away) == ([KITCHEN], None)
+    # Paused there: resumed, or asked about; not turned up.
+    assert chosen("resume", players(kitchen="paused"), **away) == ([KITCHEN], None)
+    assert chosen("status", players(kitchen="paused"), **away) == ([KITCHEN], None)
+    assert chosen("volume_up", players(kitchen="paused"), **away) == ([OWN], None)
+    # Music here wins; "play" plays here; never sent anywhere, nothing follows.
+    assert chosen("volume_down", players(own="playing", kitchen="playing"), **away) == ([OWN], None)
+    assert chosen("play", players(kitchen="playing"), **away) == ([OWN], None)
+    assert chosen("pause", players(kitchen="playing"), nearby=()) == ([], "nothing_playing")
 
 
 def test_named_players():
@@ -295,6 +313,9 @@ def test_moving_chooses_from_what_plays_here_to_what_is_named():
     # Paused here counts, when nothing plays here.
     paused = {OWN: Player(OWN, "Fake VPE", "paused", "So What"), KITCHEN: kitchen}
     assert music.choose_move(paused, OWN, [KITCHEN], []).source.entity_id == OWN
+    # With two playing elsewhere, the one this satellite sent it to.
+    both = {**quiet, KITCHEN: Player(KITCHEN, "Kitchen Speaker", "playing", "So What")}
+    assert music.choose_move(both, OWN, [OWN], [], sent=[KITCHEN]).source.entity_id == KITCHEN
     said = music.moved_said(own, kitchen, "to the Kitchen")
     assert said == {"brief": "Moved the music.", "specific": "Moved the music to the Kitchen.",
                     "verbose": "Moved So What by Miles Davis from Fake VPE to Kitchen Speaker."}
@@ -317,6 +338,12 @@ def test_moving_the_music_through_home_assistant():
             assert transfer["service_data"] == {"source_player": OWN, "auto_play": True}
             assert fake.states[KITCHEN][0] == "playing" and fake.states[OWN][0] == "idle"
             assert fake.queues[KITCHEN]["uri"] == "library://album/1" and OWN not in fake.queues
+            # Nothing plays here now: "turn it down" follows the music there.
+            assert helper.sent_by_voice(SATELLITE.key) == [KITCHEN]
+            outcome = await _run(hass, {"music": "volume_set"}, {"percentage": 20}, helper=helper)
+            assert outcome.name == "done" and fake.services[-1]["target"] == {"entity_id": [KITCHEN]}
+            assert fake.states[KITCHEN][1]["volume_level"] == 0.2
+            assert outcome.speech == "Volume at 20% on Kitchen Speaker."  # a beep, here
             # Back to the satellite's own player, by name: from the one playing anywhere.
             outcome = await _run(hass, {**move, "verbosity": "verbose"}, {"entity": [OWN]}, helper=helper)
             assert outcome.speech == "Moved Kind of Blue by Miles Davis from Kitchen Speaker to Fake VPE."

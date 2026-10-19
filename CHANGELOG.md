@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **Music commands follow the music.** After "play jazz on the Mark 2" or
+  "move the music to the kitchen", "turn it down", "pause", "next" and
+  "what's playing" act there while nothing plays in the satellite's area --
+  they turned down the satellite's own, idle player before -- and say where
+  ("Volume at 40% on Mark II Sendspin.").
 - **End of speech** on the Settings page: Silero VAD (as before) or
   microVAD, the thresholds speech starts at and falls back to silence below
   (0.5 and 0.35: between them nothing changes), the speech that starts a

@@ -371,23 +371,24 @@ async def _run_music(
         operation = "resume"  # "play some music": whatever was playing
     named, nearby = _music_players(hass, slots, satellite)
     own = satellite.media_player
+    sent = music.sent_by_voice(satellite.key)
     started = time.perf_counter()
-    trace: dict[str, Any] = {"operation": operation, "own": own, "named": named, "nearby": nearby}
+    trace: dict[str, Any] = {"operation": operation, "own": own, "named": named, "nearby": nearby, "sent": sent}
     outcome.music = trace
     # Moving needs every player: the music may be playing anywhere.
     everywhere = _all_music_players(hass) if operation == "move" else []
     try:
         players = await music.players(
-            list(dict.fromkeys(([own] if own else []) + (named or []) + nearby + everywhere))
+            list(dict.fromkeys(([own] if own else []) + (named or []) + nearby + sent + everywhere))
         )
     except (HassError, ConnectionError, OSError, TimeoutError, ValueError) as err:
         outcome.error = str(err)
         return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
     trace["players"] = {k: p.as_dict() for k, p in players.items()}
     if operation == "move":
-        return await _move_music(hass, behavior, values, satellite, outcome, music, players, own, named, nearby, started)
+        return await _move_music(hass, behavior, values, satellite, outcome, music, players, own, named, nearby, sent, started)
     choosing = "play" if operation == "radio" and not music_ops.generic(query) else operation
-    choice = music_ops.choose(choosing, players, own, named, nearby, music.paused_by_voice(satellite.key))
+    choice = music_ops.choose(choosing, players, own, named, nearby, music.paused_by_voice(satellite.key), sent)
     chosen = choice.players
     values = {
         **values,
@@ -429,6 +430,10 @@ async def _run_music(
             controls, speech, name = music_ops.control(operation, slots, chosen)
             if name == "done" and not speech:
                 speech = music_ops.control_said(operation, slots, chosen)
+                if not values["place"].get("here"):
+                    # Out of the satellite's area, it says where: "Volume at
+                    # 40% on Kitchen Speaker."
+                    speech = {**speech, "specific": speech["verbose"]}
             calls = [("media_player", service, data) for service, data in controls]
     except LookupError as err:
         outcome.error = str(err)
@@ -452,6 +457,12 @@ async def _run_music(
             music.remember_paused(satellite.key, ids)
         elif operation in ("resume", "play", "stop"):
             music.forget_paused(satellite.key)
+        # Where the music is now: what "turn it up" follows when nothing
+        # plays here. Played here, it is here again.
+        if operation in ("play", "radio") and named:
+            music.remember_sent(satellite.key, ids)
+        elif operation == "play" and own in ids:
+            music.forget_sent(satellite.key)
     outcome.timings["music"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, name, speech)
 
@@ -467,11 +478,12 @@ async def _move_music(
     own: str | None,
     named: list[str] | None,
     nearby: list[str],
+    sent: list[str],
     started: float,
 ) -> Outcome:
     """The music playing here to the player the command names, queue and
     all (Music Assistant's ``transfer_queue``)."""
-    choice = music_ops.choose_move(players, own, named, nearby)
+    choice = music_ops.choose_move(players, own, named, nearby, sent)
     trace = outcome.music or {}
     if choice.source is not None:
         trace["source"] = choice.source.entity_id
@@ -499,6 +511,10 @@ async def _move_music(
             _LOGGER.error("Moving the music failed: %s", err)
             return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
         music.forget_paused(satellite.key)
+        if target.entity_id == own:
+            music.forget_sent(satellite.key)
+        else:
+            music.remember_sent(satellite.key, [target.entity_id])
     outcome.timings["music"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, "done", music_ops.moved_said(source, target, to))
 

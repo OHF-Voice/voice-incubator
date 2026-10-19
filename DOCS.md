@@ -360,7 +360,8 @@ library's **Music** group:
   volume to 30 percent", "mute", "shuffle", "repeat", "what's playing".
 - "move the music to the kitchen", "move the music upstairs", "send the music
   to the office speaker": what plays here -- the satellite's own player, else
-  one in its area, else the one player playing anywhere -- moves there, queue
+  one in its area, else where it sent the music, else the one player playing
+  anywhere -- moves there, queue
   and all, and stops where it was ("Moved the music to the Kitchen."). It
   goes to one player: on a floor with several, one that isn't already
   playing.
@@ -374,8 +375,12 @@ page); a player must be a Music Assistant player.
 The player is the satellite's own, unless a command names another (Target),
 a room or a floor. Pausing, skipping, the volume and "what's playing" act on
 whichever Music Assistant player is playing in the satellite's area when its
-own is not, and "resume" resumes what was paused by voice. A player grouped
-with others pauses and skips with its group.
+own is not, and "resume" resumes what was paused by voice. When nothing plays
+there, they follow the music the satellite sent elsewhere -- "play jazz on the
+Mark 2", "move the music to the kitchen" -- while it plays there (or, to
+resume it or ask what it is, is paused there), and say where: "Volume at 40%
+on Mark II Sendspin." "Play ..." always plays here. A player grouped with
+others pauses and skips with its group.
 
 Like timers, every music command has outcomes, each with a sentence you can
 replace: `done` (controls play a short sound), `no_player`,

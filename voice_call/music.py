@@ -128,7 +128,8 @@ MATCH_AT_LEAST = 0.5
 """Least similarity between what was heard and a search result to play it."""
 
 PAUSED_FOR = 6 * 3600
-"""How long a pause by voice is remembered for "resume"."""
+"""How long a pause by voice is remembered for "resume", and where the music
+was sent for what follows it."""
 
 SEARCH_TYPES = ["artist", "album", "track", "playlist", "radio"]
 # A small preference between results as close to what was heard: an artist's
@@ -236,12 +237,16 @@ def choose(
     named: list[str] | None,
     nearby: list[str],
     paused_by_voice: list[str],
+    sent: list[str] | tuple[str, ...] = (),
 ) -> Choice:
     """Which players ``operation`` acts on.
 
     ``named``: the players the command names (None for "the music here");
     ``nearby``: Music Assistant's other players in the satellite's area;
-    ``paused_by_voice``: what a "pause" on this satellite paused."""
+    ``paused_by_voice``: what a "pause" on this satellite paused;
+    ``sent``: where this satellite sent the music ("play jazz on the Mark
+    II", "move the music to the kitchen") -- what "turn it up" follows when
+    nothing plays here."""
 
     def known(ids: list[str]) -> list[Player]:
         return [players[i] for i in ids if i in players and players[i].available]
@@ -250,6 +255,8 @@ def choose(
         pool = known(named)
     else:
         pool = known(([own] if own else []) + [i for i in nearby if i != own])
+        if operation not in ("play", "add"):
+            pool = following(operation, pool, known(list(sent))) + pool
     if not pool:
         return Choice(outcome="no_player")
     first = pool[:1]
@@ -280,14 +287,33 @@ def choose(
     return Choice(playing[:1])
 
 
+def following(operation: str, here: list[Player], sent: list[Player]) -> list[Player]:
+    """The players this satellite sent the music to, when nothing plays here
+    -- while it plays there, or, to resume or ask about it, is paused there."""
+    paused_too = operation in ("resume", "status")
+
+    def has_music(p: Player) -> bool:
+        return p.playing or (paused_too and p.state == "paused" and bool(p.title))
+
+    if any(has_music(p) for p in here):
+        return []
+    mine = {p.entity_id for p in here}
+    return [p for p in sent if p.entity_id not in mine and has_music(p)]
+
+
 def choose_move(
-    players: dict[str, Player], own: str | None, named: list[str] | None, nearby: list[str]
+    players: dict[str, Player],
+    own: str | None,
+    named: list[str] | None,
+    nearby: list[str],
+    sent: list[str] | tuple[str, ...] = (),
 ) -> Choice:
     """Where the music comes from and goes to. From what is playing here --
     the satellite's own player, then the others in its area (paused, when
-    nothing plays) -- else from the one player playing anywhere; to the
-    first of the named players that is not the source, one that is not
-    playing before one that is."""
+    nothing plays) -- else from where this satellite sent it (``sent``),
+    else from the one player playing anywhere; to the first of the named
+    players that is not the source, one that is not playing before one that
+    is."""
 
     def known(ids: list[str]) -> list[Player]:
         return [players[i] for i in ids if i in players and players[i].available]
@@ -299,6 +325,9 @@ def choose_move(
     source = next((p for p in here if p.playing), None) or next(
         (p for p in here if p.state == "paused" and p.title), None
     )
+    if source is None:
+        away = following("status", here, known(list(sent)))
+        source = next((p for p in away if p.playing), None) or next(iter(away), None)
     if source is None:
         playing = [p for p in players.values() if p.playing and p.available]
         source = playing[0] if len(playing) == 1 else None
@@ -585,6 +614,7 @@ class Music:
         self.hass = hass
         self._entry_id: str | None = None
         self._paused: dict[str, tuple[float, list[str]]] = {}
+        self._sent: dict[str, tuple[float, list[str]]] = {}
         self._search_media = False
         """``music_assistant.search`` failed: search through a player instead."""
 
@@ -680,6 +710,17 @@ class Music:
 
     def forget_paused(self, satellite: str) -> None:
         self._paused.pop(satellite, None)
+
+    def remember_sent(self, satellite: str, ids: list[str]) -> None:
+        """Where a satellite sent the music: played on or moved to."""
+        self._sent[satellite] = (time.monotonic(), list(ids))
+
+    def sent_by_voice(self, satellite: str) -> list[str]:
+        when, ids = self._sent.get(satellite, (0.0, []))
+        return ids if time.monotonic() - when < PAUSED_FOR else []
+
+    def forget_sent(self, satellite: str) -> None:
+        self._sent.pop(satellite, None)
 
 
 def level_examples() -> dict[str, dict[str, str]]:
