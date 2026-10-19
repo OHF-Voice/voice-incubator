@@ -93,6 +93,13 @@ class CallRecord:
         if full:
             out["stages"] = self.stages
             out["marks"] = self.marks
+        else:
+            # For the list: the wake word, and what it came in with.
+            start = next((s for s in self.stages if s.get("stage") == "call_start"), None)
+            if start is not None:
+                out["wake"] = {
+                    k: start[k] for k in ("wake_word", "name", "probability", "max_probability", "cutoff") if k in start
+                }
         return out
 
     @classmethod

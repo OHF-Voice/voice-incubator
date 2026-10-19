@@ -166,13 +166,17 @@ class FakeSatellite:
         """A wake word model fired with nothing to say after it (\"stop\")."""
         return await self.call(bytes(CHUNK * 4), timeout=timeout, wake_word=wake_word)
 
-    async def call(self, pcm: bytes, timeout: float = 30.0, wake_word: str = "okay_nabu") -> str:
-        """Place one call; returns why the app hung up."""
+    async def call(
+        self, pcm: bytes, timeout: float = 30.0, wake_word: str = "okay_nabu", detection: dict | None = None
+    ) -> str:
+        """Place one call; returns why the app hung up. ``detection``: what
+        the wake word came in with, as firmware that says so sends it
+        (``probability``, ``max_probability``, ``cutoff``, 0-255)."""
         await self.ready.wait()
         assert self._writer is not None
         self._hangup.clear()
         preroll = int(PREROLL_SECONDS * BYTE_RATE)
-        info = {"preroll_bytes": preroll, "wake_word": wake_word}
+        info = {"preroll_bytes": preroll, "wake_word": wake_word, **(detection or {})}
         if self.aec:
             info.update(aec=True, aec_preroll_bytes=preroll)
         self._writer.write(encode_json(Message.CALL_START, info))

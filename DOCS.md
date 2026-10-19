@@ -518,9 +518,10 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   "Say it first" to have the app's voice speak it and recognize the audio
   instead, to test speech recognition too.
 - **Sessions** lists recent sessions -- everything from the wake word to the
-  answer -- with every stage: wake word verification, where the command was
-  cut, the speaker, every command that matched or was rejected and why, what
-  ran and what was said.
+  answer -- with every stage: the probability the satellite's wake word model
+  came in with (against its cutoff; new voice_call firmware), wake word
+  verification, where the command was cut, the speaker, every command that
+  matched or was rejected and why, what ran and what was said.
 - **Listen live** (Test page, under "A satellite") plays what the satellite's
   microphone hears, as it hears it, and draws it: the level, the last few
   seconds, and what its voice activity and wake word models make of it --

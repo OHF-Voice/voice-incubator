@@ -105,6 +105,11 @@ function num(value, digits = 3) {
   return typeof value === "number" ? String(Number(value.toFixed(digits))) : String(value);
 }
 
+// A wake word model's probability, 0-1, as two decimals: "0.90".
+function prob(value) {
+  return typeof value === "number" ? value.toFixed(2) : "—";
+}
+
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 
 function slug(text) {
@@ -1991,7 +1996,9 @@ async function pageSessions(query) {
   async function refresh() {
     const data = await api("GET", `calls${satellite ? `?satellite=${satellite}` : ""}`);
     fill(list, ...(data.calls.length ? data.calls.map((c) => h("div", { class: "item clickable", onclick: () => { location.hash = `#/session/${c.id}`; } },
-      h("div", { style: "min-width:150px" }, h("div", {}, time(c.started)), h("div", { class: "muted small" }, sessionKind(c, sats))),
+      h("div", { style: "min-width:150px" }, h("div", {}, time(c.started)), h("div", { class: "muted small" }, sessionKind(c, sats)),
+        c.wake ? h("div", { class: "muted small", title: c.wake.probability !== undefined ? `window average ${prob(c.wake.probability)}, highest ${prob(c.wake.max_probability)}, cutoff ${prob(c.wake.cutoff)}` : "" },
+          c.wake.name || c.wake.wake_word, c.wake.probability !== undefined ? ` ${prob(c.wake.probability)}` : null) : null),
       h("div", { class: "grow" }, c.summary || h("span", { class: "muted" }, "…")),
       c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
       c.kept ? h("span", { class: "badge", title: "audio kept" }, "♪ audio") : null,
@@ -2197,7 +2204,14 @@ function renderStage(stage) {
   let cls = "";
   let body = null;
   let head = name;
-  if (name === "wake_kaldi") {
+  if (name === "call_start") {
+    head = "Wake word detected";
+    body = h("div", { class: "small" }, data.name || data.wake_word || "—",
+      data.probability !== undefined
+        ? ` · probability ${prob(data.probability)} (window average; highest ${prob(data.max_probability)}) against a cutoff of ${prob(data.cutoff)}`
+        : " · its firmware doesn't say the probability",
+      ` · pre-roll ${num(data.preroll, 2)} s`);
+  } else if (name === "wake_kaldi") {
     cls = data.accepted ? "ok" : "bad";
     head = `Kaldi wake verification${data.offset ? ` (+${data.offset}s retry)` : ""}`;
     body = h("div", { class: "small" }, data.accepted ? "accepted" : `rejected by ${data.rejected_by}`,

@@ -23,6 +23,11 @@ class Message(IntEnum):
 
     HELLO = 0x01
     CALL_START = 0x02
+    """A wake word was detected: {"wake_word": id, "preroll_bytes",
+    "aec_preroll_bytes", "probability", "max_probability", "cutoff"} -- the
+    last three (0-255, as in WAKE_REPORT; firmware from before them leaves
+    them out) are what it came in with: its sliding window's mean, which met
+    the cutoff, and the highest single inference in that window."""
     AUDIO_IN = 0x03
     CALL_END = 0x04
     STATUS = 0x05

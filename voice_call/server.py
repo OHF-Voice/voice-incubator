@@ -1259,16 +1259,26 @@ class VoiceCallApp:
         record = self.calls.begin("call", self.satellite(session.satellite).as_dict())
         session.call.record = record
         record.marks["detection"] = session.call.preroll_bytes / BYTE_RATE
+        word = self.wake_words.get(session.call.wake_word)
+        # What the wake word came in with, 0-1 (the device's are 0-255).
+        detection = {
+            key: round(float(info[key]) / 255, 3)
+            for key in ("probability", "max_probability", "cutoff")
+            if isinstance(info.get(key), (int, float))
+        }
         record.stage(
             "call_start",
             wake_word=session.call.wake_word,
+            name=word.name if word is not None else None,
+            **detection,
             preroll=round(session.call.preroll_bytes / BYTE_RATE, 3),
             aec_preroll=round(session.call.aec_preroll_bytes / BYTE_RATE, 3),
         )
         _LOGGER.info(
-            "[%s] Call started: wake_word=%r pre-roll=%dms%s",
+            "[%s] Call started: wake_word=%r%s pre-roll=%dms%s",
             session,
             session.call.wake_word,
+            f" probability={detection['probability']:.2f}" if "probability" in detection else "",
             session.call.preroll_bytes * 1000 // BYTE_RATE,
             (
                 f" aec pre-roll={int(info['aec_preroll_bytes']) * 1000 // BYTE_RATE}ms"

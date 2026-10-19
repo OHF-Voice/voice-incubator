@@ -949,6 +949,13 @@ browser plays the audio through Web Audio (a fifth of a second behind, for
 the network's jitter) and draws the level, the last six seconds, and a strip
 per model with its cutoff and its detections.
 
+A call's `CALL_START` says what its wake word came in with: `probability`,
+the sliding window's mean that met the cutoff, `max_probability`, the
+highest single inference in that window, and `cutoff`, all 0-255 as in
+`WAKE_REPORT` (firmware from before leaves them out). The app keeps them
+0-1 in the session's `call_start` stage, which the Sessions list and a
+session's page show.
+
 The LED ring's speaker colors are gamma-corrected by ESPHome (2.8), which
 turns orange and pink red, and red means someone is listening: the palette
 (`speaker.PALETTE`) is written for how it looks on the ring, and a speaker

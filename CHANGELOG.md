@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **Sessions** show the probability each wake word came in with -- the
+  satellite model's window average that met the cutoff, its highest single
+  inference, and the cutoff -- in the list and on a session's page. Needs
+  new voice_call firmware (`CALL_START` carries them).
 - **Wake words** has a page of its own. Each satellite listens for one wake
   word: the home's **preferred** one, or one of its own, both picked there
   (the Satellites page says which and links to it). A satellite given two

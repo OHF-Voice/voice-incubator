@@ -120,7 +120,8 @@ async def _scenario(tmp_path: Path) -> None:
         await asyncio.wait_for(satellite.ready.wait(), 30)
 
         # "turn on the lights": the satellite's area is the target.
-        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        detection = {"probability": 230, "max_probability": 255, "cutoff": 51}
+        assert await satellite.call(read_call(CALLS / "call-15788.wav"), detection=detection) == "done"
         script = hass.scripts[-1]
         assert script["sequence"] == [{"action": "light.turn_on", "target": "{{ target }}"}]
         variables = script["variables"]
@@ -136,6 +137,11 @@ async def _scenario(tmp_path: Path) -> None:
         record = app.calls.recent[-1]
         stages = [s["stage"] for s in record.stages]
         assert stages[:2] == ["call_start", "wake_kaldi"]
+        # What the wake word came in with, 0-1, also in the list.
+        start = record.stages[0]
+        assert (start["probability"], start["max_probability"], start["cutoff"]) == (0.902, 1.0, 0.2)
+        assert start["name"] == "Okay Nabu"
+        assert app.calls.list()[0]["wake"]["probability"] == 0.902
         assert {"split", "speaker", "recognition", "action", "speech"} <= set(stages)
         assert variables["speaker"] == {"name": None, "score": None}  # nobody enrolled
         split = next(s for s in record.stages if s["stage"] == "split")
