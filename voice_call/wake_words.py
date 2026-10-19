@@ -1,14 +1,18 @@
 """The wake words a satellite can listen for.
 
-Two kinds, told apart by whether the Kaldi verifier (``wake.yaml``) knows them:
+Two kinds:
 
 * **Built in** -- ``models/wake``: "Okay Nabu", "Hey Jarvis", "Hey Mycroft".
-  Each has a verifier entry with its confusables, so the on-device detector
-  runs at a low cutoff and the verifier refuses what that lets through. Across
-  a room the manifests' own cutoffs cost most of the recall.
+  Each has a verifier entry with its confusables (``wake.yaml``), so the
+  on-device detector runs at a low cutoff and the verifier refuses what that
+  lets through. Across a room the manifests' own cutoffs cost most of the
+  recall.
 * **Custom** -- a ``wake_words`` directory: a microWakeWord manifest (``.json``)
-  and its model (``.tflite``), as ESPHome and Tater ship them. No verifier, so
-  they run at their manifest's cutoff, the one they were trained for.
+  and its model (``.tflite``), as ESPHome and Tater ship them. They run at
+  their manifest's cutoff, the one they were trained for, and have no
+  verifier until given confusables on the Wake words page.
+
+The Wake words page may set any wake word's cutoff (``tuning``).
 
 Either way the command is placed after the wake phrase found again in the CTC
 evidence (``phrases``): for a custom word, its manifest's ``wake_word`` text.
@@ -34,6 +38,11 @@ VAD = "vad"
 STOP = "stop"
 SPECIAL = frozenset({VAD, STOP})
 DEFAULT_WAKE_WORDS = ("okay_nabu",)
+
+MAX_WAKE_WORDS = 1
+"""Wake words a satellite listens for at once. The device has room for more
+(``model_slots``), but for now each satellite has one: the home's preferred
+wake word, or its own."""
 
 PHRASES: dict[str, tuple[str, ...]] = {
     # How Parakeet writes them. Placement only -- the verifier has already
@@ -97,6 +106,8 @@ class WakeWord:
     verified: bool
     cutoff: float
     """The first stage's cutoff, as the device will run it."""
+    default_cutoff: float
+    """The cutoff it runs at unless the Wake words page sets one."""
     phrases: tuple[str, ...]
     """How the wake phrase is found again in the CTC evidence."""
 
@@ -107,6 +118,7 @@ class WakeWord:
             "custom": self.custom,
             "verified": self.verified,
             "cutoff": round(self.cutoff, 3),
+            "default_cutoff": round(self.default_cutoff, 3),
             "manifest_cutoff": _manifest_cutoff(self.manifest),
             "phrases": list(self.phrases),
             "languages": self.manifest.get("trained_languages") or [],
@@ -150,12 +162,16 @@ class WakeWords:
         custom_dir: Path | None,
         verified: Callable[[str], bool],
         cutoff_override: float | None = None,
+        tuning: Callable[[], dict[str, dict[str, Any]]] | None = None,
     ) -> None:
         self.builtin_dir = Path(builtin_dir)
         self.custom_dir = Path(custom_dir) if custom_dir is not None else None
         self.verified = verified
         self.cutoff_override = cutoff_override
-        """Replaces every verified word's first-stage cutoff (``--wake-cutoff``)."""
+        """Replaces every verified word's default first-stage cutoff
+        (``--wake-cutoff``); a cutoff set on the Wake words page still wins."""
+        self.tuning = tuning or dict
+        """What the Wake words page set, per wake word (``wake_words.yaml``)."""
         self._words: dict[str, WakeWord] = {}
         self._signature: tuple = ()
         self._models: dict[tuple, WakeModel] = {}
@@ -176,6 +192,7 @@ class WakeWords:
         signature = tuple((str(p), _mtime(p)) for p, _ in files)
         if signature == self._signature:
             return self._words
+        tuning = self.tuning()
         words: dict[str, WakeWord] = {}
         for path, custom in files:
             found = read_manifest(path)
@@ -189,8 +206,12 @@ class WakeWords:
                 if words[word_id].tflite.resolve() != tflite.resolve():
                     _LOGGER.warning("Wake word %s: %s is used, not %s", word_id, words[word_id].tflite, tflite)
                 continue  # Tater ships an .esphome.json twin beside the .json
-            verified = not custom and self.verified(word_id)
+            verified = self.verified(word_id)
             name = str(manifest.get("wake_word") or manifest.get("label") or word_id)
+            if "_" in name and " " not in name:
+                name = spoken(name).title()  # "hey_marcel": Hey Marcel
+            default = self._default_cutoff(word_id, manifest, custom, verified)
+            tuned = (tuning.get(word_id) or {}).get("cutoff")
             words[word_id] = WakeWord(
                 id=word_id,
                 name=name,
@@ -199,19 +220,27 @@ class WakeWords:
                 manifest=manifest,
                 custom=custom,
                 verified=verified,
-                cutoff=self._cutoff(word_id, manifest, verified),
+                cutoff=min(float(tuned), MAX_CUTOFF) if tuned is not None else default,
+                default_cutoff=default,
                 phrases=PHRASES.get(word_id) or ((spoken(name),) if spoken(name) else ()),
             )
         self._words = dict(sorted(words.items(), key=lambda kv: (kv[1].custom, kv[1].name.lower())))
         self._signature = signature
         return self._words
 
-    def _cutoff(self, word_id: str, manifest: dict[str, Any], verified: bool) -> float:
-        if not verified:
-            return min(_manifest_cutoff(manifest), MAX_CUTOFF)
-        if self.cutoff_override is not None:
+    def _default_cutoff(self, word_id: str, manifest: dict[str, Any], custom: bool, verified: bool) -> float:
+        """A verified built-in word's low cutoff; a custom word's own, from
+        its manifest, even when it is verified: lowering it is the page's to
+        do (``--wake-cutoff`` aside)."""
+        if verified and self.cutoff_override is not None:
             return self.cutoff_override
+        if not verified or custom:
+            return min(_manifest_cutoff(manifest), MAX_CUTOFF)
         return VERIFIED_CUTOFF.get(word_id, DEFAULT_VERIFIED_CUTOFF)
+
+    def forget(self) -> None:
+        """Scan again next time: what is verified, or a cutoff, changed."""
+        self._signature = ()
 
     def get(self, word_id: str) -> WakeWord | None:
         return self.scan().get(word_id)
@@ -239,15 +268,16 @@ class WakeWords:
         return PHRASES.get(word_id) or PHRASES[DEFAULT_WAKE_WORDS[0]]
 
     def chosen(self, settings: dict[str, Any], stored: dict[str, Any], default: tuple[str, ...]) -> list[str]:
-        """A satellite's wake words: its own, else every satellite's, else the
-        app's default. Unknown ids are left out."""
+        """A satellite's wake words: its own, else the home's preferred one,
+        else the app's default. Unknown ids are left out, and only the first
+        ``MAX_WAKE_WORDS`` are kept."""
         words = self.scan()
         for source in (stored.get("wake_words"), settings.get("wake_words"), default):
             if source:
                 picked = [w for w in dict.fromkeys(source) if w in words]
                 if picked:
-                    return picked
-        return [w for w in DEFAULT_WAKE_WORDS if w in words] or list(words)[:1]
+                    return picked[:MAX_WAKE_WORDS]
+        return ([w for w in DEFAULT_WAKE_WORDS if w in words] or list(words))[:MAX_WAKE_WORDS]
 
     # -------------------------------------------------------------- models
 

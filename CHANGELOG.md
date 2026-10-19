@@ -2,6 +2,18 @@
 
 ## 0.2.0
 
+- **Wake words** has a page of its own. Each satellite listens for one wake
+  word: the home's **preferred** one, or one of its own, both picked there
+  (the Satellites page says which and links to it). A satellite given two
+  before listens for the first.
+- Each wake word's **cutoff** on the satellite, **confusables**, and the
+  verifier's **thresholds** and second opinion can be changed there, kept in
+  `wake_words.yaml`. Saving rebuilds that wake word's verifier while the app
+  runs; **Restore its defaults** undoes it.
+- A **custom wake word** given confusables is verified like the built-in
+  ones, and can then run at a lower cutoff.
+- A word the verifier doesn't know needs a pronunciation: the page guesses
+  one with espeak-ng, to keep or correct.
 - Example sentences may be templates, as in Home Assistant's sentences:
   `(turn|switch) on the light[s]` is four sentences, each matched word for
   word. `{slots}` and `<rules>` aren't supported. The editor shows what each

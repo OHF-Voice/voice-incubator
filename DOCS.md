@@ -34,21 +34,42 @@ area.
 
 ### Wake words
 
-Each satellite listens for one or more wake words: picked for every satellite
-at the top of the Satellites page, and per satellite below it. A satellite
-holds up to four (two with firmware from before this version).
+Each satellite listens for one wake word: the home's **preferred** one, or
+one of its own. Both are picked on the **Wake words** page, which is also
+where each wake word is tuned.
 
 - **Okay Nabu, Hey Jarvis, Hey Mycroft** are built in. Every time the
-  satellite thinks it heard one, the app checks again against words that
-  sound like it ("hey travis", "hey microsoft"), so the satellite can listen
-  eagerly and still hear you across the room.
+  satellite thinks it heard one, the app checks again against **confusables**
+  -- phrases that sound like it ("hey travis", "hey microsoft") -- so the
+  satellite can listen eagerly and still hear you across the room.
 - **Custom wake words**: a microWakeWord model (`.tflite`) and its manifest
   (`.json`), as ESPHome and the Tater Wake Words catalog share them. Upload
-  both together on the Satellites page, or copy them into `wake_words/` in
+  both together on the Wake words page, or copy them into `wake_words/` in
   the app's configuration folder (`addon_configs/..._voice_call` over Samba).
-  They are not checked a second time, so they run at the cutoff in their
-  manifest -- the one they were trained for. A model the satellite cannot run
-  is refused when uploaded, and marked "can't run" when copied.
+  They run at the cutoff in their manifest -- the one they were trained for
+  -- and are not checked a second time until you give them confusables. A
+  model the satellite cannot run is refused when uploaded, and marked "can't
+  run" when copied.
+
+Open a wake word on the Wake words page to change:
+
+- **Its cutoff on the satellite**: how sure the satellite's own model must be
+  before it wakes. Lower hears it from further away, and fires more often on
+  other speech: for a checked wake word the app refuses those, but the ring
+  lights and the music ducks while it checks.
+- **Its confusables.** Add a phrase people say near the satellite that wakes
+  it by mistake ("okay nadine"); remove one that refuses the real wake word
+  too. A word the checker doesn't know ("nabu") needs a pronunciation: the
+  page guesses one, which you can correct, in the phones it lists. Built-in
+  wake words can go back to their own list.
+- **Its thresholds**: how close a confusable may come, how well each part of
+  the wake word must fit, and when the speech model may overturn a refusal.
+  They were measured for Okay Nabu on a Voice PE: change them a little at a
+  time, and test from where people stand.
+
+Saving rebuilds the wake word's checker, a few seconds on a Raspberry Pi;
+**Restore its defaults** undoes everything changed. What you change is kept
+in `wake_words.yaml`.
 
 ### Listening and speaking
 
@@ -569,10 +590,10 @@ commands:
 
 ## Options
 
-- `wake_cutoff`: the satellite detector's probability cutoff for the built-in
-  wake words (default: each its own -- 0.2 for Okay Nabu, 0.5 for Hey Jarvis,
-  0.7 for Hey Mycroft). Every detection of these is verified again here, so it
-  can be generous. Custom wake words keep their own.
+- `wake_cutoff`: the satellite detector's probability cutoff for the
+  checked wake words (default: each its own -- 0.2 for Okay Nabu, 0.5 for Hey
+  Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again
+  here, so it can be generous. A cutoff set on the Wake words page wins.
 - `speaker_threshold`: how closely a voice must match to be identified.
 - `silence_seconds`: silence that ends a command.
 - `debug_logging`: verbose logs.

@@ -1584,55 +1584,6 @@ function voicePicker(ttsSelect, value, inherit, languageSelect) {
   return select;
 }
 
-// Wake words to tick, at most `slots` of them. With `inherit` (a satellite),
-// unticking "its own" follows every satellite's pick. `.picked()` is the ids
-// ticked, or null for the default (every satellite's).
-function wakeChooser(words, picked, slots, inherit) {
-  const own = h("input", { type: "checkbox", checked: !inherit || !!(picked && picked.length) });
-  const boxes = words.map((w) => {
-    const box = h("input", { type: "checkbox", value: w.id, checked: (picked && picked.length ? picked : inherit || []).includes(w.id), disabled: !w.runs });
-    return { word: w, box };
-  });
-  const note = h("span", { class: "help" });
-  // Hundreds of custom words: a filter, and the picked ones always shown.
-  const filter = words.length > 12 ? h("input", { type: "search", placeholder: `Filter ${words.length} wake words`, style: "max-width:260px" }) : null;
-  function shown() {
-    const text = filter ? filter.value.trim().toLowerCase() : "";
-    let room = 60;
-    for (const { word, box } of boxes) {
-      const match = !text || word.name.toLowerCase().includes(text) || word.id.includes(text);
-      const show = box.checked || !word.custom || (match && (text || room > 0));
-      if (show && word.custom && !box.checked) room--;
-      box.parentElement.style.display = show ? "" : "none";
-    }
-  }
-  if (filter) filter.addEventListener("input", shown);
-  function update() {
-    const following = inherit && !own.checked;
-    for (const { word, box } of boxes) {
-      if (following) box.checked = inherit.includes(word.id);
-      box.disabled = following || !word.runs;
-    }
-    const n = boxes.filter((b) => b.box.checked).length;
-    note.textContent = n > slots ? `Only ${slots} fit on a satellite: the first ${slots} ticked are used.` : n ? "" : "Pick at least one.";
-    if (boxes.length && boxes[0].box.parentElement) shown();
-  }
-  own.addEventListener("change", update);
-  boxes.forEach((b) => b.box.addEventListener("change", update));
-  update();
-  const el = h("div", { class: "wake-words" },
-    inherit ? h("label", { class: "small" }, own, "Its own wake words (otherwise the default)") : null,
-    filter,
-    h("div", { class: "wake-list" }, boxes.map(({ word, box }) => h("label", { title: word.error || "" }, box, word.name,
-      word.verified ? h("span", { class: "badge ok", title: `Checked by the verifier; the detector runs at ${word.cutoff}` }, "verified")
-        : h("span", { class: "badge", title: "No verifier: runs at its own manifest's cutoff" }, `custom · ${word.cutoff}`),
-      word.runs ? null : h("span", { class: "badge bad" }, "can't run")))),
-    note);
-  el.picked = () => (inherit && !own.checked ? null : boxes.filter((b) => b.box.checked).map((b) => b.word.id));
-  shown();
-  return el;
-}
-
 // Command groups to tick. With `inherit` (a satellite), unticking "its own"
 // follows the default (every satellite's). `.picked()` is the ids ticked, or null.
 function groupChooser(groups, picked, inherit) {
@@ -1655,11 +1606,260 @@ function groupChooser(groups, picked, inherit) {
   return el;
 }
 
+// ---------------------------------------------------------------- wake words
+
+function wakeWordName(wake, id) {
+  if (!id) return "none";
+  const word = (wake.wake_words || []).find((w) => w.id === id);
+  return word ? word.name : id;
+}
+
+const THRESHOLD_FIELDS = [
+  ["theta_competitor", "Confusable margin", "Refused when a confusable fits what was heard better than the wake word does, by more than this. Higher accepts more wake words said quickly or from across the room, and more confusables."],
+  ["theta_last", "Last word", "Refused when its last word (“nabu”) fits worse than any speech would, by more than this. Higher accepts more, from further away."],
+  ["theta_prefix", "First words", "The same for the words before the last (“okay”)."],
+];
+
+// A number input that is empty for the default, shown as its placeholder.
+function defaultNumber(value, fallback, step, max) {
+  return h("input", { type: "number", step, min: 0, max, value: value === undefined || value === null ? "" : value, placeholder: String(num(fallback)), style: "width:7em" });
+}
+
+function numberOrNull(input) {
+  return input.value.trim() === "" ? null : Number(input.value);
+}
+
+// One wake word's settings: its cutoff on the satellite, and its verifier --
+// confusables, pronunciations of words the verifier doesn't know, thresholds.
+function wakeWordEditor(word, wake, reload) {
+  const tuning = word.tuning || {};
+  const defaults = word.defaults;
+  const verifier = word.verifier;
+  let confusables = (verifier ? verifier.confusables : tuning.confusables || []).slice();
+  const pron = Object.assign({}, defaults.pronunciations, (verifier && verifier.pronunciations) || {});
+  const guessed = new Set();  // filled in from a guess, and not edited since
+  const cutoff = defaultNumber(tuning.cutoff, defaults.cutoff, "0.01", wake.max_cutoff);
+  const chipsBox = h("div");
+  const words = h("div");
+  const problem = h("div");
+  const restore = h("button", { type: "button", class: "link" }, `Restore the built-in list (${defaults.confusables.length})`);
+  const thresholds = Object.fromEntries(THRESHOLD_FIELDS.map(([key]) => [key,
+    defaultNumber((tuning.thresholds || {})[key], defaults.thresholds[key], "0.01", 10)]));
+  const second = defaultNumber(tuning.second_opinion, defaults.second_opinion, "0.05", 10);
+  const thresholdBox = h("div", {},
+    h("h3", {}, "Thresholds"),
+    h("p", { class: "muted small" }, "How the verifier decides. Empty: the default, shown greyed. They were measured for “okay nabu” on a Voice PE: change them a little at a time, and test from where people stand."),
+    h("div", { class: "thresholds" },
+      ...[...THRESHOLD_FIELDS.map(([key, label, help]) => [label, thresholds[key], help]),
+        ["Second opinion", second, "A wake word refused on its last or first words is accepted anyway when the speech model scores it at or below this. Higher overturns more. A confusable's refusal stands."]]
+        .flatMap(([label, input, help]) => [h("span", { class: "label" }, label), input, h("span", { class: "help" }, help)])));
+
+  function shown() {
+    restore.style.display = !word.custom && (confusables.length !== defaults.confusables.length || confusables.some((c) => !defaults.confusables.includes(c))) ? "" : "none";
+    thresholdBox.style.display = !word.custom || confusables.length ? "" : "none";
+  }
+  function renderChips() {
+    fill(chipsBox, chipsInput(confusables, (list) => { confusables = list; changed(); }, "a phrase that sounds like it, then Enter"));
+    shown();
+  }
+  restore.addEventListener("click", () => { confusables = defaults.confusables.slice(); renderChips(); changed(); });
+
+  // What the verifier can't say: a pronunciation each, guessed when none
+  // was given.
+  let timer = null;
+  let asked = 0;
+  function changed() {
+    clearTimeout(timer);
+    timer = setTimeout(check, 300);
+    shown();
+  }
+  async function check() {
+    const ask = ++asked;
+    if (word.custom && !confusables.length) { fill(words); fill(problem); return; }
+    let data;
+    try { data = await api("POST", `wake_words/${encodeURIComponent(word.id)}/check`, { confusables, pronunciations: pron }); }
+    catch (err) { fill(problem, errorBox(err)); return; }
+    if (ask !== asked) return;
+    const missing = data.words.filter((w) => !pron[w.word] || guessed.has(w.word));
+    fill(words, data.words.length ? h("details", { open: missing.length > 0 || null },
+      h("summary", {}, `Pronunciations: ${data.words.length} word${data.words.length === 1 ? "" : "s"} not in the verifier's dictionary`),
+      h("p", { class: "muted small" }, "In the model's phones, the stress mark before the vowel it falls on. A guess (from espeak) is filled in where none was given: check it before saving. ",
+        h("a", { href: "#/wake", onclick: (e) => { e.preventDefault(); phones.open = !phones.open; } }, "The phones")),
+      h("div", { class: "kv" }, data.words.flatMap((w) => {
+        if (!pron[w.word] && w.guess) { pron[w.word] = w.guess; guessed.add(w.word); }
+        const input = h("input", { type: "text", value: pron[w.word] || "", placeholder: "n ˈæ b u", style: "width:14em" });
+        const badge = h("span", { class: "badge warn" });
+        const mark = () => {
+          badge.textContent = guessed.has(w.word) ? "guessed" : pron[w.word] ? "" : "needed";
+          badge.style.display = badge.textContent ? "" : "none";
+        };
+        input.addEventListener("input", () => { pron[w.word] = input.value.trim(); guessed.delete(w.word); mark(); });
+        input.addEventListener("change", changed);
+        mark();
+        return [h("div", {}, w.word), h("div", { class: "row" }, input, badge, h("span", { class: "muted small" }, w.in.join(", ")))];
+      }))) : null);
+    fill(problem, data.error ? h("div", { class: "notice warn" }, data.error) : null);
+  }
+  const phones = h("details", { class: "small" }, h("summary", {}, "The model's phones"),
+    h("div", { class: "phones" }, (wake.phones || []).map(([phone, example, said]) =>
+      h("span", { class: "chip", title: `${example}: ${said}` }, h("b", {}, phone), ` ${example}`))));
+
+  async function save(body, button) {
+    button.disabled = true;
+    const old = button.textContent;
+    button.textContent = "Saving…";
+    try {
+      const data = await api("PUT", `wake_words/${encodeURIComponent(word.id)}`, body);
+      toast(data.rebuilt && data.rebuilt.length ? "Saved; its verifier was rebuilt" : "Saved");
+      reload();
+    } catch (err) { toast(err.message); button.disabled = false; button.textContent = old; }
+  }
+  const saveButton = h("button", { class: "primary", onclick: () => save({
+    cutoff: numberOrNull(cutoff), confusables, pronunciations: pron,
+    thresholds: Object.fromEntries(Object.entries(thresholds).map(([k, input]) => [k, numberOrNull(input)])),
+    second_opinion: numberOrNull(second),
+  }, saveButton) }, "Save");
+  const resetButton = h("button", { onclick: () => { if (confirm(`Back to ${word.name}'s defaults?`)) save({}, resetButton); } }, "Restore its defaults");
+  renderChips();
+  check();
+  return h("div", { class: "wake-editor" },
+    field("Cutoff on the satellite", cutoff,
+      `How sure the satellite's own model must be before it wakes, from 0 to ${wake.max_cutoff}. Lower hears it from further away and fires more often on other speech: `
+      + (verifier ? "the verifier refuses those, but the ring lights and the music ducks while it checks. "
+        : "nothing checks it again, so it wakes. ")
+      + (word.custom ? `It was trained for ${num(word.manifest_cutoff)}.` : "The default was measured with its verifier.")),
+    h("h3", {}, "Confusables"),
+    h("p", { class: "muted small" }, verifier
+      ? "Phrases that sound like it and must not wake the satellite. Each is decoded against the wake word, and the wake word is refused when one fits better. One too close refuses the real wake word too, said quickly or from across the room."
+      : "It isn't verified: nothing checks the satellite's detection. Give it confusables — phrases that sound like it and must not wake the satellite — and it is verified here like the built-in ones, which lets it run at a lower cutoff."),
+    chipsBox, restore, words, phones, problem,
+    thresholdBox,
+    h("div", { class: "row" }, saveButton,
+      Object.keys(tuning).length ? resetButton : null,
+      h("span", { class: "grow" }),
+      word.custom ? h("button", { class: "danger", onclick: async () => {
+        if (!confirm(`Delete the wake word ${word.name}?`)) return;
+        try { await api("DELETE", `wake_words/${encodeURIComponent(word.id)}`); toast("Deleted"); reload(); }
+        catch (err) { toast(err.message); }
+      } }, "Delete") : null));
+}
+
+async function pageWakeWords(query) {
+  const params = new URLSearchParams(query || "");
+  const [wake, sats] = await Promise.all([api("GET", "wake_words"), loadSatellites()]);
+  const runs = wake.wake_words.filter((w) => w.runs);
+  const option = (w, selected) => h("option", { value: w.id, selected: selected || null }, w.name);
+  const reload = () => pageWakeWords(location.hash.split("?")[1]);
+
+  const preferred = h("select", { style: "max-width:320px" }, runs.map((w) => option(w, w.id === wake.preferred)));
+  const satRows = sats.map((s) => {
+    const own = (s.wake_words || [])[0];
+    const select = h("select", {},
+      h("option", { value: "", selected: !own || null }, `The preferred one (${wakeWordName(wake, wake.preferred)})`),
+      runs.map((w) => option(w, w.id === own)));
+    return { s, select };
+  });
+
+  // Built-in words, the ones in use or changed, and custom ones that match
+  // the filter: hundreds of custom words make a long page.
+  const using = (id) => sats.filter((s) => ((s.wake_words || [])[0] || wake.preferred) === id);
+  const opened = new Set(params.get("word") ? [params.get("word")] : []);
+  const filter = wake.wake_words.length > 12 ? h("input", { type: "search", placeholder: `Filter ${wake.wake_words.length} wake words`, style: "max-width:260px" }) : null;
+  const list = h("div", { class: "list" });
+  function row(word) {
+    const users = using(word.id);
+    const details = h("details", { class: "family" },
+      h("summary", { class: "item" },
+        icon("mdi:chevron-right", "chevron"),
+        h("div", { class: "grow" },
+          h("div", { class: "title" }, word.name),
+          h("div", { class: "muted small" }, [
+            word.custom ? "custom" : "built in",
+            word.verified ? `verified, ${word.verifier.confusables.length} confusables` : "not verified",
+            `cutoff ${num(word.cutoff)}`,
+            users.length ? `on ${users.map((s) => s.name).join(", ")}` : null,
+          ].filter(Boolean).join(" · "))),
+        word.id === wake.preferred ? h("span", { class: "badge accent" }, "preferred") : null,
+        Object.keys(word.tuning || {}).length ? h("span", { class: "badge" }, "changed") : null,
+        word.runs ? null : h("span", { class: "badge bad", title: word.error || "" }, "can't run")),
+      h("div", { class: "versions" }));
+    details.addEventListener("toggle", () => {
+      if (details.open) { opened.add(word.id); if (!details.lastChild.firstChild) fill(details.lastChild, wakeWordEditor(word, wake, reload)); }
+      else opened.delete(word.id);
+    });
+    if (opened.has(word.id)) { details.open = true; fill(details.lastChild, wakeWordEditor(word, wake, reload)); }
+    return details;
+  }
+  const rows = new Map();
+  function render() {
+    const text = filter ? filter.value.trim().toLowerCase() : "";
+    let room = 60;
+    const shown = wake.wake_words.filter((w) => {
+      const keep = !w.custom || w.id === wake.preferred || using(w.id).length || Object.keys(w.tuning || {}).length || opened.has(w.id);
+      const match = !text || w.name.toLowerCase().includes(text) || w.id.includes(text);
+      if (keep) return match || !text;
+      return match && room-- > 0;
+    });
+    fill(list, shown.map((w) => { if (!rows.has(w.id)) rows.set(w.id, row(w)); return rows.get(w.id); }));
+  }
+  if (filter) filter.addEventListener("input", render);
+  render();
+
+  const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
+  fill($main,
+    h("h1", {}, "Wake words"),
+    h("p", { class: "muted" }, "What a satellite listens for before a command. Each listens for one: the preferred wake word, or one of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly."),
+    wake.error ? h("div", { class: "notice warn" }, wake.error) : null,
+    h("div", { class: "panel" },
+      h("h2", {}, "Preferred wake word"),
+      field("Wake word", preferred, "Every satellite listens for this one, unless given another below."),
+      h("div", { class: "row" }, h("button", { class: "primary", onclick: async () => {
+        try { await api("PUT", "settings", { wake_words: [preferred.value] }); await refreshStatus(); toast("Saved"); reload(); }
+        catch (err) { toast(err.message); }
+      } }, "Save"))),
+    sats.length ? h("div", { class: "panel" },
+      h("h2", {}, "Satellites"),
+      h("div", { class: "kv", style: "align-items:center" }, satRows.flatMap(({ s, select }) => [
+        h("div", {}, s.name, s.connected ? null : h("span", { class: "muted small" }, " (offline)")),
+        h("div", { class: "row" }, select,
+          s.connected && (s.wake_words_used || []).length ? h("span", { class: "muted small" }, `listening for ${wakeWordName(wake, s.wake_words_used[0])}`) : null)])),
+      h("div", { class: "row", style: "margin-top:10px" }, h("button", { class: "primary", onclick: async () => {
+        try {
+          for (const { s, select } of satRows) {
+            const own = (s.wake_words || [])[0] || "";
+            if (select.value !== own) await api("PUT", `satellites/${s.key}`, { wake_words: select.value ? [select.value] : null });
+          }
+          toast("Saved"); reload();
+        } catch (err) { toast(err.message); }
+      } }, "Save"))) : null,
+    h("div", { class: "panel" },
+      h("h2", {}, "Each wake word"),
+      h("p", { class: "muted small" }, h("b", {}, "Built in"), " wake words are verified. ", h("b", {}, "Custom"), " ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — run at the cutoff they were trained for, unverified until given confusables."),
+      filter, list),
+    h("div", { class: "panel" },
+      h("h2", {}, "Add a custom wake word"),
+      h("div", { class: "row" },
+        field("Its .json and .tflite", upload, wake.custom_dir ? ["Pick both together. They can also be put in ", h("code", {}, wake.custom_dir), "."] : "Pick both together."),
+        h("button", { onclick: async () => {
+          if (!upload.files.length) return toast("Pick the .json and the .tflite");
+          const form = new FormData();
+          for (const file of upload.files) form.append(file.name.endsWith(".json") ? "manifest" : "model", file, file.name);
+          try {
+            const response = await fetch("api/wake_words", { method: "POST", body: form });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) throw new Error(data.error || response.statusText);
+            toast(`Added ${data.id}`);
+            location.hash = `#/wake?word=${encodeURIComponent(data.id)}`;
+          } catch (err) { toast(err.message); }
+        } }, "Upload"))),
+  );
+}
+
 async function pageSatellites() {
   const [sats, voices, wake] = await Promise.all([
     loadSatellites(),
     api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
-    api("GET", "wake_words").catch(() => ({ wake_words: [], default: [], slots: 2 })),
+    api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
   ]);
   const areas = await areaLabels();
   const settings = (state.status && state.status.settings) || {};
@@ -1677,9 +1877,6 @@ async function pageSatellites() {
   const hasGroups = Object.keys(groups).length > 0;
   const homeGroups = (store.group_use && store.group_use.home) || [];
   const globalGroups = groupChooser(groups, homeGroups);
-  const globalWake = wakeChooser(wake.wake_words, wake.default, wake.slots);
-  const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
-  const custom = wake.wake_words.filter((w) => w.custom);
   fill($main, 
     h("h1", {}, "Satellites"),
     h("p", { class: "muted" }, "Each satellite's area is what “the lights” means there, and what commands scoped to an area follow. With the Voice Call integration it is the area of the satellite's own device in Home Assistant."),
@@ -1692,37 +1889,6 @@ async function pageSatellites() {
         try { await api("PUT", "settings", { command_groups: globalGroups.picked() }); await refreshStatus(); toast("Saved"); pageSatellites(); }
         catch (err) { toast(err.message); }
       } }, "Save"))) : null,
-    h("div", { class: "panel" },
-      h("h2", {}, "Wake words"),
-      h("p", { class: "muted small" }, "What every satellite listens for, unless it has its own below. ",
-        h("b", {}, "Verified"), " wake words are checked a second time here, against words that sound like them, so the satellite can listen for them more eagerly. ",
-        h("b", {}, "Custom"), " ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — are not: they run at the cutoff they were trained for.",
-        wake.custom_dir ? [" They can also be put in ", h("code", {}, wake.custom_dir), "."] : null),
-      globalWake,
-      h("div", { class: "row" },
-        h("button", { class: "primary", onclick: async () => {
-          try { await api("PUT", "settings", { wake_words: globalWake.picked() }); await refreshStatus(); toast("Saved"); pageSatellites(); }
-          catch (err) { toast(err.message); }
-        } }, "Save"),
-        h("span", { class: "grow" }),
-        field("Add a custom wake word", upload, "Pick its .json and .tflite together."),
-        h("button", { onclick: async () => {
-          if (!upload.files.length) return toast("Pick the .json and the .tflite");
-          const form = new FormData();
-          for (const file of upload.files) form.append(file.name.endsWith(".json") ? "manifest" : "model", file, file.name);
-          try {
-            const response = await fetch("api/wake_words", { method: "POST", body: form });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || data.ok === false) throw new Error(data.error || response.statusText);
-            toast(`Added ${data.id}`); pageSatellites();
-          } catch (err) { toast(err.message); }
-        } }, "Upload")),
-      custom.length ? h("details", { class: "small" }, h("summary", {}, `Delete custom wake words (${custom.length})`), custom.map((w) => h("span", { class: "chip" }, w.name,
-        h("button", { class: "link", title: `Delete ${w.id}`, onclick: async () => {
-          if (!confirm(`Delete the wake word ${w.name}?`)) return;
-          try { await api("DELETE", `wake_words/${encodeURIComponent(w.id)}`); toast("Deleted"); pageSatellites(); }
-          catch (err) { toast(err.message); }
-        } }, "×")))) : null),
     h("div", { class: "panel" },
       h("h2", {}, "Listening and speaking"),
       h("p", { class: "muted small" }, "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own below). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
@@ -1755,7 +1921,6 @@ async function pageSatellites() {
       const speakOn = h("select", {},
         h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
         ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
-      const wakeWords = wakeChooser(wake.wake_words, s.wake_words, s.model_slots ? s.model_slots - 2 : wake.slots, wake.default);
       const commandGroups = hasGroups ? groupChooser(groups, s.command_groups, homeGroups) : null;
       const found = s.media_player_picked ? null : s.media_player;
       const player = h("select", {},
@@ -1772,7 +1937,7 @@ async function pageSatellites() {
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Wake words"), h("div", {}, (s.wake_words_used || []).map((id) => (wake.wake_words.find((w) => w.id === id) || { name: id }).name).join(", ") || "none", s.wake_words ? " (its own)" : ""),
+          h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)", " · ", h("a", { href: "#/wake" }, "change")),
           h("div", {}, "Commands"), h("div", {}, s.command_groups_used ? ["only those in ", s.command_groups_used.map((g) => (groups[g] && groups[g].name) || g).join(", "), s.command_groups ? " (its own)" : ""] : "every command"),
           h("div", {}, "Music"), h("div", {}, s.media_player ? [h("code", {}, s.media_player), s.media_player_picked ? " (picked here)" : " (its Sendspin player in Music Assistant)"] : "no Music Assistant player found for it"),
           h("div", {}, "Listens with"), h("div", {}, used.stt ? [h("code", {}, used.stt), used.stt_language ? ` (${used.stt_language})` : ""] : "the built-in TDT model", " after the built-in matcher"),
@@ -1782,7 +1947,6 @@ async function pageSatellites() {
         s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
         h("div", { class: "row" },
           field("Name", name), field("Area", area), field("Music player", player)),
-        field("Wake words", wakeWords),
         commandGroups ? field("Command groups", commandGroups) : null,
         h("div", { class: "row" },
           field("Speech-to-text", stt), field("Language", sttLanguage),
@@ -1795,7 +1959,6 @@ async function pageSatellites() {
                 name: name.value, area: area.value || null, media_player: player.value || null,
                 stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
                 stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
-                wake_words: wakeWords.picked(),
                 ...(commandGroups ? { command_groups: commandGroups.picked() } : {}),
               });
               toast("Saved"); pageSatellites();
@@ -2523,6 +2686,7 @@ async function route() {
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "satellites") await pageSatellites();
+    else if (page === "wake") await pageWakeWords(query);
     else if (page === "sessions") await pageSessions(query);
     else if (page === "session") await pageSession(arg);
     else if (page === "test") await pageTest(query);

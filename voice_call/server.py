@@ -58,7 +58,8 @@ from .speaker import Identification, SpeakerId
 from .store import Compiled, Store
 from .tts import Speech
 from .wake import VerifyResult, WakeVerifier
-from .wake_ratio import WakeRatio
+from .wake import ConfigError as WakeConfigError
+from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
 from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, VAD, WakeWords
 
 _LOGGER = logging.getLogger(__name__)
@@ -210,7 +211,8 @@ class Options:
     for two others, where retrying only on a pinned split was +3.8, +0.7 and
     nobody worse. Zero disables the retry."""
     wake_ratio: float | None = None
-    """Per-frame threshold for the second opinion on a rejected wake word.
+    """Per-frame threshold for the second opinion on a rejected wake word
+    (one set on the Wake words page wins).
     Negative disables it."""
     wake_probability_cutoff: float | None = None
     """Overrides the first-stage cutoff of every verified wake word (each has
@@ -316,6 +318,8 @@ class Session:
     announced: asyncio.Event = field(default_factory=asyncio.Event)
     wake_words: list[str] = field(default_factory=list)
     """The wake words last pushed to it, by id."""
+    wake_cutoffs: dict[str, float] = field(default_factory=dict)
+    """The cutoffs they were pushed at."""
     listeners: set[asyncio.Queue] = field(default_factory=set)
     """Someone listening live (the Test page): each gets the microphone as it
     comes, between calls (the device streams it while monitored) and in them."""
@@ -335,13 +339,18 @@ class VoiceCallApp:
         self.hass = HomeAssistant(
             options.hass_url, options.hass_token, options.hass_websocket_url
         )
-        self.wake = WakeVerifier(root / "wake.yaml")
+        self.wake = WakeVerifier(root / "wake.yaml", train_dir=self.store.data_dir / "wake-train")
         self.wake_words = WakeWords(
             root / "models/wake",
             options.wake_words_dir or root / "wake_words",
             self.wake.knows,
             options.wake_probability_cutoff,
+            tuning=lambda: self.store.wake_tuning,
         )
+        self.wake_error: str | None = None
+        """Why the Wake words page's changes could not be used at start."""
+        self._wake_lock = asyncio.Lock()
+        """One wake word change at a time: each may rebuild a verifier."""
         # The fp32 encoder is 862 MB resident, which is most of a 2 GB Pi.
         # Prefer the int8 build when it has been produced.
         ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -407,6 +416,12 @@ class VoiceCallApp:
             self.integration.want(key, entry.get("name") or key)
         await self.hass.start()
 
+        try:
+            self.wake.config = await asyncio.to_thread(self._verifier_config)
+        except WakeConfigError as err:
+            self.wake_error = f"What the Wake words page changed can't be verified, so the built-in settings are used: {err}"
+            _LOGGER.error("%s", self.wake_error)
+        self.wake_words.forget()
         await self.wake.start(tuple(w for w in self._wake_words_in_use() if self.wake.knows(w)))
         if self.wake_words.model(STOP) is None:
             _LOGGER.warning("No %s model: a ringing timer can only be stopped by a call", STOP)
@@ -421,21 +436,7 @@ class VoiceCallApp:
         await self.reload_commands()
         self._spawn(self.configure_fallback())
         self.configure_agent()
-        if self.options.wake_ratio is None or self.options.wake_ratio >= 0:
-            for word in self.wake_words.scan().values():
-                if not word.verified:
-                    continue
-                ratio = WakeRatio(
-                    word.phrases[0],
-                    threshold=self.options.wake_ratio if self.options.wake_ratio is not None else RATIO_THRESHOLD.get(word.id),
-                )
-                try:
-                    # Shares the recognizer's loaded net.
-                    await asyncio.to_thread(ratio.train, self.engine.model)
-                except Exception:  # noqa: BLE001 - a missing second opinion is not fatal
-                    _LOGGER.exception("Wake word second opinion unavailable for %s", word.id)
-                    continue
-                self.wake_ratios[word.id] = ratio
+        await self._ensure_ratios()
         await self.speech.start()
         if self.speakers is not None:
             await self.speakers.start()
@@ -753,6 +754,77 @@ class VoiceCallApp:
             self.store.save_satellites()
         self.integration.want(session.satellite, entry["name"])
 
+    # ----------------------------------------------------------- wake words
+
+    def custom_wake_phrases(self) -> dict[str, str]:
+        """Custom wake words by id, with what the verifier would accept."""
+        return {w.id: w.phrases[0] for w in self.wake_words.scan().values() if w.custom and w.phrases}
+
+    def _verifier_config(self, tuning: dict[str, dict[str, Any]] | None = None):
+        """The verifier's config with what the Wake words page changed.
+        Raises the verifier's ConfigError."""
+        return self.wake.build(self.store.wake_tuning if tuning is None else tuning, self.custom_wake_phrases())
+
+    def default_ratio(self, word_id: str) -> float:
+        """The second opinion's threshold unless the page sets one."""
+        if self.options.wake_ratio is not None and self.options.wake_ratio >= 0:
+            return self.options.wake_ratio
+        return RATIO_THRESHOLD.get(word_id, DEFAULT_RATIO)
+
+    def ratio_threshold(self, word_id: str) -> float:
+        tuned = (self.store.wake_tuning.get(word_id) or {}).get("second_opinion")
+        return float(tuned) if tuned is not None else self.default_ratio(word_id)
+
+    async def _ensure_ratios(self) -> None:
+        """The second opinion for each verified wake word, at its threshold
+        (none with ``--wake-ratio`` below 0)."""
+        if self.engine is None or (self.options.wake_ratio is not None and self.options.wake_ratio < 0):
+            return
+        words = self.wake_words.scan()
+        for word_id in [w for w in self.wake_ratios if w not in words or not words[w].verified]:
+            del self.wake_ratios[word_id]
+        for word in words.values():
+            if not word.verified or not word.phrases:
+                continue
+            ratio = self.wake_ratios.get(word.id)
+            if ratio is not None and ratio.wake_word == word.phrases[0]:
+                ratio.threshold = self.ratio_threshold(word.id)
+                continue
+            ratio = WakeRatio(word.phrases[0], threshold=self.ratio_threshold(word.id))
+            try:
+                # Shares the recognizer's loaded net.
+                await asyncio.to_thread(ratio.train, self.engine.model)
+            except Exception:  # noqa: BLE001 - a missing second opinion is not fatal
+                _LOGGER.exception("Wake word second opinion unavailable for %s", word.id)
+                continue
+            self.wake_ratios[word.id] = ratio
+
+    async def tune_wake_word(self, word_id: str, entry: dict[str, Any] | None) -> list[str]:
+        """Keep what the Wake words page set for ``word_id`` (None: nothing,
+        its defaults) and run with it: its verifier rebuilt if that changed,
+        its second opinion's threshold, and satellites given its cutoff.
+        Returns the verifiers rebuilt. Raises ConfigError, changing nothing,
+        when what it says can't be verified."""
+        async with self._wake_lock:
+            tuning = {k: v for k, v in self.store.wake_tuning.items() if k != word_id}
+            if entry:
+                tuning[word_id] = entry
+            try:
+                config = await asyncio.to_thread(self._verifier_config, tuning)
+            except WakeConfigError as err:
+                raise ConfigError(str(err)) from err
+            self.store.wake_tuning = tuning
+            self.store.save_wake_tuning()
+            self.wake_error = None
+            rebuilt = await self.wake.apply(config)
+            self.wake_words.forget()
+            await self._ensure_ratios()
+            # A custom wake word verified now, where it is listened for.
+            if word_id in self._wake_words_in_use() and self.wake.knows(word_id):
+                await self.wake.ensure([word_id])
+            self.wake_words_changed()
+            return rebuilt
+
     # ---------------------------------------------------------- wake models
 
     @property
@@ -807,6 +879,7 @@ class VoiceCallApp:
             return
         models = self._wake_models_for(session)
         session.wake_words = [m.model_id for m in models if not m.is_vad]
+        session.wake_cutoffs = {m.model_id: m.probability_cutoff for m in models if not m.is_vad}
         for model in models:
             _LOGGER.info(
                 "[%s] Wake model %r: %d bytes, cutoff %.2f, window %d%s",
@@ -825,16 +898,16 @@ class VoiceCallApp:
         await self._push_models(session, models)
 
     def wake_words_changed(self, key: str | None = None) -> None:
-        """A satellite's pick (or every satellite's) changed: push again where
-        it changes what the device listens for. A ringing satellite gets them
-        when the ring ends."""
+        """A satellite's pick (or every satellite's), or a cutoff, changed:
+        push again where it changes what the device listens for. A ringing
+        satellite gets them when the ring ends."""
         for session in list(self.sessions.values()):
             if key is not None and session.satellite != key:
                 continue
             if session.writer is None or (session.ringing and not session.ringing.done()):
                 continue
-            wanted = [m.model_id for m in self._wake_models_for(session) if not m.is_vad]
-            if wanted != session.wake_words:
+            wanted = [(m.model_id, m.probability_cutoff) for m in self._wake_models_for(session) if not m.is_vad]
+            if wanted != [(w, session.wake_cutoffs.get(w)) for w in session.wake_words]:
                 self._spawn(self._push_wake_models(session))
 
     async def _push_models(self, session: Session, models: list[WakeModel], first_slot: int = 0) -> None:

@@ -3,7 +3,9 @@
 ``commands.yaml`` holds the voice commands, shared names and lists. The web UI
 writes it and people may edit it by hand: it is read and written round-trip,
 so comments and order survive a save from the UI, and a hand edit is picked up
-without a restart. ``satellites.yaml`` and ``settings.yaml`` are the UI's own.
+without a restart. ``satellites.yaml``, ``settings.yaml`` and
+``wake_words.yaml`` (what the Wake words page changed, per wake word) are the
+UI's own.
 """
 
 from __future__ import annotations
@@ -137,6 +139,9 @@ class Store:
     data_dir: Path
     satellites: dict[str, dict[str, Any]] = field(default_factory=dict)
     settings: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_SETTINGS))
+    wake_tuning: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """Per wake word: its cutoff, confusables, pronunciations and thresholds,
+    where the Wake words page changed them."""
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
@@ -154,6 +159,10 @@ class Store:
     @property
     def settings_path(self) -> Path:
         return self.data_dir / "settings.yaml"
+
+    @property
+    def wake_tuning_path(self) -> Path:
+        return self.data_dir / "wake_words.yaml"
 
     @property
     def calls_dir(self) -> Path:
@@ -392,12 +401,17 @@ class Store:
         if self.settings_path.exists():
             loaded = plain(yaml.load(self.settings_path.read_text("utf-8")) or {})
             self.settings = {**DEFAULT_SETTINGS, **loaded}
+        if self.wake_tuning_path.exists():
+            self.wake_tuning = plain(yaml.load(self.wake_tuning_path.read_text("utf-8")) or {})
 
     def save_satellites(self) -> None:
         _write_atomic(self.satellites_path, dump(self.satellites))
 
     def save_settings(self) -> None:
         _write_atomic(self.settings_path, dump(self.settings))
+
+    def save_wake_tuning(self) -> None:
+        _write_atomic(self.wake_tuning_path, dump(self.wake_tuning))
 
     def satellite(self, key: str) -> dict[str, Any]:
         return self.satellites.get(key) or {}

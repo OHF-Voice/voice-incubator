@@ -215,3 +215,14 @@ details.family .versions .item:first-child { border-top: 1px solid var(--line); 
 .live-wave { height: 80px; }
 .live-wake { height: 40px; }
 .examples-info { margin-top: 4px; }
+
+.wake-editor { padding: 4px 4px 14px 30px; }
+.wake-editor h3 { margin: 14px 0 4px; font-size: 0.95rem; }
+.phones { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.thresholds { display: grid; grid-template-columns: max-content 7.5em 1fr; gap: 6px 12px; align-items: center; margin: 6px 0; }
+.thresholds .label { font-weight: 600; font-size: 0.9rem; }
+.thresholds .help { color: var(--muted); font-size: 0.82rem; }
+@media (max-width: 640px) {
+  .thresholds { grid-template-columns: max-content 7.5em; }
+  .thresholds .help { grid-column: 1 / -1; margin-bottom: 6px; }
+}

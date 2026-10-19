@@ -33,7 +33,10 @@ from .skills import SKILLS
 from .store import NAME_KINDS, compile_store, dump, plain
 from .protocol import SAMPLE_RATE
 from .voices import language_code
-from .wake_words import DEFAULT_MODEL_SLOTS, RESERVED_SLOTS, SPECIAL
+from .pronounce import guess, model_phones
+from .wake import THRESHOLDS
+from .wake import ConfigError as WakeConfigError
+from .wake_words import MAX_CUTOFF, MAX_WAKE_WORDS, SPECIAL
 
 if TYPE_CHECKING:
     from .server import VoiceCallApp
@@ -111,6 +114,8 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.get("/api/settings", api.get_settings),
             web.get("/api/wake_words", api.wake_words),
             web.post("/api/wake_words", api.add_wake_word),
+            web.put("/api/wake_words/{id}", api.put_wake_word),
+            web.post("/api/wake_words/{id}/check", api.check_wake_word),
             web.delete("/api/wake_words/{id}", api.delete_wake_word),
             web.get("/api/voices", api.voices),
             web.get("/api/agents", api.agents),
@@ -1035,33 +1040,184 @@ class Api:
         unknown = [str(v) for v in value if str(v) not in known]
         if unknown:
             raise ConfigError(f"wake_words: unknown {unknown}")
-        return list(dict.fromkeys(str(v) for v in value))
+        picked = list(dict.fromkeys(str(v) for v in value))
+        if len(picked) > MAX_WAKE_WORDS:
+            raise ConfigError("wake_words: one wake word at a time")
+        return picked
 
     async def wake_words(self, request: web.Request) -> web.Response:
+        """Every wake word: what it runs at, its verifier (confusables,
+        pronunciations, thresholds) and the defaults the page restores."""
         app = self.app
         catalog = app.wake_words
 
         def describe() -> list[dict[str, Any]]:
             # Lowered now (and cached), so a model the device cannot run says
             # so here. Hundreds of custom words take seconds: off the loop.
+            tuning = app.store.wake_tuning
+            raw = app.wake.raw(tuning, app.custom_wake_phrases())["wake_words"]
             words = []
             for word in catalog.scan().values():
                 item = word.to_json()
                 item["runs"] = catalog.model(word.id) is not None
                 item["error"] = catalog.errors.get(word.id)
+                item["tuning"] = tuning.get(word.id) or {}
+                entry = app.wake.config.wake_words.get(word.id)
+                shipped = app.wake.shipped_entry(word.id)
+                item["verifier"] = (
+                    {
+                        "phrases": [p.text for p in entry.phrases],
+                        "confusables": [p.text for p in entry.confusables],
+                        "pronunciations": _pronunciations((raw.get(word.id) or {}).get("pronunciations")),
+                        "thresholds": {k: getattr(entry.thresholds, k) for k in THRESHOLDS},
+                        "second_opinion": app.ratio_threshold(word.id),
+                    }
+                    if entry is not None
+                    else None
+                )
+                item["phrase"] = entry.phrase_text if entry is not None else (word.phrases[0] if word.phrases else word.name)
+                item["defaults"] = {
+                    "cutoff": word.default_cutoff,
+                    "confusables": list((shipped or {}).get("confusables") or []),
+                    "pronunciations": _pronunciations((shipped or {}).get("pronunciations")),
+                    "thresholds": app.wake.default_thresholds(word.id),
+                    "second_opinion": app.default_ratio(word.id),
+                }
                 words.append(item)
             return words
 
         words = await asyncio.to_thread(describe)
+        preferred = app.wake_words.chosen(app.store.settings, {}, app.default_wake_words)
+        model_dir = Path(app.wake.raw({}, {})["models"][app.wake.model_id]["directory"])
         return web.json_response(
             {
                 "wake_words": words,
-                "default": app.wake_words.chosen(app.store.settings, {}, app.default_wake_words),
+                "preferred": preferred[0] if preferred else None,
                 "picked": app.store.settings.get("wake_words"),
                 "custom_dir": str(catalog.custom_dir) if catalog.custom_dir else None,
-                "slots": DEFAULT_MODEL_SLOTS - RESERVED_SLOTS,
+                "error": app.wake_error,
+                "phones": model_phones(model_dir),
+                "max_cutoff": MAX_CUTOFF,
             }
         )
+
+    def _wake_word(self, word_id: str):
+        word = self.app.wake_words.get(word_id)
+        if word is None:
+            raise ConfigError(f"No wake word {word_id!r}")
+        return word
+
+    def _wake_phrases(self, word) -> list[str]:
+        """What the verifier accepts as this wake word: as shipped, or a
+        custom word's name ("hey tater")."""
+        shipped = self.app.wake.shipped_entry(word.id)
+        if shipped is not None:
+            return [str(p) for p in shipped.get("phrases") or []]
+        return list(word.phrases[:1])
+
+    def _unknown_words(self, phrases: list[str], pronunciations: dict[str, str]) -> tuple[list[str], frozenset[str]]:
+        """Words of ``phrases`` the verifier can't say, and its phones."""
+        lexicon = self.app.wake.lexicon()
+        try:
+            return self.app.wake.unknown_words(phrases, pronunciations, lexicon), frozenset(lexicon.phones)
+        finally:
+            lexicon.close()
+
+    async def check_wake_word(self, request: web.Request) -> web.Response:
+        """As the page edits a wake word's confusables: the words of its phrase
+        and confusables that are not in the verifier's dictionary, each with
+        its pronunciation (given, or as shipped) and a guess, and what keeps
+        it from being verified, if anything."""
+        word = self._wake_word(request.match_info["id"])
+        body = await request.json()
+        confusables = _confusables(body.get("confusables"))
+        given = _pronunciations(body.get("pronunciations"))
+        app = self.app
+
+        def check() -> dict[str, Any]:
+            phrases = self._wake_phrases(word)
+            shipped = _pronunciations((app.wake.shipped_entry(word.id) or {}).get("pronunciations"))
+            pronunciations = {**shipped, **given}
+            said = [*phrases, *confusables]
+            unknown, inventory = self._unknown_words(said, {})
+            words = [
+                {
+                    "word": w,
+                    "pronunciation": pronunciations.get(w),
+                    "guess": guess(w, inventory),
+                    "in": [p for p in said if w in p.lower().split()],
+                }
+                for w in unknown
+            ]
+            error = None
+            if confusables or not word.custom:
+                # As it would be saved: the page fills in the guesses.
+                guessed = {w["word"]: w["guess"] for w in words if w["guess"] and not w["pronunciation"]}
+                tuning = {**app.store.wake_tuning, word.id: {"confusables": confusables, "pronunciations": {**guessed, **pronunciations}}}
+                try:
+                    app._verifier_config(tuning)  # pylint: disable=protected-access
+                except WakeConfigError as err:
+                    error = str(err)
+            return {"words": words, "error": error}
+
+        return web.json_response(await asyncio.to_thread(check))
+
+    async def put_wake_word(self, request: web.Request) -> web.Response:
+        """What the page sets for a wake word: its cutoff, confusables (a
+        custom one with none is not verified), pronunciations, thresholds and
+        second opinion. Absent or null: the default. Only what differs from
+        the default is kept, so a change to what is shipped still reaches
+        the rest."""
+        word = self._wake_word(request.match_info["id"])
+        body = await request.json()
+        app = self.app
+        shipped = app.wake.shipped_entry(word.id)
+        entry: dict[str, Any] = {}
+
+        cutoff = _number(body.get("cutoff"), "cutoff", 0.0, MAX_CUTOFF)
+        if cutoff is not None and round(cutoff, 3) != round(word.default_cutoff, 3):
+            entry["cutoff"] = cutoff
+
+        confusables = None if body.get("confusables") is None else _confusables(body["confusables"])
+        if confusables is not None:
+            if shipped is None:
+                if confusables:
+                    entry["confusables"] = confusables
+            elif set(confusables) != set(shipped.get("confusables") or []):
+                entry["confusables"] = confusables
+
+        # Verified: a built-in word, or a custom one given confusables.
+        if shipped is not None or entry.get("confusables"):
+            said = [*self._wake_phrases(word), *entry.get("confusables", (shipped or {}).get("confusables") or [])]
+            said_words = {w for phrase in said for w in str(phrase).lower().split()}
+            ours = _pronunciations((shipped or {}).get("pronunciations"))
+            given = {
+                w: p
+                for w, p in _pronunciations(body.get("pronunciations")).items()
+                if w in said_words and p != ours.get(w)
+            }
+            missing, _ = await asyncio.to_thread(self._unknown_words, said, {**ours, **given})
+            if missing:
+                raise ConfigError(
+                    f"Not in the verifier's dictionary: {', '.join(missing)}. Give "
+                    f"{'its' if len(missing) == 1 else 'their'} pronunciation."
+                )
+            if given:
+                entry["pronunciations"] = given
+            defaults = app.wake.default_thresholds(word.id)
+            thresholds = {}
+            for name in THRESHOLDS:
+                value = _number((body.get("thresholds") or {}).get(name), name, 0.0, 10.0)
+                if value is not None and round(value, 4) != round(defaults[name], 4):
+                    thresholds[name] = value
+            if thresholds:
+                entry["thresholds"] = thresholds
+            ratio = _number(body.get("second_opinion"), "second_opinion", 0.0, 10.0)
+            if ratio is not None and round(ratio, 4) != round(app.default_ratio(word.id), 4):
+                entry["second_opinion"] = ratio
+
+        rebuilt = await app.tune_wake_word(word.id, entry or None)
+        return web.json_response({"ok": True, "tuning": entry, "rebuilt": rebuilt})
 
     async def add_wake_word(self, request: web.Request) -> web.Response:
         """A custom wake word: its microWakeWord manifest and model, uploaded
@@ -1110,8 +1266,9 @@ class Api:
             raise ConfigError("Only a custom wake word can be deleted")
         word.tflite.unlink(missing_ok=True)
         word.manifest_path.unlink(missing_ok=True)
-        # Satellites listening for it fall back to every satellite's pick.
-        self.app.wake_words_changed()
+        # Its verifier goes with it, and satellites listening for it fall
+        # back to the preferred wake word.
+        await self.app.tune_wake_word(word.id, None)
         return web.json_response({"ok": True})
 
     # ---------------------------------------------------------------- calls
@@ -1183,6 +1340,47 @@ def _from_form(spec: dict[str, Any]) -> dict[str, Any]:
         if str(text or "").strip():
             spec["action"] = _load(str(text))
     return spec
+
+
+def _confusables(value: Any) -> list[str]:
+    """Confusables as the verifier reads them: lowercase words, one space
+    apart, no punctuation (an inline /pronunciation/ kept), each once."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError("confusables: expected a list of phrases")
+    out = []
+    for item in value:
+        text = re.sub(r"[,.!?;:\"]", " ", str(item)).lower()
+        text = " ".join(text.split())
+        if text:
+            out.append(text)
+    return list(dict.fromkeys(out))
+
+
+def _pronunciations(value: Any) -> dict[str, str]:
+    """word -> pronunciation in the model's phones, spaced; a word with
+    several (as shipped) keeps the first here."""
+    out = {}
+    for word, pron in (value or {}).items():
+        if isinstance(pron, list):
+            pron = pron[0] if pron else ""
+        pron = " ".join(str(pron or "").split())
+        if pron:
+            out[str(word).lower()] = pron
+    return out
+
+
+def _number(value: Any, name: str, low: float, high: float) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"{name}: a number from {low} to {high}") from err
+    if not low <= number <= high or math.isnan(number):
+        raise ConfigError(f"{name}: a number from {low} to {high}")
+    return number
 
 
 def _language(value: Any, option: str) -> str:

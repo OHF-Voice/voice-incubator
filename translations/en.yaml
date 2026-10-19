@@ -6,7 +6,8 @@ configuration:
       Probability at which the satellite's own detector fires, for every
       verified wake word (empty: each its own, as measured -- 0.2 for "Okay
       Nabu"). Lower is more generous; the app verifies each detection with a
-      second, stricter stage. Custom wake words run at their own cutoff.
+      second, stricter stage. Custom wake words run at their own cutoff. A
+      cutoff set on the Wake words page wins.
   speaker_threshold:
     name: Speaker threshold
     description: >-

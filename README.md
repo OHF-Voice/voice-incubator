@@ -430,7 +430,7 @@ settings travel with it as JSON, read from the model's microWakeWord manifest:
 
 | field | |
 |---|---|
-| `probability_cutoff` | per-slice threshold, 0.0--1.0; per wake word (below); `--wake-cutoff` overrides the verified ones |
+| `probability_cutoff` | per-slice threshold, 0.0--1.0; per wake word (below); `--wake-cutoff` overrides the verified ones' defaults, the Wake words page any |
 | `sliding_window_size` | slices averaged before a detection counts |
 | `feature_step_size` | must match the device's frontend, or the model is refused |
 | `kind` | `vad` makes the model a gate on the others rather than a wake word |
@@ -451,11 +451,13 @@ what `--wake-cutoff 0.5` is for.
 
 ## Wake words
 
-Each satellite listens for one or more wake words: its own pick (Satellites
-page, `satellites.yaml`: `wake_words: [...]`), else every satellite's
-(`settings.yaml`), else `--wake-model` (default `okay_nabu`). The app pushes
-the VAD gate and the picked models on `HELLO`, clearing whatever the device
-held first, and again when a pick changes -- never during a call, since
+Each satellite listens for one wake word: its own (Wake words page,
+`satellites.yaml`: `wake_words: [id]`), else the home's preferred one
+(`settings.yaml`), else `--wake-model` (default `okay_nabu`). Only the first
+of a list is used (`MAX_WAKE_WORDS`), and the API refuses two: the device has
+room for more, but the UI offers one for now. The app pushes the VAD gate and
+the wake word's model on `HELLO`, clearing whatever the device held first,
+and again when the pick or its cutoff changes -- never during a call, since
 clearing stops the detector's microphone. The firmware has six model slots and
 says so in `HELLO` (`model_slots`): the VAD gate, "stop" while a timer rings,
 and up to four wake words. Older firmware has four, so two.
@@ -467,13 +469,50 @@ verifier, second opinion and placement phrases apply (`voice_call/wake_words.py`
 |---|---|---|
 | where | `models/wake`, entry in `wake.yaml` | `wake_words/` (as an app: `/config/wake_words`), or uploaded in the UI |
 | first stage | low cutoff, per word | the manifest's cutoff |
-| Kaldi verifier | yes, with confusables | no: the detection stands |
-| second opinion | yes, per-word threshold | no |
+| Kaldi verifier | yes, with confusables | none, unless given confusables on the Wake words page |
+| second opinion | yes, per-word threshold | with a verifier, at the default threshold |
 | where the command starts | wake phrase found in the CTC evidence | the same, from the manifest's `wake_word` text |
 
 Each verified wake word in use costs its Kaldi graphs and two resident
 decoder processes, about 200 MB, so they start when a satellite first listens
-for the word, not at startup.
+for the word, not at startup. Graphs are built in `<data>/wake-train`.
+
+### Tuning on the Wake words page
+
+`wake_words.yaml` in the data directory holds what the page changed, per
+wake word, only where it differs from the default:
+
+```yaml
+okay_nabu:
+  cutoff: 0.3                 # the detector's, on the device
+  confusables: [...]          # replaces wake.yaml's list
+  pronunciations: {glorbo: ɡ l ˈɔ ɹ b oʊ}   # over wake.yaml's
+  thresholds: {theta_competitor: 0.15}      # over wake.yaml's
+  second_opinion: 1.1         # wake_ratio threshold
+hey_tater:                    # custom: verified once it has confusables
+  confusables: [hey potato]
+```
+
+`WakeVerifier.build` merges it over `wake.yaml` and loads the result with
+wyoming-wake-kaldi's own validation, so a word with no pronunciation refuses
+the save and changes nothing. A custom word gets an entry under its id alone
+(its name could clash with a built-in one's), its manifest's phrase, and the
+first Kaldi model. On a save, `WakeVerifier.apply` rebuilds the graphs and
+restarts the decoders of each running word whose entry changed -- about 2 s
+on a desktop -- while the old ones answer, then stops them; the catalog is
+rescanned (verified, cutoffs), the second opinions get their thresholds, and
+satellites whose cutoff changed get their models again. A cutoff set here
+wins over `--wake-cutoff`, and a second opinion over `--wake-ratio`. A custom
+word keeps its manifest's cutoff when it gets a verifier: lowering it is the
+page's to do.
+
+Words the verifier's dictionary lacks need a pronunciation in its phones (IPA,
+the stress mark on the vowel). The page offers espeak-ng's, from Piper's
+bundled copy, mapped onto those phones (`voice_call/pronounce.py`): on 393
+common words from the dictionary it gives the dictionary's own pronunciation
+76% of the time, and the same phones with other stress 3% (the rest differ
+mostly in unstressed vowels). It is only offered: what is saved is what the
+page shows, so nothing is guessed at run time.
 
 ### "Hey Jarvis" and "Hey Mycroft"
 
@@ -1592,8 +1631,8 @@ loop, per frame — with the free loop widened and both sides on adapt-ctc's
 lattices, so the numbers are on a similar scale but the thresholds are not
 interchangeable.
 
-**Calibration.** `--wake-ratio` sets the threshold, and a negative value
-disables it. Measured on the rejections it exists to overturn — every wake word
+**Calibration.** `--wake-ratio` sets the threshold (the Wake words page, per
+wake word, wins), and a negative value disables it. Measured on the rejections it exists to overturn — every wake word
 Kaldi refused on `last` or `prefix`, 3,923 across five sessions — and on 1.5 s
 windows that should stay refused: 14,288 of the speech-and-music recording,
 12,446 of the command right after each wake word (those Kaldi rejected on
