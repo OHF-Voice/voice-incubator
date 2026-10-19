@@ -138,7 +138,9 @@ quiet long enough. **End of speech**, on the Settings page, sets how:
   whatever it heard.
 
 A session's **End of speech** step says which detector ended it, and with
-what.
+what. A session that reaches the longest command says why: the audio stopped
+arriving, the wake word was still being checked, no speech was heard, or
+speech never ended in enough silence.
 
 ## Commands
 

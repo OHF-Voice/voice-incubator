@@ -259,6 +259,8 @@ class Call:
     aec_preroll_bytes: int = 0
     """Where the detection falls in ``aec``; its pre-roll can differ from AGC's."""
     command: bytearray = field(default_factory=bytearray)
+    last_audio: float | None = None
+    """When the AGC capture last arrived (monotonic)."""
     verified: bool = False
     finished: bool = False
     endpointer: Endpointer | None = None
@@ -1306,16 +1308,50 @@ class VoiceCallApp:
         longest = self.end_of_speech().max_seconds
         await asyncio.sleep(longest)
         if session.call is call and not call.finished:
-            _LOGGER.warning("[%s] Command exceeded %.1fs; ending", session, longest)
+            why, details = self._timed_out(call)
+            _LOGGER.warning("[%s] Command exceeded %.1fs (%s); ending", session, longest, why)
             call.finished = True
             if call.record is not None:
-                self.calls.finish(call.record, "timeout", "", self._call_audio(call))
+                call.record.stage("timeout", why=why, seconds=longest, **details)
+                self.calls.finish(call.record, "timeout", why, self._call_audio(call))
             self._spawn(self._hang_up(session, "timeout"))
+
+    @staticmethod
+    def _timed_out(call: Call) -> tuple[str, dict[str, Any]]:
+        """Why a call ran out of time: the audio stopped arriving, the wake
+        word was still being checked, no speech was heard, or speech never
+        ended in enough silence -- and what was heard."""
+        quiet = time.monotonic() - call.last_audio if call.last_audio is not None else None
+        details: dict[str, Any] = {
+            "audio_seconds": round(len(call.audio) / BYTE_RATE, 2),
+            "audio_stopped": None if quiet is None else round(quiet, 2),
+        }
+        ended = call.endpointer
+        if ended is not None:
+            details.update(
+                vad=ended.vad,
+                command_seconds=round(len(call.command) / BYTE_RATE, 2),
+                speech_started=ended.speech_started,
+                speech_seconds=round(ended.speech_seconds, 2),
+                silence_seconds=round(ended.silence_seconds, 2),
+                settings=ended.settings.to_json(),
+            )
+        if quiet is None or quiet >= 1.0:
+            return f"the audio stopped arriving {details['audio_seconds']:.1f} s in", details
+        if ended is None:
+            return "the wake word was still being checked", details
+        if not ended.speech_started:
+            return "no speech was heard", details
+        return (
+            f"{ended.speech_seconds:.1f} s of speech, never {ended.settings.silence_seconds:g} s of silence",
+            details,
+        )
 
     async def _on_audio(self, session: Session, chunk: bytes) -> None:
         call = session.call
         if call is None or call.finished:
             return
+        call.last_audio = time.monotonic()
 
         call.audio += chunk
 

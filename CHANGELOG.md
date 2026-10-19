@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **A timeout says why**, in the session list and its Timed out step: the
+  satellite's audio stopped arriving, the wake word was still being checked,
+  no speech was heard, or speech never ended in enough silence -- with how
+  much audio, speech and silence there was.
 - **Music commands follow the music.** After "play jazz on the Mark 2" or
   "move the music to the kitchen", "turn it down", "pause", "next" and
   "what's playing" act there while nothing plays in the satellite's area --

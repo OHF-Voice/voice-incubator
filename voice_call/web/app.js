@@ -2429,7 +2429,7 @@ const STEP_ICONS = {
   endpoint: "mdi:waveform", speaker: "mdi:account-voice", split: "mdi:content-cut", typed: "mdi:keyboard-outline", replay_of: "mdi:replay",
   recognition: "mdi:ear-hearing", action: "mdi:flash-outline", skill_response: "mdi:comment-question-outline", agent: "mdi:robot-outline",
   unknown: "mdi:help-circle-outline", speech: "mdi:volume-high", speech_failed: "mdi:volume-off", timer_ringing: "mdi:bell-ring-outline",
-  timer_stopped: "mdi:timer-off-outline", error: "mdi:alert-circle-outline",
+  timer_stopped: "mdi:timer-off-outline", error: "mdi:alert-circle-outline", timeout: "mdi:alert-circle-outline",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
 const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", llm: "by the LLM" };
@@ -2485,6 +2485,8 @@ function stepGlance(stage) {
       return { title: "Timer stopped", status: "ok", line: d.by === "stop" ? "by “stop” or a call" : d.by === "button" ? "by the center button" : d.by === "timeout" ? "rang out" : d.by || "" };
     case "error":
       return { title: "Error", status: "bad", line: d.error || "" };
+    case "timeout":
+      return { title: `Timed out after ${num(d.seconds, 0)} s`, status: "bad", line: d.why || "" };
     default:
       return { title: stage.stage, status: "", line: "" };
   }
@@ -2539,6 +2541,11 @@ function stepDetails(stage) {
     const s = data.settings || {};
     return h("div", { class: "small" }, `${VAD_NAMES[data.vad] || data.vad}: ${num(data.speech_seconds, 2)} s of speech, ${num(data.silence_seconds, 2)} s of silence at the end`,
       h("div", { class: "muted" }, `speech at ${num(s.speech_threshold)}, silence below ${num(s.silence_threshold)} · ${num(s.speech_seconds)} s to start, ${num(s.silence_seconds)} s to end, ${num(s.resume_seconds)} s to resume`));
+  }
+  if (name === "timeout") {
+    return h("div", { class: "small" }, `${num(data.audio_seconds, 1)} s of audio, the last ${num(data.audio_stopped, 1)} s ago`,
+      data.vad ? h("div", { class: "muted" }, `${VAD_NAMES[data.vad] || data.vad}: ${num(data.speech_seconds, 2)} s of speech, ${num(data.silence_seconds, 2)} s of silence at the end` +
+        `${data.speech_started ? "" : " (it never started)"}`) : h("div", { class: "muted" }, "Not listening for the command yet."));
   }
   if (name === "replay_of") return h("div", { class: "small" }, "Replays ", h("a", { href: `#/session/${data.call}` }, data.call), " with today's commands.");
   if (name === "speaker") return h("div", { class: "small" }, data.name || "not recognized", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "", data.margin !== null && data.margin !== undefined ? ` · margin ${num(data.margin)}` : "");

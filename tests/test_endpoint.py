@@ -105,3 +105,25 @@ def test_a_recorded_command_ends(vad):
         pytest.fail("never ended")
     # Silero ends half a second after the speech; microVAD, about half a second later still.
     assert (2.8 <= ended <= 3.1) if vad == "silero" else (3.2 <= ended <= 3.7), ended
+
+
+def test_why_a_call_timed_out():
+    import time  # pylint: disable=import-outside-toplevel
+
+    from voice_call.server import Call, VoiceCallApp  # pylint: disable=import-outside-toplevel
+
+    call = Call(preroll_bytes=48000, wake_word="okay_nabu")
+    call.audio += bytes(32000 * 3)
+    assert VoiceCallApp._timed_out(call)[0] == "the audio stopped arriving 3.0 s in"  # pylint: disable=protected-access
+    call.last_audio = time.monotonic() - 5
+    assert VoiceCallApp._timed_out(call)[0] == "the audio stopped arriving 3.0 s in"  # pylint: disable=protected-access
+    call.last_audio = time.monotonic()
+    assert VoiceCallApp._timed_out(call)[0] == "the wake word was still being checked"  # pylint: disable=protected-access
+    call.endpointer = Endpointer(EndOfSpeech(), lambda vad: Scripted([0.1] * 10))
+    call.endpointer.process(bytes(CHUNK * 10))
+    why, details = VoiceCallApp._timed_out(call)  # pylint: disable=protected-access
+    assert why == "no speech was heard" and details["speech_started"] is False
+    call.endpointer = Endpointer(EndOfSpeech(), lambda vad: Scripted([0.9] * 300))
+    call.endpointer.process(bytes(CHUNK * 300))
+    why, details = VoiceCallApp._timed_out(call)  # pylint: disable=protected-access
+    assert why == "3.0 s of speech, never 1 s of silence" and details["speech_seconds"] == 3.0
