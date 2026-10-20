@@ -447,7 +447,9 @@ def extract_hits(
     for frame, terminal in zip(*np.nonzero(ok)):
         key = (int(terminal), int(start[frame, terminal]))
         value = (float(penalty[frame, terminal]), int(frame), int(tokens[frame, terminal]))
-        if key not in best or value[0] < best[key][0]:
+        # As cheap and more pieces: the longer form of a name ("Wohnzimmers"
+        # where "Wohnzimmer" also fits) explains more of what was said.
+        if key not in best or value[0] < best[key][0] or (value[0] == best[key][0] and value[2] > best[key][2]):
             best[key] = value
 
     candidates: dict[int, list[tuple[float, int, int, int]]] = defaultdict(list)

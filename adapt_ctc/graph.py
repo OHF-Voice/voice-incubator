@@ -14,6 +14,10 @@ it, in any letter case:
   the model puts word breaks in a name is arbitrary: "EcoBee", "Eco-Bee",
   "Ecobee", "eco bee" and "e co bee" all match the same name.
 
+A unit may have several forms -- a word of a name with its language's
+endings, "wohnzimmer" and "wohnzimmers" (morphology.word_forms) -- spelled by
+one lattice over their letters, so they share what they have in common.
+
 The compiled graph is a set of arcs (one per piece) between positions; the
 positions where phrases end carry what those phrases mean.
 """
@@ -142,11 +146,12 @@ class PhraseGraph:
         self.unspeakable: list[str] = []
         """Phrases dropped because no sequence of pieces spells them."""
 
-    def add(self, words: list[str], meaning: Meaning, flexible: bool = False) -> bool:
+    def add(self, words: list[str | tuple[str, ...]], meaning: Meaning, flexible: bool = False) -> bool:
         """Listen for ``words`` and report hits on them as ``meaning``.
 
         Strict words are single words. Flexible words are the units of a name
-        (see :func:`text.name_units`).
+        (see :func:`text.name_units`). A word may be a tuple of its forms, the
+        word as written first: any one of them is heard as it.
         """
         if flexible:
             units = [(word, "flex" if index else "flex-first") for index, word in enumerate(words)]
@@ -154,7 +159,7 @@ class PhraseGraph:
             units = [(word, "strict") for word in words]
         lattices = [self._lattice(unit) for unit in units]
         if not units or any(lattice is None for lattice in lattices):
-            self.unspeakable.append(" ".join(words))
+            self.unspeakable.append(" ".join(w if isinstance(w, str) else w[0] for w in words))
             return False
 
         position = ROOT
@@ -258,24 +263,45 @@ class PhraseGraph:
             self._tok.append(token)
         return mapping[1]
 
-    def _lattice(self, unit: tuple[str, str]) -> tuple[int, list] | None:
+    def _lattice(self, unit: tuple[str | tuple[str, ...], str]) -> tuple[int, list] | None:
         if unit not in self._lattices:
             self._lattices[unit] = self._build_lattice(*unit)
         return self._lattices[unit]
 
-    def _build_lattice(self, text: str, mode: str) -> tuple[int, list] | None:
-        letters = self._fold(text)
-        n = len(letters)
-        if n == 0:
+    def _build_lattice(self, spelling: str | tuple[str, ...], mode: str) -> tuple[int, list] | None:
+        # The forms' letters as a trie: node 0 starts the unit, and every
+        # form's last letter also leads to its end (``end``).
+        children: list[dict[str, int]] = [{}]
+        complete: set[int] = set()
+        for form in (spelling,) if isinstance(spelling, str) else spelling:
+            node = 0
+            for letter in self._fold(form):
+                following = children[node].get(letter)
+                if following is None:
+                    following = len(children)
+                    children.append({})
+                    children[node][letter] = following
+                node = following
+            if node:
+                complete.add(node)
+        if not complete:
             return None
+        end = len(children)
         pieces = self.vocab.pieces
         space_id = self.vocab.space_id
         longest = self.vocab.max_piece_length
 
+        def spelled(node: int, chunk: str = ""):
+            """Every node a chunk of up to ``longest`` letters leads to."""
+            for letter, following in children[node].items():
+                yield chunk + letter, following
+                if len(chunk) + 1 < longest:
+                    yield from spelled(following, chunk + letter)
+
         edges: list[tuple[int, int, int]] = []
-        next_node = n + 1
-        for i in range(n):
-            if i == 0:
+        next_node = end + 1
+        for node in range(len(children)):
+            if node == 0:
                 starts, continues = True, mode == "flex"
             else:
                 starts, continues = mode != "strict", True
@@ -283,30 +309,31 @@ class PhraseGraph:
             # a word ("▁" "E" "co"); only where a unit begins, to keep names
             # from doubling in size for a rare way of spelling.
             marker = None
-            if i == 0 and space_id is not None:
+            if node == 0 and space_id is not None:
                 marker = next_node
                 next_node += 1
-                edges.append((i, marker, space_id))
-            for length in range(1, min(longest, n - i) + 1):
-                chunk = letters[i : i + length]
+                edges.append((node, marker, space_id))
+            for chunk, following in spelled(node):
+                targets = (following, end) if following in complete else (following,)
                 if starts:
                     for token in pieces.get((chunk, True), ()):
-                        edges.append((i, i + length, token))
+                        edges.extend((node, target, token) for target in targets)
                 for token in pieces.get((chunk, False), ()):
-                    if continues:
-                        edges.append((i, i + length, token))
-                    if marker is not None:
-                        edges.append((marker, i + length, token))
+                    for target in targets:
+                        if continues:
+                            edges.append((node, target, token))
+                        if marker is not None:
+                            edges.append((marker, target, token))
 
-        # Keep only arcs on some path from the first letter to the last.
+        # Keep only arcs on some path from the unit's start to its end.
         forward = _reachable(0, [(s, d) for s, d, _ in edges])
-        if n not in forward:
+        if end not in forward:
             return None
-        backward = _reachable(n, [(d, s) for s, d, _ in edges])
+        backward = _reachable(end, [(d, s) for s, d, _ in edges])
         live = [e for e in edges if e[0] in forward and e[1] in backward]
 
         # Renumber: start 0, end 1, everything else after.
-        order = {0: 0, n: 1}
+        order = {0: 0, end: 1}
         for src, dst, _ in live:
             for node in (src, dst):
                 if node not in order:

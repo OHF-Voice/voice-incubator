@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from . import morphology
 from .numbers import DURATION_UNITS, on_grid
 from .template import TemplateError, covering, expand
 from .text import sentence_key, spoken_words
@@ -369,6 +370,11 @@ class Config:
     lists: dict[str, tuple[tuple[Any, tuple[str, ...]], ...]] = field(default_factory=dict)
     """Shared value lists, by name, that intents' ``lists`` may refer to."""
 
+    name_endings: tuple[str, ...] = ()
+    """Endings a word of a name may be heard with, added or in place of one
+    it has (morphology.word_forms): the language's (morphology.ENDINGS)
+    unless the config gives its own (``name_endings``)."""
+
 
 class _Loader(yaml.SafeLoader):
     """YAML 1.2 booleans: only true/false.
@@ -431,11 +437,18 @@ def parse_config(data: Any) -> Config:
         data,
         {
             "language", "settings", "filler", "name_cues", "numbers", "names", "intents",
-            "wake", "lists",
+            "wake", "lists", "name_endings",
         },
         "config",
     )
     language = str(data.get("language", "en"))
+    name_endings = morphology.endings(language)
+    if "name_endings" in data:
+        name_endings = tuple(
+            dict.fromkeys(str(e).strip().lower() for e in _list(data["name_endings"] or [], "name_endings"))
+        )
+        if not all(e.isalpha() for e in name_endings):
+            raise ConfigError("name_endings: each ending is letters only")
 
     settings = _settings(data.get("settings") or {})
     filler = tuple(
@@ -479,7 +492,7 @@ def parse_config(data: Any) -> Config:
     }
     _check_examples(intents, language)
     wake = _wake(data["wake"], language) if data.get("wake") else None
-    return Config(language, settings, filler, detect, names, intents, wake, name_cues, lists)
+    return Config(language, settings, filler, detect, names, intents, wake, name_cues, lists, name_endings)
 
 
 def _wake(spec: Any, language: str) -> WakeConfig:

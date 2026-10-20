@@ -32,6 +32,7 @@ from .acoustic import CtcModel, Vocabulary
 from .config import NAME_TYPES, Config, Intent, Wildcard, phrase_parts
 from .embedding import distractors
 from .graph import CompiledGraph, Meaning, PhraseGraph
+from .morphology import word_forms
 from .numbers import DURATION_UNITS, spoken_forms, to_python, unit_forms, value_grid
 from .spotter import Hit, Spotting, spot
 from .text import name_units, sentence_key, spoken_words
@@ -359,7 +360,10 @@ class Recognizer:
                         meaning = Meaning(
                             "name", " ".join(units), entry.type, entry.id, scope
                         )
-                        graph.add(units, meaning, flexible=True)
+                        # Each word with its language's endings: "des
+                        # Wohnzimmers", "den kleinen Ventilator".
+                        forms = [word_forms(unit, config.name_endings) for unit in units]
+                        graph.add(forms, meaning, flexible=True)
 
         for items in config.names.values():
             add_names(items.values(), None)

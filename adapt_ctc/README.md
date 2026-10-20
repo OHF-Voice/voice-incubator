@@ -271,6 +271,14 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   match without the apostrophe.
 - Homophones are different spellings and need an alias. Parakeet writes Piper's
   "ecobee" as "Echo Bee".
+- A word of a name may be heard with an ending: one of the language's
+  (`morphology.ENDINGS`: German has e, s, n, en, er, es, em, ns; English
+  none) added to it or in place of one it ends with, so "des Wohnzimmers" is
+  the Wohnzimmer, "den kleinen Ventilator" the fan named "Kleiner
+  Ventilator", and "Küchen-" the Küche. `name_endings` gives a config its
+  own. One lattice spells every form of a word, and where the name and its
+  longer form fit equally the longer is taken, so the ending isn't left
+  unexplained.
 
 **Numbers.**
 - Numbers come from `icu_rbnf`, since the vocabulary has no digits.
@@ -692,4 +700,5 @@ All are off unless a config uses them; upstream configs behave as before, and
 | `settings.embedding_accept` | `false`: the embedding never matches an intent; `Recognizer.closest_by_meaning()` names the closest by examples *and* descriptions, for hints |
 | `IntentResult.missing`, `heard_groups` | what a rejected intent lacked, as data (`require`, `name`, `number`, `text`, `unexplained`, `unknown_name`, `excluded`, `cost`), and how many required groups were heard |
 | `TdtTranscriber.transcribe_words()` | the TDT transcript with word times, to re-read free text over the frames it was found in |
+| `name_endings` | endings a word of a name may be heard with, added or in place of its own (`morphology`): the language's by default (German's; English has none) |
 
