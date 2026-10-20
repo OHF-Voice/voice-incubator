@@ -199,7 +199,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/actions.py` | variables, `execute_script`, the response, the `voice_call_command` event |
 | `voice_call/calls.py` | per-call traces, saved audio, debug sessions |
 | `voice_call/web.py`, `voice_call/web/` | the web UI and its API |
-| `voice_call/library/` | example commands offered in the UI, most in versions (`variants`: here, device, place) |
+| `voice_call/languages/` | language packs, one per language (`en/`): speech models, the matcher's base config, skills, and `library/`, the example commands offered in the UI, most in versions (`variants`: here, device, place) |
 | `voice_call/web/icons.js` | the Material Design Icons the UI shows (Apache-2.0), from `scripts/make_icons.py` |
 | `voice_call/hass.py` | Home Assistant over one websocket: registries, scripts, templates, events |
 | `voice_call/tts.py` | Piper, and the acknowledgement fallback |

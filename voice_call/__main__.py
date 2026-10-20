@@ -53,7 +53,7 @@ async def main() -> None:
     )
     parser.add_argument("--http-host", default="127.0.0.1", help="web UI address")
     parser.add_argument("--http-port", type=int, default=8099, help="web UI port")
-    parser.add_argument("--language", default="en")
+    parser.add_argument("--language", default="en", help="what it hears and says (voice_call/languages)")
     parser.add_argument("--silence", type=float, default=1.0)
     parser.add_argument("--max-command", type=float, default=15.0)
     parser.add_argument("--save-dir", help="also write each call's audio here, per device")
@@ -152,6 +152,7 @@ async def main() -> None:
         ("wake_cutoff", "wake_cutoff"),
         ("speaker_threshold", "speaker_threshold"),
         ("silence_seconds", "silence"),
+        ("language", "language"),
     ):
         if app_options.get(option) is not None:
             setattr(args, attribute, app_options[option])

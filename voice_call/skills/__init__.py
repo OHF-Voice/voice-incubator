@@ -37,6 +37,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from .. import languages
 from . import arithmetic, clock, dates, spelling, units
 from .common import DEFAULT_LEVEL, LEVELS, Reply, Settings, Skill, normalize
 from .live import is_live
@@ -48,6 +49,13 @@ SKILLS: dict[str, Skill] = {
 }
 
 BUILT_IN: dict[str, Settings] = {skill.id: skill.settings.load(None) for skill in SKILLS.values()}
+
+
+def available() -> dict[str, Skill]:
+    """The skills the app's language has (its pack's ``skills``), in
+    ``SKILLS`` order: they are English."""
+    have = set(languages.current().skills)
+    return {skill_id: skill for skill_id, skill in SKILLS.items() if skill_id in have}
 """Each skill's settings, as built in."""
 
 
@@ -103,14 +111,14 @@ def home_skills(home: Any = None) -> frozenset[str]:
     """The Home's skills: each unless ``home`` (``settings.yaml``) turns it
     off."""
     home = home if isinstance(home, dict) else {}
-    return frozenset(skill_id for skill_id in SKILLS if home.get(skill_id) is not False)
+    return frozenset(skill_id for skill_id in available() if home.get(skill_id) is not False)
 
 
 def own_skills(own: Any = None) -> frozenset[str]:
     """A satellite's own skills: each its setting gives it. (False, from
     before the Home's could be left out, takes nothing away.)"""
     own = own if isinstance(own, dict) else {}
-    return frozenset(skill_id for skill_id in SKILLS if own.get(skill_id) is True)
+    return frozenset(skill_id for skill_id in available() if own.get(skill_id) is True)
 
 
 def enabled(home: Any = None, own: Any = None, takes_home: bool = True) -> frozenset[str]:
@@ -120,13 +128,13 @@ def enabled(home: Any = None, own: Any = None, takes_home: bool = True) -> froze
 
 
 def answer(text: str, on: frozenset[str] | None = None, settings: dict[str, Settings] | None = None) -> Answer | None:
-    """The first answer from the skills that are ``on`` (None: every one),
-    with their ``settings`` (``configure``; None: as built in)."""
+    """The first answer from the skills that are ``on`` (None: every one the
+    language has), with their ``settings`` (``configure``; None: as built in)."""
     text = normalize(text)
     if not text:
         return None
     live_question: bool | None = None
-    for skill in SKILLS.values():
+    for skill in available().values():
         if on is not None and skill.id not in on:
             continue
         if not skill.live_too:

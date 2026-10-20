@@ -19,7 +19,7 @@ import numpy as np
 
 from adapt_ctc.config import ConfigError
 
-from . import actions, skills, timers
+from . import actions, languages, skills, timers
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
@@ -180,27 +180,30 @@ def stt_audio_for(
     return pick
 
 
-# Parakeet's TDT head, which writes example sentences, free text and hints:
-# the English one beside the CTC model (parakeet-tdt_ctc-110m, int8 preferred)
-# or NVIDIA's multilingual parakeet-tdt-0.6b-v3 (25 European languages; it
-# finds the language itself), as sherpa-onnx releases it.
-TDT_MODELS = {
-    "en": ("English", "parakeet-tdt_ctc-110m, 110M parameters"),
-    "multilingual": ("Multilingual (25 European languages)", "parakeet-tdt-0.6b-v3, 600M parameters"),
-}
-DEFAULT_TDT = "en"
+# The transducer that writes example sentences, free text and hints: the
+# language's own (its pack's: for English, the TDT head beside the CTC model,
+# parakeet-tdt_ctc-110m, int8 preferred), or NVIDIA's multilingual
+# parakeet-tdt-0.6b-v3 (25 European languages; it finds the language itself),
+# as sherpa-onnx releases it. ``en`` in settings.yaml, from before languages
+# had packs, is the language's own.
+TDT_MODELS = ("own", "multilingual")
+DEFAULT_TDT = "own"
+TDT_ALIASES = {"en": "own"}
 DEFAULT_TOP_K = 8
 """How many commands GLiNER chooses among: the closest this many in meaning,
 chosen or not (it needs others to tell the chosen ones from)."""
 
 
 def tdt_models(root: Path) -> dict[str, Path]:
-    from adapt_ctc.tdt import has_model  # pylint: disable=import-outside-toplevel
+    """Each transducer's directory: the language's own, and the multilingual."""
+    own = languages.current().transducer_dir(root)
+    return {**({"own": own} if own is not None else {}), "multilingual": root / "models/parakeet-tdt-v3-int8"}
 
-    english = root / "models/parakeet-tdt-int8"
-    if not has_model(english):
-        english = root / "models/parakeet-tdt"
-    return {"en": english, "multilingual": root / "models/parakeet-tdt-v3-int8"}
+
+def tdt_choice(value: Any) -> str:
+    """A ``tdt_model`` setting as one of TDT_MODELS (``en`` is ``own``)."""
+    value = TDT_ALIASES.get(str(value or DEFAULT_TDT), str(value or DEFAULT_TDT))
+    return value if value in TDT_MODELS else DEFAULT_TDT
 
 
 # Shipped lower than the models' own manifests, per wake word (see
@@ -392,6 +395,8 @@ class Session:
 class VoiceCallApp:
     def __init__(self, options: Options) -> None:
         self.options = options
+        self.language = languages.use(options.language)
+        """What it hears and says (voice_call/languages): one per app."""
         root = Path(__file__).resolve().parent.parent
         self.root = root
         self.store = Store(options.data_dir or root / "var")
@@ -412,10 +417,7 @@ class VoiceCallApp:
         """One wake word change at a time: each may rebuild a verifier."""
         # The fp32 encoder is 862 MB resident, which is most of a 2 GB Pi.
         # Prefer the int8 build when it has been produced.
-        ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
-        if not (ctc_dir / "model.onnx").exists():
-            ctc_dir = root / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
-        self._ctc_dir = ctc_dir
+        self._ctc_dir = self.language.ctc_dir(root)
         self._tdt_dirs = tdt_models(root)
         self.tdt_status: str | None = None
         """What became of the last change of TDT model, for the UI."""
@@ -427,7 +429,7 @@ class VoiceCallApp:
         self.wake_ratios: dict[str, WakeRatio] = {}
         """The second opinion, per verified wake word (built at start)."""
         self.speech = Speech(
-            root / "models/piper/en_GB-jenny_dioco-medium.onnx",
+            root / "models/piper" / self.language.piper,
             root / "sounds/acknowledge.mp3",
             root / "sounds/timer_finished.flac",
         )
@@ -635,7 +637,10 @@ class VoiceCallApp:
 
     def _fallback_model(self, model: str) -> GlinerPicker | None:
         """GLiNER from models/, not loaded yet; None (and why, in
-        ``_model_status``) when it isn't there."""
+        ``_model_status``) when it isn't there, or doesn't know the language."""
+        if not self.language.gliner:
+            self._model_status = f"GLiNER doesn't understand {self.language.name}"
+            return None
         path = GlinerPicker.find_model(model, self.root)
         if path is None:
             self._model_status = f"not found: models/{GLINER_MODELS[model].directory} (scripts/export_gliner.py)"
@@ -742,19 +747,28 @@ class VoiceCallApp:
     # ----------------------------------------------------------- TDT model
 
     def tdt_dir(self, choice: str | None = None) -> Path | None:
-        """The TDT model's directory: the one picked (settings.yaml
-        ``tdt_model``), else English. None with ``--no-tdt``."""
+        """The transducer's directory: the one picked (settings.yaml
+        ``tdt_model``), else the language's own. None with ``--no-tdt``."""
         if not self.options.tdt:
             return None
-        choice = choice or str(self.store.settings.get("tdt_model") or DEFAULT_TDT)
+        choice = tdt_choice(choice or self.store.settings.get("tdt_model"))
         return self._tdt_dirs.get(choice) or self._tdt_dirs.get(DEFAULT_TDT)
+
+    def tdt_choice(self) -> str:
+        """The transducer picked: one of TDT_MODELS."""
+        return tdt_choice(self.store.settings.get("tdt_model"))
 
     def tdt_models(self) -> list[dict[str, Any]]:
         from adapt_ctc.tdt import has_model  # pylint: disable=import-outside-toplevel
 
         current = self.engine.tdt_dir if self.engine is not None else None
+        about = {
+            "own": (self.language.name, self.language.transducer_about),
+            "multilingual": ("Multilingual (25 European languages)", "parakeet-tdt-0.6b-v3, 600M parameters"),
+        }
         out = []
-        for model_id, (name, detail) in TDT_MODELS.items():
+        for model_id in TDT_MODELS:
+            name, detail = about[model_id]
             path = self._tdt_dirs.get(model_id)
             out.append(
                 {
@@ -1884,7 +1898,7 @@ class VoiceCallApp:
             if record is not None:
                 record.stage("agent", agent=self.agent.agent_id, asked=False, text=decision.transcript)
             return None
-        reply = await self.agent.ask(satellite.key, decision.transcript, satellite.device_id)
+        reply = await self.agent.ask(satellite.key, decision.transcript, satellite.device_id, self.language.code)
         if record is not None:
             record.stage("agent", asked=True, asked_text=decision.transcript, **reply.to_json())
         _LOGGER.info(

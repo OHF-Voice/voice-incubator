@@ -122,13 +122,13 @@ page.
   For every satellite on the Settings page, or one satellite's own under
   Input; a session's Recognition step says which was sent.
 - **Language.** Each entity is asked in the language you pick from the ones it
-  supports, or automatically in its best match for English.
+  supports, or automatically in its best match for the app's language.
 - **Built-in speech model.** Without a speech-to-text entity, the app's own
-  model writes that text: English, or **multilingual** (25 European
-  languages, found by itself) at about three times the time and 600 MB more
-  memory. Commands are still matched by the English model first, so in
-  another language a command is matched by its example sentences, said word
-  for word.
+  model writes that text: the app's language, or **multilingual** (25
+  European languages, found by itself) at about three times the time and 600
+  MB more memory. Commands are still matched by the app's language's model
+  first, so in another language a command is matched by its example
+  sentences, said word for word.
 - **Text-to-speech.** Responses are spoken with the TTS entity (and the voice
   you pick) on the satellite's own media player -- Home Assistant sends it the
   audio's address and it plays it -- or, per satellite, on **another media
@@ -690,6 +690,10 @@ commands:
 
 ## Options
 
+- `language`: what the app hears and says -- its speech models, Piper voice,
+  command library and skills (default: `en`, English). One at a time:
+  commands are in one language (`commands.yaml` `language:`), and the Home
+  page says when they are not the app's. The web UI is in English.
 - `wake_cutoff`: the satellite detector's probability cutoff for the
   checked wake words (default: each its own -- 0.2 for Okay Nabu, 0.5 for Hey
   Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again

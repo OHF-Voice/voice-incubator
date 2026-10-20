@@ -7,7 +7,7 @@ model and no key means "as every satellite"), plus ``speak_on``: a media
 player that says a satellite's responses instead of the satellite itself.
 
 A language is a code the entity supports (``de-DE``); without one, the
-entity's best match for English.
+entity's best match for the app's language.
 
 * **STT.** The CTC matcher always runs. Text -- examples not found in the CTC
   evidence, free text, hints -- comes from the STT entity instead of the TDT
@@ -33,6 +33,7 @@ from typing import Any
 
 import numpy as np
 
+from . import languages
 from .hass import HassError, HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,9 +41,8 @@ _LOGGER = logging.getLogger(__name__)
 BUILTIN = "builtin"
 DEFAULT_VOICE = "default"
 AUTO = "auto"
-"""A satellite's own choice of the entity's best language for English."""
+"""A satellite's own choice of the entity's best match for the app's language."""
 """A satellite's own choice of the TTS entity's default voice."""
-LANGUAGE = "en"
 STT_TIMEOUT = 15.0
 STREAM_TIMEOUT = 90.0
 """A streamed request: the longest command (60 s at most), then an answer."""
@@ -64,7 +64,7 @@ class VoiceChoice:
     """A media player for the responses; None: the satellite itself."""
     stt_language: str | None = None
     tts_language: str | None = None
-    """None: the entity's best match for English."""
+    """None: the entity's best match for the app's language."""
     stt_audio: str = "agc"
     """The capture the STT entity hears: ``agc``, ``aec`` or ``aec_boost``
     (STT_AUDIO)."""
@@ -322,24 +322,24 @@ class Voices:
         self.hass = hass
         self._stt_languages: dict[str, str | None] = {}
         self._tts_languages: dict[str, str | None] = {}
-        """The best match for English, per entity."""
+        """The best match for the app's language, per entity."""
         self._supported: dict[str, list[str]] = {}
         """Every language, per entity."""
 
     async def engines(self) -> dict[str, list[dict[str, Any]]]:
         """For the UI: every STT and TTS entity, with every language it
-        supports, and its best match for English (``english``)."""
+        supports, and its best match for the app's language (``automatic``)."""
         names = {e.entity_id: e.name for e in self.hass.catalog.entities.values()}
         out: dict[str, list[dict[str, Any]]] = {}
         for kind, listing in (("stt", self.hass.stt_engines), ("tts", self.hass.tts_engines)):
             every = await listing(None)
-            english = {p["engine_id"]: _first(p) for p in await listing(LANGUAGE)}
+            automatic = {p["engine_id"]: _first(p) for p in await listing(languages.current().code)}
             out[kind] = [
                 {
                     "entity_id": p["engine_id"],
                     "name": names.get(p["engine_id"]) or p.get("name") or p["engine_id"],
                     "languages": p.get("supported_languages") or [],
-                    "english": english.get(p["engine_id"]),
+                    "automatic": automatic.get(p["engine_id"]),
                 }
                 for p in every
             ]
@@ -355,24 +355,24 @@ class Voices:
 
     async def stt_language(self, entity_id: str, wanted: str | None = None) -> str:
         """The language to ask in: ``wanted`` if the entity supports it (or a
-        variant of it: "de" -> "de-DE"), else its best match for English."""
+        variant of it: "de" -> "de-DE"), else its best match for the app's language."""
         if wanted:
             matched = _match(wanted, await self._supported_languages(entity_id, self.hass.stt_engines))
             if matched is None:
                 raise HassError(f"{entity_id} doesn't support {wanted}")
             return matched
         if entity_id not in self._stt_languages:
-            self._stt_languages[entity_id] = _best(await self.hass.stt_engines(LANGUAGE), entity_id)
+            self._stt_languages[entity_id] = _best(await self.hass.stt_engines(languages.current().code), entity_id)
         language = self._stt_languages[entity_id]
         if language is None:
-            raise HassError(f"{entity_id} doesn't understand English")
+            raise HassError(f"{entity_id} doesn't understand {languages.current().name}")
         return language
 
     async def tts_language(self, entity_id: str, wanted: str | None = None) -> str | None:
         if wanted:
             return _match(wanted, await self._supported_languages(entity_id, self.hass.tts_engines)) or wanted
         if entity_id not in self._tts_languages:
-            self._tts_languages[entity_id] = _best(await self.hass.tts_engines(LANGUAGE), entity_id)
+            self._tts_languages[entity_id] = _best(await self.hass.tts_engines(languages.current().code), entity_id)
         return self._tts_languages[entity_id]
 
     async def voices(self, entity_id: str, wanted: str | None = None) -> list[dict[str, Any]]:

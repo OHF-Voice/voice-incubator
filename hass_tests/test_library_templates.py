@@ -22,7 +22,7 @@ from homeassistant.helpers.template import Template
 
 from tests.common import async_mock_service
 
-LIBRARY = Path(__file__).resolve().parent.parent / "voice_call" / "library"
+LIBRARY = Path(__file__).resolve().parent.parent / "voice_call" / "languages" / "en" / "library"
 
 
 def command(file: str, command_id: str) -> dict[str, Any]:

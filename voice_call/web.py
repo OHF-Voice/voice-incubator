@@ -24,13 +24,13 @@ from ruamel.yaml import YAML
 from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
-from . import music, timers
+from . import languages, music, timers
 from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .endpoint import parse as parse_end_of_speech
 from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
-from .skills import LEVELS, SKILLS, home_skills, own_skills
+from .skills import LEVELS, SKILLS, available, home_skills, own_skills
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
 from .store import NAME_KINDS, compile_store, dump, plain
@@ -47,7 +47,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "web"
-LIBRARY_DIR = Path(__file__).parent / "library"
+def library_dir() -> Path:
+    """The command library: the app's language's (voice_call/languages)."""
+    return languages.current().library
 SAFE_ID = re.compile(r"[^a-z0-9_]+")
 
 
@@ -154,7 +156,7 @@ LIBRARY_ONLY = ("needs", "variants", "formerly")
 
 def library_files() -> list[tuple[Path, dict[str, Any]]]:
     yaml = YAML(typ="safe")
-    return [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in sorted(LIBRARY_DIR.glob("*.yaml"))]
+    return [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in sorted(library_dir().glob("*.yaml"))]
 
 
 def library_versions(family_id: str, spec: dict[str, Any]) -> list[tuple[str, str | None, dict[str, Any]]]:
@@ -303,6 +305,9 @@ class Api:
                 "commands": len(engine.compiled.commands) if engine and engine.compiled else 0,
                 "speakers": app.speakers is not None,
                 "tdt_models": app.tdt_models(),
+                "tdt_choice": app.tdt_choice(),
+                "language": app.language.to_json(),
+                "commands_language": engine.compiled.language if engine and engine.compiled else None,
                 "fallback": app.fallback_status(),
                 "agent": app.agent_status(),
                 "tdt_status": app.tdt_status,
@@ -517,7 +522,7 @@ class Api:
         configured = store.settings.get("skill_responses") or {}
         stored = store.settings.get("skill_settings") or {}
         out = []
-        for skill in SKILLS.values():
+        for skill in available().values():
             item = skill.to_json()
             item["responses"] = configured.get(skill.id) or {}
             settings, error = load_skill_settings(skill.id, stored.get(skill.id))
@@ -546,7 +551,7 @@ class Api:
         and its settings (``settings``: in full, as GET gives them; null for
         the built-in ones)."""
         skill_id = request.match_info["id"]
-        if skill_id not in SKILLS:
+        if skill_id not in available():
             raise FileNotFoundError(f"No skill {skill_id}")
         body = await request.json()
         store = self.app.store
@@ -1077,9 +1082,10 @@ class Api:
         if "agent" in body or "agent_keep_minutes" in body:
             self.app.configure_agent()
         if "tdt_model" in body:
-            from .server import DEFAULT_TDT, TDT_MODELS  # pylint: disable=import-outside-toplevel
+            from .server import DEFAULT_TDT, TDT_ALIASES, TDT_MODELS  # pylint: disable=import-outside-toplevel
 
             choice = str(body["tdt_model"] or DEFAULT_TDT)
+            choice = TDT_ALIASES.get(choice, choice)
             if choice not in TDT_MODELS:
                 raise ConfigError(f"tdt_model: one of {', '.join(TDT_MODELS)}")
             settings["tdt_model"] = choice

@@ -75,9 +75,6 @@ FILLER_PIECES = 255
 """The filler is the words spelled by vocabulary pieces 1..N. 63 (what the
 speech-to-phrase version used) and 1023 both separate less well."""
 
-LANGUAGE = "en"
-
-
 def lowercase_vocabulary(vocab):
     """The same vocabulary with every piece that has a capital letter removed.
 
@@ -97,9 +94,11 @@ def strict_graph(vocab, phrases):
     from adapt_ctc.graph import Meaning, PhraseGraph
     from adapt_ctc.text import spoken_words
 
+    from . import languages
+
     graph = PhraseGraph(vocab)
     for phrase in phrases:
-        for words in spoken_words(phrase, LANGUAGE):
+        for words in spoken_words(phrase, languages.current().code):
             graph.add(words, Meaning("keyword", " ".join(words)))
     return graph
 

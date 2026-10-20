@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,24 +25,27 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from adapt_ctc.config import ConfigError, parse_config
 
+from . import languages
 from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_unknown, shared_examples
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"commands", "names", "lists", "unknown", "settings"}
+STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings"}
 NAME_KINDS = ("entities", "areas", "floors")
 
 NEW_FILE = """\
 # Voice commands for voice_call. The web UI writes this file, and you can edit
 # it too: comments survive, and changes are picked up without a restart.
 #
+#   language:  what the commands are said in (no key: English)
 #   names:     what things are called, each pointing at one Home Assistant id
 #   lists:     value lists for slots ("red" -> red), shared by commands
 #   commands:  what is listened for, and what happens
 #   unknown:   what is said when nothing understood a sentence
-names: {}
-lists: {}
-commands: {}
+language: {language}
+names: {{}}
+lists: {{}}
+commands: {{}}
 """
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -105,6 +109,9 @@ class Compiled:
     unknown: str | None = None
     """The response template when nothing understood a sentence; None: the
     built-in hint."""
+    language: str = languages.DEFAULT
+    """What the commands are said in (``language:``; none: English). Commands
+    in another language than the app's are not heard: the UI says so."""
 
 
 def compile_store(data: dict[str, Any]) -> Compiled:
@@ -114,6 +121,9 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     unknown = set(data) - STORE_KEYS
     if unknown:
         raise ConfigError(f"unknown top-level key(s) {sorted(unknown)} (use {sorted(STORE_KEYS)})")
+    language = str(data.get("language") or languages.DEFAULT)
+    if not re.fullmatch(r"[a-z]{2,3}", language):
+        raise ConfigError(f"language: a language code, like en or de (not {language!r})")
     names = data.get("names") or {}
     unknown = set(names) - set(NAME_KINDS)
     if unknown:
@@ -123,7 +133,7 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, shared_examples(commands)[1], unknown_response)
+    return Compiled(data, commands, config, shared_examples(commands)[1], unknown_response, language)
 
 
 @dataclass
@@ -164,7 +174,7 @@ class Store:
 
     def read_text(self) -> str:
         if not self.commands_path.exists():
-            _write_atomic(self.commands_path, NEW_FILE)
+            _write_atomic(self.commands_path, NEW_FILE.format(language=languages.current().code))
         return self.commands_path.read_text(encoding="utf-8")
 
     def load(self) -> Compiled:

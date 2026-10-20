@@ -90,6 +90,8 @@ from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 from adapt_ctc.text import sentence_key
 
+from . import languages
+
 COMMAND_ID = re.compile(r"^[a-z0-9_]+$")
 ICON = re.compile(r"^mdi:[a-z0-9-]+$")
 NAME_SLOTS = ("entity", "area", "floor")
@@ -147,16 +149,20 @@ REMOVED_KEYS = {
 }
 FALLBACK_STEPS = ("meaning", "llm")
 
-# Shared settings for every home: the core intents' filler words and name
-# cues, and examples that win when said word for word. The embedding names the
-# closest command when nothing matched; it never accepts one.
+# Shared settings for every home, whatever its language: examples that win
+# when said word for word. The embedding names the closest command when
+# nothing matched; it never accepts one. The language's own -- its filler
+# words, name cues, compounds -- come from its pack (base_config).
 BASE_CONFIG: dict[str, Any] = {
-    "language": "en",
-    "filler": ["the", "a", "an", "please", "my", "can you", "could you", "would you", "it", "of"],
-    "name_cues": ["the", "my", "named", "called"],
     "numbers": {"detect": {"min": 0, "max": 200}},
     "settings": {"examples_first": True, "examples_whole": True, "embedding_accept": False},
 }
+
+
+def base_config() -> dict[str, Any]:
+    """The matcher's config for every home in the app's language, before
+    its commands: BASE_CONFIG and the language pack's (``Pack.adapt``)."""
+    return {**copy.deepcopy(BASE_CONFIG), **copy.deepcopy(languages.current().adapt)}
 
 # Value lists the app keeps current itself; commands refer to them by name
 # (``lists: {timer_name: {list: running_timers, optional: true}}``). A placeholder
@@ -768,7 +774,7 @@ def shared_examples(commands: dict[str, Command]) -> tuple[dict[str, dict[str, A
                 # A template is every sentence it stands for: one whose every
                 # sentence another has is a twin's; one only some of whose
                 # sentences another has is an error (adapt-ctc says which).
-                keys = [sentence_key(s, BASE_CONFIG["language"]) for s in example_sentences(str(text))]
+                keys = [sentence_key(s, languages.current().code) for s in example_sentences(str(text))]
                 taken = [owner[k] for k in keys if owner.get(k, name) != name]
                 if keys and len(taken) == len(keys):
                     if name not in twins.setdefault(taken[0], []):
@@ -799,7 +805,7 @@ def adapt_config(store: dict[str, Any], commands: dict[str, Command]) -> dict[st
     intents, _twins = shared_examples(commands)
     if not intents:
         return None
-    config = copy.deepcopy(BASE_CONFIG)
+    config = base_config()
     config["settings"].update(store.get("settings") or {})
     reserved = sorted(set(store.get("lists") or {}) & set(DYNAMIC_LISTS))
     if reserved:

@@ -47,8 +47,8 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
 
-from . import skills
-from .commands import BASE_CONFIG, DYNAMIC_LISTS, Behavior, Command, command_of, match_slots
+from . import languages, skills
+from .commands import DYNAMIC_LISTS, Behavior, Command, base_config, command_of, match_slots
 from .fallback import label_of
 from .store import Compiled
 from .voices import TypedText, VoiceChoice
@@ -328,7 +328,7 @@ class Engine:
         commands stay."""
         started = time.perf_counter()
         recognizer = None
-        config = copy.deepcopy(compiled.config or {**BASE_CONFIG, "intents": {}})
+        config = copy.deepcopy(compiled.config or {**base_config(), "intents": {}})
         self._fill_dynamic(config)
         if config["intents"]:
             recognizer = Recognizer(
@@ -451,7 +451,7 @@ class Engine:
         started = time.perf_counter()
         with self._lock:
             recognizer = self.recognizer
-        language = recognizer.config.language if recognizer is not None else BASE_CONFIG["language"]
+        language = recognizer.config.language if recognizer is not None else languages.current().code
         spellings = spoken_words(text, language)
         log_probs, unspellable = self.model.vocab.text_log_probs(spellings[0] if spellings else [])
         built = time.perf_counter() - started

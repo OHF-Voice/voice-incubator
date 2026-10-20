@@ -190,7 +190,7 @@ def test_through_home_assistant():
             engines = await voices.engines()
             assert [e["entity_id"] for e in engines["stt"]] == ["stt.fake_whisper"]
             assert engines["stt"][0]["languages"] == ["en-US", "en-GB", "de-DE", "fr-FR"]
-            assert engines["stt"][0]["english"] == "en-US"
+            assert engines["stt"][0]["automatic"] == "en-US"
             assert await voices.stt_language("stt.fake_whisper") == "en-US"
             assert await voices.stt_language("stt.fake_whisper", "de") == "de-DE"
             with pytest.raises(HassError):

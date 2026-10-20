@@ -153,7 +153,7 @@ def camel(icon: str) -> str:
 def library_icons() -> list[str]:
     yaml = YAML(typ="safe")
     icons = []
-    for path in sorted((ROOT / "voice_call/library").glob("*.yaml")):
+    for path in sorted(ROOT.glob("voice_call/languages/*/library/*.yaml")):
         data = yaml.load(path.read_text("utf-8")) or {}
         if data.get("icon"):
             icons.append(data["icon"])

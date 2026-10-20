@@ -1467,6 +1467,15 @@ function satelliteTile(s, wake) {
     s.ringing ? h("span", { class: "badge warn" }, "timer ringing") : null);
 }
 
+// Commands in another language than the app's are not heard.
+function commandsLanguageNotice() {
+  const status = state.status || {};
+  const app = status.language || {};
+  if (!status.commands_language || !app.code || status.commands_language === app.code) return null;
+  return h("div", { class: "notice warn" }, `Your commands are in “${status.commands_language}”, and the app is in ${app.name}: they won't be heard.`,
+    hint("The app hears and speaks one language, its Language option. commands.yaml says what its commands are in (language:). Change one to match the other."));
+}
+
 async function pageHome() {
   const [store, sats, skillData, wake] = await Promise.all([
     loadStore(), loadSatellites(), api("GET", "skills"),
@@ -1482,6 +1491,7 @@ async function pageHome() {
   fill($main,
     h("h1", {}, "Home"),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
+    commandsLanguageNotice(),
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
     h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
@@ -1914,7 +1924,7 @@ function fillSpeechPanel(panel, voices) {
   const globalSttAudio = sttAudioSelect(settings.stt_audio);
   const globalSttRuns = sttRunsSelect(!!settings.stt_always);
   const models = (state.status && state.status.tdt_models) || [];
-  const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
+  const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: ((state.status && state.status.tdt_choice) || "own") === m.id, disabled: !m.available },
     `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
   fill(panel,
     heading("h2", "Listening and speaking", "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own on its page). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
@@ -2051,7 +2061,7 @@ function languagePicker(entities, entitySelect, value, inherit, inheritEntity) {
     const entity = entities.find((e) => e.entity_id === entityId);
     const options = [];
     if (inherit !== undefined) options.push(h("option", { value: "", selected: value === undefined }, `Default${inherit ? ` (${inherit})` : ""}`));
-    options.push(h("option", { value: "auto", selected: inherit === undefined ? !value : value === "auto" }, entity && entity.english ? `Automatic (${entity.english})` : "Automatic"));
+    options.push(h("option", { value: "auto", selected: inherit === undefined ? !value : value === "auto" }, entity && entity.automatic ? `Automatic (${entity.automatic})` : "Automatic"));
     for (const code of (entity && entity.languages) || []) options.push(h("option", { value: code, selected: value === code }, code));
     if (value && value !== "auto" && !(entity && entity.languages.includes(value))) options.push(h("option", { value, selected: true }, `${value} (not supported)`));
     fill(select, options);
