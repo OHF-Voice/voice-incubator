@@ -32,7 +32,7 @@ from .acoustic import CtcModel, Vocabulary
 from .config import NAME_TYPES, Config, Intent, Wildcard, phrase_parts
 from .embedding import distractors
 from .graph import CompiledGraph, Meaning, PhraseGraph
-from .morphology import word_forms
+from .morphology import elided, elisions, word_forms
 from .numbers import (
     DURATION_UNITS,
     spoken_forms,
@@ -435,8 +435,10 @@ class Recognizer:
                             "name", " ".join(units), entry.type, entry.id, scope
                         )
                         # Each word with its language's endings: "des
-                        # Wohnzimmers", "den kleinen Ventilator".
+                        # Wohnzimmers", "den kleinen Ventilator"; the first
+                        # with an elided article: "l'entrée".
                         forms = [word_forms(unit, config.name_endings) for unit in units]
+                        forms[0] = elided(forms[0], elisions(language))
                         graph.add(forms, meaning, flexible=True)
 
         for items in config.names.values():

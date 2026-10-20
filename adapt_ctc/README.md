@@ -289,6 +289,9 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   own. One lattice spells every form of a word, and where the name and its
   longer form fit equally the longer is taken, so the ending isn't left
   unexplained.
+- In French, a name starting with a vowel or an h may be heard with "l'" or
+  "d'" joined to it (`morphology.ELISIONS`): the model writes "dans
+  l'entrée" with "l'entrée" as one word, and that is the Entrée.
 - A keyword in `compounds` may also end a compound after an area or floor
   name, as one word: German's "Küchenlicht" is the light in the kitchen
   (Küche, its linking "-n" an ending, then "licht"). The model writes the

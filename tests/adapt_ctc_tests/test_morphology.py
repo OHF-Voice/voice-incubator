@@ -7,7 +7,7 @@ from adapt_ctc.acoustic import SPM_SPACE, Vocabulary
 from adapt_ctc.config import ConfigError, parse_config
 from adapt_ctc.graph import Meaning, PhraseGraph
 from adapt_ctc.matcher import Recognizer
-from adapt_ctc.morphology import endings, word_forms
+from adapt_ctc.morphology import elided, elisions, endings, word_forms
 from adapt_ctc.spotter import spot
 
 from .conftest import utterance
@@ -194,3 +194,19 @@ def test_a_word_both_keyword_and_name_is_the_name():
     }
     result = german(config, ["stelle", "heizung", "an"])
     assert [(m.intent, m.cost) for m in result.matches] == [("Device", 0.0), ("Here", 0.0)]
+
+
+def test_a_french_name_with_its_article_joined():
+    # "dans l'entrée": the model writes "l'entrée" as one word.
+    assert elided(("entrée",), elisions("fr")) == ("entrée", "l'entrée", "d'entrée")
+    assert elided(("cuisine",), elisions("fr")) == ("cuisine",) and elisions("en") == ()
+    vocab = Vocabulary(dict(enumerate(["<unk>", SPM_SPACE + "allume", SPM_SPACE + "la", SPM_SPACE + "lumière",
+                                       SPM_SPACE + "de", SPM_SPACE + "l", "'", "entrée", SPM_SPACE + "entrée", "<blk>"])))
+    config = {
+        "language": "fr",
+        "names": {"areas": {"entree": "Entrée"}},
+        "intents": {"On": {"require": [["allume"], ["lumière"]], "names": {"area": {"count": 1}}}},
+    }
+    recognizer = Recognizer(parse_config(config), vocab=vocab)
+    found = recognizer.recognize_log_probs(utterance(vocab, ["allume", "la", "lumière", "de", "l", "+'", "+entrée"]), 0.08)
+    assert found.best.slots == {"area": ["entree"]}

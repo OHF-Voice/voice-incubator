@@ -8,6 +8,10 @@ word of a name may be heard with one of its language's endings added, or in
 place of one it ends with (``word_forms``), and one lattice spells them all
 (:meth:`graph.PhraseGraph.add`). English has none: its names are said as
 written.
+
+French joins an article or "de" to a name that starts with a vowel: "dans
+l'entrée", "la lumière de l'atelier" -- written as one word, so a name's
+first word may be heard with it (``elided``).
 """
 
 from __future__ import annotations
@@ -26,6 +30,12 @@ ENDINGS: dict[str, tuple[str, ...]] = {
 }
 """The endings a word of a name may take, by language."""
 
+ELISIONS: dict[str, tuple[str, ...]] = {
+    "fr": ("l'", "d'"),
+}
+"""What a name's first word may be heard joined to, by language, when it
+starts with a vowel or an h: "l'entrée", "d'Isabelle"."""
+
 MIN_STEM = 3
 """Letters left of a word when one of its endings is taken off for another:
 "Bad" keeps its "d"."""
@@ -34,6 +44,18 @@ MIN_STEM = 3
 def endings(language: str) -> tuple[str, ...]:
     """The endings for ``language`` ("de", "de-CH", "de_DE")."""
     return ENDINGS.get(language.replace("_", "-").split("-")[0].lower(), ())
+
+
+def elisions(language: str) -> tuple[str, ...]:
+    """The elisions for ``language`` ("fr", "fr-CA")."""
+    return ELISIONS.get(language.replace("_", "-").split("-")[0].lower(), ())
+
+
+def elided(forms: tuple[str, ...], prefixes: tuple[str, ...]) -> tuple[str, ...]:
+    """``forms`` and, for those starting with a vowel or an h, each with a
+    prefix: "entrée" -> "entrée", "l'entrée", "d'entrée"."""
+    vowels = "aeiouyhàâäéèêëîïôöùûü"
+    return forms + tuple(prefix + form for prefix in prefixes for form in forms if form[:1] in vowels)
 
 
 def word_forms(word: str, endings: tuple[str, ...]) -> tuple[str, ...]:
