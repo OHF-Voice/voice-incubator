@@ -1,0 +1,94 @@
+# The fallback benchmark's sentences in German (scripts/bench_fallback.py
+# --language de): tests/fallback_utterances.yaml's, said as German speakers
+# would, with the same commands expected. Text slots are compared loosely
+# (the expected words in what was found).
+home:
+  areas:
+    kitchen: {name: Küche}
+    living_room: {name: Wohnzimmer}
+    bedroom: {name: Schlafzimmer}
+    office: {name: Büro}
+  floors:
+    ground_floor: {name: Erdgeschoss}
+    first_floor: {name: Obergeschoss}
+  entities:
+    light.kitchen_ceiling: {name: Küchenlampe}
+    switch.coffee_maker: {name: Kaffeemaschine}
+    fan.bedroom_fan: {name: Schlafzimmerventilator}
+    cover.garage_door: {name: Garagentor, aliases: [Garage]}
+    lock.front_door: {name: Haustür}
+    climate.thermostat: {name: Thermostat}
+    media_player.living_room_tv: {name: Fernseher}
+utterances:
+  # ---- music
+  - {text: leg mal etwas jazz auf, expect: play_music_here, slots: {query: jazz}}
+  - {text: ich will taylor swift hören, expect: play_music_here, slots: {query: taylor swift}}
+  - {text: kannst du was von den beatles spielen, expect: play_music_here, slots: {query: beatles}}
+  - {text: lass uns abbey road hören, expect: play_music_here, slots: {query: abbey road}}
+  - {text: mach meine workout playlist an, expect: play_music_here, slots: {query: workout}}
+  - {text: ich hätte gern klassische musik, expect: play_music_here, slots: {query: klassisch}}
+  - {text: mach das radio an, expect: play_music_here}
+  - {text: überspring dieses lied, expect: next_track_here}
+  - {text: geh zurück zum letzten lied, expect: previous_track_here}
+  - {text: halt die musik kurz an, expect: pause_music_here}
+  - {text: das ist zu laut, expect: volume_down_here}
+  - {text: dreh mal richtig auf, expect: volume_up_here}
+  - {text: wer singt das hier, expect: whats_playing_here}
+  # ---- shopping and to-do lists
+  - {text: wir brauchen milch, expect: shopping_list_add, slots: {item: milch}}
+  - {text: der kaffee ist alle, expect: shopping_list_add, slots: {item: kaffee}}
+  - {text: lass mich nicht vergessen eier zu kaufen, expect: shopping_list_add, slots: {item: eier}}
+  - {text: küchenrolle auf meine einkaufsliste, expect: shopping_list_add, slots: {item: küchenrolle}}
+  - {text: bring beim nächsten einkauf bananen mit, expect: shopping_list_add, slots: {item: bananen}}
+  - {text: das brot habe ich schon, expect: shopping_list_remove, slots: {item: brot}}
+  - {text: nimm milch von der liste, expect: shopping_list_remove, slots: {item: milch}}
+  - {text: wir brauchen keine äpfel mehr, expect: shopping_list_remove, slots: {item: äpfel}}
+  - {text: streich die butter von meiner einkaufsliste, expect: shopping_list_remove, slots: {item: butter}}
+  - {text: ich muss den klempner anrufen, expect: todo_add, slots: {item: klempner}}
+  - {text: setz reisepass verlängern auf meine aufgabenliste, expect: todo_add, slots: {item: reisepass verlängern}}
+  - {text: notier dass ich die stromrechnung bezahlen muss, expect: todo_add, slots: {item: stromrechnung}}
+  - {text: erinnere mich daran die pflanzen zu gießen, expect: remind_me, slots: {reminder: pflanzen}}
+  # ---- alarms
+  - {text: weck mich um sechs, expect: set_alarm, slots: {time: "6"}}
+  - {text: ich muss morgen um halb acht aufstehen, expect: set_alarm, slots: {time: "7:30"}}
+  - {text: stell einen wecker für viertel nach sechs morgens, expect: set_alarm, slots: {time: "6:15"}}
+  - {text: wecker um zwölf uhr mittags, expect: set_alarm, slots: {time: "12:00"}}
+  - {text: hol mich um fünf uhr früh aus dem bett, expect: set_alarm, slots: {time: "5"}}
+  - {text: ich will um halb neun geweckt werden, expect: set_alarm, slots: {time: "8:30"}}
+  # ---- timers
+  - {text: gib mir zehn minuten, expect: start_timer, slots: {duration: 600}}
+  - {text: zähl fünf minuten für die eier runter, expect: start_timer, slots: {duration: 300}}
+  - {text: sag mir bescheid wenn zwanzig minuten um sind, expect: start_timer, slots: {duration: 1200}}
+  - {text: wie lange braucht die pizza noch, expect: timer_status}
+  - {text: vergiss den timer, expect: cancel_timer}
+  - {text: halt den timer an, expect: pause_timer}
+  # ---- lights and devices
+  - {text: hier ist es zu dunkel, expect: turn_on_here}
+  - {text: mach die küche heller, expect: set_brightness_place, slots: {area: [kitchen]}}
+  - {text: licht aus, expect: turn_off_here}
+  - {text: im schlafzimmer das licht aus, expect: turn_off_place, slots: {area: [bedroom]}}
+  - {text: kann ich etwas licht im wohnzimmer haben, expect: turn_on_place, slots: {area: [living_room]}}
+  - {text: dimm das büro auf dreißig prozent, expect: set_brightness_place, slots: {area: [office], percentage: 30}}
+  - {text: starte die kaffeemaschine, expect: turn_on_device, slots: {entity: [switch.coffee_maker]}}
+  - {text: mach den schlafzimmerventilator aus, expect: turn_off_device, slots: {entity: [fan.bedroom_fan]}}
+  - {text: mach es wärmer, expect: set_temperature_here}
+  - {text: mir ist kalt, expect: null}
+  # ---- covers and locks
+  - {text: lass etwas licht herein, expect: open_covers_here}
+  - {text: mach die garage zu, expect: close_covers_device, slots: {entity: [cover.garage_door]}}
+  - {text: ist die haustür gesichert, expect: is_locked, slots: {entity: [lock.front_door]}}
+  - {text: sichere das haus, expect: lock_all}
+  # ---- time, date, weather
+  - {text: weißt du wie spät es ist, expect: what_time}
+  - {text: was ist heute für ein tag, expect: what_date}
+  - {text: brauche ich einen regenschirm, expect: weather}
+  # ---- not commands
+  - {text: was ist die hauptstadt von frankreich, expect: null}
+  - {text: erzähl mir einen witz, expect: null}
+  - {text: wie geht es dir, expect: null}
+  - {text: danke, expect: null}
+  - {text: vergiss es, expect: null}
+  - {text: wie viele gramm hat ein pfund, expect: null}
+  - {text: wer hat gestern das spiel gewonnen, expect: null}
+  - {text: buchstabiere notwendig, expect: null}
+  - {text: was ist zwölf mal acht, expect: null}

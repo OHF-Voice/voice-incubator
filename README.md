@@ -1224,6 +1224,23 @@ described; it is a question, so harmless, but wrong. 0.2 runs one more wrong
 command, so the default stays at 0.3. What it doesn't do well is infer: "we
 need milk", "it's too dark in here".
 
+**German** (`--language de`: the same 64 sentences said in German,
+`tests/fallback_utterances.de.yaml`, with the German library). GLiNER2.5
+small does not understand German -- its encoder is the English DeBERTa-v3,
+which has no "▁Küche" -- so the German pack leaves it out (`gliner=False`):
+
+| 2026-10-20 | English | German | German, commands described in English |
+|---|---|---|---|
+| meaning alone, every command chosen | 12/64 | 12/64 | |
+| meaning and GLiNER, every command chosen | 38/64, 5 wrong | 19/64, 10 wrong | 18/64, 11 wrong |
+| meaning and GLiNER, the eight chosen | 17/34, 0 wrong | 5/34, 1 wrong | 1/34, 0 wrong |
+
+What it got right in German shares letters with a description ("Licht",
+"Einkaufsliste"); what it got wrong shares a word: "der Kaffee ist alle"
+locked *alle* Türen, "wir brauchen keine Äpfel mehr" stopped repeating
+(*nicht mehr wiederholen*). Meaning (EmbeddingGemma, multilingual) does as
+well in German as in English.
+
 The model step was a small LLM before GLiNER -- Granite 4.0 350M or Hammer
 2.1 0.5B in llama.cpp, the commands as tools -- and they were dropped: with
 the same eight chosen they got 21/32 and 19/32 right but refused only 26/32

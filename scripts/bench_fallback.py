@@ -12,7 +12,9 @@ Two modes:
   step decided each one.
 
 Every command is chosen for both steps (``fallback: [meaning, llm]``), or
-only those given with ``--chosen``.
+only those given with ``--chosen``. ``--language de`` runs a language pack's
+library and models on its sentences (``tests/fallback_utterances.<code>.yaml``,
+which names its own home).
 
     scripts/bench_fallback.py --mode fallback --chosen play_music,lights_on --out /tmp/fallback.json
     scripts/bench_fallback.py --mode chain --embedding-accept --out /tmp/chain.json
@@ -34,6 +36,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from voice_call import languages  # noqa: E402
 from voice_call.fallback import (  # noqa: E402
     DEFAULT_FALLBACK_MODEL,
     GLINER_MODELS,
@@ -43,6 +46,7 @@ from voice_call.fallback import (  # noqa: E402
 from voice_call.store import compile_store  # noqa: E402
 
 UTTERANCES = ROOT / "tests/fallback_utterances.yaml"
+"""English's; another language's is ``fallback_utterances.<code>.yaml``."""
 
 HOME = {
     "areas": {
@@ -64,7 +68,7 @@ HOME = {
 }
 
 
-def library_store(chosen: list[str] | None = None) -> dict[str, Any]:
+def library_store(chosen: list[str] | None = None, home: dict[str, Any] | None = None) -> dict[str, Any]:
     """Every library command -- each version of each, as added from the
     library -- with the value lists they use, in HOME: each chosen for
     meaning and the model step, or only those in ``chosen`` (a version's id,
@@ -77,7 +81,7 @@ def library_store(chosen: list[str] | None = None) -> dict[str, Any]:
         lists.update(entry["lists"])
         steps = ["meaning", "llm"] if chosen is None or {entry["id"], entry["family"]} & set(chosen) else []
         commands[entry["id"]] = {**entry["spec"], "fallback": steps}
-    return {"names": HOME, "lists": lists, "commands": commands}
+    return {"language": languages.current().code, "names": home or HOME, "lists": lists, "commands": commands}
 
 
 def expected(utterance: dict[str, Any], command_id: str | None, slots: dict[str, Any]) -> tuple[bool, str]:
@@ -92,9 +96,8 @@ def expected(utterance: dict[str, Any], command_id: str | None, slots: dict[str,
             if seconds is None or abs(float(seconds) - float(value)) > 1:
                 return False, f"{name} {got!r}, wanted {value!r}"
         elif name == "time":
-            from voice_call.timers import parse_clock  # pylint: disable=import-outside-toplevel
-
-            want_clock, got_clock = parse_clock(str(value)), parse_clock(str(got or ""))
+            clock = languages.reading().clock
+            want_clock, got_clock = clock(str(value)), clock(str(got or ""))
             if got_clock is None or want_clock[:2] != got_clock[:2]:
                 return False, f"time {got!r}, wanted {value!r}"
         elif isinstance(value, str):
@@ -135,8 +138,7 @@ def run_fallback(args, compiled, utterances) -> dict[str, Any]:
     from voice_call.fallback import Fallback, label_of  # pylint: disable=import-outside-toplevel
 
     utterances = _for_chosen(utterances, _chosen(args))
-    ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
-    engine = Engine(ctc, None, DEFAULT_EMBEDDING_MODEL, threads=args.threads)
+    engine = Engine(languages.current().ctc_dir(ROOT), None, DEFAULT_EMBEDDING_MODEL, threads=args.threads)
     engine.build(compiled)
     model = None if args.no_model else _model(args)
     fallback = Fallback(embedding_accept=not args.no_meaning, model=model, top_k=args.top_k or 8)
@@ -202,16 +204,16 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
 
     from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
     from voice_call.fallback import Fallback  # pylint: disable=import-outside-toplevel
-    from voice_call.server import _pcm_to_float, tdt_models  # pylint: disable=import-outside-toplevel
+    from voice_call.server import _pcm_to_float  # pylint: disable=import-outside-toplevel
     from voice_call.tts import Speech  # pylint: disable=import-outside-toplevel
 
-    ctc = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
-    engine = Engine(ctc, tdt_models(ROOT)["en"], DEFAULT_EMBEDDING_MODEL, threads=args.threads)
+    pack = languages.current()
+    engine = Engine(pack.ctc_dir(ROOT), pack.transducer_dir(ROOT), DEFAULT_EMBEDDING_MODEL, threads=args.threads)
     engine.build(compiled)
     model = None if args.no_model else _model(args)
     engine.fallback = Fallback(embedding_accept=args.embedding_accept, model=model, top_k=args.top_k)
     engine.fallback.prepare(engine, wait=True)
-    speech = Speech(ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx", ROOT / "sounds/acknowledge.mp3")
+    speech = Speech(ROOT / "models/piper" / pack.piper, ROOT / "sounds/acknowledge.mp3")
     await speech.start()
     satellite = Satellite("bench", "Bench", "kitchen", "Kitchen")
     rows = []
@@ -253,6 +255,7 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=("fallback", "chain"), default="fallback")
+    parser.add_argument("--language", default=languages.DEFAULT, help="a language pack: its library, models and sentences")
     parser.add_argument("--model", choices=sorted(GLINER_MODELS), default=DEFAULT_FALLBACK_MODEL, help="GLiNER's")
     parser.add_argument("--model-dir", help="its exported folder (default: under models/)")
     parser.add_argument("--threshold", type=float, default=GLINER_THRESHOLD, help="GLiNER's")
@@ -266,8 +269,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
 
-    compiled = compile_store(library_store(_chosen(args)))
-    utterances = yaml.safe_load(UTTERANCES.read_text())["utterances"]
+    languages.use(args.language)
+    path = UTTERANCES if args.language == "en" else UTTERANCES.with_name(f"fallback_utterances.{args.language}.yaml")
+    data = yaml.safe_load(path.read_text("utf-8"))
+    compiled = compile_store(library_store(_chosen(args), data.get("home")))
+    utterances = data["utterances"]
     if args.only:
         utterances = [u for u in utterances if args.only in u["text"]]
     if args.mode == "fallback":
