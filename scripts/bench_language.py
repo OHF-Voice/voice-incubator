@@ -92,6 +92,11 @@ def scored(decision, want_command: str, want_slots: dict[str, Any]) -> tuple[boo
             value = _text(value)
         slots[key] = value
     want = {k: _text(v) if isinstance(v, str) and k not in ("color", "device_class", "asked") else v for k, v in want_slots.items()}
+    if "time" in want and isinstance(slots.get("time"), str):
+        # A clock time is right when it reads as the same time: "halfzeven".
+        clock = languages.reading().clock
+        if clock(slots["time"]) is not None and clock(slots["time"]) == clock(want["time"]):
+            slots["time"] = want["time"]
     return got == want_command and slots == want, got or decision.message or "", slots
 
 

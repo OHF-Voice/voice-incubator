@@ -2,7 +2,7 @@
 # Copy what the image needs but git does not carry into local/, for the
 # Dockerfile: the models (int8 Parakeet CTC and TDT, Piper, speaker ID, wake
 # words, the Kaldi verifier's model and tools, GLiNER for the command
-# fallback, German's when present) and wyoming-wake-kaldi, which
+# fallback, other languages' when present) and wyoming-wake-kaldi, which
 # is not published. The Kaldi tools and its daemon are native binaries: stage
 # them on (or for) the architecture you build for.
 #
@@ -21,14 +21,18 @@ cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
 if [[ -d models/parakeet-tdt-v3-int8 ]]; then
     cp -a models/parakeet-tdt-v3-int8 local/models/
 fi
-# German (`language: de`), when it has been put in models/: NVIDIA's
-# FastConformer hybrid as int8 CTC (166 MB) and transducer (185 MB), from
-# scripts/export_nemo_hybrid.py. Piper's Thorsten comes with models/piper.
-# Until other languages are downloaded, they ship in the image.
-if [[ -d models/speech-to-phrase/stt_de_fastconformer_hybrid_large_pc-int8 ]]; then
-    cp -a models/speech-to-phrase/stt_de_fastconformer_hybrid_large_pc-int8 local/models/speech-to-phrase/
-    cp -a models/stt_de_fastconformer_hybrid_large_pc-transducer-int8 local/models/
-fi
+# The other languages (`language: de`, `nl` ...), each when it has been put in
+# models/: NVIDIA's FastConformer hybrid as int8 CTC and transducer (about 350
+# MB a language), from scripts/export_nemo_hybrid.py. Their Piper voices come
+# with models/piper. Until other languages are downloaded, they ship in the
+# image.
+for lang in de nl fr es; do
+    name="stt_${lang}_fastconformer_hybrid_large_pc"
+    if [[ -d "models/speech-to-phrase/$name-int8" ]]; then
+        cp -a "models/speech-to-phrase/$name-int8" local/models/speech-to-phrase/
+        cp -a "models/$name-transducer-int8" local/models/
+    fi
+done
 # The command fallback's default model (78 MB), from scripts/export_gliner.py.
 if [[ -d models/gliner2.5-small-v1-onnx ]]; then
     cp -a models/gliner2.5-small-v1-onnx local/models/

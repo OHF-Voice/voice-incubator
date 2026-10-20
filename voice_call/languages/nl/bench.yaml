@@ -1,0 +1,68 @@
+# Dutch sentences and what each must become with the Dutch library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). The
+# home: these names, the devices in these rooms, a satellite in the kantoor.
+# Numbers are written as said, for text-to-speech.
+names:
+  areas:
+    keuken: Keuken
+    woonkamer: Woonkamer
+    slaapkamer: Slaapkamer
+    badkamer: Badkamer
+    kantoor: Kantoor
+  floors:
+    begane_grond: Begane grond
+    eerste_verdieping: Eerste verdieping
+  entities:
+    light.staande_lamp: Staande lamp
+    light.kleine_lamp: Kleine lamp
+    fan.plafondventilator: Plafondventilator
+    media_player.keuken: Keukenspeaker
+    climate.thermostaat: Thermostaat
+    cover.dakraam: Dakraam
+    lock.voordeur: Voordeur
+rooms:
+  fan.plafondventilator: slaapkamer
+  media_player.keuken: keuken
+satellite: kantoor
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Doe het licht in de woonkamer aan.", turn_on_place, {area: [woonkamer]}, "in de + area"]
+  - ["Zet het licht in de keuken uit.", turn_off_place, {area: [keuken]}, "separable verb, uit"]
+  - ["Doe de lampen in de slaapkamer uit.", turn_off_place, {area: [slaapkamer]}, "plural keyword"]
+  - ["Schakel het licht in de badkamer in.", turn_on_place, {area: [badkamer]}, "schakel ... in, with in de"]
+  - ["Doe de keukenlamp aan.", turn_on_place, {area: [keuken]}, "compound area+keyword, linking -en"]
+  - ["Doe het woonkamerlicht uit.", turn_off_place, {area: [woonkamer]}, "compound area+keyword"]
+  - ["Zet de staande lamp aan.", turn_on_device, {entity: [light.staande_lamp]}, "two-word device name"]
+  - ["Doe de kleine lamp uit.", turn_off_device, {entity: [light.kleine_lamp]}, "adjective name"]
+  - ["Zet de plafondventilator in de slaapkamer aan.", turn_on_device, {entity: [fan.plafondventilator], area: [slaapkamer]}, "device + area"]
+  - ["Doe alle lampen op de begane grond uit.", turn_off_place, {floor: [begane_grond]}, "floor"]
+  - ["Zet het licht op de eerste verdieping aan.", turn_on_place, {floor: [eerste_verdieping]}, "floor"]
+  - ["Hoe laat is het?", what_time, {}, "a question"]
+  - ["Is de staande lamp aan?", any_lights_on_device, {entity: [light.staande_lamp], asked: "on"}, "asking a device"]
+  - ["Maak de staande lamp blauw.", light_color_device, {entity: [light.staande_lamp], color: blue}, "a value"]
+  - ["Zet de helderheid in de woonkamer op vijftig procent.", set_brightness_place, {area: [woonkamer], percentage: 50}, "a number"]
+  - ["Zet de thermostaat op eenentwintig graden.", set_temperature_device, {entity: [climate.thermostaat], temperature: 21}, "a device and a number"]
+  - ["Doe de rolluiken open.", open_covers_here, {device_class: shutter}, "open"]
+  - ["Doe de gordijnen op de eerste verdieping dicht.", close_covers_place, {floor: [eerste_verdieping], device_class: curtain}, "dicht, a floor"]
+  - ["Is het dakraam open?", are_covers_open_device, {entity: [cover.dakraam], asked: open}, "asking a cover"]
+  - ["Doe de voordeur op slot.", lock, {entity: [lock.voordeur]}, "op slot"]
+  - ["Doe de voordeur van het slot.", unlock, {entity: [lock.voordeur]}, "van het slot"]
+  - ["Is de voordeur op slot?", is_locked, {entity: [lock.voordeur], asked: locked}, "asking a lock"]
+  - ["Welke datum is het?", what_date, {}, "a question"]
+  - ["Speel jazz.", play_music_here, {query: jazz}, "free text"]
+  - ["Speel jazz in de keuken.", play_music_place, {area: [keuken], query: jazz}, "free text, then a place"]
+  - ["Pauzeer de muziek.", pause_music_here, {}, "music"]
+  - ["Zet het volume op dertig procent.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["Wat speelt er in de keuken?", whats_playing_place, {area: [keuken]}, "music, a place"]
+  - ["Verplaats de muziek naar de keukenspeaker.", move_music_device, {entity: [media_player.keuken]}, "music, a device"]
+  - ["Harder.", volume_up_here, {}, "one word"]
+  - ["Volgend nummer.", next_track_here, {}, "music"]
+  - ["Zet melk op de boodschappenlijst.", shopping_list_add, {item: melk}, "free text between keywords"]
+  - ["Zet een timer van vijf minuten.", start_timer, {duration: 300}, "a duration"]
+  - ["Timer voor een half uur.", start_timer, {duration: 1800}, "a duration said with its unit"]
+  - ["Zet een timer genaamd pizza voor tien minuten.", start_timer, {duration: 600, timer: pizza}, "a named timer"]
+  - ["Maak me wakker om half zeven.", set_alarm, {time: half zeven}, "a clock time"]
+  - ["Annuleer de timer.", cancel_timer, {}, "a timer"]
+  - ["Hoe lang loopt de timer nog?", timer_status, {}, "a timer question"]
+  - ["Laat maar.", never_mind, {}, "an example sentence"]

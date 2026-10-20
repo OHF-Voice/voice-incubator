@@ -691,16 +691,17 @@ commands:
 ## Options
 
 - `language`: what the app hears and says -- its speech models, Piper voice,
-  command library and skills (default: `en`, English; or `de`, German). One
-  at a time: commands are in one language (`commands.yaml` `language:`), and
-  the Home page says when they are not the app's. The web UI is in English.
-  German's skills are asked and answered in German, with German units
-  (a Pfund is 500 g; metric spoons and cup), German holidays and a 24-hour
-  clock; it has no GLiNER step in the fallback, and no second opinion on
-  the wake word (Kaldi alone decides). Its models come with the
-  app: NVIDIA's `stt_de_fastconformer_hybrid_large_pc` (CC-BY-4.0, about
-  350 MB) and Piper's Thorsten; without them the app says which are
-  missing.
+  command library and skills (default: `en`, English; or `de`, German, or
+  `nl`, Dutch). One at a time: commands are in one language (`commands.yaml`
+  `language:`), and the Home page says when they are not the app's. The web
+  UI is in English. In another language than English, skills are asked and
+  answered in it, with its units (a German Pfund and a Dutch pond are 500 g;
+  metric spoons and cup), its country's holidays and a 24-hour clock; there
+  is no GLiNER step in the fallback, and no second opinion on the wake word
+  (Kaldi alone decides). Its models come with the app: NVIDIA's
+  FastConformer hybrid for the language (`stt_<language>_fastconformer_hybrid_large_pc`,
+  CC-BY-4.0, about 350 MB) and a Piper voice (Thorsten, Ronnie); without
+  them the app says which are missing.
 - `wake_cutoff`: the satellite detector's probability cutoff for the
   checked wake words (default: each its own -- 0.2 for Okay Nabu, 0.5 for Hey
   Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again

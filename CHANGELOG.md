@@ -20,12 +20,19 @@
   45 Minuten nach 15 Uhr" -- German units (a Pfund is 500 g; metric spoons
   and cup), German holidays (written in German or English on the page), a
   24-hour clock, decimal commas. No GLiNER (it doesn't understand German)
-  or wake word second opinion in German yet. Timer names and
-  music titles are compared with their accented letters ("Beyoncé"), not
-  without. `commands.yaml` says what its commands are in
-  (`language:`, new files `en`), and the Home page says when that is not the
-  app's language. The built-in speech model's "English" is now "the
-  language's own" (`own`; `en` still read).
+  or wake word second opinion in German yet. Timer names and music titles
+  are compared with their accented letters ("Beyoncé"), not without.
+  `commands.yaml` says what its commands are in (`language:`, new files the
+  app's), and the Home page says when that is not the app's language. The
+  built-in speech model's "English" is now "the language's own" (`own`;
+  `en` still read).
+- **Dutch** (`nl`): NVIDIA's FastConformer hybrid and Piper's Ronnie, the
+  whole library and every skill in Dutch ("doe het licht in de keuken
+  aan", "de keukenlamp", "zet een timer van vijf minuten", "maak me wakker
+  om half zeven", "hoeveel gram is een pond", "wanneer is Koningsdag"). A
+  particle the model writes onto the place before it is heard as one ("op
+  de begane gronduit"). On 39 sentences spoken by four voices, 128 of 156
+  do what was said; typed, all 39.
 - **The speech-to-text entity hears the command from where the wake word
   check ended the wake word**, asked or streamed: on 205 test calls, a
   transcript from there began with a likely first word on 141, from where the
