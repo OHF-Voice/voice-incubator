@@ -1,0 +1,441 @@
+# Music (Russian), as the English library's music.yaml: on Music Assistant's
+# players, in versions for where it plays (the satellite's own player, a
+# player by name, the players in an area or on a floor).
+#
+# "Включи …" or "поставь …" searches Music Assistant for what was heard (free
+# text to the end of the sentence, spelled from the transducer's transcript)
+# and plays the closest match; "альбом …", "песни группы …", "плейлист …",
+# "… в исполнении …" narrow it (the language's reading). "Включи" also turns
+# on lights and devices, and "поставь" sets timers and alarms, whose words
+# keep it from being music; a timer or an alarm asked for without how long
+# or when asks for it rather than playing music called "таймер".
+title: Music
+icon: mdi:music
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  player: &player
+    names:
+      entity: {count: 1, domains: [media_player]}
+    combinations: [[entity]]
+    needs:
+      - Add names for the players it may act on (Names page). A player must be
+        a Music Assistant player.
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page). It acts
+        on the Music Assistant players there.
+
+commands:
+  play_music:
+    title: Play music
+    icon: mdi:music
+    description: включить исполнителя, альбом, песню или плейлист
+    require: [[включи, включите, поставь, поставьте, сыграй, сыграйте, воспроизведи, воспроизведите, хочу послушать,
+               давай послушаем]]
+    # Not "play": "что играет", "включи следующую песню", "включи что-нибудь
+    # похожее", "поставь таймер", "включи свет", "включи звук".
+    # Inside the text too (exclude_inside): the play verb also sets things.
+    exclude: [следующий, следующую, следующая, предыдущий, предыдущую, похожее, похожую, похожие, играет, таймер,
+              будильник, громкость, громче, тише, процентов, градусов, список, очередь, паузу, пауза, повтор,
+              свет, лампу, лампы, лампочку, люстру, светильник, освещение, подсветку, цвет, яркость, режим, звук,
+              отопление, температуру, перемешивание]
+    wildcard: {slot: query, after: [включи, включите, поставь, поставьте, сыграй, сыграйте, воспроизведи, воспроизведите,
+                                    хочу послушать, давай послушаем], to_end: true, max_words: 8,
+               exclude_inside: true}
+    music: play
+    verbosity: specific
+    variants:
+      here:
+        title: Play music on this satellite
+      device:
+        <<: *player
+        title: Play music on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Play music in an area or floor
+        combinations: [[area, query], [floor, query]]
+
+  add_to_queue:
+    title: Add to the queue
+    icon: mdi:playlist-plus
+    description: добавить что-нибудь в очередь
+    require: [[добавь, добавьте, поставь, поставьте], [очередь]]
+    optional: [[в]]
+    wildcard: {slot: query, after: [добавь, добавьте, поставь, поставьте], before: [в], bounded: true, max_words: 6}
+    music: add
+    verbosity: specific
+    variants:
+      here:
+        title: Add to the queue on this satellite
+      device:
+        <<: *player
+        title: Add to the queue on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Add to the queue in an area or floor
+        combinations: [[area, query], [floor, query]]
+
+  play_similar:
+    title: Play music like it
+    icon: mdi:radio
+    description: включить похожую музыку
+    require: [[похожее, похожую, похожие, похожих, в том же духе, в таком же стиле, похожее на, похожую на,
+               похожие на, музыку как]]
+    optional: [[включи, включите, поставь, поставьте, давай], [что то, что нибудь, музыку, песни, еще]]
+    wildcard: {slot: query, after: [похожее на, похожую на, похожие на, музыку как], to_end: true, max_words: 6}
+    music: radio
+    verbosity: specific
+    # Like what plays there, or like what was said.
+    variants:
+      here:
+        title: Play music like it on this satellite
+        examples: ["включи [что-нибудь] похожее", "поставь похожую музыку", "включи похожие песни",
+                   "давай что-нибудь в том же духе"]
+        combinations: [[], [query]]
+      device:
+        <<: *player
+        title: Play music like it on a different device
+        combinations: [[entity], [entity, query]]
+      place:
+        <<: *place
+        title: Play music like it in an area or floor
+        combinations: [[area], [floor], [area, query], [floor, query]]
+
+  pause_music:
+    title: Pause the music
+    icon: mdi:pause
+    description: поставить музыку на паузу
+    require: [[пауза, паузу, поставь на паузу, поставь ... на паузу, приостанови, приостановите]]
+    optional: [[музыку, песню, воспроизведение, трек]]
+    exclude: [таймер, таймеры, будильник, сними]
+    music: pause
+    verbosity: beep
+    variants:
+      here:
+        title: Pause the music on this satellite
+        examples: ["пауза", "поставь на паузу", "поставь музыку на паузу", "приостанови музыку"]
+      device:
+        <<: *player
+        title: Pause the music on a different device
+      place:
+        <<: *place
+        title: Pause the music in an area or floor
+
+  resume_music:
+    title: Resume the music
+    icon: mdi:play
+    description: продолжить музыку
+    require: [[продолжи, продолжите, продолжай, возобнови, возобновите, сними с паузы, сними ... с паузы, играй дальше]]
+    optional: [[музыку, воспроизведение, песню, играть]]
+    exclude: [таймер, таймеры, будильник]
+    music: resume
+    verbosity: beep
+    variants:
+      here:
+        title: Resume the music on this satellite
+        examples: ["продолжи", "продолжай играть", "сними с паузы", "играй дальше", "продолжи музыку"]
+      device:
+        <<: *player
+        title: Resume the music on a different device
+      place:
+        <<: *place
+        title: Resume the music in an area or floor
+
+  stop_music:
+    title: Stop the music
+    icon: mdi:stop
+    description: остановить музыку
+    require: [[останови, остановите, выключи, выключите, стоп, хватит], [музыку, музыка, песню, воспроизведение, плеер]]
+    exclude: [таймер, таймеры, будильник]
+    music: stop
+    verbosity: beep
+    variants:
+      here:
+        title: Stop the music on this satellite
+      device:
+        <<: *player
+        title: Stop the music on a different device
+      place:
+        <<: *place
+        title: Stop the music in an area or floor
+
+  next_track:
+    title: Next track
+    icon: mdi:skip-next
+    description: включить следующую песню
+    require: [[следующий трек, следующую песню, следующая песня, следующую, следующий, пропусти, переключи песню]]
+    optional: [[трек, песню, композицию, эту], [включи, поставь, давай]]
+    music: next
+    verbosity: beep
+    variants:
+      here:
+        title: Next track on this satellite
+        examples: ["следующий трек", "следующая песня", "дальше", "пропусти [эту] песню", "включи следующую [песню]"]
+      device:
+        <<: *player
+        title: Next track on a different device
+      place:
+        <<: *place
+        title: Next track in an area or floor
+
+  previous_track:
+    title: Previous track
+    icon: mdi:skip-previous
+    description: вернуться к предыдущей песне
+    require: [[предыдущий, предыдущую, предыдущая, прошлую песню, прошлый трек, назад]]
+    optional: [[трек, песню, композицию], [включи, поставь, верни, вернись]]
+    music: previous
+    verbosity: beep
+    variants:
+      here:
+        title: Previous track on this satellite
+        examples: ["предыдущий трек", "предыдущая песня", "назад", "верни предыдущую песню", "включи предыдущую [песню]"]
+      device:
+        <<: *player
+        title: Previous track on a different device
+      place:
+        <<: *place
+        title: Previous track in an area or floor
+
+  volume_up:
+    title: Turn it up
+    icon: mdi:volume-plus
+    description: сделать громче
+    require: [[громче, погромче, прибавь громкость, прибавь ... громкость, увеличь громкость, увеличь ... громкость,
+               прибавь звук, сделай ... громче]]
+    optional: [[немного, чуть, еще], [музыку, звук]]
+    exclude: [свет, яркость, температуру, отопление, процентов]
+    music: volume_up
+    verbosity: beep
+    variants:
+      here:
+        title: Turn it up on this satellite
+        examples: [громче, погромче, сделай громче, прибавь громкость]
+      device:
+        <<: *player
+        title: Turn it up on a different device
+      place:
+        <<: *place
+        title: Turn it up in an area or floor
+
+  volume_down:
+    title: Turn it down
+    icon: mdi:volume-minus
+    description: сделать тише
+    require: [[тише, потише, убавь громкость, убавь ... громкость, уменьши громкость, уменьши ... громкость,
+               убавь звук, сделай ... тише]]
+    optional: [[немного, чуть, еще], [музыку, звук]]
+    exclude: [свет, яркость, температуру, отопление, процентов]
+    music: volume_down
+    verbosity: beep
+    variants:
+      here:
+        title: Turn it down on this satellite
+        examples: [тише, потише, сделай тише, убавь громкость]
+      device:
+        <<: *player
+        title: Turn it down on a different device
+      place:
+        <<: *place
+        title: Turn it down in an area or floor
+
+  set_volume:
+    title: Set the volume
+    icon: mdi:volume-equal
+    description: изменить громкость
+    require: [[громкость, громкости]]
+    optional: [[поставь, установи, сделай, выставь, измени], [процентов, процента, процент]]
+    number: percentage
+    # Without a number it asks for one ("поставь громкость").
+    combinations: [[], [percentage]]
+    music: volume_set
+    verbosity: beep
+    variants:
+      here:
+        title: Set the volume on this satellite
+      device:
+        <<: *player
+        title: Set the volume on a different device
+        combinations: [[entity, percentage]]
+      place:
+        <<: *place
+        title: Set the volume in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
+
+  mute_music:
+    title: Mute
+    icon: mdi:volume-off
+    description: выключить звук
+    require: [[выключи звук, выключите звук, отключи звук, отключите звук, без звука, заглуши звук, замолчи]]
+    music: mute
+    verbosity: beep
+    variants:
+      here:
+        title: Mute this satellite
+        examples: ["выключи звук", "отключи звук", "без звука"]
+      device:
+        <<: *player
+        title: Mute a different device
+      place:
+        <<: *place
+        title: Mute an area or floor
+
+  unmute_music:
+    title: Unmute
+    icon: mdi:volume-high
+    description: включить звук
+    require: [[включи звук, включите звук, верни звук, верните звук]]
+    music: unmute
+    verbosity: beep
+    variants:
+      here:
+        title: Unmute this satellite
+        examples: ["включи звук", "верни звук"]
+      device:
+        <<: *player
+        title: Unmute a different device
+      place:
+        <<: *place
+        title: Unmute an area or floor
+
+  shuffle_on:
+    title: Shuffle
+    icon: mdi:shuffle-variant
+    description: перемешать песни
+    require: [[перемешай, перемешайте, перемешивание, вперемешку, в случайном порядке, случайный порядок]]
+    optional: [[включи, поставь, играй, режим], [музыку, песни, треки, плейлист]]
+    exclude: [выключи, отключи, не, без, хватит]
+    music: shuffle_on
+    verbosity: beep
+    variants:
+      here:
+        title: Shuffle on this satellite
+        examples: ["перемешай песни", "включи перемешивание", "играй вперемешку"]
+      device:
+        <<: *player
+        title: Shuffle on a different device
+      place:
+        <<: *place
+        title: Shuffle in an area or floor
+
+  shuffle_off:
+    title: Stop shuffling
+    icon: mdi:shuffle-disabled
+    description: играть по порядку
+    require: [[выключи перемешивание, отключи перемешивание, выключи ... перемешивание, отключи ... перемешивание,
+               не перемешивай, без перемешивания, по порядку]]
+    optional: [[играй, песни, треки]]
+    music: shuffle_off
+    verbosity: beep
+    variants:
+      here:
+        title: Stop shuffling on this satellite
+        examples: ["выключи перемешивание", "играй по порядку"]
+      device:
+        <<: *player
+        title: Stop shuffling on a different device
+      place:
+        <<: *place
+        title: Stop shuffling in an area or floor
+
+  repeat_one:
+    title: Repeat this song
+    icon: mdi:repeat-once
+    description: повторять эту песню
+    require: [[повтори, повторяй, поставь на повтор, поставь ... на повтор, на повтор], [эту песню, этот трек, эту]]
+    music: repeat_one
+    verbosity: beep
+    variants:
+      here:
+        title: Repeat this song on this satellite
+        examples: [повтори эту песню, поставь эту песню на повтор, повторяй этот трек]
+      device:
+        <<: *player
+        title: Repeat the song on a different device
+      place:
+        <<: *place
+        title: Repeat the song in an area or floor
+
+  repeat_all:
+    title: Repeat
+    icon: mdi:repeat
+    description: повторять музыку
+    require: [[повтор, повторяй, повторять, повторение, на повтор]]
+    optional: [[все, включи, режим, плейлист, альбом, музыку]]
+    exclude: [выключи, отключи, не, хватит, эту, этот, песню, трек]
+    music: repeat_all
+    verbosity: beep
+    variants:
+      here:
+        title: Repeat on this satellite
+        examples: ["повторяй все", "включи повтор"]
+      device:
+        <<: *player
+        title: Repeat on a different device
+      place:
+        <<: *place
+        title: Repeat in an area or floor
+
+  repeat_off:
+    title: Stop repeating
+    icon: mdi:repeat-off
+    description: выключить повтор
+    require: [[повтор, повторяй, повторять, повторение], [выключи, отключи, не, хватит]]
+    music: repeat_off
+    verbosity: beep
+    variants:
+      here:
+        title: Stop repeating on this satellite
+        examples: ["выключи повтор", "не повторяй", "хватит повторять"]
+      device:
+        <<: *player
+        title: Stop repeating on a different device
+      place:
+        <<: *place
+        title: Stop repeating in an area or floor
+
+  # Where it is told to go: from what is playing here (or the one player
+  # playing anywhere) to the device, area or floor named, queue and all.
+  move_music:
+    title: Move the music
+    icon: mdi:cast-audio
+    description: перенести музыку в другую комнату или на другую колонку
+    require: [[перенеси, перенесите, переведи, переведите, перемести, переместите, переключи, переключите],
+              [музыку, песню, воспроизведение, звук]]
+    music: move
+    verbosity: specific
+    variants:
+      device:
+        <<: *player
+        title: Move the music to a different device
+        description: перенести музыку на другую колонку
+      place:
+        <<: *place
+        title: Move the music to an area or floor
+        description: перенести музыку в другую комнату
+
+  whats_playing:
+    title: What's playing
+    icon: mdi:playlist-music
+    description: узнать, что сейчас играет
+    require: [[что играет, что звучит, что это за песня, что за песня, какая это песня, что за трек, кто поет,
+               кто исполняет, как называется песня, как называется эта песня]]
+    optional: [[сейчас, это, тут]]
+    music: status
+    variants:
+      here:
+        title: What's playing on this satellite
+        examples: ["что [сейчас] играет", "что это за песня", "кто поет", "как называется эта песня"]
+      device:
+        <<: *player
+        title: What's playing on a different device
+      place:
+        <<: *place
+        title: What's playing in an area or floor

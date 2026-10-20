@@ -1,0 +1,444 @@
+# Covers and locks (Russian), as the English library's home.yaml: opening,
+# closing, locking, and asking about them. Covers by type ("шторы",
+# "рольставни", "гаражные ворота") need no names: their device class says
+# what they are, and the area or floor named -- else the satellite's area --
+# where. When nothing of that type is in the satellite's area, every one in
+# the home is meant.
+#
+# "Жалюзи" are venetian blinds (device class blind), "рольставни" roller
+# shutters (shutter), "рулонные шторы" roller shades (shade). A lock is
+# locked with "запри" or "закрой на ключ": "закрой дверь" closes a door that
+# is a cover. What is said back takes no gender it can't know: "Открываю
+# шторы", "Запираю: Входная дверь".
+title: Covers and locks
+icon: mdi:door
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  cover: &cover
+    names:
+      entity: {count: 1, domains: [cover]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+  nothing_here: &nothing_here
+    - The satellite's area (Satellites page) is where. When nothing of the type
+      is there, every one in the home is meant ("открой гаражные ворота" from
+      the kitchen).
+
+commands:
+  open_covers:
+    title: Open covers
+    icon: mdi:blinds-open
+    description: открыть шторы
+    require: [[открой, откройте, открыть, подними, поднимите, поднять, раздвинь, раздвиньте]]
+    optional: [[все, всю, весь], [полностью]]
+    exclude: [закрой, закройте, опусти, опустите, задвинь, запри, отопри, замок, ключ, громкость, музыку, яркость,
+              открыт, открыта, открыто, открыты, закрыт, закрыта, закрыто, закрыты, ли]
+    lists:
+      device_class: {list: cover_classes}
+    action:
+      - variables:
+          covers: >-
+            {%- set named = slots.area or slots.floor -%}
+            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
+            {%- for f in slots.floor or [] -%}
+            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+            {%- endfor -%}
+            {%- if not named and satellite.area_id -%}
+            {%- set ns.areas = [satellite.area_id] -%}
+            {%- endif -%}
+            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+              | selectattr('attributes.device_class', 'eq', slots.device_class)
+              | map(attribute='entity_id') | list -%}
+            {%- for e in every if area_id(e) in ns.areas -%}
+            {%- set ns.picked = ns.picked + [e] -%}
+            {%- endfor -%}
+            {{ ns.picked if ns.picked or named else every }}
+      - if: "{{ covers | count == 0 }}"
+        then:
+          - variables:
+              result: {outcome: not_found}
+          - stop: Nothing to open
+            response_variable: result
+      - action: cover.open_cover
+        target:
+          entity_id: "{{ covers }}"
+      - variables:
+          result:
+            count: "{{ covers | count }}"
+      - stop: Opening
+        response_variable: result
+    verbosity: specific
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['маркизу', 'маркизы'], 'blind': ['жалюзи', 'жалюзи'],
+          'curtain': ['штору', 'шторы'], 'door': ['дверь', 'двери'],
+          'garage': ['гаражные ворота', 'гаражные ворота'], 'gate': ['ворота', 'ворота'],
+          'shade': ['рулонную штору', 'рулонные шторы'], 'shutter': ['рольставни', 'рольставни'],
+          'window': ['окно', 'окна']} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Открываю {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
+      not_found: >-
+        {%- set kinds = {'awning': 'маркиз', 'blind': 'жалюзи', 'curtain': 'штор', 'door': 'дверей',
+          'garage': 'гаражных ворот', 'gate': 'ворот', 'shade': 'рулонных штор', 'shutter': 'рольставней',
+          'window': 'окон'} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Нет {{ kinds[slots.device_class] }}{{ where }}.
+    variants:
+      here:
+        title: Open the blinds in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Open a cover by name
+        icon: mdi:window-shutter-open
+        description: открыть что-нибудь
+        lists: null
+        action:
+          action: cover.open_cover
+          target: "{{ target }}"
+        # Out of sight, or what keeps people out: said.
+        verbosity: specific
+        response:
+          done:
+            brief: Открываю.
+            specific: "Открываю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the covers it may open (Names page).
+      place:
+        <<: *place
+        title: Open the blinds in an area or floor
+        combinations: [[area, device_class], [floor, device_class]]
+
+  close_covers:
+    title: Close covers
+    icon: mdi:blinds
+    description: закрыть шторы
+    require: [[закрой, закройте, закрыть, опусти, опустите, опустить, задвинь, задвиньте]]
+    optional: [[все, всю, весь], [полностью]]
+    # "Закрой дверь на ключ" locks it.
+    exclude: [открой, откройте, подними, раздвинь, на ключ, на замок, запри, отопри, замок, громкость, музыку,
+              яркость, открыт, открыта, открыто, открыты, закрыт, закрыта, закрыто, закрыты, ли]
+    lists:
+      device_class: {list: cover_classes}
+    action:
+      - variables:
+          covers: >-
+            {%- set named = slots.area or slots.floor -%}
+            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
+            {%- for f in slots.floor or [] -%}
+            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+            {%- endfor -%}
+            {%- if not named and satellite.area_id -%}
+            {%- set ns.areas = [satellite.area_id] -%}
+            {%- endif -%}
+            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+              | selectattr('attributes.device_class', 'eq', slots.device_class)
+              | map(attribute='entity_id') | list -%}
+            {%- for e in every if area_id(e) in ns.areas -%}
+            {%- set ns.picked = ns.picked + [e] -%}
+            {%- endfor -%}
+            {{ ns.picked if ns.picked or named else every }}
+      - if: "{{ covers | count == 0 }}"
+        then:
+          - variables:
+              result: {outcome: not_found}
+          - stop: Nothing to close
+            response_variable: result
+      - action: cover.close_cover
+        target:
+          entity_id: "{{ covers }}"
+      - variables:
+          result:
+            count: "{{ covers | count }}"
+      - stop: Closing
+        response_variable: result
+    verbosity: specific
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['маркизу', 'маркизы'], 'blind': ['жалюзи', 'жалюзи'],
+          'curtain': ['штору', 'шторы'], 'door': ['дверь', 'двери'],
+          'garage': ['гаражные ворота', 'гаражные ворота'], 'gate': ['ворота', 'ворота'],
+          'shade': ['рулонную штору', 'рулонные шторы'], 'shutter': ['рольставни', 'рольставни'],
+          'window': ['окно', 'окна']} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Закрываю {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
+      not_found: >-
+        {%- set kinds = {'awning': 'маркиз', 'blind': 'жалюзи', 'curtain': 'штор', 'door': 'дверей',
+          'garage': 'гаражных ворот', 'gate': 'ворот', 'shade': 'рулонных штор', 'shutter': 'рольставней',
+          'window': 'окон'} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Нет {{ kinds[slots.device_class] }}{{ where }}.
+    variants:
+      here:
+        title: Close the blinds in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Close a cover by name
+        icon: mdi:window-shutter
+        description: закрыть что-нибудь
+        lists: null
+        action:
+          action: cover.close_cover
+          target: "{{ target }}"
+        # Out of sight, or what keeps people out: said.
+        verbosity: specific
+        response:
+          done:
+            brief: Закрываю.
+            specific: "Закрываю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the covers it may close (Names page).
+      place:
+        <<: *place
+        title: Close the blinds in an area or floor
+        combinations: [[area, device_class], [floor, device_class]]
+
+  lock:
+    title: Lock a lock
+    icon: mdi:lock
+    description: запереть дверь
+    require: [[запри, заприте, запереть, заблокируй, заблокируйте, закрой на ключ, закрой ... на ключ,
+               закрой на замок, закрой ... на замок]]
+    exclude: [отопри, отоприте, разблокируй, все, заперт, заперта, заперто, заперты, ли]
+    names:
+      entity: {count: 1, domains: [lock]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+    action:
+      action: lock.lock
+      target: "{{ target }}"
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Запираю.
+        specific: "Запираю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the locks it may lock (Names page).
+
+  unlock:
+    title: Unlock a lock
+    icon: mdi:lock-open-variant
+    description: отпереть дверь
+    require: [[отопри, отоприте, отпереть, разблокируй, разблокируйте, открой замок, открой ... замок]]
+    exclude: [запри, заблокируй, заперт, заперта, заперто, заперты, отперт, отперта, ли]
+    names:
+      entity: {count: 1, domains: [lock]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+    action:
+      action: lock.unlock
+      target: "{{ target }}"
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Отпираю.
+        specific: "Отпираю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the locks it may unlock (Names page). Anyone the satellite
+        hears can unlock them; keep it to the satellites that should with a
+        command group.
+
+  lock_all:
+    title: Lock up
+    icon: mdi:shield-lock
+    description: запереть все двери
+    examples: ["запри все двери", "заблокируй все двери", "закрой все двери на ключ", "запри все", "запри все замки"]
+    require: [[запри, заприте, заблокируй, заблокируйте, закрой на ключ, закрой ... на ключ, закрой на замок,
+               закрой ... на замок], [все]]
+    optional: [[двери, замки]]
+    exclude: [отопри, разблокируй, заперты, заперто, ли]
+    action:
+      action: lock.lock
+      target:
+        entity_id: all
+    verbosity: specific
+    response: Запираю все двери.
+
+  are_covers_open:
+    title: Are covers open
+    icon: mdi:blinds-horizontal
+    description: узнать, открыты ли шторы
+    # "Шторы открыты?", "закрыто ли окно в спальне?": the state is the question.
+    optional: [[ли], [все, еще, сейчас]]
+    exclude: [открой, откройте, закрой, закройте, подними, опусти]
+    lists:
+      device_class: {list: cover_classes}
+      asked: {list: open_closed}
+    response: >-
+      {%- set kinds = {'awning': ['маркиза', 'маркизы', 'маркиз', 'f'], 'blind': ['жалюзи', 'жалюзи', 'жалюзи', 'p'],
+        'curtain': ['штора', 'шторы', 'штор', 'f'], 'door': ['дверь', 'двери', 'дверей', 'f'],
+        'garage': ['гаражные ворота', 'гаражные ворота', 'гаражных ворот', 'p'],
+        'gate': ['ворота', 'ворота', 'ворот', 'p'], 'shade': ['рулонная штора', 'рулонные шторы', 'рулонных штор', 'f'],
+        'shutter': ['рольставни', 'рольставни', 'рольставней', 'p'], 'window': ['окно', 'окна', 'окон', 'n']} -%}
+      {%- set kind = kinds[slots.device_class] -%}
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], picked=[], opened=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' ' ~ place.said) if named else '' -%}
+      {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+        | selectattr('attributes.device_class', 'eq', slots.device_class) | list -%}
+      {%- for s in every if area_id(s.entity_id) in ns.areas -%}
+      {%- set ns.picked = ns.picked + [s] -%}
+      {%- endfor -%}
+      {%- set covers = ns.picked if ns.picked or named else every -%}
+      {%- for s in covers if s.state in ['open', 'opening'] -%}
+      {%- set ns.opened = ns.opened + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.opened | count -%}
+      {%- set one = covers | count == 1 -%}
+      {%- set ending = {'f': 'а', 'n': 'о', 'p': 'ы'}[kind[3]] if one else 'ы' -%}
+      {%- if not covers -%}
+      Нет {{ kind[2] }}{{ where }}.
+      {%- elif count == 0 -%}
+      {{ 'Да' if slots.asked == 'closed' else 'Нет' }}, {{ kind[0] if one else kind[1] }}{{ where }} закрыт{{ ending }}.
+      {%- else -%}
+      {{ 'Да' if slots.asked == 'open' else 'Нет' }}, открыто: {{ (ns.opened[:-1] | join(', ') ~ ' и ' ~ ns.opened[-1]) if count > 1 else ns.opened[0] }}.
+      {%- endif -%}
+    variants:
+      here:
+        title: Are the blinds open in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Is a cover open, by name
+        icon: mdi:window-shutter-alert
+        description: узнать, открыто ли что-нибудь
+        lists:
+          asked: {list: open_closed}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set name = state_attr(e, 'friendly_name') or e -%}
+          {%- set last = (name.split(' ')[0] | lower)[-1:] -%}
+          {%- set g = 'f' if last in ['а', 'я'] else ('n' if last in ['о', 'е'] else ('p' if last in ['и', 'ы'] else 'm')) -%}
+          {%- set ending = {'m': '', 'f': 'а', 'n': 'о', 'p': 'ы'}[g] -%}
+          {%- set state = states(e) -%}
+          {%- set words = {'open': 'открыт' ~ ending, 'closed': 'закрыт' ~ ending,
+            'opening': 'открывается' if g != 'p' else 'открываются', 'closing': 'закрывается' if g != 'p' else 'закрываются',
+            'unavailable': 'недоступ' ~ ({'m': 'ен', 'f': 'на', 'n': 'но', 'p': 'ны'}[g])} -%}
+          {%- set said = name ~ ' ' ~ words.get(state, 'в неизвестном состоянии') ~ '.' -%}
+          {%- if state in ['open', 'closed'] -%}
+          {{ 'Да' if state == slots.asked else 'Нет' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the covers it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are the blinds open in an area or floor
+        combinations: [[area, device_class, asked], [floor, device_class, asked]]
+
+  is_locked:
+    title: Is a lock locked
+    icon: mdi:lock-question
+    description: узнать, заперта ли дверь
+    optional: [[ли], [еще, сейчас]]
+    exclude: [запри, отопри, заблокируй, разблокируй]
+    names:
+      entity: {count: 1, domains: [lock, binary_sensor]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity, asked], [entity, area, asked]]
+    lists:
+      asked: {list: locked_unlocked}
+    # Said with the gender its name's first word has: "Входная дверь заперта".
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- if e.startswith('binary_sensor.') -%}
+      {%- set state = 'unlocked' if is_state(e, 'on') else ('locked' if is_state(e, 'off') else states(e)) -%}
+      {%- else -%}
+      {%- set state = states(e) -%}
+      {%- endif -%}
+      {%- set name = state_attr(e, 'friendly_name') or e -%}
+      {%- set last = (name.split(' ')[0] | lower)[-1:] -%}
+      {%- set g = 'f' if last in ['а', 'я', 'ь'] else ('n' if last in ['о', 'е'] else ('p' if last in ['и', 'ы'] else 'm')) -%}
+      {%- set ending = {'m': '', 'f': 'а', 'n': 'о', 'p': 'ы'}[g] -%}
+      {%- set words = {'locked': 'заперт' ~ ending, 'unlocked': 'отперт' ~ ending, 'open': 'открыт' ~ ending,
+        'locking': 'запирается', 'unlocking': 'отпирается', 'jammed': 'заклинило',
+        'unavailable': 'недоступ' ~ ({'m': 'ен', 'f': 'на', 'n': 'но', 'p': 'ны'}[g])} -%}
+      {%- if state == 'jammed' -%}
+      {%- set said = name ~ ': замок заклинило.' -%}
+      {%- else -%}
+      {%- set said = name ~ ' ' ~ words.get(state, 'в неизвестном состоянии') ~ '.' -%}
+      {%- endif -%}
+      {%- if state in ['locked', 'unlocked'] -%}
+      {{ 'Да' if state == slots.asked else 'Нет' }}, {{ said }}
+      {%- else -%}
+      {{ said }}
+      {%- endif -%}
+    needs:
+      - Add names for the locks it may ask about (Names page). A binary sensor of
+        the lock class works too (on is unlocked); type its entity id there.
+
+  all_locked:
+    title: Is everything locked
+    icon: mdi:lock-alert
+    description: узнать, заперты ли все двери
+    require: [[все, все ли]]
+    optional: [[двери, замки]]
+    exclude: [запри, отопри, заблокируй, разблокируй]
+    lists:
+      asked: {list: locked_unlocked}
+    response: >-
+      {%- set ns = namespace(open=[], total=0) -%}
+      {%- for s in states.lock -%}
+      {%- set ns.total = ns.total + 1 -%}
+      {%- if s.state != 'locked' -%}
+      {%- set ns.open = ns.open + [s.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- for s in states.binary_sensor | selectattr('attributes.device_class', 'defined')
+        | selectattr('attributes.device_class', 'eq', 'lock') -%}
+      {%- set ns.total = ns.total + 1 -%}
+      {%- if s.state != 'off' -%}
+      {%- set ns.open = ns.open + [s.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set count = ns.open | count -%}
+      {%- set asked = slots.asked or 'locked' -%}
+      {%- if ns.total == 0 -%}
+      Замков нет.
+      {%- elif count == 0 -%}
+      {{ 'Да' if asked == 'locked' else 'Нет' }}, всё заперто.
+      {%- else -%}
+      {{ 'Да' if asked == 'unlocked' else 'Нет' }}, не заперто: {{ (ns.open[:-1] | join(', ') ~ ' и ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
+      {%- endif -%}
+
+# Shared by the commands above (added with them).
+lists:
+  cover_classes:
+    awning: [маркизу, маркиза, маркизы, тент, навес]
+    blind: [жалюзи]
+    curtain: [шторы, штору, штора, занавески, занавеску, занавеска, гардины, портьеры]
+    door: [дверь, двери]
+    garage: [гаражные ворота, гаражную дверь, ворота гаража, дверь гаража]
+    gate: [ворота, калитку, калитка, калитки]
+    shade: [рулонные шторы, рулонную штору, рулонная штора]
+    shutter: [рольставни, рольставню, рольставня, роллеты, ставни, ставню]
+    window: [окно, окна]
+  open_closed:
+    open: [открыт, открыта, открыто, открыты]
+    closed: [закрыт, закрыта, закрыто, закрыты]
+  locked_unlocked:
+    locked: [заперт, заперта, заперто, заперты, закрыт на ключ, закрыта на ключ, закрыто на ключ, закрыты на ключ,
+             заблокирован, заблокирована]
+    unlocked: [отперт, отперта, отперто, отперты, разблокирован, разблокирована]

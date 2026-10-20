@@ -1,0 +1,69 @@
+# Russian sentences and what each must become with the Russian library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). The
+# home: these names, the devices in these rooms, a satellite in the кабинет.
+# Numbers are written as said, for text-to-speech.
+names:
+  areas:
+    kuhnya: Кухня
+    gostinaya: Гостиная
+    spalnya: Спальня
+    vannaya: Ванная
+    kabinet: Кабинет
+  floors:
+    perviy_etazh: Первый этаж
+    vtoroy_etazh: Второй этаж
+  entities:
+    light.nochnik: Ночник
+    light.malenkaya_lampa: Маленькая лампа
+    fan.potolochny_ventilyator: Потолочный вентилятор
+    media_player.kuhnya: Колонка на кухне
+    climate.kondicioner: Кондиционер
+    cover.mansardnoe_okno: Мансардное окно
+    lock.vhodnaya_dver: Входная дверь
+rooms:
+  fan.potolochny_ventilyator: spalnya
+  media_player.kuhnya: kuhnya
+satellite: kabinet
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Включи свет в гостиной.", turn_on_place, {area: [gostinaya]}, "в + area, declined"]
+  - ["Выключи свет на кухне.", turn_off_place, {area: [kuhnya]}, "на + area, declined"]
+  - ["Выключи лампы в спальне.", turn_off_place, {area: [spalnya]}, "plural keyword"]
+  - ["Включите свет в ванной.", turn_on_place, {area: [vannaya]}, "вы-imperative, an adjective room"]
+  - ["Зажги свет на кухне.", turn_on_place, {area: [kuhnya]}, "зажги"]
+  - ["Включи ночник.", turn_on_device, {entity: [light.nochnik]}, "a device by name"]
+  - ["Выключи маленькую лампу.", turn_off_device, {entity: [light.malenkaya_lampa]}, "a name in the accusative"]
+  - ["Включи потолочный вентилятор в спальне.", turn_on_device, {entity: [fan.potolochny_ventilyator], area: [spalnya]}, "device + area"]
+  - ["Выключи весь свет на первом этаже.", turn_off_place, {floor: [perviy_etazh]}, "floor, declined"]
+  - ["Включи свет на втором этаже.", turn_on_place, {floor: [vtoroy_etazh]}, "floor"]
+  - ["Который час?", what_time, {}, "a question"]
+  - ["Ночник включён?", any_lights_on_device, {entity: [light.nochnik], asked: "on"}, "asking a device"]
+  - ["Включи синий свет на кухне.", light_color_place, {area: [kuhnya], color: blue}, "a value, включи as color"]
+  - ["Поставь яркость в гостиной на пятьдесят процентов.", set_brightness_place, {area: [gostinaya], percentage: 50}, "a number"]
+  - ["Поставь кондиционер на двадцать два градуса.", set_temperature_device, {entity: [climate.kondicioner], temperature: 22}, "a device and a number"]
+  - ["Открой гаражные ворота.", open_covers_here, {device_class: garage}, "open"]
+  - ["Закрой шторы на втором этаже.", close_covers_place, {floor: [vtoroy_etazh], device_class: curtain}, "close, a floor"]
+  - ["Мансардное окно открыто?", are_covers_open_device, {entity: [cover.mansardnoe_okno], asked: open}, "asking a cover"]
+  - ["Запри входную дверь.", lock, {entity: [lock.vhodnaya_dver]}, "запри"]
+  - ["Разблокируй входную дверь.", unlock, {entity: [lock.vhodnaya_dver]}, "разблокируй"]
+  - ["Входная дверь заперта?", is_locked, {entity: [lock.vhodnaya_dver], asked: locked}, "asking a lock"]
+  - ["Какое сегодня число?", what_date, {}, "a question"]
+  - ["Включи джаз.", play_music_here, {query: джаз}, "free text, включи as play"]
+  - ["На кухне поставь джаз.", play_music_place, {area: [kuhnya], query: джаз}, "a place, then free text"]
+  - ["Поставь музыку на паузу.", pause_music_here, {}, "music, поставь as pause"]
+  - ["Поставь громкость на тридцать процентов.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["Что играет на кухне?", whats_playing_place, {area: [kuhnya]}, "music, a place"]
+  - ["Перенеси музыку на колонку на кухне.", move_music_device, {entity: [media_player.kuhnya]}, "music, a device declined"]
+  - ["Погромче.", volume_up_here, {}, "one word"]
+  - ["Следующая песня.", next_track_here, {}, "music"]
+  - ["Добавь молоко в список покупок.", shopping_list_add, {item: молоко}, "free text between keywords"]
+  - ["Поставь таймер на пять минут.", start_timer, {duration: 300}, "a duration"]
+  - ["Таймер на полчаса.", start_timer, {duration: 1800}, "a duration said with its unit"]
+  - ["Засеки две минуты.", start_timer, {duration: 120}, "засеки, feminine two"]
+  - ["Поставь таймер для пиццы на десять минут.", start_timer, {duration: 600, timer: для пиццы}, "a timer for something, named as said"]
+  - ["Разбуди меня в семь тридцать.", set_alarm, {time: семь тридцать}, "a clock time"]
+  - ["Поставь будильник на половину восьмого.", set_alarm, {time: половину восьмого}, "a time by the hour it leads to"]
+  - ["Отмени таймер.", cancel_timer, {}, "a timer"]
+  - ["Сколько времени осталось на таймере?", timer_status, {}, "a timer question"]
+  - ["Неважно.", never_mind, {}, "an example sentence"]
