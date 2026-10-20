@@ -28,7 +28,8 @@ import logging
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .mixednet import WakeModel, load as load_wake_model
 

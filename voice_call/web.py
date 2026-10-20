@@ -96,7 +96,6 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.get("/api/yaml", api.get_yaml),
             web.put("/api/yaml", api.put_yaml),
             web.post("/api/yaml/dump", api.yaml_dump),
-            web.post("/api/yaml/parse", api.yaml_parse),
             web.put("/api/names/{kind}/{id}", api.put_name),
             web.delete("/api/names/{kind}/{id}", api.delete_name),
             web.put("/api/lists/{name}", api.put_list),
@@ -450,10 +449,6 @@ class Api:
         body = await request.json()
         value = body.get("value")
         return web.json_response({"text": "" if value in (None, "", [], {}) else _dump(value)})
-
-    async def yaml_parse(self, request: web.Request) -> web.Response:
-        body = await request.json()
-        return web.json_response({"value": _load(str(body.get("text") or ""))})
 
     async def delete_command(self, request: web.Request) -> web.Response:
         return await self._saved(self.app.store.delete_command(request.match_info["id"]))

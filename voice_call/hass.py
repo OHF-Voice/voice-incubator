@@ -33,7 +33,6 @@ import websockets
 
 _LOGGER = logging.getLogger(__name__)
 
-EventCallback = Callable[[dict], Awaitable[None] | None]
 
 # Entities a voice command may target from the UI. Commands written in YAML
 # may name anything.
@@ -179,7 +178,6 @@ class HomeAssistant:
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future] = {}
         self._subscriptions: dict[int, Callable[[dict], None]] = {}
-        self._event_callbacks: dict[str, list[EventCallback]] = {}
         self._task: asyncio.Task | None = None
         self._refresh_task: asyncio.Task | None = None
         self._catalog_listeners: list[Callable[[], Awaitable[None] | None]] = []
@@ -207,10 +205,6 @@ class HomeAssistant:
         except (TimeoutError, asyncio.TimeoutError):
             return False
         return True
-
-    def on_event(self, event_type: str, callback: EventCallback) -> None:
-        """Call ``callback(event)`` for every ``event_type``, across reconnects."""
-        self._event_callbacks.setdefault(event_type, []).append(callback)
 
     def on_catalog_change(self, callback: Callable[[], Awaitable[None] | None]) -> None:
         self._catalog_listeners.append(callback)
@@ -253,7 +247,7 @@ class HomeAssistant:
 
             reader = asyncio.ensure_future(self._read(socket))
             try:
-                for event_type in set(self._event_callbacks) | set(REGISTRY_EVENTS):
+                for event_type in REGISTRY_EVENTS:
                     await self._subscribe_event(event_type)
                 await self.refresh_catalog()
                 self.connected.set()
@@ -338,13 +332,10 @@ class HomeAssistant:
             await self.call({"type": "unsubscribe_events", "subscription": msg_id}, 5)
 
     async def _subscribe_event(self, event_type: str) -> None:
-        def handler(event: dict) -> None:
-            if event_type in REGISTRY_EVENTS:
-                self._schedule_refresh()
-            for callback in self._event_callbacks.get(event_type, ()):
-                result = callback(event)
-                if asyncio.iscoroutine(result):
-                    asyncio.ensure_future(result)
+        """A registry changed: the catalog is fetched again."""
+
+        def handler(_event: dict) -> None:
+            self._schedule_refresh()
 
         await self._subscribe({"type": "subscribe_events", "event_type": event_type}, handler)
 

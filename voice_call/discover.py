@@ -94,14 +94,3 @@ class Discovery:
             self.events.put_nowait(("added", device))
 
         asyncio.ensure_future(resolve())
-
-
-async def discover(timeout: float = 10.0) -> tuple[str, int]:
-    """Return the first device's address and port. Kept for one-shot callers."""
-    discovery = Discovery()
-    await discovery.start()
-    try:
-        _, device = await asyncio.wait_for(discovery.events.get(), timeout)
-        return device.host, device.port
-    finally:
-        await discovery.stop()

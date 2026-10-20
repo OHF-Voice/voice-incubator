@@ -2562,18 +2562,6 @@ function sessionGlance(record) {
     errors.map((e) => h("div", { class: "notice bad" }, e)));
 }
 
-// What the fallback's model step (GLiNER or an LLM) came to when it ran no
-// command, in a line (as engine.llm_note); null when it was not asked.
-function llmNote(fallback) {
-  const llm = fallback && fallback.llm;
-  if (!llm) return null;
-  if (llm.skipped) return `skipped: ${llm.skipped}`;
-  if (llm.refused && llm.refused.similarity !== undefined) return `picked ${llm.refused.command}, not close enough in meaning to run (${llm.refused.similarity.toFixed(2)}, needs ${llm.refused.floor.toFixed(2)})`;
-  if (llm.refused) return `picked ${llm.refused.command}, not run: ${llm.refused.why}`;
-  if (llm.problems) return `${llm.command ? `picked ${llm.command}` : "its pick"}, not run: ${llm.problems.join("; ")}`;
-  return llm.said || "not a command";
-}
-
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT
 // entity), or typed (a satellite's Test it) and read as spoken words.
 function heardLabels(rec) {

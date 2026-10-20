@@ -23,7 +23,8 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import numpy as np
 

@@ -134,7 +134,7 @@ class Spotting:
     def closest_of(self, terminals: np.ndarray) -> tuple[float, int, int, int] | None:
         """The best placement among several phrases, by cost per piece:
         ``(cost per piece, terminal, start, end)``."""
-        penalty, start, end, _, per_token = self._closest_arrays()
+        _, start, end, _, per_token = self._closest_arrays()
         costs = per_token[terminals]
         index = int(costs.argmin())
         if not np.isfinite(costs[index]):

@@ -1549,7 +1549,7 @@ class VoiceCallApp:
 
     async def _verify(self, session: Session, call: Call) -> None:
         verdict = await self._verify_wake(str(session), call)
-        result, offset = verdict.result, verdict.offset
+        result = verdict.result
 
         if not verdict.accepted:
             return await self._wake_rejected(session, call, verdict)

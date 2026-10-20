@@ -926,7 +926,7 @@ STT entity): `StreamingTranscriber` posts to the same `/api/stt/<entity>` as
 a chunked upload, which Home Assistant hands the entity as it arrives
 (`request.content`). `VoiceCallApp._start_stt` opens it once Kaldi has
 verified the wake word, from Kaldi's split (where endpointing starts) --
-the AGC capture, or the AEC one lined up with it as `aec_for_stt` does,
+the AGC capture, or the AEC one lined up with it as `stt_audio_for` does,
 boosted by the gain that brings the wake word in it to -3 dBFS (the
 command's own peak isn't known yet). `_feed_stt` sends what arrives (both
 captures' messages), and `_respond` sends the rest and ends the upload. The

@@ -42,9 +42,6 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_WAKE_WORD = "okay_nabu"
 
-TUNED = ("confusables", "pronunciations", "thresholds")
-"""What the Wake words page may change of a verifier entry."""
-
 THRESHOLDS = ("theta_prefix", "theta_last", "theta_competitor")
 
 

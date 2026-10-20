@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, fields, replace
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .protocol import BYTE_RATE, BYTES_PER_SAMPLE
 

@@ -263,8 +263,6 @@ class Store:
     def put_fallback(self, steps: dict[str, list[str]]) -> Compiled:
         """For each fallback step given (``meaning``, ``llm``), exactly which
         commands it may run (their ``fallback`` key)."""
-        from .commands import FALLBACK_STEPS  # pylint: disable=import-outside-toplevel
-
         def edit(document: CommentedMap) -> None:
             commands = document["commands"]
             for members in steps.values():

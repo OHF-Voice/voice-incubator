@@ -20,8 +20,6 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-
 from ._mixednet_compiler import EXTERNAL_SRC, Compiler
 
 MAGIC = b"MNB1"
@@ -182,48 +180,3 @@ def load(tflite_path: Path, manifest_path: Path | None = None) -> WakeModel:
         feature_step_size=int(micro.get("feature_step_size", 10)),
         is_vad=wake_word == "vad",
     )
-
-
-def unpack_arrays(blob: bytes) -> dict:
-    """Decode a blob back into plain Python, for tests."""
-    (
-        magic,
-        version,
-        _flags,
-        num_buffers,
-        num_ops,
-        num_shifts,
-        input_frames,
-        logit_buffer,
-        feature_size,
-        arena_size,
-        data_size,
-        _reserved,
-    ) = HEADER.unpack_from(blob, 0)
-    if magic != MAGIC:
-        raise ValueError(f"bad magic {magic!r}")
-
-    pos = HEADER.size
-    buffers = [
-        BUFFER.unpack_from(blob, pos + i * BUFFER.size) for i in range(num_buffers)
-    ]
-    pos += num_buffers * BUFFER.size
-    ops = [OP.unpack_from(blob, pos + i * OP.size) for i in range(num_ops)]
-    pos += num_ops * OP.size
-    shifts = list(blob[pos : pos + num_shifts])
-    pos += num_shifts
-    pos += -pos % 4
-    sigmoid = np.frombuffer(blob[pos : pos + 256], dtype=np.uint8)
-    pos += 256
-    return {
-        "version": version,
-        "buffers": buffers,
-        "ops": ops,
-        "shifts": shifts,
-        "sigmoid": sigmoid,
-        "data": blob[pos : pos + data_size],
-        "input_frames": input_frames,
-        "logit_buffer": logit_buffer,
-        "feature_size": feature_size,
-        "arena_size": arena_size,
-    }

@@ -75,6 +75,3 @@ def ms_to_bytes(ms: float) -> int:
     """Byte offset of a timestamp, rounded down to a whole sample."""
     return int(ms * BYTE_RATE / 1000) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
 
-
-def bytes_to_ms(n: int) -> float:
-    return n * 1000 / BYTE_RATE

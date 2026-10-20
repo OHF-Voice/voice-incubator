@@ -150,9 +150,6 @@ class Integration:
             if link.timer_list and link.timer_list not in self._subscriptions:
                 await self._follow(key, link.timer_list)
 
-    def satellite_for(self, timer_list: str) -> str | None:
-        return next((k for k, link in self.links.items() if link.timer_list == timer_list), None)
-
     # --------------------------------------------------------------- timers
 
     async def _follow(self, key: str, timer_list: str) -> None:
