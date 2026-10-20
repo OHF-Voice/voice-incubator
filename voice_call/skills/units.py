@@ -1,21 +1,32 @@
 """Unit conversions: "how many cups are in a quart", "5 miles in
 kilometers", "100 Fahrenheit in Celsius".
 
-The units are set on its page (``UNITS`` unless changed): each a name, its
-plural, others it goes by, what it measures, and its size in that measure's
-base unit (``MEASURES``) -- a temperature scale, where water freezes and
-boils on it. Volumes are US customary as built in, or imperial
-(``VOLUMES``)."""
+The units are set on its page (the language's ``UNITS`` unless changed):
+each a name, its plural, others it goes by, what it measures, and its size
+in that measure's base unit (``MEASURES``) -- a temperature scale, where
+water freezes and boils on it. Volumes come in the language's measures
+(``VOLUMES``: US customary or imperial). How units are named and looked up,
+and how a conversion is asked and said, are the app's language's (its
+pack's ``skills/units.py``)."""
 
 from __future__ import annotations
 
 import math
 import re
 from dataclasses import dataclass, field, replace
+from types import ModuleType
 from typing import Any
 
+from .. import languages
 from . import common
-from .common import DIGITS, N, Skill, clean, fmt, options, parse_num, reply, rounded
+from .common import DIGITS, Reply, Skill, options, rounded
+
+
+def _words() -> ModuleType:
+    """The app's language's: ``UNITS``, ``VOLUMES``, ``key``, ``plural_of``,
+    ``read_unit`` ..."""
+    return languages.grammar("units")
+
 
 MEASURES = {
     "length": "meter",
@@ -28,22 +39,6 @@ MEASURES = {
 }
 """What a unit measures, and the unit its size is in (a temperature scale
 has none: where water freezes and boils on it instead)."""
-
-
-def plural_of(name: str) -> str:
-    """"cup" -> "cups", "inch" -> "inches", "century" -> "centuries"."""
-    if re.search(r"(s|x|z|ch|sh)$", name):
-        return name + "es"
-    if re.search(r"[^aeiou]y$", name):
-        return name[:-1] + "ies"
-    return name + "s"
-
-
-def key(text: str) -> str:
-    """A unit's name as looked up: lowercase, "metre" and "litre" as
-    "meter" and "liter", no periods."""
-    s = text.lower().replace("metre", "meter").replace("litre", "liter").replace(".", "")
-    return " ".join(s.split())
 
 
 @dataclass(frozen=True)
@@ -64,7 +59,7 @@ class Unit:
     def plural_name(self) -> str:
         if self.measures == "temperature":
             return self.name
-        return self.plural or plural_of(self.name)
+        return self.plural or _words().plural_of(self.name)
 
     def said(self, value: float) -> str:
         return self.name if value == 1 else self.plural_name
@@ -74,7 +69,7 @@ class Unit:
         if self.measures == "temperature":
             out |= {"freezes": self.freezes, "boils": self.boils}
         else:
-            out |= {"size": self.size, "plural": self.plural, "plural_of": plural_of(self.name)}
+            out |= {"size": self.size, "plural": self.plural, "plural_of": _words().plural_of(self.name)}
         return out
 
     def stored(self) -> dict[str, Any]:
@@ -103,88 +98,12 @@ def _scale(name: str, freezes: float, boils: float, *also: str) -> Unit:
     return Unit(name, "temperature", also=also, freezes=freezes, boils=boils)
 
 
-UNITS = (
-    _u("millimeter", "length", 0.001, "mm"),
-    _u("centimeter", "length", 0.01, "cm"),
-    _u("meter", "length", 1, "m"),
-    _u("kilometer", "length", 1000, "km"),
-    _u("inch", "length", 0.0254, "in"),
-    _u("foot", "length", 0.3048, "ft", plural="feet"),
-    _u("yard", "length", 0.9144, "yd"),
-    _u("mile", "length", 1609.344, "mi"),
-    _u("square inch", "area", 0.00064516),
-    _u("square foot", "area", 0.09290304, plural="square feet"),
-    _u("square yard", "area", 0.83612736),
-    _u("square meter", "area", 1),
-    _u("square kilometer", "area", 1e6),
-    _u("square mile", "area", 2589988.110336),
-    _u("acre", "area", 4046.8564224),
-    _u("hectare", "area", 10000),
-    _u("milliliter", "volume", 1, "ml"),
-    _u("liter", "volume", 1000, "l"),
-    _u("teaspoon", "volume", 4.92892159375, "tsp"),
-    _u("tablespoon", "volume", 14.78676478125, "tbsp"),
-    _u("fluid ounce", "volume", 29.5735295625, "fl oz"),
-    _u("cup", "volume", 236.5882365),
-    _u("pint", "volume", 473.176473),
-    # "Quartz": as a speech-to-text may write it.
-    _u("quart", "volume", 946.352946, "quartz"),
-    _u("gallon", "volume", 3785.411784),
-    _u("milligram", "weight", 0.001, "mg"),
-    _u("gram", "weight", 1, "g"),
-    _u("kilogram", "weight", 1000, "kg", "kilo"),
-    _u("ounce", "weight", 28.349523125, "oz"),
-    _u("pound", "weight", 453.59237, "lb", "lbs"),
-    _u("stone", "weight", 6350.29318),
-    _u("ton", "weight", 907184.74),
-    _u("metric ton", "weight", 1e6, "tonne"),
-    _u("millisecond", "time", 0.001),
-    _u("second", "time", 1, "sec"),
-    _u("minute", "time", 60, "min"),
-    _u("hour", "time", 3600, "hr"),
-    _u("day", "time", 86400),
-    _u("week", "time", 604800),
-    _u("fortnight", "time", 1209600),
-    _u("year", "time", 31536000),
-    _u("decade", "time", 315360000),
-    _u("century", "time", 3153600000),
-    _u("byte", "data", 1),
-    _u("kilobyte", "data", 1000),
-    _u("megabyte", "data", 1e6),
-    _u("gigabyte", "data", 1e9),
-    _u("terabyte", "data", 1e12),
-    _scale("Celsius", 0, 100, "centigrade", "c"),
-    _scale("Fahrenheit", 32, 212, "f"),
-    _scale("kelvin", 273.15, 373.15, "k"),
-)
-"""The built-in units."""
-
-VOLUMES = {
-    "us": {key(u.name): u.size for u in UNITS if u.measures == "volume" and u.name not in ("milliliter", "liter")},
-    "imperial": {
-        "teaspoon": 5,
-        "tablespoon": 15,
-        "fluid ounce": 28.4130625,
-        "cup": 250,
-        "pint": 568.26125,
-        "quart": 1136.5225,
-        "gallon": 4546.09,
-    },
-}
-"""The volumes' sizes, in milliliters, by measures: US customary (as built
-in) or imperial -- the UK fluid ounce, pint, quart and gallon, and the
-metric cup and spoons UK recipes use."""
-
-VOLUME_NAMES = {"us": "US customary", "imperial": "Imperial (UK)"}
-
-QUALIFIED = {"us": "us", "american": "us", "imperial": "imperial", "british": "imperial", "uk": "imperial"}
-"""Said before a volume ("an imperial pint"): its measures, whichever are set."""
-
-
-def built_in(volumes: str = "us") -> tuple[Unit, ...]:
-    """The built-in units, their volumes by ``volumes`` (``VOLUMES``)."""
-    sizes = VOLUMES[volumes]
-    return tuple(replace(u, size=sizes[key(u.name)]) if key(u.name) in sizes else u for u in UNITS)
+def built_in(volumes: str | None = None) -> tuple[Unit, ...]:
+    """The language's built-in units, their volumes by ``volumes``
+    (``VOLUMES``; None: its own)."""
+    words = _words()
+    sizes = words.VOLUMES[volumes or words.DEFAULT_VOLUMES]
+    return tuple(replace(u, size=sizes[words.key(u.name)]) if words.key(u.name) in sizes else u for u in words.UNITS)
 
 
 def _number(value: Any, what: str) -> float:
@@ -200,10 +119,11 @@ def _number(value: Any, what: str) -> float:
 
 
 def _volumes(value: Any) -> str:
+    words = _words()
     if value in (None, ""):
-        return "us"
-    if value not in VOLUMES:
-        raise ValueError(f"volumes: one of {', '.join(VOLUMES)}")
+        return words.DEFAULT_VOLUMES
+    if value not in words.VOLUMES:
+        raise ValueError(f"volumes: one of {', '.join(words.VOLUMES)}")
     return value
 
 
@@ -237,10 +157,10 @@ def _unit(name: Any, value: Any) -> Unit:
 
 @dataclass(frozen=True)
 class Settings(common.Settings):
-    units: tuple[Unit, ...] = UNITS
+    units: tuple[Unit, ...] = field(default_factory=built_in)
     digits: int = DIGITS
     """Significant digits in an answer that isn't whole."""
-    volumes: str = "us"
+    volumes: str = field(default_factory=lambda: _words().DEFAULT_VOLUMES)
     """The volumes' measures the built-in units have (``VOLUMES``)."""
     names: dict[str, Unit] = field(init=False, repr=False, compare=False)
     """Each name a unit goes by (``key``): its name, plural, others."""
@@ -248,22 +168,16 @@ class Settings(common.Settings):
     """A conversion between temperature scales, as said."""
 
     def __post_init__(self) -> None:
+        words = _words()
         names: dict[str, Unit] = {}
         for unit in self.units:
-            for name in dict.fromkeys(key(n) for n in (unit.name, unit.plural_name, *unit.also)):
+            for name in dict.fromkeys(words.key(n) for n in (unit.name, unit.plural_name, *unit.also)):
                 other = names.setdefault(name, unit)
                 if other is not unit:
                     raise ValueError(f"“{name}” is both {other.name} and {unit.name}")
         object.__setattr__(self, "names", names)
         scales = sorted((n for n, u in names.items() if u.measures == "temperature"), key=len, reverse=True)
-        pattern = None
-        if scales:
-            scale = "|".join(re.escape(n) for n in scales)
-            # "fifty degrees F in Celsius"; "thirty CNF": "in" heard as "n".
-            pattern = re.compile(
-                rf"(?:what(?:'s| is)|convert|how much is|how hot is|how cold is)?\s*{N} (?:degrees? )?({scale})"
-                rf"(?:\s+(?:in|to|into|as|and)\s+|(?<=\b[a-z])n\s*)(?:degrees? )?({scale})"
-            )
+        pattern = words.temperature_pattern("|".join(re.escape(n) for n in scales)) if scales else None
         object.__setattr__(self, "temperature", pattern)
 
     @classmethod
@@ -276,6 +190,7 @@ class Settings(common.Settings):
         changes = stored.get("units") or {}
         if not isinstance(changes, dict):
             raise ValueError("units: expected {name: unit}")
+        key = _words().key
         units = {key(u.name): u for u in built_in(volumes)}
         for name, value in changes.items():
             if value is False:
@@ -286,6 +201,8 @@ class Settings(common.Settings):
         return cls(tuple(units.values()), common.digits(stored.get("digits")), volumes)
 
     def to_json(self) -> dict[str, Any]:
+        words = _words()
+        key = words.key
         base = {key(u.name): u for u in built_in(self.volumes)}
         here = {key(u.name) for u in self.units}
         return {
@@ -294,7 +211,7 @@ class Settings(common.Settings):
             "digits": self.digits,
             "measures": MEASURES,
             "volumes": self.volumes,
-            "presets": {name: {"name": VOLUME_NAMES[name], "sizes": sizes} for name, sizes in VOLUMES.items()},
+            "presets": {name: {"name": words.VOLUME_NAMES[name], "sizes": sizes} for name, sizes in words.VOLUMES.items()},
         }
 
     @classmethod
@@ -315,6 +232,7 @@ class Settings(common.Settings):
             else:
                 known = {k: v for k, v in known.items() if k not in ("freezes", "boils")}
             units.append(_unit(item.get("name"), known))
+        key = _words().key
         given: dict[str, Unit] = {}
         for unit in units:
             if given.setdefault(key(unit.name), unit) is not unit:
@@ -324,7 +242,7 @@ class Settings(common.Settings):
         changes: dict[str, Any] = {u.name: False for k, u in base.items() if k not in given}
         changes |= {u.name: u.stored() for k, u in given.items() if base.get(k) != u}
         out: dict[str, Any] = {}
-        if volumes != "us":
+        if volumes != _words().DEFAULT_VOLUMES:
             out["volumes"] = volumes
         if changes:
             out["units"] = changes
@@ -333,37 +251,31 @@ class Settings(common.Settings):
         return out or None
 
     def unit(self, text: str) -> Unit | None:
-        """The unit ``text`` names: "a cup", "US quarts", "kilos". A volume
-        said with its measures ("an imperial pint", "a US cup") is theirs
-        (``QUALIFIED``), whichever are set."""
-        s = key(text)
-        tries = [s]
-        s = re.sub(r"^(?:a|an|one|the)\s+", "", s)
-        tries.append(s)
-        qualified = re.match(rf"^({'|'.join(QUALIFIED)})\s+", s)
-        measures = QUALIFIED[qualified.group(1)] if qualified else None
-        s = s[qualified.end():] if qualified else s
-        if re.search(r"\s+(?:in us cooking|us)$", s):
-            measures = "us"
-        s = re.sub(r"\s+(?:in us cooking|in cooking|us)$", "", s)
-        tries.append(s)
+        """The unit ``text`` names: "a cup", "US quarts", "kilos" (the
+        language's ``read_unit`` and ``forms``). A volume said with its
+        measures ("an imperial pint", "a US cup") is theirs, whichever are
+        set."""
+        words = _words()
+        tries, bare, measures = words.read_unit(text)
         for name in dict.fromkeys(tries):
-            for candidate in (name, re.sub(r"ies$", "y", name), re.sub(r"es$", "", name), re.sub(r"s$", "", name)):
+            for candidate in words.forms(name):
                 if candidate in self.names:
                     unit = self.names[candidate]
-                    if name == s and measures and unit.measures == "volume" and key(unit.name) in VOLUMES[measures]:
-                        unit = replace(unit, size=VOLUMES[measures][key(unit.name)])
+                    sizes = words.VOLUMES.get(measures) or {}
+                    if name == bare and measures and unit.measures == "volume" and words.key(unit.name) in sizes:
+                        unit = replace(unit, size=sizes[words.key(unit.name)])
                     return unit
         return None
 
     def ounces(self, a: Unit, b: Unit) -> tuple[Unit, Unit]:
         """An ounce beside a volume is a fluid ounce: "how many ounces are in a
         cup"."""
-        fluid = self.names.get("fluid ounce")
+        words = _words()
+        fluid = self.names.get(words.FLUID_OUNCE)
         if fluid is not None and a.measures != b.measures:
-            if key(a.name) == "ounce" and b.measures == "volume":
+            if words.key(a.name) == words.OUNCE and b.measures == "volume":
                 return fluid, b
-            if key(b.name) == "ounce" and a.measures == "volume":
+            if words.key(b.name) == words.OUNCE and a.measures == "volume":
                 return a, fluid
         return a, b
 
@@ -377,71 +289,23 @@ class Settings(common.Settings):
         return rounded(v * a.size / b.size, self.digits)
 
 
-def solve(q, settings=None):
-    """The answer, and it said with the question ("there are 4 cups in a
-    quart"); None."""
-    settings = settings or DEFAULT
-    places = settings.digits
-    s = clean(q)
-    s = re.sub(r"\s+(in us cooking|in cooking)$", "", s)
-    temp = settings.temperature.fullmatch(s) if settings.temperature is not None else None
-    if temp:
-        v = parse_num(temp.group(1))
-        a, b = settings.names[temp.group(2)], settings.names[temp.group(3)]
-        if v is None or a == b:
-            return None
-        found = f"{fmt(settings.convert(v, a, b), places)} degrees {b.name}"
-        return found, f"{fmt(v, places)} degrees {a.name} is {found}"
-    m = (re.fullmatch(r"how many (.+?) (?:are )?(?:there )?(?:in|per|make up|make|in a single) (.+)", s)
-         or re.fullmatch(r"how many (.+?) (?:is|are) (?:in )?(.+)", s))
-    if m:
-        b, rest = m.group(1), m.group(2)
-        said = rest
-        n = 1.0
-        # "one and a half quarts", "2 quarts"; else "a quart", "one quart".
-        mm = re.fullmatch(rf"{N}\s*(.+)", rest)
-        if mm and parse_num(mm.group(1)) is not None and settings.unit(mm.group(2)):
-            n, rest = parse_num(mm.group(1)), mm.group(2)
-        else:
-            rest = re.sub(r"^(?:a|an|one) ", "", rest)
-        ua, ub = settings.unit(rest), settings.unit(b)
-        if ua and ub and ua.measures != "temperature":
-            r = settings.convert(n, ua, ub)
-            if r is None:
-                return None
-            unit = settings.ounces(ub, ua)[0]
-            return fmt(r, places), f"there {'is' if r == 1 else 'are'} {fmt(r, places)} {unit.said(r)} in {said}"
-        return None
-    m = re.fullmatch(rf"(?:what(?:'s| is)|convert|how much is|how many [a-z ]+ is)\s*{N}\s+(.+?)\s+(?:in|to|into|as)\s+(.+)", s)
-    if m:
-        v, ua, ub = parse_num(m.group(1)), settings.unit(m.group(2)), settings.unit(m.group(3))
-        if v is not None and ua and ub:
-            r = settings.convert(v, ua, ub)
-            if r is None:
-                return None
-            a, b = settings.ounces(ua, ub)
-            if a.measures == "temperature":
-                found = f"{fmt(r, places)} degrees {b.name}"
-                return found, f"{fmt(v, places)} degrees {a.name} is {found}"
-            found = f"{fmt(r, places)} {b.said(r)}"
-            return found, f"{fmt(v, places)} {a.said(v)} is {found}"
-    return None
-
-
-DEFAULT = Settings()
-
-
-def answer(text: str, settings: Settings = DEFAULT):
-    found = solve(text, settings)
-    return reply(found[0], text, found[1]) if found else None
+def answer(text: str, settings: Settings | None = None) -> Reply | None:
+    return _words().answer(text, settings or Settings())
 
 
 SKILL = Skill(
     id="units",
     name="Unit conversions",
     description="Converts lengths, areas, volumes (US or imperial measures), weights, temperatures, times and data sizes.",
-    examples=("how many cups are in a quart", "what is 5 miles in kilometers", "100 Fahrenheit in Celsius"),
     icon="mdi:scale-balance",
     answer=answer,
     settings=Settings,
 )
+
+
+def __getattr__(name: str) -> Any:
+    """``UNITS``, ``VOLUMES``, ``VOLUME_NAMES``, ``QUALIFIED``: the app's
+    language's."""
+    if name in ("UNITS", "VOLUMES", "VOLUME_NAMES", "QUALIFIED"):
+        return getattr(_words(), name)
+    raise AttributeError(name)

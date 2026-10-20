@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from .commands import Command, command_of, match_slots
-from .skills.common import FRACTIONS, SCALES, WORD_NUM, parse_num
+from .languages.en.skills.numbers import FRACTIONS, SCALES, WORD_NUM, parse_num
 
 _LOGGER = logging.getLogger(__name__)
 

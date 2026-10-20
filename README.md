@@ -209,7 +209,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_call/gliner.py`) -- each only for the commands chosen for it |
-| `voice_call/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live), on or off for the home or a satellite |
+| `voice_call/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_call/languages/<code>/skills/`, with `numbers` and `live`) |
 | `voice_call/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per satellite |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |

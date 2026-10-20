@@ -13,7 +13,10 @@ option, ``--language``). A language's pack (``languages/<code>``, its
 - what the app says itself (``speech.py``) and reads itself, past the
   matcher (``reading.py``): English's say what every language's has;
 - its command library (``library/``);
-- which skills, and whether GLiNER (the fallback's model step), it has.
+- which skills it has, and how they read questions and answer them
+  (``skills/<skill>.py``, with ``skills/numbers.py`` and ``skills/live.py``:
+  English's say what every language's has), and whether GLiNER (the
+  fallback's model step) understands it.
 
 English ships with the app; another language's models are fetched for it.
 The web UI stays in English whatever the language.
@@ -49,7 +52,8 @@ class Pack:
     """The matcher's base config for every home: ``filler``, ``name_cues``,
     ``compounds``, ``name_endings`` (commands.base_config)."""
     skills: tuple[str, ...] = ()
-    """The skills it has (voice_call/skills/)."""
+    """The skills it has (voice_call/skills/), each read and answered by its
+    ``skills/<skill>.py``."""
     gliner: bool = False
     """GLiNER, the fallback's model step, understands it."""
     wake_ratio: bool = False
@@ -66,6 +70,11 @@ class Pack:
     def reading(self) -> ModuleType:
         """What it reads: its ``reading`` module."""
         return importlib.import_module(f"{__name__}.{self.code}.reading")
+
+    def grammar(self, name: str) -> ModuleType:
+        """How it reads and answers a skill's questions: ``skills/<name>.py``
+        (``numbers``, ``live``, or a skill's id)."""
+        return importlib.import_module(f"{__name__}.{self.code}.skills.{name}")
 
     @property
     def library(self) -> Path:
@@ -132,6 +141,12 @@ def reading() -> ModuleType:
     """What the app's language reads (``current().reading``), read when it
     is needed, as ``speech``."""
     return current().reading
+
+
+def grammar(name: str) -> ModuleType:
+    """The app's language's grammar for a skill (``current().grammar``), read
+    when it is asked, as ``speech``."""
+    return current().grammar(name)
 
 
 def use(code: str) -> Pack:

@@ -48,15 +48,26 @@ SKILLS: dict[str, Skill] = {
     skill.id: skill for skill in (spelling.SKILL, dates.SKILL, clock.SKILL, units.SKILL, arithmetic.SKILL)
 }
 
-BUILT_IN: dict[str, Settings] = {skill.id: skill.settings.load(None) for skill in SKILLS.values()}
+
+
+def built_in() -> dict[str, Settings]:
+    """Each skill's settings, as built in -- in the app's language (its
+    units, holidays, clock)."""
+    return {skill.id: skill.settings.load(None) for skill in SKILLS.values()}
+
+
+def __getattr__(name: str) -> Any:
+    """``BUILT_IN``: ``built_in()``."""
+    if name == "BUILT_IN":
+        return built_in()
+    raise AttributeError(name)
 
 
 def available() -> dict[str, Skill]:
     """The skills the app's language has (its pack's ``skills``), in
-    ``SKILLS`` order: they are English."""
+    ``SKILLS`` order."""
     have = set(languages.current().skills)
     return {skill_id: skill for skill_id, skill in SKILLS.items() if skill_id in have}
-"""Each skill's settings, as built in."""
 
 
 def load(skill_id: str, stored: Any) -> tuple[Settings, str | None]:
@@ -65,7 +76,7 @@ def load(skill_id: str, stored: Any) -> tuple[Settings, str | None]:
     try:
         return SKILLS[skill_id].settings.load(stored), None
     except ValueError as err:
-        return BUILT_IN[skill_id], str(err)
+        return SKILLS[skill_id].settings.load(None), str(err)
 
 
 def configure(stored: Any) -> dict[str, Settings]:
@@ -143,7 +154,7 @@ def answer(text: str, on: frozenset[str] | None = None, settings: dict[str, Sett
             if live_question:
                 continue
         try:
-            found = skill.answer(text, (settings or BUILT_IN).get(skill.id) or BUILT_IN[skill.id])
+            found = skill.answer(text, (settings or {}).get(skill.id) or skill.settings.load(None))
         except (ValueError, OverflowError, KeyError, ZeroDivisionError):
             found = None
         if found:
