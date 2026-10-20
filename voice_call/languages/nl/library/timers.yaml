@@ -18,7 +18,8 @@ commands:
     require: [[timer, kookwekker, eierwekker], [minuten, minuut, seconden, seconde, uur, uren]]
     optional: [[zet, start, maak, stel], [van, voor, op], [genaamd, met de naam], [in]]
     wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
-    number: duration
+    # Quarters too: "een kwartier", "drie kwartier".
+    number: {preset: duration, min: 0.25, step: 0.25}
     # Each said whole.
     combinations: [[duration], [duration, timer]]
     timer: start
@@ -117,7 +118,8 @@ commands:
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
-    number: duration
+    # Quarters too: "een kwartier", "drie kwartier".
+    number: {preset: duration, min: 0.25, step: 0.25}
     # Each said whole.
     combinations: [[duration], [timer_name, duration], [duration, timer]]
     timer: add
@@ -133,7 +135,8 @@ commands:
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
-    number: duration
+    # Quarters too: "een kwartier", "drie kwartier".
+    number: {preset: duration, min: 0.25, step: 0.25}
     # Each said whole.
     combinations: [[duration], [timer_name, duration], [duration, timer]]
     timer: subtract

@@ -19,7 +19,8 @@ commands:
     require: [[minuteur, minuterie, timer], [minutes, minute, secondes, seconde, heures, heure]]
     optional: [[mets, lance, démarre, règle, programme, crée], [de, pour, sur], [appelé, nommé]]
     wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
-    number: duration
+    # Quarters too: "un quart d'heure", "trois quarts d'heure".
+    number: {preset: duration, min: 0.25, step: 0.25}
     # Each said whole.
     combinations: [[duration], [duration, timer]]
     timer: start
@@ -118,7 +119,8 @@ commands:
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
-    number: duration
+    # Quarters too: "un quart d'heure", "trois quarts d'heure".
+    number: {preset: duration, min: 0.25, step: 0.25}
     # Each said whole.
     combinations: [[duration], [timer_name, duration], [duration, timer]]
     timer: add
@@ -134,7 +136,8 @@ commands:
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
-    number: duration
+    # Quarters too: "un quart d'heure", "trois quarts d'heure".
+    number: {preset: duration, min: 0.25, step: 0.25}
     # Each said whole.
     combinations: [[duration], [timer_name, duration], [duration, timer]]
     timer: subtract
