@@ -129,10 +129,10 @@ def test_why_a_call_timed_out():
     assert why == "3.0 s of speech, never 1 s of silence" and details["speech_seconds"] == 3.0
 
 
-def test_stt_hears_the_same_stretch_of_the_aec_capture():
+def test_stt_hears_the_call_from_kaldis_split():
     import numpy as np  # pylint: disable=import-outside-toplevel
 
-    from voice_call.server import AEC_LEAD_SAMPLES, aec_for_stt  # pylint: disable=import-outside-toplevel
+    from voice_call.server import AEC_LEAD_SAMPLES, stt_audio_for  # pylint: disable=import-outside-toplevel
 
     rng = np.random.default_rng(1)
     sound = (rng.standard_normal(64000) * 3000).clip(-32767, 32767)
@@ -141,15 +141,19 @@ def test_stt_hears_the_same_stretch_of_the_aec_capture():
         extra = aec_preroll - preroll
         agc = np.concatenate([np.zeros(AEC_LEAD_SAMPLES), sound])[:60000]
         aec = np.concatenate([np.zeros(extra), sound * 0.056])[: 60000 + extra]
-        cut = 30000
-        command = agc[cut:] / 32768.0
-        pcm = aec.astype("<i2").tobytes()
-        heard, info = aec_for_stt(pcm, len(agc), preroll, aec_preroll)(command)
-        assert info == {"channel": "aec"} and len(heard) == len(command)
-        assert np.corrcoef(heard, command)[0, 1] > 0.99  # the same stretch, as captured
-        assert abs(np.abs(heard).max() / np.abs(command).max() - 0.056) < 0.001
-        heard, info = aec_for_stt(pcm, len(agc), preroll, aec_preroll, boost=True)(command)
+        split = 30000  # Kaldi's: the engine cut it earlier, at 28000
+        command = agc[28000:] / 32768.0
+        agc_pcm, aec_pcm = agc.astype("<i2").tobytes(), aec.astype("<i2").tobytes()
+        wanted = agc.astype("<i2")[split:] / 32768.0
+        heard, info = stt_audio_for(agc_pcm, aec_pcm, split, preroll, aec_preroll)(command)
+        assert info == {"channel": "agc", "from": 1.875} and np.allclose(heard, wanted)
+        heard, info = stt_audio_for(agc_pcm, aec_pcm, split, preroll, aec_preroll, "aec")(command)
+        assert info == {"channel": "aec", "from": 1.875} and len(heard) == len(wanted)
+        assert np.corrcoef(heard, wanted)[0, 1] > 0.99  # the same stretch, as captured
+        assert abs(np.abs(heard).max() / np.abs(wanted).max() - 0.056) < 0.001
+        heard, info = stt_audio_for(agc_pcm, aec_pcm, split, preroll, aec_preroll, "aec", boost=True)(command)
         assert info["channel"] == "aec" and 20 <= info["gain_db"] <= 30
         assert abs(20 * np.log10(np.abs(heard).max()) + 3) < 0.1  # a -3 dBFS peak
-    command = np.ones(100, dtype=np.float32) * 0.1
-    assert aec_for_stt(b"", 1000, 100, 100)(command) == (command, {"channel": "agc", "why": "no AEC capture"})
+    # Without an AEC capture: the AGC one, and why.
+    heard, info = stt_audio_for(agc_pcm, b"", split, preroll, preroll, "aec")(command)
+    assert info == {"channel": "agc", "from": 1.875, "why": "no AEC capture"} and np.allclose(heard, wanted)

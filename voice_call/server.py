@@ -43,7 +43,7 @@ from .engine import Decision, Engine, Satellite, llm_note
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
-from .voices import TypedText, Voices, choose
+from .voices import HassTranscriber, TypedText, Voices, choose
 from .mixednet import WakeModel
 from .protocol import (
     BYTE_RATE,
@@ -141,28 +141,44 @@ STT_PEAK = 10 ** (-3 / 20)
 STT_MAX_GAIN = 10 ** (30 / 20)
 
 
-def aec_for_stt(aec: bytes, agc_samples: int, preroll: int, aec_preroll: int, boost: bool = False) -> Any:
-    """What an STT entity hears from the AEC capture: the stretch the command
-    was cut from in AGC (``agc_samples`` long, its pre-roll ``preroll``). The
-    two are lined up on the detection, which ends both pre-rolls (each its
-    own length), less the 56.5 ms the AEC tap runs ahead of AGC's: AGC is
-    the later stage in the XMOS pipeline. As captured, or with ``boost``
+def stt_audio_for(
+    agc: bytes,
+    aec: bytes,
+    start: int,
+    preroll: int,
+    aec_preroll: int,
+    capture: str = "agc",
+    boost: bool = False,
+) -> Any:
+    """What an STT entity hears of a call: from ``start`` (samples into the
+    AGC capture: Kaldi's split, where it ended the wake phrase) to the end --
+    not the engine's cut, which keeps the end of "Nabu" more often (README
+    "Always run") -- of the AGC capture, or (``capture`` "aec") the AEC one.
+    The two are lined up on the detection, which ends both pre-rolls (each
+    its own length), less the 56.5 ms the AEC tap runs ahead of AGC's: AGC
+    is the later stage in the XMOS pipeline. As captured, or with ``boost``
     raised to a -3 dBFS peak, by at most 30 dB (the tap is recorded ~25 dB
-    below AGC). Without it, the AGC audio."""
+    below AGC). Without an AEC capture, the AGC one."""
 
     def pick(command: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+        heard = _pcm_to_float(agc[start * 2 :])
+        if not len(heard):
+            return command, {"channel": "agc", "why": "nothing after Kaldi's split"}
+        info: dict[str, Any] = {"channel": "agc", "from": round(start / SAMPLE_RATE, 3)}
+        if capture == "agc":
+            return heard, info
         if not aec:
-            return command, {"channel": "agc", "why": "no AEC capture"}
-        cut = agc_samples - len(command)
-        start = max(0, cut - preroll + aec_preroll - AEC_LEAD_SAMPLES)
-        out = _pcm_to_float(aec[start * 2 : (start + len(command)) * 2])
-        if len(out) < len(command) // 2:
-            return command, {"channel": "agc", "why": "the AEC capture is short"}
+            return heard, info | {"why": "no AEC capture"}
+        at = max(0, start - preroll + aec_preroll - AEC_LEAD_SAMPLES)
+        out = _pcm_to_float(aec[at * 2 : (at + len(heard)) * 2])
+        if len(out) < len(heard) // 2:
+            return heard, info | {"why": "the AEC capture is short"}
+        info["channel"] = "aec"
         if not boost:
-            return out, {"channel": "aec"}
+            return out, info
         peak = float(np.abs(out).max()) if len(out) else 0.0
         gain = min(STT_MAX_GAIN, STT_PEAK / peak) if peak > 0 else 1.0
-        return out * gain, {"channel": "aec", "gain_db": round(20 * math.log10(gain), 1)}
+        return out * gain, info | {"gain_db": round(20 * math.log10(gain), 1)}
 
     return pick
 
@@ -1560,18 +1576,18 @@ class VoiceCallApp:
     async def _start_stt(self, session: Session, call: Call) -> None:
         """When the satellite's STT entity always runs: the stream it hears
         the command on, from the split (Kaldi's: where endpointing starts) --
-        the AGC capture, or the AEC one lined up with it (``aec_for_stt``),
+        the AGC capture, or the AEC one lined up with it (``stt_audio_for``),
         boosted by what brings the wake word in it to ``STT_PEAK``."""
         satellite = self.satellite(session.satellite)
         voice = satellite.voice
         if not voice.stt_always or voice.stt is None or self.engine is None:
             return
         start, gain = call.split_bytes, 1.0
-        audio: dict[str, Any] = {"channel": "agc"}
+        audio: dict[str, Any] = {"channel": "agc", "from": round(call.split_bytes / BYTE_RATE, 3)}
         if voice.stt_audio != "agc" and not call.aec:
             audio["why"] = "no AEC capture"
         elif voice.stt_audio != "agc":
-            audio = {"channel": "aec"}
+            audio["channel"] = "aec"
             shift = (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - AEC_LEAD_SAMPLES * 2
             start = max(0, start + shift)
             if voice.stt_audio == "aec_boost":
@@ -1733,10 +1749,13 @@ class VoiceCallApp:
         else:
             transcriber = await self._transcriber(satellite)
         agc = bytes(call.audio)
-        if transcriber is not None and satellite.voice.stt_audio != "agc":
-            transcriber.audio_for = aec_for_stt(
-                bytes(call.aec), len(agc) // 2, call.preroll_bytes // 2,
+        if isinstance(transcriber, HassTranscriber):
+            # A request (or, when a stream failed, the request after it):
+            # from Kaldi's split, as a stream is.
+            transcriber.audio_for = stt_audio_for(
+                agc, bytes(call.aec), call.split_bytes // 2, call.preroll_bytes // 2,
                 (call.aec_preroll_bytes or call.preroll_bytes) // 2,
+                capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
                 boost=satellite.voice.stt_audio == "aec_boost",
             )
         async with self._model_lock:
@@ -2035,18 +2054,19 @@ class VoiceCallApp:
             return record
         self._place_split(call, verdict)
         transcriber = await self._transcriber(satellite)
-        if transcriber is not None and satellite.voice.stt_audio != "agc":
-            aec_path = self.calls.audio_path(call_id, "call-aec")
+        if isinstance(transcriber, HassTranscriber):
             aec = b""
+            aec_path = self.calls.audio_path(call_id, "call-aec") if satellite.voice.stt_audio != "agc" else None
             if aec_path is not None:
                 with wave.open(str(aec_path), "rb") as wav:
                     aec = wav.readframes(wav.getnframes())
             aec_preroll = next(
                 (s.get("aec_preroll") for s in old.stages if s.get("stage") == "call_start"), None
             )
-            transcriber.audio_for = aec_for_stt(
-                aec, len(pcm) // 2, ms_to_bytes(preroll * 1000) // 2,
+            transcriber.audio_for = stt_audio_for(
+                pcm, aec, call.split_bytes // 2, ms_to_bytes(preroll * 1000) // 2,
                 ms_to_bytes((aec_preroll or preroll) * 1000) // 2,
+                capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
                 boost=satellite.voice.stt_audio == "aec_boost",
             )
         async with self._model_lock:

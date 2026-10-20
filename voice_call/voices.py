@@ -131,8 +131,9 @@ class HassTranscriber:
         """The engine needed the words."""
         self._text: str | None = None
         self.audio_for: Any = None
-        """The audio to send in place of the command's (AGC) audio: a function
-        of it, returning the audio and what it is (server.aec_for_stt)."""
+        """The audio to send in place of the command's as the engine cut it: a
+        function of it, returning the audio and what it is -- the call from
+        Kaldi's split, of the AGC or AEC capture (server.stt_audio_for)."""
         self.audio: dict[str, Any] = {"channel": "agc"}
 
     def transcribe(self, audio: np.ndarray) -> str:

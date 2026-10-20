@@ -909,8 +909,8 @@ models (TDT, Piper) or with Home Assistant's entities: `stt`, `tts`,
 engine asks a transcriber only for text: examples not found in the CTC
 evidence (`match_examples`, which takes a per-call transcriber now), free text
 (`_reread_text`), hints. `HassTranscriber` is that transcriber for an STT
-entity: called from the engine's thread, it posts the command audio to
-`/api/stt/<entity>` on the event loop (there is no websocket STT outside a
+entity: called from the engine's thread, it posts the command -- from
+Kaldi's split (`stt_audio_for`, below) -- to `/api/stt/<entity>` on the event loop (there is no websocket STT outside a
 pipeline) once, and only when asked -- keyword commands never wait for it --
 and falls back to TDT on failure. STT text has no word times, so free text is
 found by the wildcard's own keywords in the transcript (`engine.free_text`:
@@ -937,10 +937,12 @@ the session's recognition step when it comes (`CallLog.update` saves a kept
 one again). A call that ends without a command (the device, a dropped
 connection, a timeout) cancels the upload.
 
-The stream starts at Kaldi's split, not the engine's cut, which is only known
+An STT entity hears the call from Kaldi's split -- streamed or asked in one
+request (`stt_audio_for`) -- not from the engine's cut, which is only known
 once the whole call is (`place_command` on the start of a call, even with a
 second of audio past the split, matched the full call's cut on 89 of 205 test
-calls). On the 205 recordings in `calls/`, Kaldi's split was later than the
+calls). TDT still reads the command from the cut: its word times are placed
+in the command's CTC evidence. On the 205 recordings in `calls/`, Kaldi's split was later than the
 cut by more than 0.3 s on 62 -- mostly the end of "Nabu", which the CTC
 placement leaves in the command. TDT from Kaldi's split began with a likely
 first word ("turn", "set", "what") on 141 of them, from the cut on 103 ("I

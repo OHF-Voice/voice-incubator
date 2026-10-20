@@ -701,7 +701,10 @@ async def _voices(tmp_path: Path) -> None:
         await satellite.call(read_call(CALLS / "call-15788.wav"))
         recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
         assert len(hass.stt_requests) == asked + 1, recognition.get("stt")
-        assert recognition["stt"]["audio"] == {"channel": "aec"}
+        # From Kaldi's split, where it ended the wake phrase.
+        kaldi_split = app.calls.recent[-1].marks["kaldi_split"]
+        assert recognition["stt"]["audio"] == {"channel": "aec", "from": kaldi_split}
+        requested = hass.stt_requests[-1]["bytes"]
         stored["stt_audio"] = "aec_boost"
         await satellite.call(read_call(CALLS / "call-15788.wav"))
         recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
@@ -735,12 +738,13 @@ async def _voices(tmp_path: Path) -> None:
         recognition = await recognized_after(asked + 1)
         assert len(hass.stt_requests) == asked + 2
         assert recognition["stt"]["asked"] and recognition["text_source"] == "stt.fake_whisper"
-        assert recognition["stt"]["audio"] == {"channel": "agc"}
+        assert recognition["stt"]["audio"] == {"channel": "agc", "from": kaldi_split}
+        assert streamed["bytes"] == requested  # streamed or asked for: the same stretch
         # The AEC capture, lined up; boosted by the wake word's level in it.
         stored["stt_audio"] = "aec"
         await satellite.call(read_call(CALLS / "call-15788.wav"))
         recognition = await recognized_after(asked + 2)
-        assert recognition["stt"]["audio"] == {"channel": "aec"}
+        assert recognition["stt"]["audio"] == {"channel": "aec", "from": kaldi_split}
         assert abs(hass.stt_requests[-1]["bytes"] - streamed["bytes"]) < 3200, (hass.stt_requests[-1], streamed)
         stored["stt_audio"] = "aec_boost"
         await satellite.call(read_call(CALLS / "call-15788.wav"))

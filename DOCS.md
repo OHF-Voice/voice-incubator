@@ -115,8 +115,9 @@ page.
   echo-cancelled, with the satellite's own playback (its music, its voice)
   taken out. AEC is recorded about 25 dB quieter: send it as captured to an
   entity that levels its audio itself, or **AEC, boosted** (to a -3 dBFS
-  peak) to one that doesn't. The same stretch of audio is sent either way:
-  the AEC capture runs 56.5 ms ahead of the AGC one, and is cut to match.
+  peak) to one that doesn't. The same stretch of audio is sent either way,
+  from where the wake word ended (as the wake word check placed it): the AEC
+  capture runs 56.5 ms ahead of the AGC one, and is cut to match.
   Sound from other speakers, such as music on another player, is in both.
   For every satellite on the Settings page, or one satellite's own under
   Input; a session's Recognition step says which was sent.

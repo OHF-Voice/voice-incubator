@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **The speech-to-text entity hears the command from where the wake word
+  check ended the wake word**, asked or streamed: on 205 test calls, a
+  transcript from there began with a likely first word on 141, from where the
+  command was cut for recognition on 103 -- that keeps the end of "Nabu"
+  more often ("Taboo set kitchen brightness..."). A session's Recognition
+  step says where it was from.
+
 - **Each session step says how long it took**: verification ("accepted
   “okay nabu” in 59 ms"), the second opinion, the speaker, placing the
   command, recognition with TDT's or the STT entity's part ("no command, in
