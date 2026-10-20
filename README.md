@@ -223,7 +223,6 @@ so do meaning and the model step among a command's versions and copies
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
-| `scripts/fetch_music_library.py` | enumerate Music Assistant artists/albums for a closed-vocabulary recognizer |
 | `voice_call/wake_ratio.py` | the second opinion on a rejected wake word |
 | `scripts/align_sessions.py` | where the wake word is in every prompt of a session |
 | `scripts/false_accepts.py` | how often the chain fires on audio with no wake word in it |
@@ -265,10 +264,6 @@ command the commands lack is an error before any audio is read, because a
 bench run on a mismatched pair measures the files. Rows carry adapt-ctc's
 verdicts (correct, missed, wrong intent, wrong slots, false accept), the CTC
 cut beside Kaldi's, and both transcripts.
-
-(Before the commands were the app's own, this bench ran speech-to-phrase on the
-sentence triggers instead; the `tests/bench_*.jsonl` results and
-`tests/bench_corpus_report.txt` are from that chain.)
 
 ```bash
 scripts/bench_corpus.py ~/opt/mic_tap/sessions/mike-merged --workers 8 \
@@ -1499,160 +1494,6 @@ the above, spoken again: benchmark 57 exact (one wrong: "definitely" heard
 as "Defimaty", and spelled), 26 live; held out 47 exact (46 graded, all
 right), 33 live.
 
-## History: the sentence-trigger chain
-
-Until the commands became the app's own, a command was decoded by
-speech-to-phrase against a grammar built from Home Assistant's `conversation`
-sentence triggers, sent to `conversation.process`, and answered with the
-automation's `set_conversation_response`. The sections from here through
-"Anchored matching", and "Closed-vocabulary backends" and "Rejection
-confidence" below, record what was measured on that chain. Its code
-(`voice_call/recognize.py`, `wildcards.py`, `fst_hybrid.py`, `tdt.py`) and the
-scripts that measured it are in git history before the commands moved in.
-
-## Wildcard sentence triggers
-
-A trigger like `play {song} in the {room}` cannot go in the speech-to-phrase
-grammar: Home Assistant treats **every** list reference in a conversation
-trigger as a wildcard ([`default_agent.py`](https://github.com/home-assistant/core/blob/dev/homeassistant/components/conversation/default_agent.py) — "Assume slot list references
-are wildcards"), so the slot matches arbitrary speech and cannot be enumerated.
-
-Triggers are split on whether they contain `{...}`:
-
-| | matched with | |
-|---|---|---|
-| plain | speech-to-phrase grammar | constrained, scored, rejects anything else |
-| wildcard | hassil, against the Parakeet transcript | same matcher Home Assistant uses |
-
-The grammar is tried first. On rejection the unconstrained transcript goes to
-hassil; a match means the transcript is sent to `conversation.process`, which
-re-matches it and fills the slots when the trigger fires. No match ends the
-call. Configurations with only wildcard triggers work — the grammar is simply
-disabled and every command goes down the transcript path.
-
-## What was actually said
-
-The grammar decode can only ever return one of the trained sentences, so a
-rejected command tells you nothing about what the person wanted. On rejection
-the app also runs a plain greedy CTC decode of the same audio -- Parakeet with
-no grammar at all -- and reports it as `Recognition.greedy_text` and in the
-`not_recognized` event:
-
-```
-spoken  : 'play some jazz in the kitchen'
-  grammar : 'turn on the lights'  score=22.80  accepted=False
-  parakeet: 'Play some jazz in the kitchen.'
-```
-
-That distinguishes "out of vocabulary" from "misheard", gives you the text to
-paste into a new sentence trigger, and is what wildcard triggers match against.
-It is free: `speech_to_phrase.Result.greedy_text` comes from the same forward
-pass as the grammar decode. Disable with `greedy_on_reject=False`.
-
-## Second pass (Parakeet TDT)
-
-speech-to-phrase ships only the **CTC head** of parakeet-tdt_ctc-110m. Decoded
-greedily at 80 ms frames it mixes subword paths -- the model hedges between
-`'P'`+`'l'`+`'ay'` and `'play'`, and greedy walks across both, yielding
-`Pplayay`, `arrtist`, `cororporate`. That text is what wildcard triggers match
-against, so the artifacts cost real matches.
-
-When the grammar decode fails, the audio is re-transcribed with the **TDT
-transducer head** of the same model (`models/parakeet-tdt`, sherpa-onnx). That
-is the decoder NVIDIA's published accuracy refers to. Measured on 8 synthesized
-commands, wildcard matches went **3/8 (CTC greedy) -> 6/8 (TDT)**.
-
-It runs only on the failure path, and **sequentially**, not beside the CTC
-pass. On a 4-core Pi 4 one ONNX pass already saturates the cores:
-
-| tdt threads | tdt alone | sequential | concurrent |
-|---|---|---|---|
-| 1 | 711 ms | 1087 ms | 908 ms |
-| 2 | **448 ms** | **883 ms** | 934 ms |
-| 4 | 528 ms | 939 ms | 1219 ms |
-
-The best configuration is 2 threads, run sequentially. Speculating in parallel
-never wins, and would also add ~550 ms to every *successful* call.
-
-The encoder is quantized to int8 (`scripts/quantize_tdt.py`, dynamic, MatMul
-only). That is a win on every axis, so `models/parakeet-tdt-int8` is preferred
-automatically when present:
-
-| | fp32 | int8 |
-|---|---|---|
-| encoder on disk | 456 MB | **172 MB** |
-| full stack RSS on the Pi | 1440 MB | **1000 MB** |
-| decode, Pi 4, 1.65 s audio | 433 ms | **316 ms** |
-| transcripts | — | 7/8 identical |
-
-With ~1650 MB available on the Pi, that leaves real headroom. `--no-second-pass`
-still disables it.
-
-## Wildcard sentences: grammar selection
-
-Matching a transcript cannot tell `play the artist X` from `play the album X`.
-The two differ by one word, that word is exactly the one a decoder gets wrong,
-and it selects the action. So the sentence is chosen by **decoding**, not by
-string matching.
-
-Each wildcard trigger is compiled into its own grammar: literals pinned to what
-the trigger says, each `{slot}` a free loop over the whole token alphabet. All
-of them decode the same (single) acoustic pass, and the cheapest wins:
-
-```
-spoken 'play the artist radiohead'   artist 12.70   album 52.96  -> artist
-spoken 'play the album radiohead'    artist 52.98   album 10.75  -> album
-```
-
-Three details are load-bearing:
-
-* **`beam=10`.** The slot loop makes the search enormous. Exact search costs
-  ~9 s per decode; beam 10 gives an identical answer in ~20 ms.
-* **Slot penalty (`6.0` per slot-emitted token).** A free loop may pick any
-  tokenization, so it fits the audio at least as well as a required literal and
-  the most permissive sentence wins by default. Charging per slot token
-  restores the preference for sentences whose literals explain the audio.
-* **Token-level slot extraction.** Splitting the decoded *text* does not work:
-  the grammar pins "play" but the following loop may take its trailing
-  subwords, so the text reads "playing". Literals are exact at the token level,
-  and a slot is trimmed to the first SentencePiece word boundary.
-
-Optionals and alternatives stay as branches inside one grammar rather than
-being expanded into several, and compiled grammars are cached in
-`var/grammars/` (`Grammar.save`/`load`), so they are built once per sentence.
-
-| | x86 | Pi 4 |
-|---|---|---|
-| cold build, 6 sentences | 9.1 s | 77 s |
-| warm startup (cached) | 0.3 s | 22.8 s |
-| select, all sentences | 4-130 ms | 0.8-1.4 s |
-| cache on disk | 135 MB | 129 MB |
-| full stack RSS | — | ~1000 MB |
-
-## Anchored matching (fallback)
-
-Transcription errors land on the **fixed** words, not the slots: "play" comes
-back as "They", "Lay", "played", "These". hassil is all-or-nothing, so one wrong
-function word loses the command *and* its slots. Note "They" scores 0.25
-similarity against "play" -- plain fuzzy string matching does not catch this.
-
-So an exact hassil match is tried first; failing that, the transcript is aligned
-against each trigger's word pattern with the fixed words anchored to what the
-trigger actually says and a budget of one substitution. That is the
-matching-layer equivalent of decoding the fixed words under a grammar, costs
-**0.15 ms**, and needs no change to the acoustic models. Ties are broken toward
-the pattern whose fixed skeleton explains more of the utterance, so
-"play music buy Daft Punk" resolves to `play music by {artist}` rather than
-letting an album slot swallow the rest.
-
-Measured over 12 synthesized commands:
-
-| | matched |
-|---|---|
-| CTC greedy + exact hassil | 8/12 |
-| TDT int8 + exact hassil | 11/12 |
-| TDT int8 + anchored | **12/12** |
-
 ## A second opinion on a rejected wake word
 
 The Kaldi verifier makes three separate decisions, and they do not fail
@@ -1953,91 +1794,6 @@ you will run on: the same models on x86 agreed on 11 of 12, degrading
 `play a moon shaped pool by radiohead` to `...by radiohe`, which the Pi did not
 reproduce. (`scripts/compare_recognizers.py` did exactly this check; adapt-ctc's
 `python -m adapt_ctc.score --model DIR` does it now.)
-
-## Closed-vocabulary backends (Kaldi, Coqui)
-
-The original speech-to-phrase decodes against a fixed graph instead of a
-general acoustic model, which is far cheaper. Measured on a Pi 4 against 12 real
-VPE captures, trained on exactly these sentence triggers:
-
-| | Parakeet CTC int8 | Kaldi `en_US-rhasspy` | Coqui `en_US-coqui` |
-|---|---|---|---|
-| peak RSS | 515 MB | 175 MB | **101 MB** |
-| transcribe | **0.3-1.2 s** | 0.8-1.5 s | 1.2-2.3 s |
-| slots correct | 7/12 | 11/12 | **12/12** |
-| out-of-vocab rejected | 3/4 | 3/4 | 2/4 |
-
-Those numbers are with wildcards enumerated to a handful of values, which is
-what makes them look so good. Two things spoil it.
-
-**Coqui substitutes rather than failing.** Retrained with an artist list that
-excludes radiohead, Kaldi refused all six radiohead commands; Coqui turned
-`play the artist radiohead` into `play the artist the beatles` and
-`play in rainbows by radiohead` into `play everything by miles davis`. It also
-read `turn off ecobees` as `turn on the lights`. Do not use it where a wrong
-answer is worse than no answer.
-
-**Kaldi does not scale to a real library.** With the full Music Assistant
-library from `scripts/fetch_music_library.py`:
-
-| vocabulary | train | per command | correct |
-|---|---|---|---|
-| 7 values | 4.6 s | 0.8-1.5 s | 11/12 |
-| 996 (album artists + albums) | 108 s | 3.3-5.8 s | 11/12 |
-| 1631 (all artists + albums) | 222 s | 5.7-8.4 s | 9/12 |
-
-Narrowing the decoder beam does not help -- at `max-active=1000 beam=10` latency
-only falls to 4.4 s and accuracy drops, including
-`play in rainbows by radiohead` becoming `play hannah montana 3 by bo burnham`.
-The time is not where it looks: the HCLG graph is only 1.9 MB and the decoder
-starts in 0.43 s. Per utterance at 996 values it is roughly 2.4-3.0 s of
-decoding plus a flat **1.5 s composing against the 107 MB `G.fuzzy.fst`**, which
-is rebuilt from the whole vocabulary and loaded fresh every time.
-
-So the cheap backends are cheap in memory and expensive in latency, in
-proportion to how many wildcard values you give them. Worth revisiting with a
-persistent decoder (the wake verifier already runs one) and a bounded fuzzy FST.
-
-## Rejection confidence
-
-Two signals, measured on 32 VPE captures of the two fixed-vocabulary commands
-and 13 out-of-vocabulary utterances.
-
-**Fuzzy cost** is what speech-to-phrase already computes: how many words the
-language model hallucinated that the deletion-only FST had to strip, rejected
-above 2.0.
-
-**Likelihood ratio** is the per-frame acoustic cost of the grammar decode minus
-the same for an unconstrained decode, using the wake verifier's background
-graph (same acoustic model, so the costs are comparable). Raw acoustic cost
-alone is useless here -- in-vocabulary lands at -1.46 to -2.10 and
-out-of-vocabulary at -1.24 to -2.30, fully overlapping -- because it measures
-fit to the path the grammar forced, not whether a better path existed.
-
-| | fuzzy cost | ratio |
-|---|---|---|
-| in-vocabulary (32) | 0.00 - 0.80 | -0.096 - +0.179 |
-| out-of-vocabulary (13) | 3.20, 5.00, 5.90, rest no path | +0.171 - +0.821 |
-| alone | 32/32, 12/13 | 32/32, 12/13 |
-| both must accept | **32/32, 13/13** | |
-
-Neither separates on its own and they fail on different utterances, which is
-what makes the conjunction worth having. Fuzzy cost scores
-`turn on standing light` at 0.00 and accepts it, because the LM snapped
-straight onto a valid sentence and left no spurious words to count; the ratio
-puts it at 0.242. The ratio's own near-miss is `what's the date today` at
-0.171, against a worst in-vocabulary case of 0.179 -- an 0.008 margin, so there
-is no threshold that separates on the ratio alone.
-
-The catch is cost: the second decode adds ~1.8 s, because a free loop keeps far
-more states alive than a seven-sentence grammar. That is a bad trade for one
-semantically-near false accept, so the fuzzy cost alone is what to ship until
-the filler loop lives in the same graph as the sentences and the comparison
-becomes free.
-
-A note on the corpus: an earlier version of this table, built on three
-captures, showed the ratio separating cleanly at every threshold. That was
-overfitting to three samples. The overlap only appeared at 32.
 
 ## Recording more captures
 

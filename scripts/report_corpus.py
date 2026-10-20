@@ -2,9 +2,9 @@
 """Summarize a bench_corpus.py run: per channel, per prompt, per failure.
 
 Rows are prompts that expect a command (kind ``command``; ``grammar`` and
-``wildcard`` in runs of the old sentence-trigger chain) or must be refused
-(``oov``). "chain" scores recognition on its own; "app" what the app would do,
-where a call the wake verifier rejects is hung up before the command is heard.
+``wildcard`` in old runs) or must be refused (``oov``). "chain" scores
+recognition on its own; "app" what the app would do, where a call the wake
+verifier rejects is hung up before the command is heard.
 """
 
 from __future__ import annotations

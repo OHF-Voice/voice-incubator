@@ -616,10 +616,6 @@ What is left:
   - "set kitchen brightness to 150 percent" heard as "kick your prices to
     other fifty percent".
 
-The voice_call bench for speech-to-phrase on the same corpus is
-`tests/bench_corpus_report.txt` there. Its figures include on-device wake
-detection, so they are not directly comparable.
-
 ## Performance
 
 The Viterbi pass is a C extension: limited API, no numpy headers, optional at
