@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **Each session step says how long it took**: verification ("accepted
+  “okay nabu” in 59 ms"), the second opinion, the speaker, placing the
+  command, recognition with TDT's or the STT entity's part ("no command, in
+  897 ms (STT 806 ms)"), the action, templates, the agent, and speaking
+  (Piper's synthesis; a TTS entity's start and length). A transcriber asked
+  twice no longer leaves its first time out.
+
 - **Speech-to-text can always run** (Settings, and a satellite's Input:
   Runs, "Always, as you speak"): the entity hears every command while it is
   said, streamed from just after the wake word, so every session has its

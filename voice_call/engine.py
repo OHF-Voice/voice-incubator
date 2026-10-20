@@ -500,7 +500,7 @@ class Engine:
             if transcriber is not None and recognition.tdt_transcript is None:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
-                recognition.timings[_timing(transcriber)] = time.perf_counter() - started
+                _took(recognition.timings, _timing(transcriber), started)
             # The keywords and names, on the transcript: a strong speech model
             # may have heard plainly what the CTC evidence only half did.
             if recognition.tdt_transcript and getattr(transcriber, "source", "TDT") != "typed":
@@ -733,7 +733,7 @@ class Engine:
             return
         started = time.perf_counter()
         transcript, words = transcriber.transcribe_words(command_audio)
-        recognition.timings[_timing(transcriber)] = time.perf_counter() - started
+        _took(recognition.timings, _timing(transcriber), started)
         recognition.tdt_transcript = transcript
         if words is None:
             text = free_text(transcript, wildcard, str(decision.slots.get(slot) or "")) or ""
@@ -956,6 +956,13 @@ def llm_note(fallback: dict[str, Any] | None) -> str | None:
         picked = f"{by} picked {llm['command']}" if llm.get("command") else f"{by}'s pick"
         return f"{picked}, not run: {'; '.join(llm['problems'])}"
     return f"{by}: {llm.get('said') or 'not a command'}"
+
+
+def _took(timings: dict[str, float], key: str, started: float) -> None:
+    """Time since ``started``, added to what ``key`` took before: a
+    transcriber asked again (it answers from what it heard the first time)
+    adds next to nothing, rather than leaving its first time out."""
+    timings[key] = timings.get(key, 0.0) + time.perf_counter() - started
 
 
 def _timing(transcriber: Any) -> str:

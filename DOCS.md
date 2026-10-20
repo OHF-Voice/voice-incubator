@@ -621,7 +621,12 @@ climate, media players, scenes, scripts, input booleans, valves and vacuums;
   probability the satellite's model came in with, against its cutoff; new
   voice_call firmware), its verification, the end of speech, the speaker,
   where the command starts, recognition, the action or answer, and what was
-  said. Open a step for everything recorded about it -- every command that
+  said -- and how long it took: verification's decode, speaker
+  identification, the acoustic model, recognition with the part TDT or the
+  speech-to-text entity took, the action, a template, the conversation agent,
+  and speaking (Piper's synthesis, or a text-to-speech entity's time until
+  the satellite started saying it, and how long it spoke). Open a step for
+  everything recorded about it -- every command that
   matched or was rejected and why, what was sent to Home Assistant -- and
   **Audio** for the waveforms.
 - **Listen live** (a satellite's page, under Test it) plays what the satellite's

@@ -152,6 +152,12 @@ async def _scenario(tmp_path: Path) -> None:
         # The CTC evidence found the wake phrase again, and the command starts after it.
         assert split["phrase"] is not None
         assert split["cut"] >= split["wake_end"] - 0.01
+        # How long each step took.
+        by_stage = {s["stage"]: s for s in record.stages}
+        assert by_stage["wake_kaldi"]["decode_ms"] > 0
+        assert split["seconds"] > 0 and by_stage["speaker"]["seconds"] > 0
+        assert by_stage["recognition"]["timings"] and by_stage["action"]["seconds"] > 0
+        assert by_stage["speech"]["synthesis"] > 0 and by_stage["speech"]["seconds"] > 0  # Piper's
         assert not record.kept  # no debugging: no audio on disk
 
         # "set kitchen brightness to fifty percent": a named area and a number.
@@ -661,6 +667,7 @@ async def _voices(tmp_path: Path) -> None:
         assert spoken[-1]["options"] == {"voice": "JennyNeural"} and spoken[-1]["language"] == "en-US"
         speech = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech")
         assert speech["started"] is not None and speech["ended"] >= speech["started"]
+        assert 0 <= speech["requested"] <= speech["started"]  # Home Assistant took it, then the device said it
         assert satellite.played == played  # nothing streamed: the satellite fetched it
 
         # Free text comes from the STT entity (said by Piper, so there is audio

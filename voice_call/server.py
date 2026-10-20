@@ -116,6 +116,10 @@ def _satellite_key(hello: dict, fallback: str) -> str:
     return mac or fallback
 
 
+def _seconds(value: float | None) -> float | None:
+    return None if value is None else round(value, 3)
+
+
 def _cancel_stt(call: Call | None) -> None:
     """A call ended before its command did: nothing for its STT stream."""
     if call is not None and call.stt is not None and not call.stt.closed:
@@ -1508,6 +1512,7 @@ class VoiceCallApp:
             # but never about `confusable`, which is the one decision it gets
             # wrong far more often than Kaldi does.
             ratio = self.wake_ratios.get(verdict.result.wake_word_id)
+            asked = time.perf_counter()
             overturned, score = (
                 ratio.would_accept(verdict.result.rejected_by, verdict.window)
                 if ratio is not None
@@ -1522,6 +1527,7 @@ class VoiceCallApp:
                     rejected_by=verdict.result.rejected_by,
                     score=None if score is None else round(float(score), 4),
                     overturned=overturned,
+                    seconds=round(time.perf_counter() - asked, 3),
                 )
         return verdict
 
@@ -1745,7 +1751,7 @@ class VoiceCallApp:
                 self.wake_words.phrases(call.wake_word),
             )
         if record is not None:
-            record.stage("split", **split.to_json())
+            record.stage("split", **split.to_json(), seconds=_seconds(decision.timings.get("acoustic+placement")))
             record.marks["cut"] = split.cut
             if split.wake_end is not None:
                 record.marks["wake_start"] = split.wake_start
@@ -1824,9 +1830,12 @@ class VoiceCallApp:
             if compiled is not None and compiled.unknown and decision.refused is None:
                 # Nothing understood it: the Unknown command says what to say.
                 values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, self.hass.catalog)
+                started = time.perf_counter()
                 said, error = await actions.render_said(self.hass, compiled.unknown, values)
                 if record is not None:
-                    record.stage("unknown", said=said, error=error, variables=values)
+                    record.stage(
+                        "unknown", said=said, error=error, variables=values, seconds=_seconds(time.perf_counter() - started)
+                    )
                 if said:
                     message = said
             tried = llm_note(decision.fallback)
@@ -1839,11 +1848,12 @@ class VoiceCallApp:
             decision.slots,
             " [dry run]" if dry_run else "",
         )
+        started = time.perf_counter()
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere()
         )
         if record is not None:
-            record.stage("action", **outcome.to_json())
+            record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
         state = "error" if outcome.error else ("dry run" if dry_run else "done")
         return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
 
@@ -1857,7 +1867,7 @@ class VoiceCallApp:
         level = config["verbosity"]
         built_in = (answer.get("levels") or {}).get(level) or answer["text"]
         template = config["response"].get(level)
-        said, error = built_in, None
+        said, error, seconds = built_in, None, None
         if template:
             values = {
                 "answer": answer.get("answer"),
@@ -1866,11 +1876,16 @@ class VoiceCallApp:
                 "satellite": satellite.as_dict(),
                 "speaker": speaker or {"name": None, "score": None},
             }
+            started = time.perf_counter()
             rendered, error = await actions.render_said(self.hass, template, values)
+            seconds = _seconds(time.perf_counter() - started)
             said = rendered or built_in
         answer.update(text=said, level=level)
         if record is not None and (template or level != skills.DEFAULT_LEVEL):
-            record.stage("skill_response", skill=answer.get("skill"), level=level, template=template or None, said=said, error=error)
+            record.stage(
+                "skill_response", skill=answer.get("skill"), level=level, template=template or None, said=said, error=error,
+                seconds=seconds,
+            )
         return said
 
     async def _ask_agent(
@@ -1911,10 +1926,14 @@ class VoiceCallApp:
                         record.stage("speech_failed", tts=voice.tts, on=target, error=str(err))
         # Piper, or -- with nothing to say -- the acknowledgement sound, which
         # stays on the satellite even when its responses are spoken elsewhere.
+        started = time.perf_counter()
         async with self._model_lock:
             audio = await self.speech.say(text)
         if record is not None:
-            record.stage("speech", text=text, seconds=round(len(audio) / BYTE_RATE, 3))
+            # How long it is, and how long Piper took to say it.
+            record.stage(
+                "speech", text=text, seconds=round(len(audio) / BYTE_RATE, 3), synthesis=_seconds(time.perf_counter() - started)
+            )
         await self._play(session, audio, paced)
 
     async def _speak(
@@ -1936,7 +1955,10 @@ class VoiceCallApp:
         session.announced.clear()
         started = time.perf_counter()
         await self.hass.call_service("tts", "speak", data, {"entity_id": voice.tts})
-        heard: dict = {"started": None, "ended": None}
+        # Seconds after asking: Home Assistant took the request; the device
+        # started saying it (Home Assistant made the audio, the device fetched
+        # it), and ended.
+        heard: dict = {"requested": _seconds(time.perf_counter() - started), "started": None, "ended": None}
         if own:
             try:
                 await asyncio.wait_for(session.announcing.wait(), ANNOUNCE_START_TIMEOUT)
@@ -2038,7 +2060,7 @@ class VoiceCallApp:
                 transcriber,
                 self.wake_words.phrases(call.wake_word),
             )
-        record.stage("split", **split.to_json())
+        record.stage("split", **split.to_json(), seconds=_seconds(decision.timings.get("acoustic+placement")))
         record.marks["cut"] = split.cut
         if split.wake_end is not None:
             record.marks["wake_start"] = split.wake_start
@@ -2212,6 +2234,7 @@ class VoiceCallApp:
     async def _identify(self, session: Session, call: Call) -> Identification | None:
         assert self.speakers is not None
         pcm = self._speaker_audio(session, call)
+        started = time.perf_counter()
         try:
             ident = await self.speakers.identify(pcm)
         except Exception:  # never let speaker ID take the call down with it
@@ -2261,6 +2284,7 @@ class VoiceCallApp:
                 best=ident.best if ident else None,
                 # No margin with one speaker enrolled: nobody is second.
                 margin=round(float(ident.margin), 4) if ident and ident.utterance and math.isfinite(ident.margin) else None,
+                seconds=round(time.perf_counter() - started, 3),
             )
         await self._event(session, "processing", **fields)
         return ident

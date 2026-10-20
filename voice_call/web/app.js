@@ -2651,49 +2651,77 @@ const STEP_ICONS = {
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
 const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", llm: "by the LLM" };
 
+// How long something took: "85 ms", "1.24 s"; "" when it isn't known.
+function took(seconds) {
+  if (seconds === null || seconds === undefined || seconds === "" || !Number.isFinite(Number(seconds))) return "";
+  const s = Number(seconds);
+  return s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(2)} s`;
+}
+// "…, in 85 ms", when it's known.
+const inTime = (seconds) => (took(seconds) ? `, in ${took(seconds)}` : "");
+
+// Recognition's own time (the acoustic model and placing the command are the
+// Command starts step's), and the speech model's part of it: TDT, or the STT
+// entity (STT that always runs: what it was waited for).
+function recognitionTime(d) {
+  const timings = d.timings || {};
+  const total = Object.entries(timings).filter(([k]) => k !== "acoustic+placement").reduce((sum, [, v]) => sum + Number(v || 0), 0);
+  const model = timings.stt !== undefined ? `${d.stt && d.stt.streamed ? "STT, streamed" : "STT"} ${took(timings.stt)}` : timings.tdt !== undefined ? `TDT ${took(timings.tdt)}` : "";
+  return Object.keys(timings).length ? `, in ${took(total)}${model ? ` (${model})` : ""}` : "";
+}
+
+// How the satellite said it: Piper's synthesis, or a TTS entity's request,
+// start and end (seconds after asking).
+function speechTime(d) {
+  if (d.synthesis !== undefined && d.synthesis !== null) return ` · Piper, in ${took(d.synthesis)}`;
+  if (d.started !== undefined && d.started !== null) return ` · started in ${took(d.started)}${d.ended !== null && d.ended !== undefined ? `, said in ${took(d.ended - d.started)}` : ""}`;
+  if (d.requested !== undefined && d.requested !== null) return ` · asked for in ${took(d.requested)}`;
+  return "";
+}
+
 function stepGlance(stage) {
   const d = stage;
   switch (stage.stage) {
     case "call_start":
       return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };
     case "wake_kaldi":
-      return { title: d.offset ? "Verification, again" : "Verification", status: d.accepted ? "ok" : "bad", line: d.accepted ? `accepted${d.phrase ? ` “${d.phrase}”` : ""}` : wakeRejection(d) };
+      return { title: d.offset ? "Verification, again" : "Verification", status: d.accepted ? "ok" : "bad", line: `${d.accepted ? `accepted${d.phrase ? ` “${d.phrase}”` : ""}` : wakeRejection(d)}${d.decode_ms !== undefined ? ` in ${took(d.decode_ms / 1000)}` : ""}` };
     case "wake_ratio":
-      return { title: "Second opinion", status: d.overturned ? "ok" : "bad", line: d.overturned ? "accepted it after all" : "agreed: rejected" };
+      return { title: "Second opinion", status: d.overturned ? "ok" : "bad", line: `${d.overturned ? "accepted it after all" : "agreed: rejected"}${inTime(d.seconds)}` };
     case "wake_unverified":
       return { title: "Verification", status: "", line: "none for this wake word" };
     case "endpoint":
       return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command${d.vad ? ` · ${VAD_NAMES[d.vad] || d.vad}` : ""}` };
     case "speaker":
-      return { title: "Speaker", status: d.name ? "ok" : "", line: d.name ? `${d.name} (${num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized" };
+      return { title: "Speaker", status: d.name ? "ok" : "", line: `${d.name ? `${d.name} (${num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized"}${inTime(d.seconds)}` };
     case "split":
-      return { title: "Command starts", status: "", line: `at ${num(d.cut, 2)} s${d.phrase ? `, after “${d.phrase}”` : ""}` };
+      return { title: "Command starts", status: "", line: `at ${num(d.cut, 2)} s${d.phrase ? `, after “${d.phrase}”` : ""}${inTime(d.seconds)}` };
     case "typed":
       return { title: "Typed", status: "", line: `${quoted(d.text || "")}${d.spoken ? ", spoken and heard" : ""}` };
     case "replay_of":
       return { title: "Replay", status: "", line: `of ${d.call}` };
     case "recognition":
-      if (d.command) return { title: "Recognition", status: "ok", line: `${d.command} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() };
-      if (d.answer) return { title: "Recognition", status: "ok", line: `a question for the ${d.answer.skill || d.answer.solver || d.answer.kind} skill` };
-      return { title: "Recognition", status: "warn", line: "no command" };
+      if (d.command) return { title: "Recognition", status: "ok", line: `${d.command} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() + recognitionTime(d) };
+      if (d.answer) return { title: "Recognition", status: "ok", line: `a question for the ${d.answer.skill || d.answer.solver || d.answer.kind} skill${recognitionTime(d)}` };
+      return { title: "Recognition", status: "warn", line: `no command${recognitionTime(d)}` };
     case "action": {
       const calls = (d.sequence || []).map((x) => x.action || x.service).filter(Boolean);
       const what = d.music ? `music: ${d.music.operation}` : d.timer ? "timer" : calls.length ? calls.join(", ") : "a response only";
       const how = d.error ? "failed" : d.outcome && d.outcome !== "done" ? d.outcome.replace(/_/g, " ") : null;
-      return { title: d.dry_run ? "Action (dry run)" : "Action", status: d.error || d.outcome === "failed" ? "bad" : how ? "warn" : d.dry_run ? "" : "ok", line: [how, what].filter(Boolean).join(" · ") };
+      return { title: d.dry_run ? "Action (dry run)" : "Action", status: d.error || d.outcome === "failed" ? "bad" : how ? "warn" : d.dry_run ? "" : "ok", line: [how, what].filter(Boolean).join(" · ") + inTime(d.seconds) };
     }
     case "skill_response":
-      return { title: "Skill's response", status: d.error ? "warn" : "ok", line: `${d.skill} · ${d.level}${d.template ? " · your template" : ""}` };
+      return { title: "Skill's response", status: d.error ? "warn" : "ok", line: `${d.skill} · ${d.level}${d.template ? ` · your template${inTime(d.seconds)}` : ""}` };
     case "agent": {
       const name = (d.agent || "agent").replace(/^conversation\./, "");
       if (!d.asked) return { title: "Conversation agent", status: "", line: `${name}: not asked (dry run)` };
       if (d.error) return { title: "Conversation agent", status: "bad", line: `${name}: ${d.error}` };
-      return { title: "Conversation agent", status: d.understood && d.text ? "ok" : "warn", line: `${name}: ${d.understood ? "answered" : "understood nothing"} in ${Math.round((d.seconds || 0) * 1000)} ms` };
+      return { title: "Conversation agent", status: d.understood && d.text ? "ok" : "warn", line: `${name}: ${d.understood ? "answered" : "understood nothing"} in ${took(d.seconds || 0)}` };
     }
     case "unknown":
-      return { title: "Unknown command", status: d.error ? "warn" : "", line: d.error ? "its response failed: said the default" : "said its response" };
+      return { title: "Unknown command", status: d.error ? "warn" : "", line: `${d.error ? "its response failed: said the default" : "said its response"}${inTime(d.seconds)}` };
     case "speech":
-      return { title: "Said", status: "ok", line: d.text ? quoted(d.text) : d.silent ? "nothing (silent)" : "a short sound" };
+      return { title: "Said", status: "ok", line: (d.text ? quoted(d.text) : d.silent ? "nothing (silent)" : "a short sound") + speechTime(d) };
     case "speech_failed":
       return { title: "Speaking", status: "bad", line: d.error || "failed" };
     case "timer_ringing":
@@ -2746,13 +2774,18 @@ function stepDetails(stage) {
   if (name === "agent") {
     return h("div", { class: "small" }, !data.asked ? "Not asked: a dry run, and an agent can act in the home." : data.error ? ["Could not be asked: ", data.error] : [
       data.understood ? ["Said “", data.text || "", "”"] : ["Understood nothing (", data.code || data.response_type, "): said the default."],
-      h("div", { class: "muted" }, `${data.response_type || ""} in ${Math.round((data.seconds || 0) * 1000)} ms · ${data.continued ? "conversation kept from before" : "new conversation"}${data.conversation_id ? ` ${data.conversation_id}` : ""}${data.wants_answer ? " · it asked something back" : ""}`)]);
+      h("div", { class: "muted" }, `${data.response_type || ""} in ${took(data.seconds || 0)} · ${data.continued ? "conversation kept from before" : "new conversation"}${data.conversation_id ? ` ${data.conversation_id}` : ""}${data.wants_answer ? " · it asked something back" : ""}`)]);
   }
   if (name === "unknown") return h("div", { class: "small" }, data.error ? ["Could not render it (", data.error, "): said the default."] : data.said ? ["Said “", data.said, "”"] : "Rendered to nothing: said the default.");
   if (name === "skill_response") return h("div", { class: "small" }, data.error ? ["Its template failed (", data.error, "): said the built-in sentence. "] : null, data.said ? ["Said “", data.said, "”"] : null);
   if (name === "speech") {
     return h("div", { class: "small" }, data.text || h("span", { class: "muted" }, data.silent ? "(nothing: it's silent)" : "(a short sound)"),
-      data.tts ? h("div", { class: "muted" }, `by ${data.tts}${data.voice ? ` (${data.voice})` : ""} on ${data.on || "the satellite"}`) : null);
+      data.tts ? h("div", { class: "muted" }, `by ${data.tts}${data.voice ? ` (${data.voice})` : ""} on ${data.on || "the satellite"}`) : null,
+      data.tts && (data.requested !== undefined || data.started !== undefined) ? h("div", { class: "muted" },
+        [data.requested !== undefined && data.requested !== null ? `Home Assistant took the request in ${took(data.requested)}` : null,
+          data.started !== null && data.started !== undefined ? `the satellite started saying it ${took(data.started)} after asking` : data.on ? "no word from the player on when it started" : null,
+          data.ended !== null && data.ended !== undefined ? `and ended ${took(data.ended)} after` : null].filter(Boolean).join(", ")) : null,
+      data.synthesis !== undefined && data.synthesis !== null ? h("div", { class: "muted" }, `Piper made ${num(data.seconds, 2)} s of speech in ${took(data.synthesis)}`) : null);
   }
   if (name === "endpoint" && data.vad) {
     const s = data.settings || {};
