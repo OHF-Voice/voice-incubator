@@ -1,0 +1,141 @@
+# Timers (French), as the English library's timers.yaml: on the satellite that
+# set them, with the Voice Call integration in Home Assistant. A timer is
+# picked out by:
+#   timer_name  a running timer's name: "annule le minuteur pizza"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "un minuteur appelé pâtes"
+#   duration    "le minuteur de 5 minutes"
+# or it is the only one running. What they say is the language's (its speech
+# module's timer sentences).
+title: Timers
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: lancer un minuteur
+    # "Mets un minuteur de 5 minutes", "lance un minuteur pizza pour 10 minutes".
+    require: [[minuteur, minuterie, timer], [minutes, minute, secondes, seconde, heures, heure]]
+    optional: [[mets, lance, démarre, règle, programme, crée], [de, pour, sur], [appelé, nommé]]
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [duration, timer]]
+    timer: start
+    verbosity: specific
+
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: mettre un réveil
+    # A timer that rings at a clock time: "mets un réveil à sept heures et
+    # demie", "réveille-moi à 7 heures". Without du matin or du soir it is
+    # the next time that comes round.
+    require: [[réveil, alarme, réveille moi, réveillez moi]]
+    optional: [[mets, règle, programme], [à, pour]]
+    wildcard: {slot: time, after: [à, pour], to_end: true, max_words: 7}
+    timer: alarm
+    verbosity: specific
+    response:
+      missing_time: Pour quelle heure dois-je mettre le réveil ?
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: annuler un minuteur
+    require: [[annule, annuler, arrête, arrêter, supprime, supprimer, stoppe], [minuteur, minuterie, timer]]
+    optional: [[minutes, minute, secondes, seconde, heures, heure], [appelé, nommé], [de]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: cancel
+    verbosity: specific
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: annuler tous les minuteurs
+    require: [[annule, annuler, arrête, arrêter, supprime, supprimer, stoppe], [tous], [minuteurs, minuteur, minuteries, timers]]
+    timer: cancel_all
+    verbosity: specific
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: mettre un minuteur en pause
+    require: [[pause, mets ... en pause, mais ... en pause, suspends], [minuteur, minuterie, timer]]
+    optional: [[minutes, minute, secondes, seconde, heures, heure], [appelé, nommé], [de]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: pause
+    verbosity: specific
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: reprendre un minuteur
+    require: [[reprends, reprendre, relance, relancer, redémarre], [minuteur, minuterie, timer]]
+    optional: [[minutes, minute, secondes, seconde, heures, heure], [appelé, nommé], [de]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: resume
+    verbosity: specific
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: savoir combien de temps il reste
+    examples: ["combien de temps reste t il", "il reste combien de temps"]
+    require: [[combien], [reste, restant, reste t il]]
+    optional: [[de temps], [il], [sur], [minuteur, minuterie, timer], [minutes, minute, secondes, seconde, heures, heure], [appelé, nommé], [de]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: ajouter du temps à un minuteur
+    # "Ajoute 5 minutes au minuteur pizza", "rajoute 2 minutes au minuteur".
+    require: [[ajoute, rajoute, ajouter, prolonge], [minuteur, minuterie, timer]]
+    optional: [[à, au, de], [minutes, minute, secondes, seconde, heures, heure], [appelé, nommé]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: add
+    verbosity: specific
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: enlever du temps à un minuteur
+    # "Enlève 2 minutes au minuteur", "retire 2 minutes du minuteur pizza".
+    require: [[enlève, enlever, retire, retirer, raccourcis], [minuteur, minuterie, timer]]
+    optional: [[à, au, du, de], [minutes, minute, secondes, seconde, heures, heure], [appelé, nommé]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: subtract
+    verbosity: specific

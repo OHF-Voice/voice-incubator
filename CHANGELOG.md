@@ -33,6 +33,13 @@
   particle the model writes onto the place before it is heard as one ("op
   de begane gronduit"). On 39 sentences spoken by four voices, 128 of 156
   do what was said; typed, all 39.
+- **French** (`fr`): NVIDIA's FastConformer hybrid and Piper's Siwis, the
+  whole library and every skill in French ("allume la lumière dans
+  l'entrée", "mets un minuteur de cinq minutes", "réveille-moi à sept
+  heures et demie", "combien de grammes dans une livre", "quand tombe
+  Pâques"). A name is heard with "l'" or "d'" joined to it ("l'entrée"), and
+  "mets" as the model often writes it ("mais"). On 38 sentences spoken by
+  four voices, 132 of 152 do what was said; typed, all 38.
 - **The speech-to-text entity hears the command from where the wake word
   check ended the wake word**, asked or streamed: on 205 test calls, a
   transcript from there began with a likely first word on 141, from where the
