@@ -1,0 +1,68 @@
+# Spanish sentences and what each must become with the Spanish library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). The
+# home: these names, the devices in these rooms, a satellite in the despacho.
+# Numbers are written as said, for text-to-speech.
+names:
+  areas:
+    cocina: Cocina
+    salon: Salón
+    dormitorio: Dormitorio
+    bano: Baño
+    despacho: Despacho
+  floors:
+    planta_baja: Planta baja
+    primera_planta: Primera planta
+  entities:
+    light.lampara_de_pie: Lámpara de pie
+    light.lampara_pequena: Lámpara pequeña
+    fan.ventilador_de_techo: Ventilador de techo
+    media_player.cocina: Altavoz de la cocina
+    climate.termostato: Termostato
+    cover.claraboya: Claraboya
+    lock.puerta_principal: Puerta principal
+rooms:
+  fan.ventilador_de_techo: dormitorio
+  media_player.cocina: cocina
+satellite: despacho
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Enciende la luz del salón.", turn_on_place, {area: [salon]}, "del + area"]
+  - ["Apaga la luz de la cocina.", turn_off_place, {area: [cocina]}, "de la + area"]
+  - ["Apaga las luces del dormitorio.", turn_off_place, {area: [dormitorio]}, "plural keyword"]
+  - ["Enciende la luz en el baño.", turn_on_place, {area: [bano]}, "en el + area"]
+  - ["Prende las luces de la cocina.", turn_on_place, {area: [cocina]}, "prende, as Latin America says it"]
+  - ["Enciende la lámpara de pie.", turn_on_device, {entity: [light.lampara_de_pie]}, "a device's name with de"]
+  - ["Apaga la lámpara pequeña.", turn_off_device, {entity: [light.lampara_pequena]}, "adjective after its noun"]
+  - ["Enciende el ventilador de techo del dormitorio.", turn_on_device, {entity: [fan.ventilador_de_techo], area: [dormitorio]}, "device + area"]
+  - ["Apaga todas las luces de la planta baja.", turn_off_place, {floor: [planta_baja]}, "floor"]
+  - ["Enciende la luz de la primera planta.", turn_on_place, {floor: [primera_planta]}, "floor"]
+  - ["¿Qué hora es?", what_time, {}, "a question"]
+  - ["¿Está encendida la lámpara de pie?", any_lights_on_device, {entity: [light.lampara_de_pie], asked: "on"}, "asking a device"]
+  - ["Pon la lámpara de pie en azul.", light_color_device, {entity: [light.lampara_de_pie], color: blue}, "a value"]
+  - ["Pon el brillo del salón al cincuenta por ciento.", set_brightness_place, {area: [salon], percentage: 50}, "a number"]
+  - ["Pon el termostato a veintidós grados.", set_temperature_device, {entity: [climate.termostato], temperature: 22}, "a device and a number"]
+  - ["Abre las persianas.", open_covers_here, {device_class: shutter}, "open"]
+  - ["Cierra las cortinas de la primera planta.", close_covers_place, {floor: [primera_planta], device_class: curtain}, "close, a floor"]
+  - ["¿Está abierta la claraboya?", are_covers_open_device, {entity: [cover.claraboya], asked: open}, "asking a cover"]
+  - ["Bloquea la puerta principal.", lock, {entity: [lock.puerta_principal]}, "bloquea"]
+  - ["Desbloquea la puerta principal.", unlock, {entity: [lock.puerta_principal]}, "desbloquea"]
+  - ["¿Está cerrada con llave la puerta principal?", is_locked, {entity: [lock.puerta_principal], asked: locked}, "asking a lock"]
+  - ["¿Qué día es hoy?", what_date, {}, "a question"]
+  - ["Pon jazz.", play_music_here, {query: jazz}, "free text"]
+  - ["Pon jazz en la cocina.", play_music_place, {area: [cocina], query: jazz}, "free text, then a place"]
+  - ["Pausa la música.", pause_music_here, {}, "music"]
+  - ["Pon el volumen al treinta por ciento.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["¿Qué suena en la cocina?", whats_playing_place, {area: [cocina]}, "music, a place"]
+  - ["Pasa la música al altavoz de la cocina.", move_music_device, {entity: [media_player.cocina]}, "music, a device"]
+  - ["Más alto.", volume_up_here, {}, "two words"]
+  - ["Siguiente canción.", next_track_here, {}, "music"]
+  - ["Añade leche a la lista de la compra.", shopping_list_add, {item: leche}, "free text between keywords"]
+  - ["Pon un temporizador de cinco minutos.", start_timer, {duration: 300}, "a duration"]
+  - ["Temporizador de media hora.", start_timer, {duration: 1800}, "a duration said with its unit"]
+  - ["Pon un temporizador llamado pizza de diez minutos.", start_timer, {duration: 600, timer: pizza}, "a named timer"]
+  - ["Pon un temporizador de diez minutos para la pizza.", start_timer, {duration: 600, timer: pizza}, "a timer for something"]
+  - ["Despiértame a las siete y media.", set_alarm, {time: siete y media}, "a clock time"]
+  - ["Cancela el temporizador.", cancel_timer, {}, "a timer"]
+  - ["¿Cuánto tiempo le queda al temporizador?", timer_status, {}, "a timer question"]
+  - ["Olvídalo.", never_mind, {}, "an example sentence"]

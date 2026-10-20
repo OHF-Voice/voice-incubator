@@ -40,6 +40,19 @@
   Pâques"). A name is heard with "l'" or "d'" joined to it ("l'entrée"), and
   "mets" as the model often writes it ("mais"). On 38 sentences spoken by
   four voices, 135 of 152 do what was said; typed, all 38.
+- **Spanish** (`es`): NVIDIA's FastConformer hybrid and Piper's Davefx, the
+  whole library and every skill in Spanish ("enciende la luz del salón",
+  "baja las persianas", "pon un temporizador de media hora para la pizza",
+  "despiértame a las siete y media", "¿cuántos días faltan para Navidad?").
+  Numbers are heard as said before a noun ("veintiún grados", "treinta y una
+  horas"; French "vingt et une minutes" too), and a count and a half after
+  its unit ("dos minutos y medio", "deux heures et demie"). "Pon un
+  temporizador" or "pon una alarma" alone asks how long or when, rather than
+  playing music called that. On 39 sentences spoken by four voices, 144 of
+  156 do what was said; typed, all 39.
+- French and Dutch timers take quarter hours ("un quart d'heure", "een
+  kwartier"), and a French duration after "de" is heard elided ("un minuteur
+  d'une heure").
 - **The speech-to-text entity hears the command from where the wake word
   check ended the wake word**, asked or streamed: on 205 test calls, a
   transcript from there began with a likely first word on 141, from where the
