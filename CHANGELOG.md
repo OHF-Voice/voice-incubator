@@ -15,7 +15,12 @@
   it ("das Küchenlicht"), durations ("eine halbe Stunde"), clock times
   ("halb sieben"), and "in der Küche" said with the room's gender. On 47
   sentences spoken by five voices, 214 of 235 do what was said; typed, all
-  47. No skills, GLiNER or wake word second opinion in German yet. Timer names and
+  47. Its skills are German's: "wie schreibt man notwendig", "was ist zwölf
+  mal acht", "wann ist Ostern", "wie viele Gramm hat ein Pfund", "was ist
+  45 Minuten nach 15 Uhr" -- German units (a Pfund is 500 g; metric spoons
+  and cup), German holidays (written in German or English on the page), a
+  24-hour clock, decimal commas. No GLiNER (it doesn't understand German)
+  or wake word second opinion in German yet. Timer names and
   music titles are compared with their accented letters ("Beyoncé"), not
   without. `commands.yaml` says what its commands are in
   (`language:`, new files `en`), and the Home page says when that is not the

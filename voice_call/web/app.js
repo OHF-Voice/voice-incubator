@@ -1788,7 +1788,7 @@ function unitsEditor(settings) {
         }
         tables.volume();
       } }, ...Object.entries(presets).map(([id, p]) => h("option", { value: id, selected: id === volumes }, p.name))),
-      "Sets the sizes of the fluid ounce, pint, quart and gallon, and of the cup and spoons: imperial's are metric (250, 15 and 5 mL), as UK recipes use. “An imperial pint” or “a US cup” in a question is that one, whichever is set.") : null;
+      "Sets the sizes of the fluid ounce, pint, quart and gallon, and of the cup and spoons (imperial's and metric's are 250, 15 and 5 mL, as UK and German recipes use). “An imperial pint” or “a US cup” in a question is that one, whichever is set.") : null;
     return h("details", { class: "settings-group" },
       h("summary", {}, icon("mdi:chevron-right", "chevron"), h("span", { class: "title" }, MEASURE_NAMES[measure] || measure), summary),
       h("div", { class: "group-body" }, preset, table.el));
@@ -1796,7 +1796,7 @@ function unitsEditor(settings) {
   return {
     el: h("div", {},
       precision.el,
-      heading("h3", "Units", "What it converts between. A unit's size is in its measure's base unit: a cup is 236.6 milliliters. A temperature scale is set by where water freezes and boils on it. Volumes are US customary or imperial: Measures, under Volume. Yours are marked at the left."),
+      heading("h3", "Units", "What it converts between. A unit's size is in its measure's base unit: a cup is 236.6 milliliters. A temperature scale is set by where water freezes and boils on it. Volumes come in measures (US customary, imperial ...): Measures, under Volume. Yours are marked at the left."),
       h("div", { class: "settings-groups" }, ...groups),
       putBack(removed, (u) => { (byMeasure[u.measures] ||= []).push(u); tables[u.measures]?.(); }, "units")),
     value: () => ({

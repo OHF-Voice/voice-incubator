@@ -1,7 +1,7 @@
 """German: NVIDIA's FastConformer hybrid (stt_de_fastconformer_hybrid_large_pc)
-for matching, its transducer for writing, and Piper's Thorsten. No skills or
-GLiNER yet, and no second opinion on the wake word (not calibrated for this
-model).
+for matching, its transducer for writing, Piper's Thorsten, and every skill
+(skills/). No GLiNER (it doesn't understand German), and no second opinion
+on the wake word (not calibrated for this model).
 
 Names are heard with German's endings ("des Wohnzimmers", "den kleinen
 Ventilator": adapt-ctc's ``name_endings``, from the language) and a room
@@ -35,7 +35,7 @@ PACK = Pack(
             "musik", "lautsprecher",
         ],
     },
-    skills=(),
+    skills=("spelling", "dates", "clock", "units", "arithmetic"),
     gliner=False,
     directory=Path(__file__).parent,
 )

@@ -127,3 +127,27 @@ def test_the_bench_typed(code):
         assert not wrong
     finally:
         languages.use(languages.DEFAULT)
+
+
+SKILL_GRAMMAR = {
+    "numbers": ("DECIMAL", "THOUSANDS", "normalize", "sentence"),
+    "live": ("is_live",),
+    "spelling": ("EXAMPLES", "answer"),
+    "arithmetic": ("EXAMPLES", "answer"),
+    "clock": ("EXAMPLES", "answer", "HOURS"),
+    "dates": ("EXAMPLES", "answer", "HOLIDAYS", "WHEN_EXAMPLES", "when", "key"),
+    "units": ("EXAMPLES", "answer", "UNITS", "VOLUMES", "VOLUME_NAMES", "DEFAULT_VOLUMES", "QUALIFIED", "OUNCE",
+              "FLUID_OUNCE", "plural_of", "key", "read_unit", "forms", "temperature_pattern"),
+}
+"""What voice_call/skills takes from a language's skills/<name>.py."""
+
+
+@pytest.mark.parametrize("code", languages.codes())
+def test_every_language_reads_its_skills(code):
+    pack = languages.load(code)
+    for name in ("numbers", "live", *pack.skills) if pack.skills else ():
+        module = pack.grammar(name)
+        missing = [attr for attr in SKILL_GRAMMAR[name] if not hasattr(module, attr)]
+        assert not missing, f"{code} skills/{name}.py lacks {missing}"
+        if name == "units":
+            assert module.DEFAULT_VOLUMES in module.VOLUMES and set(module.VOLUME_NAMES) == set(module.VOLUMES)

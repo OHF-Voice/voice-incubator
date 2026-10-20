@@ -694,8 +694,10 @@ commands:
   command library and skills (default: `en`, English; or `de`, German). One
   at a time: commands are in one language (`commands.yaml` `language:`), and
   the Home page says when they are not the app's. The web UI is in English.
-  German has no skills yet, no GLiNER step in the fallback, and no second
-  opinion on the wake word (Kaldi alone decides). Its models come with the
+  German's skills are asked and answered in German, with German units
+  (a Pfund is 500 g; metric spoons and cup), German holidays and a 24-hour
+  clock; it has no GLiNER step in the fallback, and no second opinion on
+  the wake word (Kaldi alone decides). Its models come with the
   app: NVIDIA's `stt_de_fastconformer_hybrid_large_pc` (CC-BY-4.0, about
   350 MB) and Piper's Thorsten; without them the app says which are
   missing.
