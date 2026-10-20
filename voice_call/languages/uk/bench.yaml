@@ -1,0 +1,72 @@
+# Ukrainian sentences and what each must become with the Ukrainian library,
+# for scripts/bench_language.py (spoken) and tests/test_languages.py (typed).
+# The home: these names, the devices in these rooms, a satellite in the
+# кабінет. Numbers are written as said, for text-to-speech; names are heard in
+# their cases ("у вітальні", "на першому поверсі", "кухонну колонку").
+names:
+  areas:
+    kukhnia: Кухня
+    vitalnia: Вітальня
+    spalnia: Спальня
+    vanna: Ванна
+    kabinet: Кабінет
+  floors:
+    pershyi_poverkh: Перший поверх
+    druhyi_poverkh: Другий поверх
+  entities:
+    light.nastilna_lampa: Настільна лампа
+    light.nichnyk: Нічник
+    fan.ventyliator: Вентилятор
+    media_player.kukhnia: Кухонна колонка
+    climate.termostat: Термостат
+    cover.mansardne_vikno: Мансардне вікно
+    lock.vkhidni_dveri: Вхідні двері
+rooms:
+  fan.ventyliator: spalnia
+  media_player.kukhnia: kukhnia
+satellite: kabinet
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Увімкни світло у вітальні.", turn_on_place, {area: [vitalnia]}, "у + locative"]
+  - ["Вимкни світло на кухні.", turn_off_place, {area: [kukhnia]}, "на + locative"]
+  - ["Вимкніть світло в спальні.", turn_off_place, {area: [spalnia]}, "ви, and в for у"]
+  - ["Увімкни світло у ванній.", turn_on_place, {area: [vanna]}, "a room named by an adjective"]
+  - ["Ввімкни лампу на кухні.", turn_on_place, {area: [kukhnia]}, "ввімкни, a light in the accusative"]
+  - ["Увімкни настільну лампу.", turn_on_device, {entity: [light.nastilna_lampa]}, "a device declined"]
+  - ["Вимкни нічник.", turn_off_device, {entity: [light.nichnyk]}, "a device"]
+  - ["Увімкни вентилятор у спальні.", turn_on_device, {entity: [fan.ventyliator], area: [spalnia]}, "device + area"]
+  - ["Вимкни все світло на першому поверсі.", turn_off_place, {floor: [pershyi_poverkh]}, "a floor declined"]
+  - ["Увімкни світло на другому поверсі.", turn_on_place, {floor: [druhyi_poverkh]}, "a floor declined"]
+  - ["Котра година?", what_time, {}, "a question"]
+  - ["Чи увімкнена настільна лампа?", any_lights_on_device, {entity: [light.nastilna_lampa], asked: "on"}, "asking a device"]
+  - ["Зроби настільну лампу синьою.", light_color_device, {entity: [light.nastilna_lampa], color: blue}, "a value in the instrumental"]
+  - ["Встанови яскравість у вітальні на п'ятдесят відсотків.", set_brightness_place, {area: [vitalnia], percentage: 50}, "a number"]
+  - ["Постав термостат на двадцять два градуси.", set_temperature_device, {entity: [climate.termostat], temperature: 22}, "a device and a number"]
+  - ["Підніми ролети.", open_covers_here, {device_class: shutter}, "open"]
+  - ["Закрий штори на другому поверсі.", close_covers_place, {floor: [druhyi_poverkh], device_class: curtain}, "close, a floor"]
+  - ["Чи відчинене мансардне вікно?", are_covers_open_device, {entity: [cover.mansardne_vikno], asked: open}, "asking a cover"]
+  - ["Замкни вхідні двері.", lock, {entity: [lock.vkhidni_dveri]}, "замкни"]
+  - ["Відімкни вхідні двері.", unlock, {entity: [lock.vkhidni_dveri]}, "відімкни"]
+  - ["Чи замкнені вхідні двері?", is_locked, {entity: [lock.vkhidni_dveri], asked: locked}, "asking a lock"]
+  - ["Яке сьогодні число?", what_date, {}, "a question"]
+  - ["Увімкни класичну музику.", play_music_here, {query: класичну музику}, "free text"]
+  - ["На кухні постав класичну музику.", play_music_place, {area: [kukhnia], query: класичну музику}, "a place, then free text"]
+  - ["Постав класичну музику на кухні.", play_music_place, {area: [kukhnia], query: класичну музику}, "free text, then a place declined"]
+  - ["Постав музику на паузу.", pause_music_here, {}, "music"]
+  - ["Встанови гучність на тридцять відсотків.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["Що грає на кухні?", whats_playing_place, {area: [kukhnia]}, "music, a place"]
+  - ["Перенеси музику на кухонну колонку.", move_music_device, {entity: [media_player.kukhnia]}, "music, a device declined"]
+  - ["Гучніше.", volume_up_here, {}, "one word"]
+  - ["Наступна пісня.", next_track_here, {}, "music"]
+  - ["Додай молоко до списку покупок.", shopping_list_add, {item: молоко}, "free text between keywords"]
+  - ["Постав таймер на п'ять хвилин.", start_timer, {duration: 300}, "a duration"]
+  - ["Таймер на дві хвилини.", start_timer, {duration: 120}, "a feminine number"]
+  - ["Таймер на півгодини.", start_timer, {duration: 1800}, "half an hour"]
+  - ["Постав таймер борщ на десять хвилин.", start_timer, {duration: 600, timer: борщ}, "a named timer"]
+  - ["Постав таймер на десять хвилин для пасти.", start_timer, {duration: 600, timer: пасти}, "a timer for something, in the genitive"]
+  - ["Розбуди мене о сьомій тридцять.", set_alarm, {time: сьомій тридцять}, "a clock time"]
+  - ["Постав будильник на пів на восьму.", set_alarm, {time: пів на восьму}, "half to the hour"]
+  - ["Скасуй таймер.", cancel_timer, {}, "a timer"]
+  - ["Скільки часу залишилось на таймері?", timer_status, {}, "a timer question"]
+  - ["Забудь.", never_mind, {}, "an example sentence"]

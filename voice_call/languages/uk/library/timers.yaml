@@ -1,0 +1,179 @@
+# Timers (Ukrainian), as the English library's timers.yaml: on the satellite
+# that set them, with the Voice Call integration in Home Assistant. A timer is
+# picked out by:
+#   timer_name  a running timer's name: "скасуй таймер піца"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "таймер піца на десять хвилин", "таймер на
+#               десять хвилин для піци", "таймер з назвою паста"
+#   duration    "таймер на п'ять хвилин"
+# or it is the only one running. Ukrainian names a timer after the word
+# ("таймер піца") or after "для" in the genitive ("для піци"), which matches
+# the running "піца" loosely.
+#
+# The model may hear "таймер" as "тамер", "таймера" as "тамера".
+title: Timers
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: поставити таймер
+    # "Постав таймер на п'ять хвилин", "таймер на півгодини", "постав таймер
+    # піца на десять хвилин", "постав таймер на десять хвилин для піци".
+    # Asked for without how long ("постав таймер"), it asks: "постав" would
+    # otherwise play music called "таймер".
+    require: [[таймер, тамер]]
+    optional: [[постав, поставте, встанови, встановіть, запусти, запустіть, заведи, увімкни, ввімкни, включи],
+               [на], [для, з назвою, під назвою, назва]]
+    wildcard: {slot: timer, after: [таймер, тамер, для, з назвою, під назвою, назва], before: [на]}
+    # Quarters too ("чверть години", "три чверті години"), and halves and
+    # quarters as likely as whole numbers ("півтори години", "дві з половиною
+    # хвилини").
+    number:
+      preset: duration
+      min: 0.25
+      step: 0.25
+      prior:
+        - {when: [секунд, секунди, секунда, секунду], multiple_of: 5, cost: 0}
+        - {when: [секунд, секунди, секунда, секунду], cost: 2.5}
+        - {multiple_of: 0.25, cost: 0}
+        - {cost: 1.0}
+    # Each said whole.
+    combinations: [[], [timer], [duration], [duration, timer]]
+    exclude: [скасуй, вимкни, зупини, видали, скільки, залишилось, додай, відніми, зменш, призупини, продовж]
+    timer: start
+    verbosity: specific
+
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: поставити будильник
+    # A timer that rings at a clock time: "постав будильник на сьому
+    # тридцять", "розбуди мене о сьомій", "будильник на пів на восьму".
+    # Without "ранку" or "вечора" it is the next time that comes round.
+    require: [[будильник, будильника, розбуди, розбудіть, збуди, збудіть, буди]]
+    optional: [[постав, поставте, встанови, встановіть, заведи, увімкни], [мене, нас], [на, о, об]]
+    # After "будильник" too: "на пів на восьму" may be heard "напів на восьму".
+    wildcard: {slot: time, after: [будильник, мене, на, о, об], to_end: true, max_words: 7}
+    exclude: [скасуй, скасуйте, вимкни, вимкніть, видали, зупини, прибери, скільки, чи]
+    # Without a time it asks for one ("постав будильник"): "постав" would
+    # otherwise play music called "будильник".
+    combinations: [[], [time]]
+    timer: alarm
+    verbosity: specific
+    response:
+      missing_time: На котру годину поставити будильник?
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: скасувати таймер
+    examples: ["(скасуй|вимкни|зупини) таймер", "(скасуй|вимкни) будильник"]
+    require: [[скасуй, скасуйте, скасувати, вимкни, вимкніть, зупини, зупиніть, видали, відміни], [таймер, тамер,
+              таймера, будильник, будильника]]
+    optional: [[хвилин, хвилини, хвилину, секунд, секунди, секунду, годин, години, годину], [на],
+               [для, з назвою, під назвою]]
+    # Not a new one: "постав таймер для піци".
+    exclude: [постав, встанови, запусти, заведи, всі, усі]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [таймер, тамер, для, з назвою, під назвою]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: cancel
+    verbosity: specific
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: скасувати всі таймери
+    require: [[скасуй, скасуйте, вимкни, вимкніть, зупини, видали], [всі, усі], [таймери, таймер, тамери]]
+    timer: cancel_all
+    verbosity: specific
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: призупинити таймер
+    require: [[призупини, призупиніть, пауза, паузу, на паузу], [таймер, тамер, таймери]]
+    optional: [[хвилин, хвилини, хвилину, секунд, секунди, секунду, годин, години, годину], [на, постав],
+               [для, з назвою, під назвою]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [таймер, тамер, для, з назвою, під назвою]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: pause
+    verbosity: specific
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: продовжити таймер
+    require: [[продовж, продовжте, віднови, відновіть, зніми з паузи, запусти знову], [таймер, тамер, таймери]]
+    optional: [[хвилин, хвилини, хвилину, секунд, секунди, секунду, годин, години, годину], [на],
+               [для, з назвою, під назвою]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [таймер, тамер, для, з назвою, під назвою]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: resume
+    verbosity: specific
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: дізнатися, скільки залишилося на таймері
+    examples: ["скільки часу залишилось", "скільки залишилось на таймері", "скільки ще залишилось", "скільки ще"]
+    require: [[скільки], [залишилось, залишилося, лишилось, лишилося, залишається, ще]]
+    optional: [[часу, хвилин], [на, до кінця], [таймері, таймера, таймеру, тамері, будильника],
+               [хвилин, хвилини, хвилину, секунд, секунди, секунду, годин, години, годину],
+               [для, з назвою, під назвою]]
+    # A date: "скільки днів залишилось до Різдва".
+    exclude: [днів, дні, тижнів, місяців, років, до різдва]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [таймері, тамері, таймера, для, з назвою, під назвою]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: додати час до таймера
+    # "Додай п'ять хвилин до таймера", "збільш таймер піца на дві хвилини".
+    require: [[додай, додайте, збільш, збільште], [таймер, таймера, таймеру, тамер, тамера]]
+    optional: [[до, на], [хвилин, хвилини, хвилину, секунд, секунди, секунду, годин, години, годину],
+               [для, з назвою, під назвою]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [таймера, таймер, тамера, для, з назвою, під назвою], before: [на]}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: add
+    verbosity: specific
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: зменшити час на таймері
+    # "Відніми дві хвилини від таймера", "зменш таймер на дві хвилини".
+    require: [[відніми, відніміть, зменш, зменште, скороти, забери], [таймер, таймера, таймеру, тамер, тамера]]
+    optional: [[від, з, на], [хвилин, хвилини, хвилину, секунд, секунди, секунду, годин, години, годину],
+               [для, з назвою, під назвою]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [таймера, таймер, тамера, для, з назвою, під назвою], before: [на]}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: subtract
+    verbosity: specific
