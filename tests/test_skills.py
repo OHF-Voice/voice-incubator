@@ -258,6 +258,34 @@ def test_units_added_changed_and_taken_out():
     assert [u["name"] for u in Settings.load(stored).to_json()["removed"]] == ["stone"]
 
 
+def test_imperial_volumes():
+    from voice_call.skills.units import VOLUMES, Settings
+
+    page = Settings().to_json()
+    assert page["volumes"] == "us" and page["presets"]["imperial"]["name"] == "Imperial (UK)"
+    # The page picks imperial: its sizes, set on the volumes it has.
+    sizes = page["presets"]["imperial"]["sizes"]
+    edited = [u | {"size": sizes[u["name"]]} if u["name"] in sizes else u for u in page["units"]]
+    stored = Settings.store({"volumes": "imperial", "units": edited, "digits": 4})
+    assert stored == {"volumes": "imperial"}
+    imperial = Settings.load(stored)
+    assert all(u["built_in"] for u in imperial.to_json()["units"])
+    assert answered("how many fluid ounces are in a pint", units=stored) == "It's 20."
+    assert answered("how many pints are in a gallon", units=stored) == "It's 8."
+    assert answered("how many milliliters are in a cup", units=stored) == "It's 250."
+    # Said with its measures, a volume is theirs, whichever are set.
+    assert answered("how many milliliters are in a US pint", units=stored) == "It's 473.2."
+    assert answered("how many milliliters are in an imperial pint") == "It's 568.3."
+    assert answered("how many US fluid ounces are in a British pint") == "It's 19.22."
+    # A change on top of imperial is stored as one.
+    edited = [u | {"size": 240} if u["name"] == "cup" else u for u in imperial.to_json()["units"]]
+    assert Settings.store({"volumes": "imperial", "units": edited}) == {
+        "volumes": "imperial", "units": {"cup": {"measures": "volume", "size": 240}}}
+    assert set(VOLUMES["us"]) == set(VOLUMES["imperial"])
+    with pytest.raises(ValueError, match="volumes: one of us, imperial"):
+        Settings.load({"volumes": "metric"})
+
+
 @pytest.mark.parametrize(
     ("units", "error"),
     [

@@ -3,8 +3,10 @@
 ## 0.2.0
 
 - **Skills have settings**, on their pages. Unit conversions: its units
-  (change, take out or add one, each with its size, plural and other names;
-  imperial volumes are a few edits) and their precision. Spelling: words
+  (change, take out or add one, each with its size, plural and other names),
+  US or imperial volumes (the UK pint and gallon, metric cup and spoons;
+  "an imperial pint" or "a US cup" is that one either way), and their
+  precision. Spelling: words
   spelled your way ("colour", a name, "my last name"). Dates: its holidays
   (change, take out or add one: "December 25", "fourth Thursday of
   November", "2 days before Easter", "June 20 2027"). Clock arithmetic: a

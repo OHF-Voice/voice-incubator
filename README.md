@@ -1383,8 +1383,9 @@ built-in, so built-in units and holidays left alone follow updates.
 ```yaml
 skill_settings:
   units:
+    volumes: imperial      # the built-in volumes' sizes (units.VOLUMES; us)
     units:                 # by name: a unit, or false for a built-in one taken out
-      pint: {measures: volume, size: 568.26125}          # imperial
+      cup: {measures: volume, size: 240}
       nautical mile: {measures: length, size: 1852, also: [nmi]}
       Rankine: {measures: temperature, freezes: 491.67, boils: 671.67}
       stone: false
@@ -1402,7 +1403,11 @@ skill_settings:
 
 A unit's size is in its measure's base unit (`units.MEASURES`: meters,
 square meters, milliliters, grams, seconds, bytes); a temperature scale is
-two points instead, where water freezes and boils. A holiday's `when` is read
+two points instead, where water freezes and boils. `volumes` sets the
+built-in volumes' sizes, and what a unit is compared with to store it:
+imperial is the UK fluid ounce, pint, quart and gallon, with the metric cup
+and spoons. A volume said with its measures ("an imperial pint", "a US
+cup", `units.QUALIFIED`) is theirs whichever are set. A holiday's `when` is read
 by `dates.when`: a date, the nth or last weekday of a month, Easter or days
 or weeks before or after one of those, or a date with its year (once).
 Settings that can't be read -- edited by hand -- are logged and the built-in

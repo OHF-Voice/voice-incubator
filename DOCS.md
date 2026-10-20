@@ -551,8 +551,10 @@ Its page has the skill's **settings** too, the same wherever it's added:
   plural, other names ("mm"), and a size in its measure's base unit: a cup
   is 236.6 milliliters. A temperature scale is set by where water freezes
   and boils on it. Change a unit, take one out, or add your own ("nautical
-  mile", 1852 meters). Volumes are US customary as built in; for imperial, a
-  pint is 568.26 mL, a fluid ounce 28.41, a gallon 4546.09. **Precision**:
+  mile", 1852 meters). **Measures**, under Volume: US customary (the
+  default) or imperial -- the UK fluid ounce, pint, quart and gallon, and the
+  metric cup and spoons (250, 15 and 5 mL) UK recipes use. "An imperial
+  pint" or "a US cup" in a question is that one, whichever is set. **Precision**:
   significant digits in an answer that isn't whole, 4 unless set ("8.047
   kilometers"); whole numbers are said in full.
 - **Spelling**: words spelled your way. Asked to spell "color", it can say

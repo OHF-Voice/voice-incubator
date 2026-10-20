@@ -1738,9 +1738,12 @@ function holidaysEditor(settings) {
   };
 }
 
-// Units, grouped by what they measure (collapsed), each group a table.
+// Units, grouped by what they measure (collapsed), each group a table;
+// volumes US customary or imperial (a preset of their sizes).
 function unitsEditor(settings) {
   const measures = settings.measures || {};
+  const presets = settings.presets || {};
+  let volumes = settings.volumes || "us";
   const byMeasure = Object.fromEntries(Object.keys(measures).map((m) => [m, []]));
   for (const u of clone(settings.units || [])) (byMeasure[u.measures] ||= []).push({ ...u, also: namesText(u.also) });
   const removed = clone(settings.removed || []).map((u) => ({ ...u, also: namesText(u.also) }));
@@ -1763,23 +1766,39 @@ function unitsEditor(settings) {
     ];
     const table = editTable(units, columns, () => ({ name: "", measures: measure, plural: "", also: "", size: null, freezes: null, boils: null, fresh: true }),
       "Add a unit", (u) => u.built_in === false ? "yours" : null);
-    const show = () => { summary.textContent = units.map((u) => u.name).filter(Boolean).join(", ") || "none"; };
+    const show = () => {
+      const names = units.map((u) => u.name).filter(Boolean).join(", ") || "none";
+      summary.textContent = measure === "volume" && presets[volumes] ? `${presets[volumes].name}: ${names}` : names;
+    };
     tables[measure] = () => { table.render(); show(); };
     table.el.addEventListener("click", (e) => { if (e.target.closest("button")) show(); });
     table.el.addEventListener("input", show);
     show();
+    // Volumes: choosing measures sets the sizes of those it has.
+    const preset = measure === "volume" && Object.keys(presets).length ? field("Measures",
+      h("select", { style: "max-width:240px", onchange: (e) => {
+        volumes = e.target.value;
+        const sizes = presets[volumes].sizes;
+        for (const u of [...units, ...removed]) {
+          const size = sizes[u.name.trim().toLowerCase()];
+          if (u.measures === "volume" && size !== undefined) u.size = size;
+        }
+        tables.volume();
+      } }, ...Object.entries(presets).map(([id, p]) => h("option", { value: id, selected: id === volumes }, p.name))),
+      "Sets the sizes of the fluid ounce, pint, quart and gallon, and of the cup and spoons: imperial's are metric (250, 15 and 5 mL), as UK recipes use. “An imperial pint” or “a US cup” in a question is that one, whichever is set.") : null;
     return h("details", { class: "settings-group" },
       h("summary", {}, icon("mdi:chevron-right", "chevron"), h("span", { class: "title" }, MEASURE_NAMES[measure] || measure), summary),
-      h("div", { class: "group-body" }, table.el));
+      h("div", { class: "group-body" }, preset, table.el));
   });
   return {
     el: h("div", {},
       precision.el,
-      heading("h3", "Units", "What it converts between. A unit's size is in its measure's base unit: a cup is 236.6 milliliters. A temperature scale is set by where water freezes and boils on it. Volumes are US customary as built in; for imperial, a pint is 568.26 mL, a fluid ounce 28.41, a gallon 4546.09. Yours are marked at the left."),
+      heading("h3", "Units", "What it converts between. A unit's size is in its measure's base unit: a cup is 236.6 milliliters. A temperature scale is set by where water freezes and boils on it. Volumes are US customary or imperial: Measures, under Volume. Yours are marked at the left."),
       h("div", { class: "settings-groups" }, ...groups),
       putBack(removed, (u) => { (byMeasure[u.measures] ||= []).push(u); tables[u.measures]?.(); }, "units")),
     value: () => ({
       digits: precision.value(),
+      volumes,
       units: Object.values(byMeasure).flat().filter((u) => u.name.trim() || u.size != null || u.freezes != null).map((u) => (u.measures === "temperature"
         ? { name: u.name, measures: u.measures, freezes: u.freezes, boils: u.boils, also: namesList(u.also) }
         : { name: u.name, measures: u.measures, size: u.size, plural: u.plural || "", also: namesList(u.also) })),

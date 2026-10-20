@@ -4,13 +4,14 @@ kilometers", "100 Fahrenheit in Celsius".
 The units are set on its page (``UNITS`` unless changed): each a name, its
 plural, others it goes by, what it measures, and its size in that measure's
 base unit (``MEASURES``) -- a temperature scale, where water freezes and
-boils on it. Volumes are US customary as built in."""
+boils on it. Volumes are US customary as built in, or imperial
+(``VOLUMES``)."""
 
 from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from . import common
@@ -158,6 +159,33 @@ UNITS = (
 )
 """The built-in units."""
 
+VOLUMES = {
+    "us": {key(u.name): u.size for u in UNITS if u.measures == "volume" and u.name not in ("milliliter", "liter")},
+    "imperial": {
+        "teaspoon": 5,
+        "tablespoon": 15,
+        "fluid ounce": 28.4130625,
+        "cup": 250,
+        "pint": 568.26125,
+        "quart": 1136.5225,
+        "gallon": 4546.09,
+    },
+}
+"""The volumes' sizes, in milliliters, by measures: US customary (as built
+in) or imperial -- the UK fluid ounce, pint, quart and gallon, and the
+metric cup and spoons UK recipes use."""
+
+VOLUME_NAMES = {"us": "US customary", "imperial": "Imperial (UK)"}
+
+QUALIFIED = {"us": "us", "american": "us", "imperial": "imperial", "british": "imperial", "uk": "imperial"}
+"""Said before a volume ("an imperial pint"): its measures, whichever are set."""
+
+
+def built_in(volumes: str = "us") -> tuple[Unit, ...]:
+    """The built-in units, their volumes by ``volumes`` (``VOLUMES``)."""
+    sizes = VOLUMES[volumes]
+    return tuple(replace(u, size=sizes[key(u.name)]) if key(u.name) in sizes else u for u in UNITS)
+
 
 def _number(value: Any, what: str) -> float:
     if isinstance(value, bool) or value is None or value == "":
@@ -169,6 +197,14 @@ def _number(value: Any, what: str) -> float:
     if not math.isfinite(number):
         raise ValueError(f"{what}: a number")
     return number
+
+
+def _volumes(value: Any) -> str:
+    if value in (None, ""):
+        return "us"
+    if value not in VOLUMES:
+        raise ValueError(f"volumes: one of {', '.join(VOLUMES)}")
+    return value
 
 
 def _unit(name: Any, value: Any) -> Unit:
@@ -204,6 +240,8 @@ class Settings(common.Settings):
     units: tuple[Unit, ...] = UNITS
     digits: int = DIGITS
     """Significant digits in an answer that isn't whole."""
+    volumes: str = "us"
+    """The volumes' measures the built-in units have (``VOLUMES``)."""
     names: dict[str, Unit] = field(init=False, repr=False, compare=False)
     """Each name a unit goes by (``key``): its name, plural, others."""
     temperature: re.Pattern | None = field(init=False, repr=False, compare=False)
@@ -230,29 +268,33 @@ class Settings(common.Settings):
 
     @classmethod
     def load(cls, stored: Any) -> Settings:
-        """Stored: ``units``, by name -- a unit, or false for a built-in one
-        taken out -- and ``digits``."""
-        stored = options(stored, ("units", "digits"))
+        """Stored: ``volumes`` (``VOLUMES``: the built-in units' measures),
+        ``units`` by name -- a unit, or false for a built-in one taken out --
+        and ``digits``."""
+        stored = options(stored, ("volumes", "units", "digits"))
+        volumes = _volumes(stored.get("volumes"))
         changes = stored.get("units") or {}
         if not isinstance(changes, dict):
             raise ValueError("units: expected {name: unit}")
-        units = {key(u.name): u for u in UNITS}
+        units = {key(u.name): u for u in built_in(volumes)}
         for name, value in changes.items():
             if value is False:
                 units.pop(key(str(name)), None)
             else:
                 unit = _unit(name, value)
                 units[key(unit.name)] = unit
-        return cls(tuple(units.values()), common.digits(stored.get("digits")))
+        return cls(tuple(units.values()), common.digits(stored.get("digits")), volumes)
 
     def to_json(self) -> dict[str, Any]:
-        built_in = {key(u.name): u for u in UNITS}
+        base = {key(u.name): u for u in built_in(self.volumes)}
         here = {key(u.name) for u in self.units}
         return {
-            "units": [u.to_json() | {"built_in": built_in.get(key(u.name)) == u} for u in self.units],
-            "removed": [u.to_json() | {"built_in": True} for k, u in built_in.items() if k not in here],
+            "units": [u.to_json() | {"built_in": base.get(key(u.name)) == u} for u in self.units],
+            "removed": [u.to_json() | {"built_in": True} for k, u in base.items() if k not in here],
             "digits": self.digits,
             "measures": MEASURES,
+            "volumes": self.volumes,
+            "presets": {name: {"name": VOLUME_NAMES[name], "sizes": sizes} for name, sizes in VOLUMES.items()},
         }
 
     @classmethod
@@ -260,7 +302,8 @@ class Settings(common.Settings):
         """The page sends every unit (``units``: ``[{name, measures, size,
         plural, also}]``) and ``digits``: stored, the built-in ones left out
         (false), changed, and added."""
-        edited = options(edited, ("units", "digits", "removed", "measures"))
+        edited = options(edited, ("volumes", "units", "digits", "removed", "measures", "presets"))
+        volumes = _volumes(edited.get("volumes"))
         items = edited.get("units") or []
         if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise ValueError("units: expected a list of units")
@@ -276,11 +319,13 @@ class Settings(common.Settings):
         for unit in units:
             if given.setdefault(key(unit.name), unit) is not unit:
                 raise ValueError(f"{unit.name} is given twice")
-        settings = cls(tuple(units), common.digits(edited.get("digits")))
-        built_in = {key(u.name): u for u in UNITS}
-        changes: dict[str, Any] = {u.name: False for k, u in built_in.items() if k not in given}
-        changes |= {u.name: u.stored() for k, u in given.items() if built_in.get(k) != u}
+        settings = cls(tuple(units), common.digits(edited.get("digits")), volumes)
+        base = {key(u.name): u for u in built_in(volumes)}
+        changes: dict[str, Any] = {u.name: False for k, u in base.items() if k not in given}
+        changes |= {u.name: u.stored() for k, u in given.items() if base.get(k) != u}
         out: dict[str, Any] = {}
+        if volumes != "us":
+            out["volumes"] = volumes
         if changes:
             out["units"] = changes
         if settings.digits != DIGITS:
@@ -288,18 +333,27 @@ class Settings(common.Settings):
         return out or None
 
     def unit(self, text: str) -> Unit | None:
-        """The unit ``text`` names: "a cup", "US quarts", "kilos"."""
+        """The unit ``text`` names: "a cup", "US quarts", "kilos". A volume
+        said with its measures ("an imperial pint", "a US cup") is theirs
+        (``QUALIFIED``), whichever are set."""
         s = key(text)
         tries = [s]
         s = re.sub(r"^(?:a|an|one|the)\s+", "", s)
         tries.append(s)
-        s = re.sub(r"^(?:us|american|imperial)\s+", "", s)
+        qualified = re.match(rf"^({'|'.join(QUALIFIED)})\s+", s)
+        measures = QUALIFIED[qualified.group(1)] if qualified else None
+        s = s[qualified.end():] if qualified else s
+        if re.search(r"\s+(?:in us cooking|us)$", s):
+            measures = "us"
         s = re.sub(r"\s+(?:in us cooking|in cooking|us)$", "", s)
         tries.append(s)
         for name in dict.fromkeys(tries):
             for candidate in (name, re.sub(r"ies$", "y", name), re.sub(r"es$", "", name), re.sub(r"s$", "", name)):
                 if candidate in self.names:
-                    return self.names[candidate]
+                    unit = self.names[candidate]
+                    if name == s and measures and unit.measures == "volume" and key(unit.name) in VOLUMES[measures]:
+                        unit = replace(unit, size=VOLUMES[measures][key(unit.name)])
+                    return unit
         return None
 
     def ounces(self, a: Unit, b: Unit) -> tuple[Unit, Unit]:
@@ -385,7 +439,7 @@ def answer(text: str, settings: Settings = DEFAULT):
 SKILL = Skill(
     id="units",
     name="Unit conversions",
-    description="Converts lengths, areas, volumes (US cooking measures), weights, temperatures, times and data sizes.",
+    description="Converts lengths, areas, volumes (US or imperial measures), weights, temperatures, times and data sizes.",
     examples=("how many cups are in a quart", "what is 5 miles in kilometers", "100 Fahrenheit in Celsius"),
     icon="mdi:scale-balance",
     answer=answer,
