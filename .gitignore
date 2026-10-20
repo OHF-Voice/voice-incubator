@@ -3,12 +3,6 @@
 /models/
 /var/
 /calls/
-/_save_dir/
-/save_dir/
-/vpe_close/
-/vpe_far/
-/false negatives/
-/false positives/
 # Benchmark result dumps (several MB each); scripts/bench_corpus.py regenerates them.
 /tests/bench_*.jsonl
 # Staged for the image by script/stage_build.
