@@ -75,3 +75,22 @@ def test_unit_forms():
     assert dict(unit_forms("hour", "nl"))["een kwartier"] == Decimal("0.25")
     assert dict(unit_forms("hour", "es"))["una hora y media"] == Decimal("1.5")
     assert unit_words("minute", "en") == ("minute", "minutes") and unit_words("minute", "de-AT") == ("minute", "minuten")
+
+
+def test_a_number_before_its_noun():
+    # Spanish and French change a number's last word before a noun: "veintiún
+    # grados", "treinta y una horas", "vingt et une minutes" -- not 1 alone,
+    # which is an article too.
+    assert spoken_forms(Decimal(21), "es") == ["veintiuno", "veintiún", "veintiuna"]
+    assert spoken_forms(Decimal(31), "es") == ["treinta y uno", "treinta y un", "treinta y una"]
+    assert spoken_forms(Decimal(21), "fr") == ["vingt et un", "vingt et une"]
+    assert spoken_forms(Decimal(1), "es") == ["uno"] and spoken_forms(Decimal(1), "fr") == ["un"]
+
+
+def test_a_count_and_a_half_after_its_unit():
+    spanish = dict(unit_forms("minute", "es")) | dict(unit_forms("hour", "es"))
+    assert spanish["dos minutos y medio"] == Decimal("2.5") and spanish["dos horas y media"] == Decimal("2.5")
+    assert spanish["veintiún minutos y medio"] == Decimal("21.5") and "veintiuna minutos y medio" not in spanish
+    french = dict(unit_forms("hour", "fr"))
+    assert french["deux heures et demie"] == Decimal("2.5") and french["vingt et une heures et demie"] == Decimal("21.5")
+    assert french["d'une heure"] == 1 and french["d'un quart d'heure"] == Decimal("0.25")

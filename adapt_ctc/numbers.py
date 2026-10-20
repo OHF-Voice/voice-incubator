@@ -76,7 +76,28 @@ def spoken_forms(value: Decimal, language: str) -> list[str]:
     forms = [spellout(value, language)]
     if _is_english(language):
         forms.extend(_english_forms(value, language))
+    forms.extend(_before_a_noun(forms[0], language))
     return list(dict.fromkeys(forms))
+
+
+def _before_a_noun(spelled: str, language: str) -> list[str]:
+    """``spelled`` as said before a noun, where that changes its last word:
+    Spanish "veintiún grados", "treinta y una horas"; French "vingt et une
+    minutes". ICU spells the counting form ("veintiuno", "vingt et un").
+    Not one alone: "un", "una", "une" are articles too."""
+    words = spelled.split()
+    base = _base(language)
+    if base == "es" and words and (words[-1] == "veintiuno" or (len(words) > 1 and words[-1] == "uno")):
+        endings = ("veintiún", "veintiuna") if words[-1] == "veintiuno" else ("un", "una")
+        return [" ".join([*words[:-1], ending]) for ending in endings]
+    if base == "fr" and len(words) > 1 and words[-1] == "un":
+        return [" ".join([*words[:-1], "une"])]
+    return []
+
+
+HALVES = range(2, 31)
+"""Counts said with their unit and a half after it: "dos minutos y medio",
+"deux heures et demie"."""
 
 
 def unit_words(unit: str, language: str) -> tuple[str, str]:
@@ -111,21 +132,31 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
             forms += [("een kwartier", Decimal("0.25")), ("drie kwartier", Decimal("0.75"))]
         return forms
     if _base(language) == "fr":
-        # All feminine: "une minute", "une heure et demie", "une demi heure".
-        single, _plural = unit_words(unit, language)
-        forms = [(f"une {single}", one), (f"une {single} et demie", one_and_a_half), (f"une demi {single}", HALF),
-                 (f"demi {single}", HALF)]
+        # All feminine: "une minute", "une heure et demie", "une demi heure";
+        # after "de", elided: "un minuteur d'une heure".
+        single, plural = unit_words(unit, language)
+        forms = [(f"{a} {single}", one) for a in ("une", "d'une")]
+        forms += [(f"{a} {single} et demie", one_and_a_half) for a in ("une", "d'une")]
+        forms += [(f"{a} {single}", HALF) for a in ("une demi", "d'une demi", "demi")]
         if unit == "hour":
-            forms += [("un quart d'heure", Decimal("0.25")), ("trois quarts d'heure", Decimal("0.75"))]
+            forms += [("un quart d'heure", Decimal("0.25")), ("d'un quart d'heure", Decimal("0.25")),
+                      ("trois quarts d'heure", Decimal("0.75"))]
+        # "Deux minutes et demie", "vingt et une heures et demie".
+        forms += [(f"{said} {plural} et demie", count + HALF)
+                  for count in map(Decimal, HALVES) for said in _feminine(spoken_forms(count, language))]
         return forms
     if _base(language) == "es":
         # "Un minuto", "una hora", "una hora y media", "media hora".
-        single, _plural = unit_words(unit, language)
+        single, plural = unit_words(unit, language)
         a, half = ("una", "media") if unit == "hour" else ("un", "medio")
         forms = [(f"{a} {single}", one), (f"{a} {single} y {half}", one_and_a_half), (f"{single} y {half}", one_and_a_half),
                  (f"{half} {single}", HALF)]
         if unit == "hour":
             forms += [("un cuarto de hora", Decimal("0.25")), ("tres cuartos de hora", Decimal("0.75"))]
+        # "Dos minutos y medio", "dos horas y media", "veintiún minutos y medio".
+        said = _feminine if unit == "hour" else _masculine
+        forms += [(f"{form} {plural} y {half}", count + HALF)
+                  for count in map(Decimal, HALVES) for form in said(spoken_forms(count, language))]
         return forms
     if not _is_english(language):
         return []
@@ -135,6 +166,16 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
         forms.append((f"{article} {unit} and a half", one_and_a_half))
         forms.append((f"half {article} {unit}", HALF))
     return forms
+
+
+def _feminine(forms: list[str]) -> list[str]:
+    """The forms before a feminine noun: "veintiuna", "vingt et une"."""
+    return [f for f in forms if not f.endswith((" un", " uno", "veintiuno", "veintiún"))] or forms
+
+
+def _masculine(forms: list[str]) -> list[str]:
+    """The forms before a masculine noun: "veintiún", "treinta y un"."""
+    return [f for f in forms if not f.endswith((" una", " uno", "veintiuno", "veintiuna"))] or forms
 
 
 def _base(language: str) -> str:
