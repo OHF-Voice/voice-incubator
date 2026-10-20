@@ -225,6 +225,13 @@ intents:
         - {cost: 1.0}
 ```
 
+**Duration units** are named in English (`second`, `minute`, `hour`) and
+reported by name (`{minutes: 10}`), and said in the config's language: a
+German intent's keywords are `sekunde`, `minuten`, `stunden` ...
+(`numbers.UNIT_WORDS`). Some numbers are only said with their unit: "a
+minute and a half", "half an hour"; "eine Minute", "eineinhalb Stunden",
+"eine halbe Stunde".
+
 **Includes.** `include` files are merged in order, then the file's own keys on
 top. An intent with the same name replaces the included one. Names and
 settings merge per entry, and anything else is replaced.

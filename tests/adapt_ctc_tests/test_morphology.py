@@ -106,3 +106,39 @@ def test_compounds_in_the_config():
     with pytest.raises(ConfigError, match="one word each"):
         parse_config({**COMPOUND_CONFIG, "compounds": ["the lights"]})
     assert parse_config({**COMPOUND_CONFIG, "compounds": ["Lights", "lights"]}).compounds == ("lights",)
+
+
+# German durations: the units' own words, and numbers said only with one.
+GERMAN_VOCAB = [
+    "<unk>",
+    *(SPM_SPACE + w for w in "timer für fünf zwei minuten minute stunde stunden sekunden eine einer eineinhalb halbe und".split()),
+    "<blk>",
+]
+GERMAN_TIMER = {
+    "language": "de",
+    "intents": {
+        "Timer": {
+            "require": [["timer"], ["minuten", "minute", "sekunden", "sekunde", "stunden", "stunde"]],
+            "optional": [["für"], ["und"]],
+            "number": {"min": 0.5, "max": 100, "step": 0.5, "units": ["second", "minute", "hour"], "parts": 3},
+        },
+    },
+}
+
+
+@pytest.mark.parametrize(
+    ("script", "slots"),
+    [
+        (["timer", "für", "fünf", "minuten"], {"minutes": 5}),
+        (["timer", "für", "eine", "stunde"], {"hours": 1}),
+        (["timer", "für", "eineinhalb", "stunden"], {"hours": 1.5}),
+        (["timer", "für", "eine", "halbe", "stunde"], {"hours": 0.5}),
+        (["timer", "für", "eine", "stunde", "und", "zwei", "minuten"], {"hours": 1, "minutes": 2}),
+        (["timer", "für", "fünf", "sekunden"], {"seconds": 5}),
+    ],
+)
+def test_german_durations(script, slots):
+    vocab = Vocabulary(dict(enumerate(GERMAN_VOCAB)))
+    recognizer = Recognizer(parse_config(GERMAN_TIMER), vocab=vocab)
+    found = recognizer.recognize_log_probs(utterance(vocab, script), 0.08).best
+    assert (found.intent, found.slots, found.unexplained) == ("Timer", slots, [])

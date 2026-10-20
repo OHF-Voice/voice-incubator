@@ -87,6 +87,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from adapt_ctc.config import ConfigError
+from adapt_ctc.numbers import unit_words as said_units
 from adapt_ctc.template import TemplateError, expand
 from adapt_ctc.text import sentence_key
 
@@ -96,7 +97,6 @@ COMMAND_ID = re.compile(r"^[a-z0-9_]+$")
 ICON = re.compile(r"^mdi:[a-z0-9-]+$")
 NAME_SLOTS = ("entity", "area", "floor")
 DURATION_UNITS = ("second", "minute", "hour")
-UNIT_WORDS = ["seconds", "second", "minutes", "minute", "hours", "hour"]
 
 LISTEN_KEYS = (
     "examples",
@@ -720,7 +720,7 @@ def _number(value: Any, where: str) -> tuple[dict[str, Any], str, bool]:
     if preset is not None:
         if preset not in NUMBER_PRESETS:
             raise ConfigError(f"{where}.preset: one of {sorted(NUMBER_PRESETS)}")
-        value = {**copy.deepcopy(NUMBER_PRESETS[preset]), **value}
+        value = {**_in_language(copy.deepcopy(NUMBER_PRESETS[preset])), **value}
     duration = bool(value.get("units"))
     if not slot:
         slot = "duration" if duration else (preset or "number")
@@ -729,16 +729,39 @@ def _number(value: Any, where: str) -> tuple[dict[str, Any], str, bool]:
     return value, slot, duration
 
 
+def unit_words() -> list[str]:
+    """The duration units' words in the app's language, plural first:
+    "seconds", "second", "minutes" ..."""
+    language = languages.current().code
+    return [word for unit in DURATION_UNITS for word in reversed(said_units(unit, language))]
+
+
+def _in_language(preset: dict[str, Any]) -> dict[str, Any]:
+    """A preset with its prior's unit words ("seconds") in the app's language."""
+    language = languages.current().code
+    words = {
+        english: own
+        for unit in DURATION_UNITS
+        for english, own in zip(said_units(unit, "en"), said_units(unit, language), strict=True)
+    }
+    for rule in preset.get("prior") or []:
+        if "when" in rule:
+            rule["when"] = [words.get(word, word) for word in rule["when"]]
+    return preset
+
+
 def _ensure_unit_keywords(intent: dict[str, Any]) -> None:
     """A duration's units must be keywords of the intent: required, unless
     the command already lists some of them."""
     groups = [g if isinstance(g, list) else [g] for g in intent.get("require", [])]
     groups += [g if isinstance(g, list) else [g] for g in intent.get("optional", [])]
     present = {phrase for group in groups for phrase in group}
-    units = set(intent["number"].get("units") or [])
+    language = languages.current().code
+    units = {said_units(unit, language)[0] for unit in intent["number"].get("units") or []}
     whens = {w for rule in intent["number"].get("prior") or [] for w in rule.get("when") or []}
-    if not (present & set(UNIT_WORDS)):
-        intent.setdefault("require", []).append(list(UNIT_WORDS))
+    words = unit_words()
+    if not (present & set(words)):
+        intent.setdefault("require", []).append(words)
         return
     missing = sorted((units | whens) - present)
     if missing:

@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from adapt_ctc.numbers import on_grid, spoken_forms, unit_forms, value_grid
+from adapt_ctc.numbers import on_grid, spoken_forms, unit_forms, unit_words, value_grid
 from adapt_ctc.text import name_units, spoken_words
 
 
@@ -68,4 +68,8 @@ def test_unit_forms():
     assert forms["an hour and a half"] == Decimal("1.5")
     assert forms["one hour and a half"] == Decimal("1.5")
     assert forms["half an hour"] == Decimal("0.5")
-    assert unit_forms("hour", "de") == []
+    german = dict(unit_forms("hour", "de"))
+    assert german["eine stunde"] == 1 and german["eineinhalb stunden"] == Decimal("1.5")
+    assert german["eine halbe stunde"] == Decimal("0.5")
+    assert unit_forms("hour", "fr") == []
+    assert unit_words("minute", "en") == ("minute", "minutes") and unit_words("minute", "de-AT") == ("minute", "minuten")

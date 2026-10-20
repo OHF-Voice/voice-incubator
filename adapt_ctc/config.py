@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 from . import morphology
-from .numbers import DURATION_UNITS, on_grid
+from .numbers import DURATION_UNITS, on_grid, unit_words
 from .template import TemplateError, covering, expand
 from .text import sentence_key, spoken_words
 
@@ -613,7 +613,10 @@ def _intent(
                     f"{where}.number.prior: 'when' phrases {sorted(unknown)} are not "
                     "required or optional keywords of this intent"
                 )
-        unknown_units = sorted(set(number.units) - keywords)
+        # A unit is a keyword by its name or its words ("minuten").
+        unknown_units = sorted(
+            unit for unit in number.units if not {unit, *unit_words(unit, language)} & keywords
+        )
         if unknown_units:
             raise ConfigError(
                 f"{where}.number.units: {unknown_units} are not required or optional "

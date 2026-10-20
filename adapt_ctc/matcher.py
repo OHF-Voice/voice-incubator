@@ -33,7 +33,14 @@ from .config import NAME_TYPES, Config, Intent, Wildcard, phrase_parts
 from .embedding import distractors
 from .graph import CompiledGraph, Meaning, PhraseGraph
 from .morphology import word_forms
-from .numbers import DURATION_UNITS, spoken_forms, to_python, unit_forms, value_grid
+from .numbers import (
+    DURATION_UNITS,
+    spoken_forms,
+    to_python,
+    unit_forms,
+    unit_words,
+    value_grid,
+)
 from .spotter import Hit, Spotting, spot
 from .text import name_units, sentence_key, spoken_words
 
@@ -939,9 +946,10 @@ class Recognizer:
             elif role == "number" and meaning.unit is not None:
                 # The unit inside counts as that keyword: it meets its group
                 # and its prior conditions.
-                bit = cond_bits.get(meaning.unit, 0)
-                for index in require_groups.get(meaning.unit, ()):
-                    groups |= 1 << index
+                for word in (meaning.unit, *unit_words(meaning.unit, self.config.language)):
+                    bit |= cond_bits.get(word, 0)
+                    for index in require_groups.get(word, ()):
+                        groups |= 1 << index
             items.append(
                 _Item(SpanUse(role, hit, meaning, group, part), hit.penalty, bit, groups)
             )
@@ -989,8 +997,8 @@ class Recognizer:
         wild = intent.wildcard
         if wild is not None:
             stop = {p for p in self.config.filler if " " not in p} | set(self.config.name_cues)
-            units = set(intent.number.units) if intent.number else set()
-            lead = stop | units | {unit + "s" for unit in units}
+            units = intent.number.units if intent.number else ()
+            lead = stop | set(units) | {w for unit in units for w in unit_words(unit, self.config.language)}
             # Free text to the end may stop before a place this intent takes:
             # "play jazz | in the kitchen", "play jazz | on the Mark 2".
             cuts = {start for start, _, meaning in trailing or [] if _name_allowed(intent, meaning)}
@@ -1039,7 +1047,7 @@ class Recognizer:
         if compound:
             keywords = {phrase for group in intent.require + intent.optional for phrase in group}
             for unit in spec.units:
-                for form in (unit, unit + "s"):
+                for form in (unit, *unit_words(unit, self.config.language)):
                     if form in keywords:
                         unit_of[form] = unit
         unit_phrases = set(unit_of) | set(spec.units if spec else ())

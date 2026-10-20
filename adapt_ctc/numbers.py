@@ -4,6 +4,10 @@ The acoustic vocabulary has no digit pieces, so a number can only be heard as
 words. ICU supplies the canonical spelling for any locale; English gets the
 handful of everyday forms RBNF does not produce ("a hundred", "one hundred and
 five", "seventy two and a half").
+
+A duration's units are named in English ("minute"), and said in the
+language's words (``unit_words``: "minuten"); some numbers are said only with
+their unit (``unit_forms``: "a minute and a half", "eineinhalb Minuten").
 """
 
 from __future__ import annotations
@@ -19,6 +23,12 @@ HALF = Decimal("0.5")
 DURATION_UNITS = {"second": 1, "minute": 60, "hour": 3600}
 """Units a compound duration may be made of, in seconds: "one hour five
 minutes and thirty seconds"."""
+
+UNIT_WORDS: dict[str, dict[str, tuple[str, str]]] = {
+    "de": {"second": ("sekunde", "sekunden"), "minute": ("minute", "minuten"), "hour": ("stunde", "stunden")},
+}
+"""A duration unit's words, singular and plural, by language; in English,
+the unit and its plural."""
 
 
 def value_grid(minimum: Decimal, maximum: Decimal, step: Decimal) -> list[Decimal]:
@@ -66,12 +76,29 @@ def spoken_forms(value: Decimal, language: str) -> list[str]:
     return list(dict.fromkeys(forms))
 
 
+def unit_words(unit: str, language: str) -> tuple[str, str]:
+    """The words ``unit`` ("minute") is said with: singular, plural."""
+    return UNIT_WORDS.get(_base(language), {}).get(unit) or (unit, unit + "s")
+
+
 def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
     """Numbers said only together with their unit: "a minute" (1), "an hour
     and a half" (1.5), "half a minute" (0.5). Each is ``(phrase, value)``."""
+    one, one_and_a_half = Decimal(1), Decimal("1.5")
+    if _base(language) == "de":
+        # Stunde, Minute, Sekunde: all feminine. "Eine Minute", "in einer
+        # Stunde", "eineinhalb Minuten", "eine halbe Stunde".
+        single, plural = unit_words(unit, language)
+        return [
+            (f"eine {single}", one),
+            (f"einer {single}", one),
+            (f"eineinhalb {plural}", one_and_a_half),
+            (f"anderthalb {plural}", one_and_a_half),
+            (f"eine halbe {single}", HALF),
+            (f"einer halben {single}", HALF),
+        ]
     if not _is_english(language):
         return []
-    one, one_and_a_half = Decimal(1), Decimal("1.5")
     forms = [(f"one {unit} and a half", one_and_a_half)]
     for article in ("a", "an"):
         forms.append((f"{article} {unit}", one))
@@ -80,8 +107,13 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
     return forms
 
 
+def _base(language: str) -> str:
+    """"de" of "de", "de-CH", "de_DE"."""
+    return language.split("_")[0].split("-")[0].lower()
+
+
 def _is_english(language: str) -> bool:
-    return language.split("_")[0].split("-")[0].lower() == "en"
+    return _base(language) == "en"
 
 
 def _english_forms(value: Decimal, language: str) -> list[str]:
