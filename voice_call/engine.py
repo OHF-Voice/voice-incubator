@@ -41,6 +41,7 @@ import numpy as np
 from adapt_ctc.acoustic import CtcModel
 from adapt_ctc.config import WakeConfig, parse_config
 from adapt_ctc.matcher import IntentResult, Recognition, Recognizer
+from adapt_ctc.morphology import alternated, alternations, elided, elisions, endings, word_forms
 from adapt_ctc.report import to_json
 from adapt_ctc.text import sentence_key, spoken_words
 from adapt_ctc.wake import LEAD, WakeVerifier
@@ -967,8 +968,9 @@ def without_place(text: str, places: list[str], filler: list[str] | None = None,
     """Free text without a place it ends on, that was heard as one -- a room,
     a floor, a device -- compared as spoken: "jazz in the kitchen" -> "jazz",
     "jazz upstairs please" -> "jazz", "jazz on the Mark 2" -> "jazz" (the
-    name "Mark two"). What may come before it is the language's reading
-    (PLACE_BEFORE, ARTICLES)."""
+    name "Mark two"), "джаз на кухне" -> "джаз" (the Кухня, in the case it
+    was said: the language's endings). What may come before it is the
+    language's reading (PLACE_BEFORE, ARTICLES)."""
     read = languages.reading()
     language = language or languages.current().code
     articles = set(read.ARTICLES)
@@ -977,14 +979,25 @@ def without_place(text: str, places: list[str], filler: list[str] | None = None,
     end = len(words)
     while end > 0 and _strip(words[end - 1]).lower() in fill:
         end -= 1
-    wanted = {sentence_key(phrase, language) for phrase in places} - {""}
+    # Each place's words, each as any of its forms in a sentence, the first
+    # also with an article joined ("l'entrée").
+    shapes = []
+    for key in {sentence_key(phrase, language) for phrase in places} - {""}:
+        shape = [alternated(word_forms(word, endings(language)), alternations(language)) for word in key.split()]
+        shape[0] = tuple(form.replace("'", "") for form in elided(shape[0], elisions(language)))  # as keys are
+        shapes.append([set(forms) for forms in shape])
+
+    def said(text: str) -> bool:
+        heard = sentence_key(text, language).split()
+        return any(len(heard) == len(shape) and all(w in forms for w, forms in zip(heard, shape)) for shape in shapes)
+
     # The longest tail that is the place, with "in the" before it; some text stays.
     for start in range(1, end):
         tail = [_strip(w).lower() for w in words[start:end]]
         skip = 1 if tail[0] in read.PLACE_BEFORE else 0
         if skip < len(tail) and tail[skip] in articles:
             skip += 1
-        if skip < len(tail) and sentence_key(" ".join(words[start + skip : end]), language) in wanted:
+        if skip < len(tail) and said(" ".join(words[start + skip : end])):
             kept = words[:start]
             if all(_strip(w).lower() in fill | articles for w in kept):
                 break  # nothing but "the" before it: the place is the text

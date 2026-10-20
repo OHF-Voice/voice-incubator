@@ -187,6 +187,26 @@ def test_free_text_to_the_end():
     assert not result.best.unexplained
 
 
+def test_free_text_to_the_end_before_a_full_stop_word():
+    # Some models write the full stop as a word of its own ("... trash .").
+    result = recognize(["remind", "me", "to", "take", "out", "the", "trash", "", "+."])
+    assert result.transcript.endswith(" .")
+    assert result.best.intent == "Remind"
+    assert result.best.slots == {"reminder": "take out the trash"}
+
+
+def test_excluded_inside_free_text():
+    # An excluded keyword inside the text vetoes it too, when the wildcard
+    # says so: a play verb that also sets things ("pon un temporizador").
+    script = ["remind", "me", "to", "set", "the", "brightness"]
+    data = copy.deepcopy(CONFIG)
+    data["intents"]["Remind"]["exclude"] = ["brightness"]
+    assert recognize(script, config=data).best.slots == {"reminder": "set the brightness"}
+    data["intents"]["Remind"]["wildcard"]["exclude_inside"] = True
+    result = recognize(script, config=data)
+    assert result.best is None or result.best.intent != "Remind"
+
+
 @pytest.mark.parametrize(
     ("wildcard", "message"),
     [

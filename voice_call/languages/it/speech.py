@@ -32,7 +32,7 @@ EXAMPLE_NAMES = {
 
 def join(parts: list[str]) -> str:
     """"a", "a e b", "a, b e c"."""
-    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " e " + parts[-1]
+    return "".join(parts) if len(parts) <= 1 else ", ".join(parts[:-1]) + " e " + parts[-1]
 
 
 def _capital(text: str) -> str:

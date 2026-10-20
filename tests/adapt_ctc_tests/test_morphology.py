@@ -7,7 +7,7 @@ from adapt_ctc.acoustic import SPM_SPACE, Vocabulary
 from adapt_ctc.config import ConfigError, parse_config
 from adapt_ctc.graph import Meaning, PhraseGraph
 from adapt_ctc.matcher import Recognizer
-from adapt_ctc.morphology import alternated, alternations, elided, elisions, endings, word_forms
+from adapt_ctc.morphology import alternated, alternations, elided, elisions, endings, singled, word_forms
 from adapt_ctc.spotter import spot
 
 from .conftest import utterance
@@ -238,3 +238,9 @@ def test_a_slavic_name_in_its_cases(language, name, said):
     # "W kuchni", "в гостиной", "на першому поверсі": endings, and the
     # consonant before them changed ("łazience", "поверсі").
     assert said in alternated(word_forms(name, endings(language)), alternations(language))
+
+
+def test_a_doubled_letter_heard_once():
+    # Ukrainian's model writes "у ванній" as "у ваній".
+    assert "ваній" in singled(word_forms("ванна", endings("uk")), "uk")
+    assert singled(("ванна",), "ru") == ("ванна",)

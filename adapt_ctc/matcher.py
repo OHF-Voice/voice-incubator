@@ -32,7 +32,7 @@ from .acoustic import CtcModel, Vocabulary
 from .config import NAME_TYPES, Config, Intent, Wildcard, phrase_parts
 from .embedding import distractors
 from .graph import CompiledGraph, Meaning, PhraseGraph
-from .morphology import alternated, alternations, elided, elisions, word_forms
+from .morphology import alternated, alternations, elided, elisions, singled, word_forms
 from .numbers import (
     DURATION_UNITS,
     spoken_forms,
@@ -451,7 +451,10 @@ class Recognizer:
                         # Wohnzimmers", "den kleinen Ventilator", "w łazience";
                         # the first with an elided article: "l'entrée".
                         changes = alternations(language)
-                        forms = [alternated(word_forms(unit, config.name_endings), changes) for unit in units]
+                        forms = [
+                            singled(alternated(word_forms(unit, config.name_endings), changes), language)
+                            for unit in units
+                        ]
                         forms[0] = elided(forms[0], elisions(language))
                         graph.add(forms, meaning, flexible=True)
 
@@ -866,7 +869,9 @@ class Recognizer:
         articles = _in_language(PLACE_ARTICLES, language)
         bare = _in_language(BARE_PLACES, language)
         filler = {f for f in self.config.filler if " " not in f}
-        words = [(w, w.text.lower().strip(".,?!;:\"'")) for w in spotting.words if w.frames]
+        # Not punctuation written as a word of its own ("... la cocina ."):
+        # the sentence ends on the word before it.
+        words = [(w, text) for w in spotting.words if w.frames if (text := w.text.lower().strip(".,?!;:\"'"))]
         while words and words[-1][1] in filler:
             words.pop()
         if not words:
@@ -1069,6 +1074,14 @@ class Recognizer:
             for hit in heard
             if any(m.kind == "keyword" and m.phrase in intent.exclude for m in hit.meanings)
         ]
+        if wild is not None and wild.exclude_inside and excluded:
+            # Nor inside the free text: "включи свет в гостиной и на кухне"
+            # is no song called "свет ...".
+            centers = [hit.center for hit in excluded]
+            items = [
+                item for item in items
+                if item.use.role != "wildcard" or not any(item.use.hit.start <= c <= item.use.hit.end for c in centers)
+            ]
         excluded_at = np.zeros(num_frames + 1, dtype=np.int64)
         for hit in excluded:
             excluded_at[hit.center] += 1
@@ -1611,9 +1624,12 @@ def _wildcard_items(
     runs to the end may instead end before a word starting at one of
     ``cuts`` (frames): a place the sentence ends on."""
     words = [
-        (word, word.text.lower().strip(".,?!;:\"'").replace("'", ""))
+        (word, text)
         for word in spotting.words
         if word.frames
+        # Not punctuation written as a word of its own: text to the end ends
+        # on the word before it.
+        if (text := word.text.lower().strip(".,?!;:\"'").replace("'", ""))
     ]
     items = []
     inner = wild.bounded or wild.to_end

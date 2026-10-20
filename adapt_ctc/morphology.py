@@ -23,6 +23,8 @@ Ukrainian also change the consonant before some ("w łazience" for the
 
 from __future__ import annotations
 
+import re
+
 ENDINGS: dict[str, tuple[str, ...]] = {
     # Nouns (des Wohnzimmers, des Hauses, den Lichtern), adjectives (kleine,
     # kleiner, kleines, kleinen, kleinem), and the linking letters of a
@@ -83,6 +85,19 @@ MIN_STEM = 3
 def endings(language: str) -> tuple[str, ...]:
     """The endings for ``language`` ("de", "de-CH", "de_DE")."""
     return ENDINGS.get(language.replace("_", "-").split("-")[0].lower(), ())
+
+
+SINGLED = ("uk",)
+"""Languages whose model hears a doubled letter as one: Ukrainian's writes
+"у ванній" as "у ваній" (the Ванна кімната)."""
+
+
+def singled(forms: tuple[str, ...], language: str) -> tuple[str, ...]:
+    """``forms`` and, in a language of ``SINGLED``, each with its doubled
+    letters said once: "ванній" -> also "ваній"."""
+    if language.replace("_", "-").split("-")[0].lower() not in SINGLED:
+        return forms
+    return tuple(dict.fromkeys([*forms, *(re.sub(r"(\w)\1", r"\1", form) for form in forms)]))
 
 
 def alternations(language: str) -> tuple[tuple[str, str], ...]:

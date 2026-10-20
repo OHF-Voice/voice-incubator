@@ -736,6 +736,7 @@ All are off unless a config uses them; upstream configs behave as before, and
 | `lists` | value lists: a required (or `optional`) group whose alternatives carry values, reported as slots (`{color: red}` for "crimson"). Inline (`values:`) or shared (top-level `lists:`, referred to by name) |
 | `wildcard.bounded` | free text right after an `after` keyword *and* right before a `before` keyword ("add <milk> to the list"), fillers allowed between; fillers and name cues may sit inside the text but not at its edges |
 | `wildcard.to_end` | free text from an `after` keyword to the last word ("remind me to <take out the trash>") |
+| `wildcard.exclude_inside` | the intent's `exclude` keywords rule out free text holding them too: a verb that both plays music and sets things (Spanish "pon", Italian "metti") plays no song called "temporizador" |
 | `wildcard.required` | the intent matches only with its free text |
 | `settings.examples_first` | search the CTC evidence for example sentences on every command, and let a sentence said word for word win over keyword matches |
 | `settings.embedding_accept` | `false`: the embedding never matches an intent; `Recognizer.closest_by_meaning()` names the closest by examples *and* descriptions, for hints |

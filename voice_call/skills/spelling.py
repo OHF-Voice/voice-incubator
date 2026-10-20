@@ -16,7 +16,7 @@ from .common import Reply, Skill, options
 
 def key(text: str) -> str:
     """A word or phrase as looked up: lowercase, single spaces, no quotes."""
-    text = re.sub(r"[\"“”‘’`]|(?<![a-z])'|'(?![a-z])", " ", text.lower())
+    text = re.sub(r"[\"“”‘’`]|(?<![^\W\d_])'|'(?![^\W\d_])", " ", text.lower())  # any letters: "п'ять"
     return " ".join(text.split())
 
 

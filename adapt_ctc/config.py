@@ -249,6 +249,11 @@ class Wildcard:
     ("remind me to <take out the trash>"). Fillers may be inside it, as for
     ``bounded``."""
 
+    exclude_inside: bool = False
+    """The intent's excluded keywords rule out text that holds them, as well
+    as the words around it: Spanish "pon" plays music but also sets timers,
+    so "pon un temporizador" is no song called "temporizador"."""
+
 
 @dataclass(frozen=True)
 class ListSlot:
@@ -688,7 +693,7 @@ def _wildcard(
 ) -> Wildcard:
     spec = _mapping(spec, where)
     _known(
-        spec, {"slot", "before", "after", "max_words", "required", "bounded", "to_end"}, where
+        spec, {"slot", "before", "after", "max_words", "required", "bounded", "to_end", "exclude_inside"}, where
     )
     slot = str(spec.get("slot") or "")
     if not slot or slot == "number" or slot in NAME_TYPES:
@@ -716,7 +721,8 @@ def _wildcard(
         raise ConfigError(f"{where}.bounded: needs both 'after' and 'before' keywords")
     if to_end and not cues["after"]:
         raise ConfigError(f"{where}.to_end: needs 'after' keywords")
-    return Wildcard(slot, cues["before"], cues["after"], max_words, required, bounded, to_end)
+    exclude_inside = _flag(spec.get("exclude_inside", False), f"{where}.exclude_inside")
+    return Wildcard(slot, cues["before"], cues["after"], max_words, required, bounded, to_end, exclude_inside)
 
 
 def _list_values(

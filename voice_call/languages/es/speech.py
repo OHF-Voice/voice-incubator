@@ -44,8 +44,8 @@ def _and(following: str) -> str:
 
 def join(parts: list[str]) -> str:
     """"a", "a y b", "a, b y c"; "e" before an "i" sound."""
-    if len(parts) == 1:
-        return parts[0]
+    if len(parts) <= 1:
+        return "".join(parts)
     return f"{', '.join(parts[:-1])} {_and(parts[-1])} {parts[-1]}"
 
 
