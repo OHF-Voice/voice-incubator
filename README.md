@@ -1241,6 +1241,28 @@ locked *alle* Türen, "wir brauchen keine Äpfel mehr" stopped repeating
 (*nicht mehr wiederholen*). Meaning (EmbeddingGemma, multilingual) does as
 well in German as in English.
 
+**GLiNER2.5 multi** (`fastino/gliner2.5-multi-v1`, Apache-2.0): the same
+architecture on mDeBERTa-v3-base (768 wide, a 250k vocabulary), exported by
+`scripts/export_gliner.py` as the small one is (8-bit layers, 4-bit
+embedding: 274 MB; against the gliner2 package, classification within 0.04
+and the same entities). `--model-dir models/gliner2.5-multi-v1-onnx`:
+
+| 2026-10-20 | every command chosen | the eight chosen |
+|---|---|---|
+| small, English (the app's) | 38/64, 5 wrong | 17/34, 0 wrong |
+| multi, English | 35/64, 10 wrong | 15/34, 1 wrong |
+| multi, German | 28/64, 8 wrong | 11/34, 2 wrong |
+| multi, German, at 0.25 | 30/64, 9 wrong | 13/34, 2 wrong |
+| multi, German, German type labels and readings | 26/64, 10 wrong | 11/34, 3 wrong |
+
+Better in German than the small one (19/64), not as good as the small one in
+English, and its wrong commands include opposites: "das ist zu laut" turned
+it up, "hier ist es zu dunkel" turned the lights off. Labels and readings in
+German (types such as "Uhrzeit: eine Uhrzeit, wie halb acht", German numbers
+and durations) don't help. It is 4x slower (0.17 s a sentence on a desktop,
+against 0.04 s) and 420 MB bigger at peak (896 MB). German keeps the model
+step off.
+
 The model step was a small LLM before GLiNER -- Granite 4.0 350M or Hammer
 2.1 0.5B in llama.cpp, the commands as tools -- and they were dropped: with
 the same eight chosen they got 21/32 and 19/32 right but refused only 26/32
