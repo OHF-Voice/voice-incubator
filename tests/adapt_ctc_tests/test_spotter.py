@@ -203,3 +203,14 @@ def test_live_search_keeps_everything_within_the_gate(vocab, gate):
         for got, want in zip(live, full):
             np.testing.assert_array_equal(got[within], want[within])
     assert kept > 0
+
+
+def test_punctuation_with_the_word_marker():
+    # NeMo's German model writes "▁." where Parakeet's English writes ".":
+    # punctuation either way, not speech.
+    from adapt_ctc.acoustic import Vocabulary
+
+    vocab = Vocabulary(dict(enumerate(["<unk>", "▁licht", "▁.", ".", "▁,", "▁", "<blk>"])))
+    assert [vocab.id2piece[i] for i in vocab.punctuation_ids] == ["▁.", ".", "▁,"]
+    assert vocab.is_punctuation(2) and not vocab.is_punctuation(1) and not vocab.is_punctuation(5)
+    assert vocab.space_id == 5 and ("", True) not in vocab.pieces

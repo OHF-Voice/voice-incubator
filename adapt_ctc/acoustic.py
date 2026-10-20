@@ -26,8 +26,13 @@ SPM_SPACE = "▁"
 _BLANK_PIECES = ("<blk>", "<blank>", "<pad>")
 _UNK_PIECES = ("<unk>", "<UNK>")
 _PUNCTUATION = frozenset(".,?!;:")
-"""Pieces the model emits for sentence punctuation. They are not speech, so
-the recognizer treats them as equivalent to blank."""
+"""Pieces the model emits for sentence punctuation, with or without the word
+marker ("." in Parakeet's English, "▁." in NeMo's German). They are not
+speech, so the recognizer treats them as equivalent to blank."""
+
+
+def _is_punctuation(piece: str) -> bool:
+    return piece.lstrip(SPM_SPACE) in _PUNCTUATION
 
 # Typed text as CTC evidence (``Vocabulary.text_log_probs``): frames per
 # piece, blank frames between words and before and after them, and the
@@ -137,7 +142,7 @@ class Vocabulary:
         self.size = max(max(self.id2piece), self.blank_id) + 1
 
         self.punctuation_ids = sorted(
-            i for i, p in self.id2piece.items() if p in _PUNCTUATION
+            i for i, p in self.id2piece.items() if _is_punctuation(p)
         )
         self.space_id: int | None = None
         # (lowercase spelling, starts a word) -> token ids. Case is folded
@@ -149,7 +154,7 @@ class Vocabulary:
             if (
                 token_id == self.blank_id
                 or piece in _UNK_PIECES
-                or piece in _PUNCTUATION
+                or _is_punctuation(piece)
             ):
                 continue
             starts_word = piece.startswith(SPM_SPACE)
@@ -179,7 +184,7 @@ class Vocabulary:
         return self.id2piece.get(token_id, "").startswith(SPM_SPACE)
 
     def is_punctuation(self, token_id: int) -> bool:
-        return self.id2piece.get(token_id, "") in _PUNCTUATION
+        return _is_punctuation(self.id2piece.get(token_id, ""))
 
     def ids_to_text(self, ids: list[int]) -> str:
         text = "".join(
