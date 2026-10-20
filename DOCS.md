@@ -468,8 +468,8 @@ choose them.
   nothing.
 - **A small model** picks one of its chosen commands, or "not a command",
   and fills in what it needs: "throw on my workout playlist", "take milk off
-  the list", "give me ten minutes for the pasta", "have you got the time". By
-  default it is GLiNER2.5 small, which comes with the app, and adds about a
+  the list", "give me ten minutes for the pasta", "have you got the time". It is
+  GLiNER2.5 small, which comes with the app, and adds about a
   third of a second on a Raspberry Pi 5, however many commands are chosen.
   When it hears nothing in the sentence ("lights out", "how late is it"), its
   pick runs only if meaning puts the same command first, ahead of the
@@ -482,13 +482,9 @@ choose them.
   It compares the chosen commands with others close in meaning, chosen or
   not, and runs nothing when it is not sure (**Threshold**, 0.3:
   lower runs more, and more by mistake), when the closest is one you did not
-  choose, or when the sentence is not a command at all. A small LLM can be
-  picked instead: Granite 4.0 350M or Hammer 2.1 0.5B (non-commercial use
-  only). An LLM takes any chosen command but is slower (a second or more on a
-  Pi 5) and runs the wrong command more often; with more than 8 chosen (the number is a setting) it
-  is given the 8 closest in meaning to the sentence.
+  choose, or when the sentence is not a command at all.
 
-  Whichever it is, it only runs commands the satellite may run, and never
+  It only runs commands the satellite may run, and never
   with a name, value or number you didn't say. Commands are told apart by
   their descriptions, so describe what each does in full: "play an artist,
   album, song, playlist or genre", not "play music". A call's trace says what

@@ -208,7 +208,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
-| `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then a small LLM (Granite 4.0 350M or Hammer 2.1 0.5B) with the commands as tools -- each only for the commands chosen for it |
+| `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_call/gliner.py`) -- each only for the commands chosen for it |
 | `voice_call/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live), on or off for the home or a satellite |
 | `voice_call/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per satellite |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
@@ -1077,7 +1077,7 @@ the Sendspin group when it plays and resumes it on the next press, through the
 Sendspin controller role (`media_player: platform: sendspin`), without Home
 Assistant.
 
-## When nothing matches: meaning, then GLiNER or an LLM
+## When nothing matches: meaning, then GLiNER
 
 `voice_call/fallback.py`. After the CTC matcher (keywords and examples), in
 order, each only when the one before found nothing -- and each only for the
@@ -1092,24 +1092,20 @@ decided it may be.
    command, chosen or not, or an everyday request that is not one -- never
    another combination of the same command: only a command's first
    combination carries its description and examples). A command that hears
-   nothing runs; for one that hears something, the model hears what was said
-   in it (GLiNER: only that command's entity types, no classification; an
-   LLM: a call with that one tool), and that picks the combination --
+   nothing runs; for one that hears something, GLiNER hears what was said in
+   it (only that command's entity types, no classification), and that picks
+   the combination --
    nothing heard is the empty one, when it has it. Without the model, meaning
    runs only commands that hear nothing. `settings.yaml` `fallback_meaning`,
    on by default.
-2. **The model step** (`fallback_model`; the commands chosen for `llm`):
-   GLiNER2.5 small by default (below), or a small LLM -- Granite 4.0 350M
-   (Apache-2.0) or Hammer 2.1 0.5B (Qwen
-   2.5 0.5B tuned for function calling, CC-BY-NC-4.0), Q8_0 in llama.cpp. What
-   it picks is checked like a match: the command must be chosen and available
-   on the satellite, names map back to ids, list values to values, and a
-   name, value, number, duration or free text the sentence does not say is
-   dropped (a small LLM fills in arguments nobody gave: "kill the lights"
-   came back with a bedroom and a floor, "start the coffee maker" with a
-   5-minute timer). A required one that is missing or wrong refuses it, and
-   the miss is hinted from the command picked. `fallback_llm`, on by default
-   (it loads nothing until a command is chosen for it); `fallback_top_k`.
+2. **The model step** (`fallback_model`; the commands chosen for `llm`, its
+   id from when it was an LLM): GLiNER2.5 small (below). What it picks is
+   checked like a match: the command must be chosen and available on the
+   satellite, names map back to ids, list values to values, and a name,
+   value, number, duration or free text the sentence does not say is
+   dropped. A required one that is missing or wrong refuses it, and the miss
+   is hinted from the command picked. `fallback_llm`, on by default (it loads
+   nothing until a command is chosen for it); `fallback_top_k`.
 3. **The hint**, as before.
 
 **GLiNER** (`voice_call/gliner.py`): GLiNER2.5 small (fastino, 74M
@@ -1177,47 +1173,6 @@ full precision does). On a Pi 5 it is 15-25% slower than 4-bit and 20 MB
 bigger at peak. int8 with quantized activations breaks DeBERTa-v3 (base: not
 a command right; small: *add apples* in 4 of the 6).
 
-**An LLM instead.** Its tools are the commands' descriptions plus how they
-are said (their examples, else the first keyword of each required group).
-The music commands' descriptions were sharpened for it ("play an artist, album, song, playlist or
-genre", "play more music like what's playing"): Hammer could not tell
-"play music" from "play music like this".
-
-**A way out, for Granite.** Granite calls *some* tool for almost any
-sentence: "what's the capital of France" ran `what_time`, "never mind" went
-on the shopping list. It is given one more tool, `not_a_command` ("a question
-about the world, small talk, thanks, or something none of the other tools
-does"), and asked to call that instead of nothing; that halves the wrong
-commands it runs. Hammer, trained to answer an empty list, does slightly worse
-with it, so it is not given one.
-
-**Close in meaning, too.** What the LLM picks must also be close in meaning
-to the sentence (EmbeddingGemma, as for hints): 0.65, or 0.70 when the call
-takes nothing from the sentence -- there is nothing else to check it by.
-"What's the capital of France" played as music came in at 0.48, "thank you"
-as the time at 0.65; every right pick on the benchmark was at 0.678 or more.
-Applied to the runs below it would have refused about half of Granite's wrong
-commands (15 to 7 with 8 chosen; 11 to 7 and 16 to 10 with every library
-command) and a third of Hammer's (9 to 7; 15 to 10 and 5 to 5), and none of
-the right ones -- tuned on these same 64 sentences, so the margin is thin. A
-pick refused this way gives no hint ("it looks like you're trying to..."),
-and the call's summary says what was picked and how close it was.
-
-The similarity is to the command's description and examples, so a thin
-description costs: "I want to hear something corporate" is 0.61 from a
-`play_music` described as "play music", refused, and 0.67 from the library's
-"play an artist, album, song, playlist or genre"; "never mind" is 0.61 and
-0.60. (Granite's query there was "corporate": the sentence, all lowercase,
-reads as "something that is corporate". Given "Something Corporate" it takes
-the band.)
-
-**Every chosen command, or the closest few.** With no more chosen than
-`fallback_top_k` (8), the LLM gets them all, in a fixed order, so the
-system-and-tools prefix is evaluated once and reused by every request (it
-gets every chosen command whatever the satellite; availability is checked
-after). With more, only the closest 8 by meaning (`Recognizer.rank_by_meaning`)
-that the satellite may run, evaluated each time.
-
 `scripts/bench_fallback.py` with `tests/fallback_utterances.yaml`: 64
 sentences the library's keywords mostly miss -- music, shopping and to-do
 lists, alarms, timers, lights and devices, covers and locks -- plus 10 that are
@@ -1234,8 +1189,6 @@ of them, and the other 32 (for another command, or none) should be refused:
 | GLiNER small, 0.3 | 19/32 | 32/32 | 0 | 0.05 s |
 | GLiNER small, 0.2 | 20/32 | 32/32 | 1 | 0.05 s |
 | GLiNER small, 0.5 | 13/32 | 32/32 | 0 | 0.05 s |
-| Granite 4.0 350M | 21/32 | 26/32 | 7 | 0.42 s |
-| Hammer 2.1 0.5B | 19/32 | 28/32 | 6 | 0.38 s |
 
 Every library command chosen (56):
 
@@ -1244,7 +1197,6 @@ Every library command chosen (56):
 | GLiNER small, 0.2 | 67% | 10/10 | 3 | 0.05 s |
 | GLiNER small, 0.3 | 66% | 10/10 | 2 | 0.05 s |
 | GLiNER small, 0.4 | 63% | 10/10 | 2 | 0.05 s |
-| Granite, closest 8 | 63% | 10/10 | 9 | 1.51 s |
 
 Since the library has versions (2026-10-18), the same eight as versions
 (play music on this satellite and in an area or floor, the lights on and off
@@ -1268,56 +1220,15 @@ it gets wrong are timers: "give me ten minutes" and "let me know when twenty
 minutes are up" ran *how long is left* on a 10 and 20 minute timer. GLiNER
 reads any length of time as that label, however start and status are
 described; it is a question, so harmless, but wrong. 0.2 runs one more wrong
-command, so the default stays at 0.3. Neither LLM tells commands apart as
-well. What none does well is infer: "we need milk", "it's too dark in
-here".
+command, so the default stays at 0.3. What it doesn't do well is infer: "we
+need milk", "it's too dark in here".
 
-The LLM alone, on the sentence as text (`--mode llm`: no meaning step, and
-no similarity check on its pick), Raspberry Pi 5, 4 threads. The same eight
-commands chosen:
-
-| | its commands right | refused when it should be | ran a wrong command | per sentence | once |
-|---|---|---|---|---|---|
-| Granite 4.0 350M | 18/32 | 18/32 | 15 | 1.0 s (p90 1.1) | 7 s prefix |
-| Hammer 2.1 0.5B | 16/32 | 26/32 | 9 | 0.35 s (p90 1.4) | 7 s prefix |
-
-Every library command chosen (56):
-
-| | commands right | non-commands refused | ran a wrong command | per sentence | once |
-|---|---|---|---|---|---|
-| Granite, every command | 41% | 7/10 | 11 | 2.1 s (p90 2.8) | 70 s prefix |
-| Granite, closest 8 | 52% | 4/10 | 16 | 6.3 s (p90 8.7) | |
-| Hammer, every command | 43% | 9/10 | 15 | 1.7 s (p90 2.0) | 45 s prefix |
-| Hammer, closest 8 | 59% | 10/10 | 5 | 4.5 s (p90 6.2) | |
-
-Neither is ahead everywhere. Granite gets about as many right; Hammer is
-the more careful with a few commands chosen (9 wrong runs against 15) and
-with the closest 8 (5 against 16, every non-command refused), Granite with
-every library command (11 against 15). Without the way out Granite ran a
-wrong command for 29 of the 64 sentences (8 chosen). Choose for the LLM the
-commands it would do little harm to run by mistake. Earlier, on a
-desktop (Ryzen 9 5950X), Hammer alone: 43% with every command (0.57 s, 10 s
-prefix) and 61% with the closest 8 (1.15 s); every non-command refused.
-
-The whole chain, as a call runs it (`--mode chain`: Piper speaks the
-sentence, then CTC, meaning, Hammer), desktop, every command chosen:
-
-| chain | commands right | decided by CTC (right) | by meaning | by Hammer (right) | median |
-|---|---|---|---|---|---|
-| CTC alone | 31% | 18 (17) | | | 0.09 s |
-| + meaning | 35% | 17 (15) | 4 (4) | | 0.11 s |
-| + Hammer, closest 8 | 61% | 18 (17) | | 21 (16) | 1.12 s |
-| + meaning + Hammer, closest 8 | **67%** | 18 (17) | 4 (4) | 21 (15) | 1.10 s |
-| + Hammer, every command | 56% | 18 (17) | | 27 (13) | 0.42 s |
-
-Every non-command was refused by every chain. Meaning never ran a wrong
-command. What neither LLM does well is infer: "we need milk", "we're out of
-coffee", "it's too dark in here" mostly come back as no call, or the wrong
-one.
-
-**llama.cpp and pysilero-vad** each ship a `libggml` under the same soname,
-and the first one loaded serves both; only llama.cpp's has everything both
-need, so `voice_call/__init__.py` imports `llama_cpp` first.
+The model step was a small LLM before GLiNER -- Granite 4.0 350M or Hammer
+2.1 0.5B in llama.cpp, the commands as tools -- and they were dropped: with
+the same eight chosen they got 21/32 and 19/32 right but refused only 26/32
+and 28/32 and ran 7 and 6 wrong commands, at 0.4 s on a desktop and up to
+6 s on a Pi 5 with the closest eight. Their code and numbers are in git
+history.
 
 ## Trying typed text
 

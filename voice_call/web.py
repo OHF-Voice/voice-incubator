@@ -1013,11 +1013,10 @@ class Api:
             settings["fallback_top_k"] = max(1, min(int(body["fallback_top_k"]), 64))
             fallback_changed = True
         if "fallback_model" in body:
-            from .fallback import GLINER_MODELS, TOOL_MODELS  # pylint: disable=import-outside-toplevel
+            from .fallback import GLINER_MODELS  # pylint: disable=import-outside-toplevel
 
-            models = [*GLINER_MODELS, *TOOL_MODELS]
-            if str(body["fallback_model"]) not in models:
-                raise ConfigError(f"fallback_model: one of {', '.join(models)}")
+            if str(body["fallback_model"]) not in GLINER_MODELS:
+                raise ConfigError(f"fallback_model: one of {', '.join(GLINER_MODELS)}")
             settings["fallback_model"] = str(body["fallback_model"])
             fallback_changed = True
         if "fallback_threshold" in body:
@@ -1076,8 +1075,6 @@ class Api:
                 raise ConfigError("agent_keep_minutes: minutes, from 0 to 1440")
             settings["agent_keep_minutes"] = minutes
         if "agent" in body or "agent_keep_minutes" in body:
-            for old in ("questions_llm", "questions_model"):
-                settings.pop(old, None)  # the question model's, before the agent
             self.app.configure_agent()
         if "tdt_model" in body:
             from .server import DEFAULT_TDT, TDT_MODELS  # pylint: disable=import-outside-toplevel

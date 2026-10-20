@@ -247,8 +247,7 @@
 - When nothing matches: meaning picks the command a sentence is very close
   to, and a small model hears what was said in it -- or picks the command
   itself when meaning isn't sure -- and fills in its slots: GLiNER2.5 small
-  (4-bit, without PyTorch, about a quarter of a second on a Pi 5), or a small
-  LLM (Granite 4.0 350M, or Hammer 2.1 0.5B). Both only run the commands
+  (without PyTorch, about a quarter of a second on a Pi 5). Both only run the commands
   chosen for them (`fallback: [meaning, llm]`, ticked per command or many at
   once on the Commands page); none are chosen to begin with.
 - Slots are never optional: a command lists the ways it may be said

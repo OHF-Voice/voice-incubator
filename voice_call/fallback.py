@@ -1,4 +1,4 @@
-"""When no command matched: the closest one by meaning, then a small LLM.
+"""When no command matched: the closest one by meaning, then GLiNER.
 
 The chain, in order, each step only when the one before found nothing:
 
@@ -8,16 +8,14 @@ The chain, in order, each step only when the one before found nothing:
    well ahead of the runner-up (``EMBED_MARGIN``) -- another command, not
    another way of saying the same one (its combinations are one command).
    What was said in it -- names, numbers, values, free text -- is heard by
-   the model (GLiNER: its slots' entities; an LLM: a call to it alone), and
-   picks the combination; a command that hears nothing runs at once. Off
-   unless ``embedding_accept`` is set.
-3. **The model** picks the command when meaning did not: GLiNER (one label
-   per command, among the closest few, or "not a command") or an LLM
-   (commands are tools, their slots the parameters -- names as their spoken
-   names, value lists as their values, numbers, durations and free text as
-   text). Either way it is checked like a match: the command must be
-   available on the satellite, names map back to ids, values to list values,
-   and what was heard must be one of its combinations, exactly.
+   the model (GLiNER: its slots' entities) and picks the combination; a
+   command that hears nothing runs at once. Off unless ``embedding_accept``
+   is set.
+3. **The model** -- GLiNER -- picks the command when meaning did not: one
+   label per command, among the closest few, or "not a command", and the
+   entities its slots take. Its pick is checked like a match: the command
+   must be available on the satellite, names map back to ids, values to list
+   values, and what was heard must be one of its combinations, exactly.
 4. **Fail**: the hint, as before.
 
 Commands described alike -- the versions of a library command, on this
@@ -25,30 +23,22 @@ satellite, a device by name, an area or floor by name -- are one command to
 both steps (``label_of``), and what is heard in the sentence picks the
 version, as it picks a combination.
 
-Both steps are opt-in, per command (``fallback: [meaning, llm]``): a command
-nobody chose for a step is never run by it.
-
-With every chosen command as a tool, whatever the satellite, the system and
-tools prefix is evaluated once and reused by every request (llama.cpp keeps
-the longest common prefix of its context); availability is checked after.
-With the closest few, they are evaluated each time.
+Both steps are opt-in, per command (``fallback: [meaning, llm]`` -- ``llm``,
+the model step's id from when it was an LLM): a command nobody chose for a
+step is never run by it.
 """
 
 from __future__ import annotations
 
-import io
-import json
 import logging
 import re
 import threading
 import time
-import tokenize
-from ast import literal_eval
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .commands import Command, command_of, example_sentences, match_slots
+from .commands import Command, command_of, match_slots
 from .skills.common import FRACTIONS, SCALES, WORD_NUM, parse_num
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,89 +48,14 @@ EMBED_ACCEPT = 0.80
 EMBED_MARGIN = 0.05
 """How far ahead of the runner-up (another command, or an everyday request
 that is not a command) it must be."""
-LLM_MIN_SIMILARITY = 0.65
-"""What the LLM picks must be at least this close in meaning to the sentence
-(a small model plays "what's the capital of France" as music)..."""
-LLM_BARE_MIN_SIMILARITY = 0.70
-"""...and this close when it takes nothing from the sentence ("thank you" ran
-"what time is it"). On the fallback benchmark the right picks were all at
-0.678 or more; these refused half of Granite's wrong ones, a third of
-Hammer's."""
-
-@dataclass(frozen=True)
-class ToolModelInfo:
-    name: str
-    repo: str
-    file: str
-    mb: int
-    licence: str
-    way_out: bool
-    """Give it ``not_a_command`` (NOT_A_COMMAND_TOOL) and ask for that, not for
-    no call. Granite needs it; Hammer, trained to answer ``[]``, does better
-    without."""
 
 
-TOOL_MODELS = {
-    # Granite is the question model too: one download, and (memory-mapped)
-    # one copy.
-    "granite-4.0-350m": ToolModelInfo(
-        "Granite 4.0 350M", "ibm-granite/granite-4.0-350m-GGUF", "granite-4.0-350m-Q8_0.gguf", 370, "Apache-2.0", True
-    ),
-    "hammer-2.1-0.5b": ToolModelInfo(
-        "Hammer 2.1 0.5B", "Melvin56/Hammer2.1-0.5b-GGUF", "hammer2.1-0.5b-Q8_0.gguf", 531, "CC-BY-NC-4.0", False
-    ),
-}
-DEFAULT_TOOL_MODEL = "granite-4.0-350m"
-MAX_TOKENS = 96
-CONTEXT_OVERHEAD = 384 + MAX_TOKENS + 128
-"""The chat template wraps the tools in instructions (Hammer's are the
-longest); plus the reply and the request itself."""
-CALL_STARTS = ("<tool_call>", "```", "[", "{")
-"""How a reply with a call begins; anything else is a refusal in words, and
-is not waited for."""
-
-SYSTEM_PROMPT = (
-    "You control a smart home by voice. Call the one tool that does what the "
-    "sentence asks. Give only the arguments the sentence says, in its words. "
-    "If no tool does what it asks, or it is a question no tool answers, call none."
-)
-WAY_OUT_PROMPT = (
-    "You control a smart home by voice. Call the one tool that does what the "
-    "sentence asks. Give only the arguments the sentence says, in its words. "
-    "If no other tool does what it asks -- a question about the world, small "
-    "talk, thanks -- call not_a_command."
-)
-USER_PROMPT = 'Sentence: "{text}"'
-
-NOT_A_COMMAND = "not_a_command"
-NOT_A_COMMAND_TOOL = {
-    "type": "function",
-    "function": {
-        "name": NOT_A_COMMAND,
-        "description": "Nothing to do: the sentence is a question about the world, small talk, thanks, "
-        "or asks for something none of the other tools does",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-}
-"""A way out. Granite calls some tool for almost any sentence ("what time is
-it" for "what's the capital of France"); given one that means "none of
-these", it takes it about half the time (scripts/bench_fallback.py)."""
-
-
-def with_way_out(specs: list[dict[str, Any]], way_out: bool = True) -> list[dict[str, Any]]:
-    """The tools, and last (the prefix stays the same) the way out -- unless a
-    command has its name."""
-    if not way_out or not specs or any(spec["function"]["name"] == NOT_A_COMMAND for spec in specs):
-        return specs
-    return [*specs, NOT_A_COMMAND_TOOL]
-
-
-# ----------------------------------------------------------------- the tools
+# ------------------------------------------------------------- the arguments
 
 
 @dataclass
 class Parameter:
-    """How one tool argument becomes one slot."""
+    """How one argument the model hears becomes one slot."""
 
     slot: str
     kind: str
@@ -152,13 +67,10 @@ class Parameter:
     """A list the app keeps (running timers): any value is taken as said."""
 
 
-class Tools:
-    """Every enabled command as an LLM tool, and back."""
-
-    def subset(self, command_ids: list[str]) -> list[dict[str, Any]]:
-        """These commands' tools, in this order."""
-        by_name = {spec["function"]["name"]: spec for spec in self.specs}
-        return [by_name[c] for c in command_ids if c in by_name]
+class Arguments:
+    """What every enabled command's slots may be heard as -- a name, a number,
+    a duration, a list's value, free text -- and what is heard, back into its
+    slots."""
 
     def __init__(self, compiled: Any, dynamic: dict[str, list[str]] | None = None) -> None:
         self.compiled = compiled
@@ -166,28 +78,19 @@ class Tools:
         self.names: dict[str, dict[str, Any]] = data.get("names") or {}
         self.lists: dict[str, Any] = data.get("lists") or {}
         self.dynamic = dynamic or {}
-        self.specs: list[dict[str, Any]] = []
         self.parameters: dict[str, dict[str, Parameter]] = {}
         self.required: dict[str, list[str]] = {}
         for command in sorted(compiled.commands.values(), key=lambda c: c.id):
             if command.disabled:
                 continue
-            spec, parameters, required = self._tool(command)
-            self.specs.append(spec)
-            self.parameters[command.id] = parameters
-            self.required[command.id] = required
-
-    @property
-    def signature(self) -> str:
-        return json.dumps(self.specs, sort_keys=True)
+            self.parameters[command.id], self.required[command.id] = self._parameters(command)
 
     # ---------------------------------------------------------------- out
 
-    def _tool(self, command: Command) -> tuple[dict[str, Any], dict[str, Parameter], list[str]]:
-        """Its tool: every slot it hears is a parameter, required when every
+    def _parameters(self, command: Command) -> tuple[dict[str, Parameter], list[str]]:
+        """Every slot it hears, as a parameter; required when every
         combination has it."""
         intent = command.intent
-        properties: dict[str, Any] = {}
         parameters: dict[str, Parameter] = {}
         always = set.intersection(*(set(c) for c in command.combinations)) if command.combinations else set()
         fixed = set(command.behavior.slots)
@@ -199,59 +102,22 @@ class Tools:
             choices = self._name_choices(kind, spec)
             if not choices:
                 continue
-            many = int(spec.get("count") or 1) > 1
-            item = {"type": "string", "enum": sorted({self._label(kind, i) for i in set(choices.values())})}
-            properties[kind] = (
-                {"type": "array", "items": item, "description": f"which {kind}s"}
-                if many
-                else {**item, "description": f"which {kind}"}
-            )
-            parameters[kind] = Parameter(kind, "name", choices, many)
+            parameters[kind] = Parameter(kind, "name", choices, int(spec.get("count") or 1) > 1)
 
         if "number" in intent:
-            number = intent["number"] if isinstance(intent["number"], dict) else {}
             slot = command.number_slot
-            if command.duration:
-                properties[slot] = {"type": "string", "description": "how long, like '10 minutes'"}
-                parameters[slot] = Parameter(slot, "duration")
-            else:
-                prop: dict[str, Any] = {"type": "number"}
-                if "min" in number:
-                    prop["minimum"] = number["min"]
-                if "max" in number:
-                    prop["maximum"] = number["max"]
-                properties[slot] = prop
-                parameters[slot] = Parameter(slot, "number")
+            parameters[slot] = Parameter(slot, "duration" if command.duration else "number")
 
         for slot, spec in (intent.get("lists") or {}).items():
             listed = spec if isinstance(spec, str) else (spec or {}).get("list")
-            choices = self._list_choices(str(listed))
-            prop = {"type": "string"}
-            if listed in self.dynamic:
-                # Not its values: they change, and the tools are a cached prefix.
-                prop["description"] = _DYNAMIC_HELP.get(str(listed), f"a {slot}")
-            elif choices:
-                prop["enum"] = sorted(set(choices.values()))
-            properties[slot] = prop
-            parameters[slot] = Parameter(slot, "list", choices, dynamic=listed in self.dynamic)
+            parameters[slot] = Parameter(slot, "list", self._list_choices(str(listed)), dynamic=listed in self.dynamic)
 
         wildcard = intent.get("wildcard")
         if wildcard and wildcard.get("slot") not in parameters:
             slot = wildcard["slot"]
-            properties[slot] = {"type": "string", "description": _WILDCARD_HELP.get(slot, f"the {slot}, as said")}
             parameters[slot] = Parameter(slot, "text")
 
-        required = [slot for slot in parameters if slot in always]
-        description = _description(command)
-        spec = {
-            "type": "function",
-            "function": {
-                "name": command.id,
-                "description": description,
-                "parameters": {"type": "object", "properties": properties, "required": required},
-            },
-        }
-        return spec, parameters, required
+        return parameters, [slot for slot in parameters if slot in always]
 
     def _name_choices(self, kind: str, spec: dict[str, Any]) -> dict[str, str]:
         table = self.names.get({"entity": "entities", "area": "areas", "floor": "floors"}.get(kind, kind)) or {}
@@ -316,10 +182,10 @@ class Tools:
     def slots(
         self, command: Command, arguments: dict[str, Any], text: str | None = None
     ) -> tuple[dict[str, Any], list[str]]:
-        """A tool call's arguments as the command's slots, and what was wrong
-        with them (unknown names or values; slots that are no combination of
+        """What the model heard as the command's slots, and what was wrong
+        with it (unknown names or values; slots that are no combination of
         it). With the sentence (``text``), names, values and free text it does
-        not say are dropped: a small model fills in arguments nobody gave."""
+        not say are dropped."""
         parameters = self.parameters.get(command.id, {})
         required = set(self.required.get(command.id, []))
         heard: dict[str, Any] = {}
@@ -417,37 +283,9 @@ def combination_problems(command: Command, heard: set[str]) -> list[str]:
     return [f"{' and '.join(sorted(heard))} don't go together"]
 
 
-_DYNAMIC_HELP = {"running_timers": "a running timer's name"}
-
-_WILDCARD_HELP = {
-    "query": "what to play: an artist, album, song, playlist or genre",
-    "item": "the item, as said",
-    "time": "the clock time, like '7:30 am'",
-    "timer": "the timer's name, if it has one",
-    "reminder": "what to remember, as said",
-}
-
-
-def _description(command: Command) -> str:
-    """What the command does, and how it is said: its examples (a template's
-    first sentence), else its keywords (the first of each required group)."""
-    intent = command.intent
-    said = [example_sentences(str(t))[0] for t in list(intent.get("examples") or [])[:2]]
-    if not said and intent.get("require"):
-        words = []
-        for group in intent["require"]:
-            first = group[0] if isinstance(group, list) else group
-            words.append(str(first).replace(" ... ", " "))
-        said = [" ".join(words)]
-    text = command.description[0].upper() + command.description[1:]
-    if said:
-        text += ". Said like: " + ", ".join(f'"{s}"' for s in said)
-    return text
-
-
 def _heard(value: Any, text: str, choices: dict[str, str] | None = None) -> bool:
     """Whether the sentence says this argument: a name, value or free text the
-    LLM did not make up. With ``choices``, any way of saying the same id."""
+    model did not make up. With ``choices``, any way of saying the same id."""
     said = f" {_key(text)} "
     if choices is not None:
         target = choices.get(_key(value))
@@ -543,201 +381,6 @@ def parse_duration(value: Any) -> float | None:
     return total or None
 
 
-# ------------------------------------------------------------------ the LLM
-
-
-def parse_hammer(text: str) -> list[tuple[str, dict[str, Any]]]:
-    """Hammer's fenced list of JSON (or Python-literal) function calls."""
-    value = text.strip()
-    if value.startswith("```") and value.endswith("```"):
-        value = value[3:-3].strip()
-        if value.startswith("json"):
-            value = value[4:].lstrip()
-    if not value:
-        return []
-    try:
-        decoded = json.loads(value)
-    except json.JSONDecodeError:
-        try:
-            tokens = [
-                token._replace(string={"true": "True", "false": "False", "null": "None"}.get(token.string, token.string))
-                if token.type == tokenize.NAME
-                else token
-                for token in tokenize.generate_tokens(io.StringIO(value).readline)
-            ]
-            decoded = literal_eval(tokenize.untokenize(tokens))
-        except (SyntaxError, tokenize.TokenError, ValueError):
-            return []
-    if isinstance(decoded, dict):
-        decoded = [decoded]
-    if not isinstance(decoded, list):
-        return []
-    calls = []
-    for raw in decoded:
-        if not isinstance(raw, dict):
-            continue
-        if isinstance(raw.get("function"), dict):
-            raw = raw["function"]
-        name, arguments = raw.get("name"), raw.get("arguments") or {}
-        if isinstance(arguments, str):
-            try:
-                arguments = json.loads(arguments)
-            except json.JSONDecodeError:
-                arguments = {}
-        if isinstance(name, str) and isinstance(arguments, dict):
-            calls.append((name, arguments))
-    return calls
-
-
-def parse_calls(text: str) -> list[tuple[str, dict[str, Any]]]:
-    """The tool calls in a reply: Granite's ``<tool_call>`` blocks (the last
-    one may be cut at its closing tag, a stop sequence), Hammer's fenced list,
-    or JSON objects one after another."""
-    blocks = re.findall(r"<tool_call>(.*?)(?:</tool_call>|$)", text, re.S)
-    if blocks:
-        return [call for block in blocks for call in parse_hammer(block)]
-    calls = parse_hammer(text)
-    if calls:
-        return calls
-    decoder = json.JSONDecoder()
-    value, at = text.strip(), 0
-    while (start := value.find("{", at)) >= 0:
-        try:
-            decoded, at = decoder.raw_decode(value, start)
-        except json.JSONDecodeError:
-            break
-        calls += parse_hammer(json.dumps(decoded))
-    return calls
-
-
-def llama_available() -> bool:
-    """Whether llama.cpp is installed."""
-    try:
-        import llama_cpp  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
-    except ImportError:
-        return False
-    return True
-
-
-class ToolModel:
-    """A small LLM in llama.cpp that picks a command as a tool call, with the
-    tools as a reused prefix. Calls are serialized; ``load`` and ``call`` are
-    slow, run them in a thread."""
-
-    def __init__(self, model_path: Path | None = None, n_threads: int = 2, model: str = DEFAULT_TOOL_MODEL) -> None:
-        self.model_path = model_path
-        self.n_threads = n_threads
-        self.model = model
-        info = TOOL_MODELS.get(model)
-        self.way_out = bool(info and info.way_out)
-        self.prompt = WAY_OUT_PROMPT if self.way_out else SYSTEM_PROMPT
-        self.llm: Any = None
-        self.tools: list[dict[str, Any]] = []
-        self.signature: str | None = None
-        self.load_seconds: float | None = None
-        self._lock = threading.Lock()
-        self.error: str | None = None
-
-    @property
-    def name(self) -> str:
-        info = TOOL_MODELS.get(self.model)
-        return info.name if info else self.model
-
-    @staticmethod
-    def find_model(
-        model: str = DEFAULT_TOOL_MODEL, download: bool = False, cache_dir: Path | None = None
-    ) -> Path | None:
-        """The GGUF in the Hugging Face cache, fetched first when asked to."""
-        info = TOOL_MODELS[model]
-        return find_gguf(info.repo, info.file, download, cache_dir)
-
-    def load(self, tools: list[dict[str, Any]], signature: str) -> None:
-        """Load the model if needed, and evaluate the system and tools prefix."""
-        from llama_cpp import Llama  # pylint: disable=import-outside-toplevel
-
-        with self._lock:
-            started = time.perf_counter()
-            needed = _context_size(tools)
-            if self.llm is None or self.llm.n_ctx() < needed:
-                if self.model_path is None:
-                    raise RuntimeError(f"No {self.name} model")
-                self.llm = None
-                self.llm = Llama(
-                    model_path=str(self.model_path),
-                    n_ctx=needed,
-                    n_threads=self.n_threads,
-                    verbose=False,
-                )
-            self.tools = tools
-            self.signature = signature
-            # Hammer's template wants a message after the system one; the empty
-            # user turn shares the whole prefix with real requests.
-            self.llm.create_chat_completion(
-                messages=[{"role": "system", "content": self.prompt}, {"role": "user", "content": ""}],
-                tools=tools,
-                max_tokens=1,
-            )
-            self.load_seconds = time.perf_counter() - started
-            _LOGGER.info(
-                "%s ready: %d tools, context %d, %.1f s", self.name, len(tools), self.llm.n_ctx(), self.load_seconds
-            )
-
-    @property
-    def ready(self) -> bool:
-        return self.llm is not None and self.signature is not None
-
-    def call(
-        self, text: str, tools: list[dict[str, Any]] | None = None
-    ) -> tuple[list[tuple[str, dict[str, Any]]], str, float]:
-        """The tool calls for one sentence, the raw reply, and seconds. With
-        ``tools``, only those (no cached prefix: they are evaluated each time).
-        A reply that is not a call is cut short."""
-        content = USER_PROMPT.format(text=text.strip())
-        pieces: list[str] = []
-        with self._lock:
-            started = time.perf_counter()
-            for chunk in self.llm.create_chat_completion(
-                messages=[{"role": "system", "content": self.prompt}, {"role": "user", "content": content}],
-                tools=tools if tools is not None else self.tools,
-                temperature=0.0,
-                max_tokens=MAX_TOKENS,
-                stop=["</tool_call>"],
-                stream=True,
-            ):
-                pieces.append((chunk["choices"][0].get("delta") or {}).get("content") or "")
-                said = "".join(pieces).lstrip()
-                if len(said) >= len(CALL_STARTS[0]) and not said.startswith(CALL_STARTS):
-                    break
-            seconds = time.perf_counter() - started
-        raw = "".join(pieces)
-        return parse_calls(raw), raw, seconds
-
-
-def find_gguf(repo: str, filename: str, download: bool = False, cache_dir: Path | None = None) -> Path | None:
-    """A model from Hugging Face. With ``download``: from the default cache (a
-    checkout's) or else downloaded into ``cache_dir`` (the app's data);
-    without, only what ``cache_dir`` already has."""
-    try:
-        from huggingface_hub import hf_hub_download  # pylint: disable=import-outside-toplevel
-    except ImportError:
-        return None
-    places = [(None, False), (cache_dir, True)] if download else [(cache_dir, False)]
-    for where, fetch in places:
-        try:
-            return Path(
-                hf_hub_download(repo, filename, local_files_only=not fetch, cache_dir=str(where) if where else None)
-            )
-        except Exception:  # noqa: BLE001 - not there (yet), or no network
-            continue
-    return None
-
-
-def _context_size(tools: list[dict[str, Any]]) -> int:
-    """chars / 3 bounds the tokens; rounded up to 256."""
-    chars = max(len(SYSTEM_PROMPT), len(WAY_OUT_PROMPT)) + len(USER_PROMPT) + len(json.dumps(tools))
-    return ((chars // 3 + CONTEXT_OVERHEAD) // 256 + 1) * 256
-
-
 # ------------------------------------------------------------------ GLiNER
 
 
@@ -792,7 +435,7 @@ _NUMBER_UNITS = {"percent", "per", "cent", "degrees", "degree"}
 
 
 def entity_type(name: str, parameter: Parameter) -> tuple[str, str]:
-    """What GLiNER looks for to fill a tool parameter: label, description."""
+    """What GLiNER looks for to fill a parameter: label, description."""
     spoken = name.replace("_", " ")
     if parameter.kind == "name":
         return _ENTITY_NAMES.get(parameter.slot, _ENTITY_NAMES["entity"])
@@ -824,9 +467,6 @@ class GlinerPicker:
     arguments they take. ``load`` and ``pick`` are slow-ish: call them from a
     thread."""
 
-    kind = "gliner"
-    way_out = False
-
     def __init__(
         self, model_dir: Path | None, n_threads: int = 2, model: str = DEFAULT_FALLBACK_MODEL,
         threshold: float = GLINER_THRESHOLD,
@@ -851,7 +491,7 @@ class GlinerPicker:
         path = root / "models" / GLINER_MODELS[model].directory
         return path if (path / "gliner2_onnx.json").is_file() else None
 
-    def load(self, _specs: Any = None, signature: str | None = None) -> None:
+    def load(self, signature: str | None = None) -> None:
         from .gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
 
         with self._lock:
@@ -894,7 +534,7 @@ class Found:
     command: Command | None = None
     slots: dict[str, Any] = field(default_factory=dict)
     by: str | None = None
-    """meaning | llm | gliner"""
+    """meaning | gliner"""
     trace: dict[str, Any] = field(default_factory=dict)
 
 
@@ -957,72 +597,62 @@ def needs_model(compiled: Any) -> list[str]:
     return [c for c in chosen(compiled, "meaning") if compiled.commands[c].takes_something]
 
 
+BY = "GLiNER"
+"""What the model step is called in the trace."""
+
+
 class Fallback:
-    """Meaning, then the LLM, for one engine. ``prepare`` after every build
-    (new commands are new tools); ``decide`` from the engine's thread."""
+    """Meaning, then GLiNER, for one engine. ``prepare`` after every build
+    (new commands, new arguments); ``decide`` from the engine's thread."""
 
     def __init__(
-        self, embedding_accept: bool = False, llm: ToolModel | GlinerPicker | None = None, top_k: int | None = None
+        self, embedding_accept: bool = False, model: GlinerPicker | None = None, top_k: int | None = None
     ) -> None:
         self.embedding_accept = embedding_accept
-        self.llm = llm
-        """The model step: an LLM (ToolModel) or GLiNER (GlinerPicker)."""
+        self.model = model
+        """The model step's: GLiNER."""
         self.top_k = top_k
-        """Give the LLM only the commands closest in meaning, this many --
-        when more than this many are chosen for it."""
-        self.tools: Tools | None = None
+        """How many commands GLiNER chooses among: the closest in meaning."""
+        self.arguments: Arguments | None = None
         self.chosen: list[str] = []
         """The commands chosen for the model step."""
         self.hearing: list[str] = []
         """The commands chosen for meaning that hear something: the model
         hears it for them."""
-        self.closest_only = False
-        """Whether it gets the closest ``top_k`` of them, not all."""
         self.signature: str | None = None
-        """What the LLM must have been loaded for."""
-        self.status = "off" if llm is None else "waiting for the commands"
+        """What the model must have been loaded for."""
+        self.status = "off" if model is None else "waiting for the commands"
         """The model step's state; without a model, why (the app says)."""
-        self.by = "GLiNER" if getattr(llm, "kind", "llm") == "gliner" else "LLM"
-        """What the model step is called in the trace."""
         self._thread: threading.Thread | None = None
 
     def prepare(self, engine: Any, wait: bool = False) -> None:
-        """New commands: new tools. With every chosen command as a tool, their
-        prefix is evaluated again; with the closest few, the context is sized
-        for the longest few."""
+        """New commands: new arguments, and the model loaded for them, if it
+        isn't (in the background unless ``wait``)."""
         compiled = engine.compiled
         if compiled is None:
             return
-        tools = Tools(compiled, engine.dynamic)
-        self.tools = tools
+        arguments = Arguments(compiled, engine.dynamic)
+        self.arguments = arguments
         self.chosen = chosen(compiled, "llm")
         self.hearing = needs_model(compiled)
-        everything = tools.subset(self.chosen or self.hearing)
-        llm = self.llm
-        if getattr(llm, "kind", "llm") == "gliner":
-            # No prefix: GLiNER is given the closest commands on every call.
-            self.closest_only = False
-            specs, signature = everything, llm.model
-        else:
-            self.closest_only = bool(self.top_k) and len(everything) > int(self.top_k or 0)
-            specs, signature = self._tool_prefix(everything, bool(llm is not None and llm.way_out))
-        self.signature = signature
-        if llm is None:
+        model = self.model
+        self.signature = model.model if model is not None else None
+        if model is None:
             return
-        if not specs:
+        if not [c for c in self.chosen or self.hearing if c in arguments.parameters]:
             self.status = "no commands chosen for it"
             return
-        if llm.ready and llm.signature == signature:
+        if model.ready and model.signature == self.signature:
             self.status = "ready"
             return
 
         def load() -> None:
             try:
-                llm.load(specs, signature)
+                model.load(self.signature)
                 self.status = "ready"
             except Exception as err:  # noqa: BLE001 - the chain works without it
                 self.status = f"not available: {err}"
-                _LOGGER.exception("%s could not be loaded", llm.name)
+                _LOGGER.exception("%s could not be loaded", model.name)
 
         self.status = "loading"
         if wait:
@@ -1031,23 +661,11 @@ class Fallback:
             self._thread = threading.Thread(target=load, name="fallback-model", daemon=True)
             self._thread.start()
 
-    def _tool_prefix(self, everything: list[dict[str, Any]], way_out: bool) -> tuple[list[dict[str, Any]], str]:
-        """An LLM's tools and what they are loaded as: every chosen command,
-        or room for the longest few."""
-        if self.closest_only:
-            longest = with_way_out(sorted(everything, key=lambda spec: -len(json.dumps(spec)))[: self.top_k], way_out)
-            specs, signature = longest, f"closest {self.top_k}, context {_context_size(longest)}"
-        else:
-            specs = with_way_out(everything, way_out)
-            signature = json.dumps(specs, sort_keys=True)
-        return specs, signature
-
     def decide(self, text: str, closest: Any, compiled: Any, satellite: Any, ranked: Any = None) -> Found:
         """``closest()`` is the closest command by meaning, ``ranked()`` every
         command by meaning (each costs an embedding, so only asked for when
         needed). Only commands chosen for a step are run by it."""
         found = Found()
-        llm = self.llm
         scores: dict[str, float] | None = None
 
         def by_similarity() -> dict[str, float]:
@@ -1087,70 +705,16 @@ class Fallback:
                 # Meaning picked the command; what was said in it, the model
                 # hears, and that picks the version and the combination.
                 return self._fill(found, why, here, text, satellite)
-        if llm is None or self.tools is None or not self.chosen or not text.strip():
-            if llm is None and self.chosen:
-                found.trace["llm"] = {"by": self.by, "skipped": self.status}
+        if self.model is None or self.arguments is None or not self.chosen or not text.strip():
+            if self.model is None and self.chosen:
+                found.trace["llm"] = {"by": BY, "skipped": self.status}
             return found
-        gliner = getattr(llm, "kind", "llm") == "gliner"
-        by = "GLiNER" if gliner else "LLM"
         if not self._model_ready():
-            found.trace["llm"] = {"by": by, "skipped": self.status}
+            found.trace["llm"] = {"by": BY, "skipped": self.status}
             return found
-        subset = None
-        trace: dict[str, Any] = {"by": by}
-
-        if gliner:
-            found.trace["llm"] = trace
-            return self._pick_with_gliner(found, trace, text, compiled, satellite, by_similarity, closest_once)
-        if self.closest_only and ranked is not None:
-            allowed = set(self.chosen)
-            order = [
-                c for c in by_similarity()
-                if c in allowed and c in compiled.commands and satellite.available(compiled.commands[c])
-            ]
-            if not order:
-                found.trace["llm"] = {"by": by, "skipped": "none of its commands is available here"}
-                return found
-            subset = with_way_out(self.tools.subset(order[: self.top_k]), llm.way_out)
-            trace["candidates"] = order[: self.top_k]
-        calls, raw, seconds = llm.call(text, subset)
-        trace.update(raw=raw, seconds=round(seconds, 3), calls=[[n, a] for n, a in calls])
+        trace: dict[str, Any] = {"by": BY}
         found.trace["llm"] = trace
-        for name, arguments in calls:
-            if name == NOT_A_COMMAND and name not in compiled.commands:
-                trace["said"] = "not a command"
-                return found
-            command = compiled.commands.get(name)
-            if command is None or command.disabled or name not in self.chosen:
-                trace.setdefault("problems", []).append(f"no command {name}")
-                continue
-            # It called one version of a command; what it gave picks the version.
-            members = [c for c in kin(compiled, command) if c.id in self.chosen]
-            available = satellite.first(members)
-            fit = self._fit(available or [command], lambda _c, given=arguments: given, text)
-            command = fit.command or (available or [command])[0]
-            slots, problems = fit.slots, fit.problems
-            close = by_similarity().get(command.id)
-            floor = LLM_BARE_MIN_SIMILARITY if slots == match_slots(command, {}) else LLM_MIN_SIMILARITY
-            if close is not None and close < floor:
-                # Not what it meant, so no hint from it either.
-                trace["refused"] = {
-                    "command": command.id,
-                    "arguments": arguments,
-                    "similarity": round(close, 4),
-                    "floor": floor,
-                    "why": "not close in meaning",
-                }
-                return found
-            trace["command"] = command.id
-            if not available:
-                trace["problems"] = [satellite.why_unavailable(command)]
-                return found
-            if problems:
-                trace["problems"] = problems
-                return found
-            return Found(command, slots, "llm", found.trace)
-        return found
+        return self._pick_with_gliner(found, trace, text, compiled, satellite, by_similarity, closest_once)
 
     def _fit(self, members: list[Command], arguments_of: Any, text: str) -> Fit:
         """Which of a command's versions takes what the model heard
@@ -1159,14 +723,14 @@ class Fallback:
         one that takes the most of it -- "play jazz on the Mark 2" is the
         version that takes a device, not the one that plays it here. None
         fitting: what was wrong with each."""
-        assert self.tools is not None
+        assert self.arguments is not None
         best: Fit | None = None
         tried: list[Fit] = []
         for command in members:
             arguments = arguments_of(command)
-            slots, problems = self.tools.slots(command, arguments, text)
+            slots, problems = self.arguments.slots(command, arguments, text)
             if not problems:
-                problems = [f"heard {place}, which it doesn't take" for place in self.tools.places_left(command, slots, text)]
+                problems = [f"heard {place}, which it doesn't take" for place in self.arguments.places_left(command, slots, text)]
             combination = list(command.combination_for(set(slots) - set(command.behavior.slots)) or [])
             fit = Fit(None if problems else command, slots, arguments, combination, problems)
             tried.append(fit)
@@ -1186,47 +750,37 @@ class Fallback:
         """Whether the sentence names no room or floor the command left out;
         else why not, in ``trace``. "Play music in the office" is not resuming
         the music here."""
-        left = self.tools.places_left(command, slots, text) if self.tools is not None else []
+        left = self.arguments.places_left(command, slots, text) if self.arguments is not None else []
         if left:
             trace["problems"] = [f"heard {place}, which it doesn't take" for place in left]
         return not left
 
     def _model_ready(self) -> bool:
-        llm = self.llm
-        return llm is not None and self.tools is not None and llm.ready and llm.signature == self.signature
+        model = self.model
+        return model is not None and self.arguments is not None and model.ready and model.signature == self.signature
 
     def _fill(self, found: Found, trace: dict[str, Any], members: list[Command], text: str, satellite: Any) -> Found:
-        """Meaning picked a command that hears something: the model hears what
-        was said in it (GLiNER its versions' entity types; an LLM a call to
-        them alone), and that picks the version and its combination --
-        nothing said is one too, when it has it."""
-        llm, tools = self.llm, self.tools
+        """Meaning picked a command that hears something: GLiNER hears what
+        was said in it (its versions' entity types), and that picks the
+        version and its combination -- nothing said is one too, when it has
+        it."""
+        model = self.model
         if not self._model_ready() or not text.strip():
             trace["why"] = "it hears names, numbers or text, and there is no model to hear them"
             return found
-        assert llm is not None and tools is not None
-        ids = [c.id for c in members]
-        if getattr(llm, "kind", "llm") == "gliner":
-            types = self._entity_types(ids)
-            out, seconds = llm.hear(text, types) if types else ({"entities": {}}, 0.0)
-            entities = out.get("entities") or {}
+        assert model is not None
+        types = self._entity_types([c.id for c in members])
+        out, seconds = model.hear(text, types) if types else ({"entities": {}}, 0.0)
+        entities = out.get("entities") or {}
 
-            def arguments_of(command: Command) -> dict[str, Any]:
-                return self._gliner_arguments(command, entities, text)
+        def arguments_of(command: Command) -> dict[str, Any]:
+            return self._gliner_arguments(command, entities, text)
 
-            trace.update(
-                heard_by="GLiNER",
-                entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
-                seconds=round(seconds, 3),
-            )
-        else:
-            calls, raw, seconds = llm.call(text, with_way_out(tools.subset(ids), llm.way_out))
-            given = next((a for n, a in calls if n in ids), {})
-
-            def arguments_of(command: Command) -> dict[str, Any]:
-                return given
-
-            trace.update(heard_by="LLM", raw=raw, seconds=round(seconds, 3))
+        trace.update(
+            heard_by=BY,
+            entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
+            seconds=round(seconds, 3),
+        )
         fit = self._fit(members, arguments_of, text)
         trace["arguments"] = fit.arguments
         if fit.command is None:
@@ -1238,10 +792,10 @@ class Fallback:
 
     def _entity_types(self, command_ids: list[str]) -> dict[str, str]:
         """What GLiNER looks for, for these commands' slots: label -> description."""
-        assert self.tools is not None
+        assert self.arguments is not None
         types: dict[str, str] = {}
         for command_id in command_ids:
-            for name, parameter in self.tools.parameters.get(command_id, {}).items():
+            for name, parameter in self.arguments.parameters.get(command_id, {}).items():
                 label, description = entity_type(name, parameter)
                 types.setdefault(label, description)
         return types
@@ -1268,11 +822,11 @@ class Fallback:
         everyday requests that are no command too: there is nothing else to
         check it by ("thank you" was "say good night", "what's twelve times
         eight" turned on repeat)."""
-        llm, tools = self.llm, self.tools
-        assert tools is not None
+        model, arguments = self.model, self.arguments
+        assert model is not None and arguments is not None
         groups: dict[str, list[Command]] = {}
         for command in compiled.commands.values():
-            if not command.disabled and command.id in tools.parameters and label_of(command) != NOT_A_COMMAND_LABEL:
+            if not command.disabled and command.id in arguments.parameters and label_of(command) != NOT_A_COMMAND_LABEL:
                 groups.setdefault(label_of(command), []).append(command)
         # Each label shown by its closest command, closest first (without an
         # embedding model, every one).
@@ -1288,7 +842,7 @@ class Fallback:
             trace["skipped"] = "none of its commands is close in meaning"
             return found
         types = self._entity_types([c.id for label in candidates for c in groups[label]])
-        out, seconds = llm.pick(text, [*candidates, NOT_A_COMMAND_LABEL], types)
+        out, seconds = model.pick(text, [*candidates, NOT_A_COMMAND_LABEL], types)
         probabilities = dict(out["classification"])
         none = probabilities.pop(NOT_A_COMMAND_LABEL)
         scores = {label: probabilities[label] for label in candidates}
@@ -1307,8 +861,8 @@ class Fallback:
         if none >= scores[best]:
             trace["said"] = "not a command"
             return found
-        if scores[best] < llm.threshold:
-            trace["said"] = f"not sure enough ({scores[best]:.2f}, needs {llm.threshold:.2f})"
+        if scores[best] < model.threshold:
+            trace["said"] = f"not sure enough ({scores[best]:.2f}, needs {model.threshold:.2f})"
             return found
         members = [c for c in groups[best] if c.id in self.chosen]
         if not members:
@@ -1346,10 +900,10 @@ class Fallback:
         the sentence says), or all of them for many names; numbers as values,
         names without "the". The same words found as two slots ("living room"
         as a room and as a floor) are the surer one."""
-        tools = self.tools
-        assert tools is not None
+        arguments = self.arguments
+        assert arguments is not None
         picked: list[tuple[float, int, int, str, Any]] = []
-        for name, parameter in tools.parameters[command.id].items():
+        for name, parameter in arguments.parameters[command.id].items():
             label, _ = entity_type(name, parameter)
             found = sorted((e for e in entities.get(label) or [] if e[1] >= GLINER_ENTITY_MIN), key=lambda e: -e[1])
             for entity in found:
@@ -1357,7 +911,7 @@ class Fallback:
                 value = _ARTICLE.sub("", said) if parameter.kind == "name" else said
                 if parameter.kind == "number":
                     value = spoken_number(value)
-                if not tools.takes(command, name, value, text):
+                if not arguments.takes(command, name, value, text):
                     continue
                 picked.append((confidence, start, end, name, value))
                 if not parameter.many:
@@ -1369,7 +923,7 @@ class Fallback:
             kept.append(pick)
         out: dict[str, Any] = {}
         for _confidence, _start, _end, name, value in sorted(kept, key=lambda p: p[1]):
-            if tools.parameters[command.id][name].many:
+            if arguments.parameters[command.id][name].many:
                 out.setdefault(name, []).append(value)
             else:
                 out[name] = value

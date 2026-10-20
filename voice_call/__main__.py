@@ -207,7 +207,6 @@ async def main() -> None:
             speaker_threshold=args.speaker_threshold,
             speaker_channel=args.speaker_channel,
             speaker_learn=not args.no_speaker_learn,
-            downloads=True,
         )
     )
     await app.start()

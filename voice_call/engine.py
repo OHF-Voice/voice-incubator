@@ -165,7 +165,7 @@ class Decision:
     matched_by: str = "ctc"
     """What found the command: the CTC matcher on the audio (``ctc``), the
     same matcher on the TDT or STT transcript (``transcript``), or the
-    fallback (``meaning``, ``gliner``, ``llm``)."""
+    fallback (``meaning``, ``gliner``)."""
     transcript_pass: dict[str, Any] | None = None
     """Nothing matched in the audio: what the keyword matcher made of the
     transcript."""
@@ -272,7 +272,7 @@ class Engine:
         self._placers: dict[tuple[str, ...], WakeVerifier] = {}
         self.placer = self.placer_for(WAKE_PHRASES)
         self.fallback: Any = None
-        """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
+        """When nothing matched: meaning, then GLiNER (voice_call/fallback.py)."""
         self.skill_settings: dict[str, Any] | None = None
         """Each skill's settings (skills.configure); None: as built in."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
@@ -520,12 +520,12 @@ class Engine:
             decision.message = decision.refused["text"]
         elif decision.command is None and decision.answer is None:
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
-            llm = (decision.fallback or {}).get("llm") or {}
-            if llm.get("command") in compiled.commands:
-                # The LLM knew what was meant but not all of it.
-                command = compiled.commands[llm["command"]]
+            picked = (decision.fallback or {}).get("llm") or {}
+            if picked.get("command") in compiled.commands:
+                # GLiNER knew what was meant but not all of it.
+                command = compiled.commands[picked["command"]]
                 why = "but that isn't set up here" if satellite.available(command) is None else "but I didn't understand all of it"
-                decision.hint = {"source": "llm", "command": command.id, "text": f"It looks like you're trying to {command.description}, {why}."}
+                decision.hint = {"source": "gliner", "command": command.id, "text": f"It looks like you're trying to {command.description}, {why}."}
             if not compiled.commands:
                 # Only the app's own commands are listened for.
                 decision.hint = {"source": None, "text": NO_COMMANDS}
@@ -536,7 +536,7 @@ class Engine:
         return decision
 
     def _fall_back(self, decision: Decision, recognition: Recognition, compiled: Compiled, satellite: Satellite) -> None:
-        """Nothing matched: the closest command by meaning, then the LLM."""
+        """Nothing matched: the closest command by meaning, then GLiNER."""
         with self._lock:
             recognizer = self.recognizer
         texts = [t for t in (recognition.tdt_transcript, recognition.transcript) if t]
@@ -568,7 +568,7 @@ class Engine:
         decision.command = found.command
         decision.behavior = behavior
         decision.slots = {**decision.behavior.slots, **found.slots}
-        decision.matched_by = found.by or "llm"
+        decision.matched_by = found.by or "gliner"
         refused = self.fit_devices(decision, compiled, satellite)
         if refused is not None:
             decision.command, decision.behavior, decision.refused = None, None, refused
@@ -931,31 +931,26 @@ def _norm(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
-def llm_note(fallback: dict[str, Any] | None) -> str | None:
-    """What the fallback's model step (GLiNER or an LLM) came to when it ran
-    no command, in a line (None when it was not asked)."""
-    llm = (fallback or {}).get("llm") or {}
+def model_note(fallback: dict[str, Any] | None) -> str | None:
+    """What the fallback's model step (GLiNER) came to when it ran no
+    command, in a line (None when it was not asked)."""
+    step = (fallback or {}).get("llm") or {}
     meaning = (fallback or {}).get("meaning") or {}
-    if not llm and meaning.get("problems"):
+    if not step and meaning.get("problems"):
         # Meaning picked it; what was said in the sentence did not fit.
         return f"meaning picked {meaning['command']}, not run: {'; '.join(meaning['problems'])}"
-    if not llm:
+    if not step:
         return None
-    by = llm.get("by", "LLM")
-    if llm.get("skipped"):
-        return f"{by} skipped: {llm['skipped']}"
-    refused = llm.get("refused")
-    if refused and "similarity" in refused:
-        return (
-            f"{by} picked {refused['command']}, not close enough in meaning to run "
-            f"({refused['similarity']:.2f}, needs {refused['floor']:.2f})"
-        )
+    by = step.get("by", "GLiNER")
+    if step.get("skipped"):
+        return f"{by} skipped: {step['skipped']}"
+    refused = step.get("refused")
     if refused:
         return f"{by} picked {refused['command']}, not run: {refused['why']}"
-    if llm.get("problems"):
-        picked = f"{by} picked {llm['command']}" if llm.get("command") else f"{by}'s pick"
-        return f"{picked}, not run: {'; '.join(llm['problems'])}"
-    return f"{by}: {llm.get('said') or 'not a command'}"
+    if step.get("problems"):
+        picked = f"{by} picked {step['command']}" if step.get("command") else f"{by}'s pick"
+        return f"{picked}, not run: {'; '.join(step['problems'])}"
+    return f"{by}: {step.get('said') or 'not a command'}"
 
 
 def _took(timings: dict[str, float], key: str, started: float) -> None:

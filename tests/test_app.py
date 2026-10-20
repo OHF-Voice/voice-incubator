@@ -286,8 +286,8 @@ async def _scenario(tmp_path: Path) -> None:
             fallback = (await (await http.get("/api/status")).json())["fallback"]
             assert fallback["meaning_commands"] == 1 and fallback["llm_commands"] == 1
             assert fallback["model"] == "gliner2.5-small-v1" and fallback["threshold"] == 0.3
-            assert fallback["models"]["gliner2.5-small-v1"]["kind"] == "gliner"
-            assert fallback["models"]["granite-4.0-350m"]["kind"] == "llm"
+            assert list(fallback["models"]) == ["gliner2.5-small-v1"]  # GLiNER only
+            assert (await http.put("/api/settings", json={"fallback_model": "granite-4.0-350m"})).status == 400
             assert (await http.put("/api/fallback", json={"llm": ["nope"]})).status == 400
             assert (await http.put("/api/settings", json={"fallback_model": "nope"})).status == 400
             assert (await http.put("/api/settings", json={"fallback_threshold": 1.5})).status == 400

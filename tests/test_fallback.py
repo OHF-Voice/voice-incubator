@@ -1,20 +1,18 @@
-"""The fallback: commands as LLM tools and back, the checks on what it says,
-and the chain -- with a stand-in for the model."""
+"""The fallback: what commands may hear and back into slots, the checks on
+it, and the chain -- with a stand-in for GLiNER."""
 
 from __future__ import annotations
 
 import pytest
 
-from voice_call.engine import Satellite, llm_note
+from voice_call.engine import Satellite, model_note
 from voice_call.fallback import (
+    Arguments,
     Fallback,
-    Tools,
     by_meaning,
     chosen,
     needs_heard_slots,
-    parse_calls,
     parse_duration,
-    parse_hammer,
 )
 from voice_call.store import compile_store
 
@@ -91,27 +89,21 @@ def chosen_for(store, meaning=(), llm=()):
     return compile_store({**store, "commands": commands})
 
 
-def test_commands_become_tools(compiled):
-    tools = Tools(compiled)
-    by_name = {spec["function"]["name"]: spec["function"] for spec in tools.specs}
-    assert set(by_name) == set(STORE["commands"])
-    area = by_name["lights_on"]["parameters"]["properties"]["area"]
-    assert area["enum"] == ["Kitchen", "Living Room"]
-    assert by_name["lights_on"]["parameters"]["required"] == []
-    entity = by_name["device_on"]["parameters"]["properties"]["entity"]
-    assert entity["enum"] == ["Coffee Maker"]  # switches only
-    assert by_name["light_color"]["parameters"]["properties"]["color"]["enum"] == ["blue", "red"]
-    assert by_name["start_timer"]["parameters"]["properties"]["duration"]["type"] == "string"
-    assert by_name["set_brightness"]["parameters"]["properties"]["percentage"] == {"type": "number", "minimum": 0, "maximum": 100}
-    assert by_name["add_item"]["parameters"]["required"] == ["item"]
-    # How it is said: its examples, else its keywords.
-    assert 'Said like: "what time is it"' in by_name["what_time"]["description"]
-    assert 'Said like: "turn on lights"' in by_name["lights_on"]["description"]
-    assert [s["function"]["name"] for s in tools.subset(["what_time", "lights_on", "nope"])] == ["what_time", "lights_on"]
+def test_what_commands_hear(compiled):
+    arguments = Arguments(compiled)
+    assert set(arguments.parameters) == set(STORE["commands"])
+    kinds = {c: {name: p.kind for name, p in ps.items()} for c, ps in arguments.parameters.items()}
+    assert kinds["lights_on"] == {"area": "name", "floor": "name"} and arguments.required["lights_on"] == []
+    assert arguments.parameters["lights_on"]["area"].choices == {"kitchen": "kitchen", "living room": "living_room", "lounge": "living_room"}
+    assert arguments.parameters["device_on"]["entity"].choices == {"coffee maker": "switch.coffee_maker"}  # switches only
+    assert set(arguments.parameters["light_color"]["color"].choices.values()) == {"red", "blue"}
+    assert kinds["start_timer"] == {"duration": "duration"} and kinds["set_brightness"] == {"percentage": "number"}
+    assert kinds["add_item"] == {"item": "text"} and arguments.required["add_item"] == ["item"]
+    assert kinds["what_time"] == {}
 
 
 def test_arguments_become_slots(compiled):
-    tools = Tools(compiled)
+    tools = Arguments(compiled)
     commands = compiled.commands
     assert tools.slots(commands["lights_on"], {"area": "lounge"}, "lights on in the lounge") == ({"area": ["living_room"]}, [])
     # A name the sentence does not say is dropped: a small model makes them up.
@@ -144,20 +136,7 @@ def test_arguments_become_slots(compiled):
     assert tools.slots(commands["set_alarm"], {"time": "6:00 am"}, "wake me up at six") == ({"time": "6:00"}, [])
 
 
-def test_parsing():
-    assert parse_hammer('```\n[{"name": "lights_on", "arguments": {"area": "Kitchen"}}]\n```') == [("lights_on", {"area": "Kitchen"})]
-    assert parse_hammer("```\n[{'name': 'x', 'arguments': {'on': true}}]\n```") == [("x", {"on": True})]
-    assert parse_hammer('[{"type": "function", "function": {"name": "y", "arguments": "{\\"a\\": 1}"}}]') == [("y", {"a": 1})]
-    assert parse_hammer("```\n[]\n```") == [] and parse_hammer("I don't know") == []
-    # Granite: <tool_call> blocks, the last one cut at its closing tag (a stop
-    # sequence), or the objects alone when the tags are not printed.
-    granite = '<tool_call>\n{"name": "lights_on", "arguments": {"area": "Kitchen"}}\n'
-    assert parse_calls(granite) == [("lights_on", {"area": "Kitchen"})]
-    assert parse_calls(granite + "</tool_call>\n<tool_call>\n{\"name\": \"x\", \"arguments\": {}}") == [
-        ("lights_on", {"area": "Kitchen"}), ("x", {})
-    ]
-    assert parse_calls('{"name": "a", "arguments": {}}\n{"name": "b", "arguments": {}}') == [("a", {}), ("b", {})]
-    assert parse_calls("```\n[]\n```") == [] and parse_calls("I can't do that.") == []
+def test_durations():
     assert parse_duration("10 minutes") == 600
     assert parse_duration("1 hour and 30 minutes") == 5400
     assert parse_duration("an hour and a half") == 5400
@@ -179,28 +158,6 @@ def test_by_meaning(compiled):
     assert by_meaning({**near, "intent": "add_item"}, commands["add_item"])[0]
 
 
-class StubLLM:
-    """Says what it is told to, and remembers what it was given."""
-
-    name = "stub"
-    model = "stub"
-    way_out = True
-
-    def __init__(self, reply: str) -> None:
-        self.reply = reply
-        self.ready = False
-        self.signature = None
-        self.loaded = None
-        self.given = None
-
-    def load(self, tools, signature):
-        self.ready, self.signature, self.loaded = True, signature, tools
-
-    def call(self, text, tools=None):
-        self.given = tools
-        return parse_calls(self.reply), self.reply, 0.01
-
-
 class FakeEngine:
     def __init__(self, compiled):
         self.compiled = compiled
@@ -219,102 +176,10 @@ def ranked():
     return [("add_item", 0.7), ("what_time", 0.5), ("lights_on", 0.4)]
 
 
-def test_the_chain():
-    compiled = chosen_for(STORE, meaning=["what_time"], llm=["add_item", "what_time", "lights_on"])
-    llm = StubLLM('```\n[{"name": "add_item", "arguments": {"item": "milk"}}]\n```')
-    fallback = Fallback(embedding_accept=True, llm=llm, top_k=2)
-    fallback.prepare(FakeEngine(compiled), wait=True)
-    assert fallback.status == "ready" and llm.signature == fallback.signature and fallback.closest_only
-
-    found = fallback.decide("we need milk", far, compiled, KITCHEN, ranked)
-    assert found.command.id == "add_item" and found.by == "llm" and found.slots == {"item": "milk"}
-    assert [spec["function"]["name"] for spec in llm.given] == ["add_item", "what_time", "not_a_command"]
-    assert found.trace["meaning"]["why"] == "not close enough"
-
-    # Close in meaning and nothing to say: no LLM needed.
-    llm.given = "not asked"
-    found = fallback.decide("have you got the time", near, compiled, KITCHEN, ranked)
-    assert found.command.id == "what_time" and found.by == "meaning" and llm.given == "not asked"
-
-    # The LLM picks something this satellite may not run: not run, said why.
-    limited = Satellite("sat", "Kids", "kitchen", home=False)
-    found = fallback.decide("we need milk", far, compiled, limited, ranked)
-    assert found.command is None and found.trace["llm"]["skipped"] == "none of its commands is available here"
-
-    # It calls nothing, or says it is not a command: nothing.
-    llm.reply = "```\n[]\n```"
-    assert fallback.decide("what's the capital of france", far, compiled, KITCHEN, ranked).command is None
-    llm.reply = '<tool_call>\n{"name": "not_a_command", "arguments": {}}\n'
-    found = fallback.decide("what's the capital of france", far, compiled, KITCHEN, ranked)
-    assert found.command is None and found.trace["llm"]["said"] == "not a command"
-    assert llm_note(found.trace) == "LLM: not a command"
-
-
-def test_only_chosen_commands():
-    # Nothing chosen: neither step runs anything, and the LLM is not loaded.
-    compiled = compile_store(STORE)
-    assert chosen(compiled, "llm") == [] and chosen(compiled, "meaning") == []
-    llm = StubLLM('<tool_call>\n{"name": "what_time", "arguments": {}}\n')
-    fallback = Fallback(embedding_accept=True, llm=llm, top_k=8)
-    fallback.prepare(FakeEngine(compiled), wait=True)
-    assert fallback.status == "no commands chosen for it" and not llm.ready
-    assert fallback.decide("have you got the time", near, compiled, KITCHEN, ranked).command is None
-
-    # Close in meaning, but not chosen for meaning.
-    compiled = chosen_for(STORE, meaning=["lights_on"], llm=["lights_on", "add_item"])
-    fallback = Fallback(embedding_accept=True, llm=llm, top_k=8)
-    fallback.prepare(FakeEngine(compiled), wait=True)
-    found = fallback.decide("have you got the time", near, compiled, KITCHEN, ranked)
-    assert found.command is None and found.trace["meaning"]["why"] == "not chosen for meaning"
-    # No more than top_k chosen: all of them, in a fixed order, read once (no
-    # tools given per call); a command not chosen is not run.
-    assert not fallback.closest_only
-    assert [s["function"]["name"] for s in llm.loaded] == ["add_item", "lights_on", "not_a_command"]
-    assert llm.given is None
-    assert found.trace["llm"]["problems"] == ["no command what_time"]
-
-    def lights_close():
-        return [("lights_on", 0.8), ("add_item", 0.5)]
-
-    llm.reply = '<tool_call>\n{"name": "lights_on", "arguments": {}}\n'
-    found = fallback.decide("can i get some light", far, compiled, KITCHEN, lights_close)
-    assert found.command.id == "lights_on" and found.by == "llm"
-    # Every chosen command whatever the satellite (one prefix); availability after.
-    limited = Satellite("sat", "Kids", "kitchen", home=False)
-    found = fallback.decide("can i get some light", far, compiled, limited, lights_close)
-    assert found.command is None and "doesn't take" in found.trace["llm"]["problems"][0]
-
-
-def test_picks_must_be_close_in_meaning():
-    compiled = chosen_for(STORE, llm=["lights_on", "add_item"])
-    llm = StubLLM('<tool_call>\n{"name": "lights_on", "arguments": {}}\n')
-    fallback = Fallback(llm=llm, top_k=8)
-    fallback.prepare(FakeEngine(compiled), wait=True)
-
-    def at(similarity):
-        return lambda: [("lights_on", similarity), ("add_item", similarity)]
-
-    # Nothing taken from the sentence: 0.70.
-    assert fallback.decide("some light", far, compiled, KITCHEN, at(0.72)).command.id == "lights_on"
-    found = fallback.decide("thank you", far, compiled, KITCHEN, at(0.68))
-    assert found.command is None and found.trace["llm"]["refused"]["why"] == "not close in meaning"
-    assert "command" not in found.trace["llm"]  # so no "it looks like you're trying to..." from it
-    # Said in the call's summary.
-    assert llm_note(found.trace) == "LLM picked lights_on, not close enough in meaning to run (0.68, needs 0.70)"
-    # Something taken from it: 0.65.
-    llm.reply = '<tool_call>\n{"name": "add_item", "arguments": {"item": "milk"}}\n'
-    assert fallback.decide("we need milk", far, compiled, KITCHEN, at(0.68)).command.id == "add_item"
-    assert fallback.decide("milk is a drink", far, compiled, KITCHEN, at(0.6)).command is None
-    # No embedding model: no floor.
-    assert fallback.decide("milk is a drink", far, compiled, KITCHEN, None).command.id == "add_item"
-
-
 class StubGliner:
     """GLiNER's place: says the probabilities and entities it is told to, and
     remembers the labels and entity types it was given."""
 
-    kind = "gliner"
-    way_out = False
     model = "stub-gliner"
     name = "Stub GLiNER"
 
@@ -325,7 +190,7 @@ class StubGliner:
         self.signature = None
         self.labels = self.types = None
 
-    def load(self, specs=None, signature=None):
+    def load(self, signature=None):
         self.ready, self.signature = True, signature
 
     def pick(self, text, labels, entities):
@@ -341,7 +206,7 @@ class StubGliner:
 
 def gliner_fallback(stub, chosen_ids, store=STORE):
     compiled = chosen_for(store, llm=chosen_ids)
-    fallback = Fallback(llm=stub, top_k=8)
+    fallback = Fallback(model=stub, top_k=8)
     fallback.prepare(FakeEngine(compiled), wait=True)
     return fallback, compiled
 
@@ -350,6 +215,54 @@ def everything():
     """Every command, closest first: what an embedding would say."""
     return [("add_item", 0.8), ("start_timer", 0.7), ("set_brightness", 0.6), ("lights_on", 0.5),
             ("device_on", 0.4), ("light_color", 0.3), ("what_time", 0.2), ("set_alarm", 0.1)]
+
+
+def test_the_chain():
+    compiled = chosen_for(STORE, meaning=["what_time"], llm=["add_item", "what_time", "lights_on"])
+    stub = StubGliner({"add something to the shopping list": 0.8}, {"item": [("milk", 0.97, 8, 12)]})
+    fallback = Fallback(embedding_accept=True, model=stub, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    assert fallback.status == "ready" and stub.signature == fallback.signature == "stub-gliner"
+
+    found = fallback.decide("we need milk", far, compiled, KITCHEN, everything)
+    assert found.command.id == "add_item" and found.by == "gliner" and found.slots == {"item": "milk"}
+    assert found.trace["meaning"]["why"] == "not close enough"
+
+    # Close in meaning and nothing to say: GLiNER isn't asked.
+    stub.labels = "not asked"
+    found = fallback.decide("have you got the time", near, compiled, KITCHEN, everything)
+    assert found.command.id == "what_time" and found.by == "meaning" and stub.labels == "not asked"
+
+    # It picks something this satellite may not run: not run, said why.
+    limited = Satellite("sat", "Kids", "kitchen", home=False)
+    found = fallback.decide("we need milk", far, compiled, limited, everything)
+    assert found.command is None and found.trace["llm"]["command"] == "add_item" and found.trace["llm"]["problems"]
+
+    # It says it is not a command: nothing.
+    stub.none = 0.9
+    found = fallback.decide("what's the capital of france", far, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["llm"]["said"] == "not a command"
+    assert model_note(found.trace) == "GLiNER: not a command"
+
+
+def test_only_chosen_commands():
+    # Nothing chosen: neither step runs anything, and GLiNER is not loaded.
+    compiled = compile_store(STORE)
+    assert chosen(compiled, "llm") == [] and chosen(compiled, "meaning") == []
+    stub = StubGliner({"tell the time": 0.9})
+    fallback = Fallback(embedding_accept=True, model=stub, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    assert fallback.status == "no commands chosen for it" and not stub.ready
+    assert fallback.decide("have you got the time", near, compiled, KITCHEN, everything).command is None
+
+    # Close in meaning, but not chosen for meaning; picked by GLiNER, but not
+    # chosen for it either.
+    compiled = chosen_for(STORE, meaning=["lights_on"], llm=["lights_on", "add_item"])
+    fallback = Fallback(embedding_accept=True, model=stub, top_k=8)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("have you got the time", near, compiled, KITCHEN, everything)
+    assert found.command is None and found.trace["meaning"]["why"] == "not chosen for meaning"
+    assert found.trace["llm"]["refused"] == {"command": "what_time", "why": "not chosen for it"}
 
 
 def test_gliner_picks_among_the_closest():
@@ -375,7 +288,7 @@ def test_gliner_runs_only_a_chosen_command_it_is_sure_of():
     fallback, compiled = gliner_fallback(picks_timer, ["add_item"])
     found = fallback.decide("give me ten minutes", far, compiled, KITCHEN, everything)
     assert found.command is None and found.trace["llm"]["refused"] == {"command": "start_timer", "why": "not chosen for it"}
-    assert llm_note(found.trace) == "GLiNER picked start_timer, not run: not chosen for it"
+    assert model_note(found.trace) == "GLiNER picked start_timer, not run: not chosen for it"
 
     unsure = StubGliner({"add something to the shopping list": 0.2}, {"item": [("milk", 0.97, 8, 12)]})
     fallback, compiled = gliner_fallback(unsure, ["add_item"])
@@ -385,7 +298,7 @@ def test_gliner_runs_only_a_chosen_command_it_is_sure_of():
     not_a_command = StubGliner({"add something to the shopping list": 0.4}, none=0.6)
     fallback, compiled = gliner_fallback(not_a_command, ["add_item"])
     found = fallback.decide("thank you", far, compiled, KITCHEN, everything)
-    assert found.command is None and llm_note(found.trace) == "GLiNER: not a command"
+    assert found.command is None and model_note(found.trace) == "GLiNER: not a command"
 
     # Sure, but what it needs was not found: not run, and hinted from it.
     nothing_said = StubGliner({"add something to the shopping list": 0.9})
@@ -451,29 +364,29 @@ def lights_near():
 def test_meaning_picks_the_command_and_gliner_hears_what_was_said():
     compiled = chosen_for(STORE, meaning=["lights_on"])
     heard_a_room = StubGliner({}, {"room": [("the lounge", 0.9, 13, 23)]})
-    fallback = Fallback(embedding_accept=True, llm=heard_a_room, top_k=8)
+    fallback = Fallback(embedding_accept=True, model=heard_a_room, top_k=8)
     fallback.prepare(FakeEngine(compiled), wait=True)
     found = fallback.decide("lights up in the lounge", lights_near, compiled, KITCHEN, everything)
     assert found.command.id == "lights_on" and found.by == "meaning" and found.slots == {"area": ["living_room"]}
     assert found.trace["meaning"]["heard_by"] == "GLiNER" and found.trace["meaning"]["combination"] == ["area"]
     assert heard_a_room.labels is None and set(heard_a_room.types) == {"room", "floor"}  # its slots only
     # Nothing heard: the combination of nothing, the satellite's area.
-    fallback.llm.entities = {}
+    fallback.model.entities = {}
     found = fallback.decide("lights up", lights_near, compiled, KITCHEN, everything)
     assert found.command.id == "lights_on" and found.slots == {}
     # The same words as a room and as a floor: the surer one, if it has it.
-    fallback.llm.entities = {"room": [("upstairs", 0.6, 10, 18)], "floor": [("upstairs", 0.8, 10, 18)]}
+    fallback.model.entities = {"room": [("upstairs", 0.6, 10, 18)], "floor": [("upstairs", 0.8, 10, 18)]}
     found = fallback.decide("lights up upstairs", lights_near, compiled, KITCHEN, everything)
     assert found.slots == {"floor": ["upstairs"]}
-    fallback.llm.entities = {"room": [("lounge", 0.9, 14, 20)], "floor": [("lounge", 0.95, 14, 20)]}
+    fallback.model.entities = {"room": [("lounge", 0.9, 14, 20)], "floor": [("lounge", 0.95, 14, 20)]}
     found = fallback.decide("lights up, the lounge", lights_near, compiled, KITCHEN, everything)
     assert found.slots == {"area": ["living_room"]}  # no floor of that name
     # A room and a floor: no combination of it, so nothing runs.
-    fallback.llm.entities = {"room": [("kitchen", 0.9, 13, 20)], "floor": [("upstairs", 0.9, 21, 29)]}
+    fallback.model.entities = {"room": [("kitchen", 0.9, 13, 20)], "floor": [("upstairs", 0.9, 21, 29)]}
     found = fallback.decide("lights up in kitchen upstairs", lights_near, compiled, KITCHEN, everything)
     assert found.command is None and found.trace["meaning"]["problems"] == ["area and floor don't go together"]
     # Without a model to hear them, a command that hears something isn't run by meaning.
-    fallback = Fallback(embedding_accept=True, llm=None)
+    fallback = Fallback(embedding_accept=True, model=None)
     fallback.prepare(FakeEngine(compiled), wait=True)
     found = fallback.decide("lights up in the lounge", lights_near, compiled, KITCHEN, everything)
     assert found.command is None and "no model to hear them" in found.trace["meaning"]["why"]
@@ -494,7 +407,7 @@ def test_gliner_hearing_nothing_runs_only_what_meaning_puts_first():
 
 def test_a_room_said_must_be_taken():
     compiled = compile_store(STORE)
-    tools = Tools(compiled)
+    tools = Arguments(compiled)
     commands = compiled.commands
     assert tools.places_left(commands["what_time"], {}, "what time is it in the kitchen") == ["area Kitchen"]
     assert tools.places_left(commands["what_time"], {}, "what time is it upstairs") == ["floor Upstairs"]
@@ -506,18 +419,18 @@ def test_a_room_said_must_be_taken():
     # A device's own name may say a room.
     store = {**STORE, "names": {**STORE["names"], "entities": {"fan.kitchen_fan": {"name": "Kitchen Fan"}}}}
     store["commands"] = {**STORE["commands"], "device_on": {**STORE["commands"]["device_on"], "names": {"entity": {"count": 1}}}}
-    fans = Tools(compile_store(store))
+    fans = Arguments(compile_store(store))
     device_on = compile_store(store).commands["device_on"]
     assert fans.places_left(device_on, {"entity": ["fan.kitchen_fan"]}, "turn on the kitchen fan") == []
     assert fans.places_left(device_on, {"entity": ["fan.kitchen_fan"]}, "turn on the kitchen fan upstairs") == ["floor Upstairs"]
 
     # Meaning picked a command that hears nothing; the sentence names a room.
     compiled = chosen_for(STORE, meaning=["what_time"])
-    fallback = Fallback(embedding_accept=True, llm=None)
+    fallback = Fallback(embedding_accept=True, model=None)
     fallback.prepare(FakeEngine(compiled), wait=True)
     found = fallback.decide("what's the time in the kitchen", near, compiled, KITCHEN, ranked)
     assert found.command is None and found.trace["meaning"]["problems"] == ["heard area Kitchen, which it doesn't take"]
-    assert llm_note(found.trace) == "meaning picked what_time, not run: heard area Kitchen, which it doesn't take"
+    assert model_note(found.trace) == "meaning picked what_time, not run: heard area Kitchen, which it doesn't take"
     assert fallback.decide("what's the time", near, compiled, KITCHEN, ranked).command.id == "what_time"
 
     # GLiNER picked one that takes no room.
@@ -575,7 +488,7 @@ def versions_ranked():
 def test_meaning_picks_the_command_and_what_was_heard_picks_its_version():
     compiled = chosen_for(VERSIONS, meaning=["lights_off_here", "lights_off_place"])
     stub = StubGliner({})
-    fallback = Fallback(embedding_accept=True, llm=stub, top_k=8)
+    fallback = Fallback(embedding_accept=True, model=stub, top_k=8)
     fallback.prepare(FakeEngine(compiled), wait=True)
     found = fallback.decide("kill the lights", versions_near, compiled, KITCHEN, versions_ranked)
     assert found.command.id == "lights_off_here" and found.slots == {} and found.by == "meaning"
@@ -607,21 +520,12 @@ def test_gliner_knows_a_command_by_one_label_and_hears_its_version():
     assert found.command.id == "play_here" and found.slots == {"query": "jazz"}
 
 
-def test_the_llm_calls_a_version_and_what_it_gave_picks_it():
-    compiled = chosen_for(VERSIONS, llm=["play_here", "play_device"])
-    llm = StubLLM('<tool_call>\n{"name": "play_here", "arguments": {"query": "jazz", "entity": "Mark 2"}}\n')
-    fallback = Fallback(llm=llm, top_k=8)
-    fallback.prepare(FakeEngine(compiled), wait=True)
-    found = fallback.decide("play jazz on the mark 2", far, compiled, KITCHEN, None)
-    assert found.command.id == "play_device" and found.slots == {"entity": ["media_player.mark_ii"], "query": "jazz"}
-
-
 def test_a_step_turned_off_says_so():
     # Chosen for a step that is turned off (Settings): the trace says why it
     # did not run, instead of nothing.
     compiled = chosen_for(STORE, meaning=["what_time"], llm=["what_time"])
-    fallback = Fallback(embedding_accept=False, llm=None)
-    fallback.status, fallback.by = "turned off on the Settings page", "GLiNER"
+    fallback = Fallback(embedding_accept=False, model=None)
+    fallback.status = "turned off on the Settings page"
     fallback.prepare(FakeEngine(compiled), wait=True)
     found = fallback.decide("have you got the time", near, compiled, KITCHEN, ranked)
     assert found.command is None

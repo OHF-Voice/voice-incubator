@@ -1,5 +1,0 @@
-# The LLM fallback (voice_call/fallback.py): llama.cpp, and the Hugging Face
-# client that downloads Hammer 2.1 0.5B when it is turned on. Built from source
-# in the Dockerfile; optional when running from a checkout.
-llama-cpp-python==0.3.35
-huggingface_hub>=0.24
