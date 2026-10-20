@@ -1,0 +1,70 @@
+# Polish sentences and what each must become with the Polish library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). The
+# home: these names, the devices in these rooms, a satellite in the gabinet.
+# Numbers are written as said, for text-to-speech; names are said in the case
+# their sentence takes ("w łazience", "lampę stojącą").
+names:
+  areas:
+    kuchnia: Kuchnia
+    salon: Salon
+    sypialnia: Sypialnia
+    lazienka: Łazienka
+    gabinet: Gabinet
+    pokoj_dzienny: Pokój dzienny
+  floors:
+    parter: Parter
+    pierwsze_pietro: Pierwsze piętro
+  entities:
+    light.lampa_stojaca: Lampa stojąca
+    light.lampka_nocna: Lampka nocna
+    fan.wentylator_sufitowy: Wentylator sufitowy
+    media_player.kuchnia: Głośnik kuchenny
+    climate.termostat: Termostat
+    cover.okno_dachowe: Okno dachowe
+    lock.drzwi_wejsciowe: Drzwi wejściowe
+rooms:
+  fan.wentylator_sufitowy: sypialnia
+  media_player.kuchnia: kuchnia
+satellite: gabinet
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Włącz światło w salonie.", turn_on_place, {area: [salon]}, "w + locative"]
+  - ["Wyłącz światło w kuchni.", turn_off_place, {area: [kuchnia]}, "kuchnia, w kuchni"]
+  - ["Zgaś światła w sypialni.", turn_off_place, {area: [sypialnia]}, "zgaś, plural keyword"]
+  - ["Zapal światło w łazience.", turn_on_place, {area: [lazienka]}, "łazienka, w łazience: an alternation"]
+  - ["Włącz światło w pokoju dziennym.", turn_on_place, {area: [pokoj_dzienny]}, "a noun and its adjective declined"]
+  - ["Włącz lampę stojącą.", turn_on_device, {entity: [light.lampa_stojaca]}, "a device's name in the accusative"]
+  - ["Wyłącz lampkę nocną.", turn_off_device, {entity: [light.lampka_nocna]}, "adjective agreeing"]
+  - ["Włącz wentylator sufitowy w sypialni.", turn_on_device, {entity: [fan.wentylator_sufitowy], area: [sypialnia]}, "device + area"]
+  - ["Wyłącz wszystkie światła na parterze.", turn_off_place, {floor: [parter]}, "floor, na parterze"]
+  - ["Włącz światło na pierwszym piętrze.", turn_on_place, {floor: [pierwsze_pietro]}, "floor, na pierwszym piętrze"]
+  - ["Która godzina?", what_time, {}, "a question"]
+  - ["Czy lampa stojąca jest włączona?", any_lights_on_device, {entity: [light.lampa_stojaca], asked: "on"}, "asking a device"]
+  - ["Ustaw lampę stojącą na niebiesko.", light_color_device, {entity: [light.lampa_stojaca], color: blue}, "a value"]
+  - ["Ustaw jasność w salonie na pięćdziesiąt procent.", set_brightness_place, {area: [salon], percentage: 50}, "a number"]
+  - ["Ustaw termostat na dwadzieścia dwa stopnie.", set_temperature_device, {entity: [climate.termostat], temperature: 22}, "a device and a number"]
+  - ["Otwórz rolety.", open_covers_here, {device_class: shutter}, "open"]
+  - ["Zamknij zasłony na pierwszym piętrze.", close_covers_place, {floor: [pierwsze_pietro], device_class: curtain}, "close, a floor"]
+  - ["Czy okno dachowe jest otwarte?", are_covers_open_device, {entity: [cover.okno_dachowe], asked: open}, "asking a cover"]
+  - ["Zablokuj drzwi wejściowe.", lock, {entity: [lock.drzwi_wejsciowe]}, "zablokuj"]
+  - ["Odblokuj drzwi wejściowe.", unlock, {entity: [lock.drzwi_wejsciowe]}, "odblokuj"]
+  - ["Czy drzwi wejściowe są zamknięte na klucz?", is_locked, {entity: [lock.drzwi_wejsciowe], asked: locked}, "asking a lock"]
+  - ["Jaki jest dzisiaj dzień?", what_date, {}, "a question"]
+  - ["Puść muzykę klasyczną.", play_music_here, {query: muzykę klasyczną}, "free text"]
+  - ["W salonie włącz muzykę relaksacyjną.", play_music_place, {area: [salon], query: muzykę relaksacyjną}, "włącz plays music; a place, then free text"]
+  - ["Wstrzymaj muzykę.", pause_music_here, {}, "music"]
+  - ["Ustaw głośność na trzydzieści procent.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["Co teraz leci w kuchni?", whats_playing_place, {area: [kuchnia]}, "music, a place"]
+  - ["Przenieś muzykę na głośnik kuchenny.", move_music_device, {entity: [media_player.kuchnia]}, "music, a device"]
+  - ["Głośniej.", volume_up_here, {}, "one word"]
+  - ["Następna piosenka.", next_track_here, {}, "music"]
+  - ["Dodaj mleko do listy zakupów.", shopping_list_add, {item: mleko}, "free text between keywords"]
+  - ["Ustaw minutnik na pięć minut.", start_timer, {duration: 300}, "a duration"]
+  - ["Nastaw minutnik na dwie minuty.", start_timer, {duration: 120}, "dwie: feminine"]
+  - ["Minutnik na pół godziny.", start_timer, {duration: 1800}, "a duration said with its unit"]
+  - ["Nastaw minutnik pizza na dziesięć minut.", start_timer, {duration: 600, timer: pizza}, "a named timer"]
+  - ["Obudź mnie o siódmej trzydzieści.", set_alarm, {time: siódmej trzydzieści}, "a clock time"]
+  - ["Anuluj minutnik.", cancel_timer, {}, "a timer"]
+  - ["Ile czasu zostało na minutniku?", timer_status, {}, "a timer question"]
+  - ["Nieważne.", never_mind, {}, "an example sentence"]

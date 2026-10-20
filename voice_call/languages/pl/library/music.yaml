@@ -1,0 +1,451 @@
+# Music (Polish), as the English library's music.yaml: on Music Assistant's
+# players, in versions for where it plays (the satellite's own player, a
+# player by name, the players in an area or on a floor).
+#
+# "Puść …", "zagraj …", "włącz …" search Music Assistant for what was heard
+# (free text to the end of the sentence, spelled from the transducer's
+# transcript, in the case it was said: "puść Chopina") and play the closest
+# match; "album …", "piosenki zespołu …", "playlistę …", "… od …" narrow it
+# (the language's reading). "Włącz" also turns on lights and devices, and
+# sets timers and modes: their words keep it from being music, and the
+# timer, alarm and volume commands match without their number too, and ask
+# for it, rather than play music called "minutnik".
+title: Music
+icon: mdi:music
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  player: &player
+    names:
+      entity: {count: 1, domains: [media_player]}
+    combinations: [[entity]]
+    needs:
+      - Add names for the players it may act on (Names page). A player must be
+        a Music Assistant player.
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page). It acts
+        on the Music Assistant players there.
+
+commands:
+  play_music:
+    title: Play music
+    icon: mdi:music
+    description: puścić wykonawcę, album, piosenkę albo playlistę
+    require: [[puść, zagraj, odtwórz, włącz, zapuść, puścić, zagrać, odtworzyć, włączyć, chcę posłuchać]]
+    # Not "play": "co gra", "puść następną piosenkę", "puść coś podobnego",
+    # "włącz światło", "włącz minutnik", "włącz dźwięk", "włącz losowe
+    # odtwarzanie".
+    # Inside the text too (exclude_inside): the play verb also sets things.
+    exclude: [następną, następny, następna, poprzednią, poprzedni, podobnego, podobną, podobne, w stylu, jeszcze raz,
+              minutnik, minutnika, timer, budzik, alarm, głośność, procent, stopni, stopnie, lista zakupów, listy zakupów,
+              listę zakupów, listy zadań, kolejki, kolejkę, światło, światła, lampę, lampy, lampkę, lampki, oświetlenie,
+              ogrzewanie, dźwięk, wyciszenie, losowo, losowe, losową, powtarzanie, tryb]
+    optional: [[w, na]]
+    wildcard: {slot: query, after: [puść, zagraj, odtwórz, włącz, zapuść, puścić, zagrać, odtworzyć, włączyć, chcę posłuchać],
+               to_end: true, max_words: 8,
+               exclude_inside: true}
+    music: play
+    verbosity: specific
+    variants:
+      here:
+        title: Play music on this satellite
+      device:
+        <<: *player
+        title: Play music on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Play music in an area or floor
+        combinations: [[area, query], [floor, query]]
+
+  add_to_queue:
+    title: Add to the queue
+    icon: mdi:playlist-plus
+    description: dodać coś do kolejki
+    require: [[dodaj, dopisz, wrzuć, dorzuć], [kolejki, kolejkę, kolejka]]
+    optional: [[do, na]]
+    wildcard: {slot: query, after: [dodaj, dopisz, wrzuć, dorzuć], before: [do, na], bounded: true, max_words: 6}
+    music: add
+    verbosity: specific
+    variants:
+      here:
+        title: Add to the queue on this satellite
+      device:
+        <<: *player
+        title: Add to the queue on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Add to the queue in an area or floor
+        combinations: [[area, query], [floor, query]]
+
+  play_similar:
+    title: Play music like it
+    icon: mdi:radio
+    description: puścić więcej podobnej muzyki
+    require: [[podobną, podobne, podobnego, coś podobnego, więcej takiej muzyki, więcej takich, w stylu, muzykę jak, coś jak,
+               podobną do, podobne do, coś podobnego do]]
+    optional: [[puść, zagraj, włącz, odtwórz], [coś, muzykę, piosenki, więcej], [w, na]]
+    wildcard: {slot: query, after: [w stylu, muzykę jak, coś jak, podobną do, podobne do, coś podobnego do], to_end: true, max_words: 6}
+    music: radio
+    verbosity: specific
+    # Like what plays there, or like what was said.
+    variants:
+      here:
+        title: Play music like it on this satellite
+        examples: ["puść coś podobnego", "puść więcej takiej muzyki", "puść podobną muzykę"]
+        combinations: [[], [query]]
+      device:
+        <<: *player
+        title: Play music like it on a different device
+        combinations: [[entity], [entity, query]]
+      place:
+        <<: *place
+        title: Play music like it in an area or floor
+        combinations: [[area], [floor], [area, query], [floor, query]]
+
+  pause_music:
+    title: Pause the music
+    icon: mdi:pause
+    description: wstrzymać muzykę
+    # "Wstrzymaj" said quickly loses its "ws": "trzymaj muzykę".
+    require: [[wstrzymaj, wstrzymać, trzymaj, pauza, zapauzuj, spauzuj, pauzuj]]
+    optional: [[muzykę, muzyka, odtwarzanie, piosenkę, utwór], [w, na]]
+    exclude: [minutnik, minutnika, minutniki, timer, budzik, alarm]
+    music: pause
+    verbosity: beep
+    variants:
+      here:
+        title: Pause the music on this satellite
+        examples: ["pauza", "wstrzymaj [muzykę]", "zapauzuj [muzykę]"]
+      device:
+        <<: *player
+        title: Pause the music on a different device
+      place:
+        <<: *place
+        title: Pause the music in an area or floor
+
+  resume_music:
+    title: Resume the music
+    icon: mdi:play
+    description: wznowić muzykę
+    require: [[wznów, wznowić, kontynuuj, odpauzuj, graj dalej, puść dalej]]
+    optional: [[muzykę, odtwarzanie], [w, na]]
+    exclude: [minutnik, minutnika, minutniki, timer, budzik, alarm]
+    music: resume
+    verbosity: beep
+    variants:
+      here:
+        title: Resume the music on this satellite
+        examples: ["wznów [muzykę]", "graj dalej", "kontynuuj", "odpauzuj"]
+      device:
+        <<: *player
+        title: Resume the music on a different device
+      place:
+        <<: *place
+        title: Resume the music in an area or floor
+
+  stop_music:
+    title: Stop the music
+    icon: mdi:stop
+    description: zatrzymać muzykę
+    require: [[zatrzymaj, zatrzymać, wyłącz, wyłączyć, stop, zastopuj], [muzykę, muzyka, muzyki, odtwarzanie, piosenkę, granie]]
+    optional: [[w, na]]
+    exclude: [minutnik, minutnika, minutniki, timer, budzik, alarm]
+    music: stop
+    verbosity: beep
+    variants:
+      here:
+        title: Stop the music on this satellite
+      device:
+        <<: *player
+        title: Stop the music on a different device
+      place:
+        <<: *place
+        title: Stop the music in an area or floor
+
+  next_track:
+    title: Next track
+    icon: mdi:skip-next
+    description: przejść do następnej piosenki
+    require: [[następna, następny, następną, następnej, kolejna, kolejną, kolejny, pomiń, przewiń, przeskocz]]
+    optional: [[piosenka, piosenkę, piosenki, utwór, utworu, kawałek, tę, ten], [puść, włącz, zagraj, daj, do], [w, na]]
+    exclude: [minutnik, budzik]
+    music: next
+    verbosity: beep
+    variants:
+      here:
+        title: Next track on this satellite
+        examples: ["następna [piosenka]", "następny [utwór]", "pomiń [tę piosenkę|ten utwór]", "puść następną [piosenkę]"]
+      device:
+        <<: *player
+        title: Next track on a different device
+      place:
+        <<: *place
+        title: Next track in an area or floor
+
+  previous_track:
+    title: Previous track
+    icon: mdi:skip-previous
+    description: wrócić do poprzedniej piosenki
+    require: [[poprzednia, poprzedni, poprzednią, poprzedniej, poprzedniego, wróć, cofnij]]
+    optional: [[piosenka, piosenkę, piosenki, utwór, utworu], [puść, włącz, zagraj, do], [w, na]]
+    exclude: [minutnik, budzik]
+    music: previous
+    verbosity: beep
+    variants:
+      here:
+        title: Previous track on this satellite
+        examples: ["poprzednia [piosenka]", "poprzedni [utwór]", "wróć do poprzedniej [piosenki]", "puść poprzednią [piosenkę]"]
+      device:
+        <<: *player
+        title: Previous track on a different device
+      place:
+        <<: *place
+        title: Previous track in an area or floor
+
+  volume_up:
+    title: Turn it up
+    icon: mdi:volume-plus
+    description: zrobić głośniej
+    require: [[głośniej, podgłośnij, pogłośnij, zwiększ głośność, zwiększ ... głośność, podnieś głośność, podnieś ... głośność,
+               podkręć głośność, podkręć ... głośność, podkręć muzykę]]
+    optional: [[trochę, troszkę, jeszcze, bardziej], [muzykę, dźwięk, głośność], [w, na]]
+    exclude: [światło, światła, jasność, temperaturę, ogrzewanie, rolety, procent]
+    music: volume_up
+    verbosity: beep
+    variants:
+      here:
+        title: Turn it up on this satellite
+        examples: ["[trochę] głośniej", podgłośnij, zwiększ głośność]
+      device:
+        <<: *player
+        title: Turn it up on a different device
+      place:
+        <<: *place
+        title: Turn it up in an area or floor
+
+  volume_down:
+    title: Turn it down
+    icon: mdi:volume-minus
+    description: zrobić ciszej
+    require: [[ciszej, ścisz, przycisz, zmniejsz głośność, zmniejsz ... głośność, obniż głośność, obniż ... głośność,
+               ścisz ... muzykę, przycisz ... muzykę]]
+    optional: [[trochę, troszkę, jeszcze, bardziej], [muzykę, dźwięk, głośność], [w, na]]
+    exclude: [światło, światła, jasność, temperaturę, ogrzewanie, rolety, procent]
+    music: volume_down
+    verbosity: beep
+    variants:
+      here:
+        title: Turn it down on this satellite
+        examples: ["[trochę] ciszej", ścisz, przycisz, zmniejsz głośność]
+      device:
+        <<: *player
+        title: Turn it down on a different device
+      place:
+        <<: *place
+        title: Turn it down in an area or floor
+
+  set_volume:
+    title: Set the volume
+    icon: mdi:volume-equal
+    description: ustawić głośność
+    require: [[głośność, głośności]]
+    optional: [[ustaw, zmień, daj], [procent], [na, do]]
+    # Up or down by itself: "zwiększ głośność".
+    exclude: [zwiększ, zmniejsz, podnieś, obniż, podkręć, ścisz, przycisz]
+    number: percentage
+    # Without a number it asks for one ("ustaw głośność").
+    combinations: [[], [percentage]]
+    music: volume_set
+    verbosity: beep
+    variants:
+      here:
+        title: Set the volume on this satellite
+      device:
+        <<: *player
+        title: Set the volume on a different device
+        combinations: [[entity, percentage]]
+      place:
+        <<: *place
+        title: Set the volume in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
+
+  mute_music:
+    title: Mute
+    icon: mdi:volume-off
+    description: wyciszyć muzykę
+    require: [[wycisz, wyciszyć, wyłącz dźwięk, wyłącz ... dźwięk, cisza]]
+    optional: [[muzykę, dźwięk, głośnik], [w, na]]
+    music: mute
+    verbosity: beep
+    variants:
+      here:
+        title: Mute this satellite
+        examples: ["wycisz [muzykę]", "wyłącz dźwięk", "cisza"]
+      device:
+        <<: *player
+        title: Mute a different device
+      place:
+        <<: *place
+        title: Mute an area or floor
+
+  unmute_music:
+    title: Unmute
+    icon: mdi:volume-high
+    description: włączyć dźwięk
+    require: [[włącz dźwięk, włącz ... dźwięk, wyłącz wyciszenie, anuluj wyciszenie, przywróć dźwięk, odcisz]]
+    optional: [[w, na]]
+    music: unmute
+    verbosity: beep
+    variants:
+      here:
+        title: Unmute this satellite
+        examples: ["włącz dźwięk", "wyłącz wyciszenie", "przywróć dźwięk"]
+      device:
+        <<: *player
+        title: Unmute a different device
+      place:
+        <<: *place
+        title: Unmute an area or floor
+
+  shuffle_on:
+    title: Shuffle
+    icon: mdi:shuffle-variant
+    description: włączyć losową kolejność
+    require: [[losowo, losowe, losową, losowa, wymieszaj, przemieszaj]]
+    optional: [[włącz, odtwarzaj, odtwarzanie, kolejność, tryb, puść, graj], [muzykę, piosenki, playlistę], [w, na]]
+    exclude: [wyłącz, nie, bez, zatrzymaj, koniec]
+    music: shuffle_on
+    verbosity: beep
+    variants:
+      here:
+        title: Shuffle on this satellite
+        examples: ["włącz odtwarzanie losowe", "odtwarzaj losowo", "wymieszaj piosenki", "włącz losową kolejność"]
+      device:
+        <<: *player
+        title: Shuffle on a different device
+      place:
+        <<: *place
+        title: Shuffle in an area or floor
+
+  shuffle_off:
+    title: Stop shuffling
+    icon: mdi:shuffle-disabled
+    description: wyłączyć losową kolejność
+    require: [[losowo, losowe, losową, losowa, losowego, losowej, mieszanie, mieszania], [wyłącz, nie, bez, zatrzymaj, koniec]]
+    optional: [[odtwarzanie, odtwarzania, kolejność, tryb], [w, na]]
+    music: shuffle_off
+    verbosity: beep
+    variants:
+      here:
+        title: Stop shuffling on this satellite
+        examples: ["wyłącz odtwarzanie losowe", "wyłącz losową kolejność", "bez mieszania"]
+      device:
+        <<: *player
+        title: Stop shuffling on a different device
+      place:
+        <<: *place
+        title: Stop shuffling in an area or floor
+
+  repeat_one:
+    title: Repeat this song
+    icon: mdi:repeat-once
+    description: powtarzać tę piosenkę
+    require: [[powtórz, powtarzaj, zapętl, jeszcze raz], [tę piosenkę, ten utwór, tę, ten, to]]
+    optional: [[puść], [w, na]]
+    music: repeat_one
+    verbosity: beep
+    variants:
+      here:
+        title: Repeat this song on this satellite
+        examples: [powtarzaj tę piosenkę, zapętl ten utwór, puść to jeszcze raz]
+      device:
+        <<: *player
+        title: Repeat the song on a different device
+      place:
+        <<: *place
+        title: Repeat the song in an area or floor
+
+  repeat_all:
+    title: Repeat
+    icon: mdi:repeat
+    description: powtarzać muzykę
+    require: [[powtarzaj, powtarzanie, zapętl, zapętlanie, w pętli]]
+    optional: [[wszystko, wszystkie, włącz, muzykę, playlistę, album, tryb], [w, na]]
+    exclude: [wyłącz, nie, bez, przestań, zatrzymaj, koniec, piosenkę, utwór, tę, ten, to]
+    music: repeat_all
+    verbosity: beep
+    variants:
+      here:
+        title: Repeat on this satellite
+        examples: ["powtarzaj wszystko", "włącz powtarzanie", "zapętl playlistę"]
+      device:
+        <<: *player
+        title: Repeat on a different device
+      place:
+        <<: *place
+        title: Repeat in an area or floor
+
+  repeat_off:
+    title: Stop repeating
+    icon: mdi:repeat-off
+    description: wyłączyć powtarzanie
+    require: [[powtarzaj, powtarzanie, powtarzania, powtarzać, zapętlanie, zapętlania, w pętli], [wyłącz, nie, bez, przestań, koniec, zatrzymaj]]
+    optional: [[w, na]]
+    music: repeat_off
+    verbosity: beep
+    variants:
+      here:
+        title: Stop repeating on this satellite
+        examples: ["wyłącz powtarzanie", "przestań powtarzać", "nie powtarzaj"]
+      device:
+        <<: *player
+        title: Stop repeating on a different device
+      place:
+        <<: *place
+        title: Stop repeating in an area or floor
+
+  # Where it is told to go: from what is playing here (or the one player
+  # playing anywhere) to the device, area or floor named, queue and all.
+  move_music:
+    title: Move the music
+    icon: mdi:cast-audio
+    description: przenieść muzykę do innego pomieszczenia albo na inny głośnik
+    require: [[przenieś, przełącz, przerzuć, przenieść, przełączyć], [muzykę, muzyka, piosenkę, odtwarzanie, dźwięk, audio]]
+    optional: [[do, na, w]]
+    music: move
+    verbosity: specific
+    variants:
+      device:
+        <<: *player
+        title: Move the music to a different device
+        description: przenieść muzykę na inny głośnik
+      place:
+        <<: *place
+        title: Move the music to an area or floor
+        description: przenieść muzykę do innego pomieszczenia
+
+  whats_playing:
+    title: What's playing
+    icon: mdi:playlist-music
+    description: sprawdzić, co gra
+    require: [[co gra, co ... gra, co leci, co ... leci, co to za piosenka, co to za utwór, jaka to piosenka, jaki to utwór,
+               kto śpiewa, kto to śpiewa, jak się nazywa ta piosenka]]
+    optional: [[teraz, to], [w, na]]
+    music: status
+    variants:
+      here:
+        title: What's playing on this satellite
+        examples: ["co [teraz] gra", "co [teraz] leci", "co to za piosenka", "kto [to] śpiewa"]
+      device:
+        <<: *player
+        title: What's playing on a different device
+      place:
+        <<: *place
+        title: What's playing in an area or floor

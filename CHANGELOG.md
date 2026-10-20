@@ -58,6 +58,18 @@
   "metti la sveglia" or "metti il volume" alone ask how long, when or how
   loud. On 39 sentences spoken by four voices, 149 of 156 do what was said;
   typed, all 39.
+- **Polish** (`pl`), **Russian** (`ru`) and **Ukrainian** (`uk`): NVIDIA's
+  FastConformer hybrids and Piper's Gosia, Denis and Tetiana, the whole
+  library and every skill in each. Names are heard in their cases ("w
+  łazience", "в гостиной", "на першому поверсі") and said back declined;
+  durations with every form of their unit ("dwie minuty", "пять минут",
+  "півгодини"); Easter is the Orthodox one in Russian and Ukrainian. Each
+  verb that plays music but also sets things ("włącz", "включи", "увімкни")
+  plays no song called "światło" or "таймер". Ukrainian's model can hear
+  "ввімкни" (on) as "вимкни" (off): off counts only when it clearly wins,
+  so the light stays as it was rather than going the wrong way. On their
+  sentences spoken by HA Cloud voices and Piper: Polish 147 of 156,
+  Russian 159 of 160, Ukrainian 103 of 126; typed, all.
 - French and Dutch timers take quarter hours ("un quart d'heure", "een
   kwartier"), and a French duration after "de" is heard elided ("un minuteur
   d'une heure"). German and Dutch durations take a count and a half
