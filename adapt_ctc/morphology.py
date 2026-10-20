@@ -9,9 +9,16 @@ place of one it ends with (``word_forms``), and one lattice spells them all
 (:meth:`graph.PhraseGraph.add`). English has none: its names are said as
 written.
 
-French joins an article or "de" to a name that starts with a vowel: "dans
-l'entrée", "la lumière de l'atelier" -- written as one word, so a name's
-first word may be heard with it (``elided``).
+French and Italian join an article or a preposition to a name that starts
+with a vowel: "dans l'entrée", "nell'ingresso", "la luce dell'ufficio" --
+written as one word, so a name's first word may be heard with it
+(``elided``).
+
+Polish, Russian and Ukrainian decline names by case -- "w kuchni" for the
+Kuchnia, "в гостиной", "у вітальні" -- with endings as German's; Polish and
+Ukrainian also change the consonant before some ("w łazience" for the
+Łazienka, "на першому поверсі" for the Перший поверх), which a word's
+``ALTERNATIONS`` give.
 """
 
 from __future__ import annotations
@@ -27,11 +34,43 @@ ENDINGS: dict[str, tuple[str, ...]] = {
     # Plurals: les lampes, las lámparas, los ventiladores.
     "fr": ("s",),
     "es": ("s", "es"),
+    # A plural or an adjective's agreement takes the last vowel's place:
+    # lampada, lampade; faretto, faretti; piccolo, piccola.
+    "it": ("a", "e", "i", "o"),
+    # Cases, singular and plural, of nouns and the adjectives before them:
+    # kuchnia, w kuchni; salon, w salonie; pokój dzienny, w pokoju dziennym;
+    # lampa, lampę.
+    "pl": ("a", "y", "i", "e", "ę", "ą", "u", "o", "ie", "om", "ach", "ami", "ów", "owi", "em", "ym", "im", "ej",
+           "ego", "emu", "ych", "ich", "ymi", "imi"),
+    # кухня, на кухне; гостиная, в гостиной; первый этаж, на первом этаже.
+    "ru": ("а", "я", "у", "ю", "е", "и", "ы", "ь", "ой", "ей", "ом", "ем", "ам", "ям", "ах", "ях", "ами", "ями",
+           "ая", "яя", "ую", "юю", "ое", "ее", "ые", "ие", "ый", "ий", "ых", "их", "ого", "его", "ому", "ему", "ым",
+           "им"),
+    # кухня, на кухні; вітальня, у вітальні; ванна, у ванній; коридор, у коридорі.
+    "uk": ("а", "я", "у", "ю", "і", "ї", "и", "е", "є", "ь", "ою", "ею", "єю", "ій", "ої", "ом", "ем", "ам", "ям",
+           "ах", "ях", "ами", "ями", "ові", "еві", "ий", "ого", "ому", "им", "их", "ими", "ую", "юю", "ої"),
 }
 """The endings a word of a name may take, by language."""
 
+ALTERNATIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    # łazienka, w łazience; biuro, w biurze; gabinet, w gabinecie; ogród, w
+    # ogrodzie; pokój, w pokoju; stół, na stole; parter, na parterze.
+    "pl": (("ka", "ce"), ("ga", "dze"), ("cha", "sze"), ("ra", "rze"), ("ro", "rze"), ("r", "rze"), ("ta", "cie"),
+           ("to", "cie"), ("t", "cie"), ("da", "dzie"), ("do", "dzie"), ("d", "dzie"), ("ła", "le"), ("ło", "le"),
+           ("ł", "le"), ("sta", "ście"), ("sto", "ście"), ("st", "ście"), ("zd", "ździe"), ("ój", "oju"),
+           ("ód", "odzie"), ("ół", "ole"), ("ór", "orze"), ("óz", "ozie"), ("ók", "oku")),
+    # потолок, на потолке: a vowel that drops.
+    "ru": (("ок", "ке"), ("ок", "ка"), ("ец", "це"), ("ец", "ца")),
+    # бібліотека, у бібліотеці; поверх, на поверсі; двір, у дворі; дорога, на дорозі.
+    "uk": (("ка", "ці"), ("к", "ці"), ("га", "зі"), ("г", "зі"), ("ха", "сі"), ("х", "сі"), ("ір", "орі"),
+           ("іл", "олі"), ("ік", "оку")),
+}
+"""How a word's end may change, besides an ending, by language: (as written,
+as said)."""
+
 ELISIONS: dict[str, tuple[str, ...]] = {
     "fr": ("l'", "d'"),
+    "it": ("l'", "dell'", "nell'", "all'", "sull'", "dall'", "un'"),
 }
 """What a name's first word may be heard joined to, by language, when it
 starts with a vowel or an h: "l'entrée", "d'Isabelle"."""
@@ -44,6 +83,21 @@ MIN_STEM = 3
 def endings(language: str) -> tuple[str, ...]:
     """The endings for ``language`` ("de", "de-CH", "de_DE")."""
     return ENDINGS.get(language.replace("_", "-").split("-")[0].lower(), ())
+
+
+def alternations(language: str) -> tuple[tuple[str, str], ...]:
+    """The alternations for ``language`` ("pl", "uk-UA")."""
+    return ALTERNATIONS.get(language.replace("_", "-").split("-")[0].lower(), ())
+
+
+def alternated(forms: tuple[str, ...], changes: tuple[tuple[str, str], ...]) -> tuple[str, ...]:
+    """``forms`` and, for the word as written (the first), each of
+    ``changes`` its end takes: "łazienka" -> also "łazience"."""
+    if not forms:
+        return forms
+    word = forms[0]
+    extra = [word[: -len(end)] + said for end, said in changes if word.endswith(end) and len(word) - len(end) >= 2]
+    return tuple(dict.fromkeys([*forms, *extra]))
 
 
 def elisions(language: str) -> tuple[str, ...]:

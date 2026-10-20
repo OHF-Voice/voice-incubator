@@ -71,7 +71,7 @@ def test_unit_forms():
     german = dict(unit_forms("hour", "de"))
     assert german["eine stunde"] == 1 and german["eineinhalb stunden"] == Decimal("1.5")
     assert german["eine halbe stunde"] == Decimal("0.5")
-    assert unit_forms("hour", "it") == []
+    assert unit_forms("hour", "sv") == []
     assert dict(unit_forms("hour", "nl"))["een kwartier"] == Decimal("0.25")
     assert dict(unit_forms("hour", "es"))["una hora y media"] == Decimal("1.5")
     assert unit_words("minute", "en") == ("minute", "minutes") and unit_words("minute", "de-AT") == ("minute", "minuten")
@@ -100,3 +100,28 @@ def test_a_count_and_a_half_after_its_unit():
     assert dutch["tweeënhalve minuut"] == Decimal("2.5") and dutch["vierenhalf uur"] == Decimal("4.5")
     # Said quickly, as the model writes it: "vier half uur", "twee half minuut".
     assert dutch["vier half uur"] == Decimal("4.5") and dutch["twee half minuut"] == Decimal("2.5")
+
+
+def test_italian_durations():
+    hours = dict(unit_forms("hour", "it"))
+    assert hours["un'ora"] == 1 and hours["mezz'ora"] == Decimal("0.5") and hours["un quarto d'ora"] == Decimal("0.25")
+    assert hours["due ore e mezza"] == Decimal("2.5")
+    assert dict(unit_forms("minute", "it"))["un minuto e mezzo"] == Decimal("1.5")
+    assert spoken_forms(Decimal(21), "it") == ["ventuno", "ventun"]
+
+
+def test_slavic_durations():
+    # More forms of a unit than two, a feminine number before minutes, and the
+    # unit alone for one ("na minutę", "на час").
+    assert unit_words("minute", "pl") == ("minuta", "minut", "minuty", "minutę")
+    assert spoken_forms(Decimal(2), "pl") == ["dwa", "dwie"]
+    assert spoken_forms(Decimal(21), "ru") == ["двадцать один", "двадцать одна", "двадцать одну"]
+    assert spoken_forms(Decimal(5), "uk") == ["п'ять"]  # ICU's "пʼять", as the model spells it
+    polish = dict(unit_forms("minute", "pl")) | dict(unit_forms("hour", "pl"))
+    assert polish["minutę"] == 1 and polish["pół godziny"] == Decimal("0.5") and polish["kwadrans"] == Decimal("0.25")
+    assert polish["półtorej minuty"] == Decimal("1.5") and polish["dwie i pół minuty"] == Decimal("2.5")
+    russian = dict(unit_forms("hour", "ru"))
+    assert russian["час"] == 1 and russian["полчаса"] == Decimal("0.5") and russian["полтора часа"] == Decimal("1.5")
+    ukrainian = dict(unit_forms("minute", "uk"))
+    assert ukrainian["хвилину"] == 1 and ukrainian["півтори хвилини"] == Decimal("1.5")
+    assert ukrainian["дві з половиною хвилини"] == Decimal("2.5")

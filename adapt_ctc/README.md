@@ -235,8 +235,12 @@ German intent's keywords are `sekunde`, `minuten`, `stunden` ...
 minute and a half", "half an hour"; "eine Minute", "eineinhalb Stunden",
 "eine halbe Stunde", "zweieinhalb Minuten"; "tweeënhalve minuut", "een
 kwartier"; "un quart d'heure", "deux minutes et demie"; "dos horas y
-media". Spanish and French numbers are also heard as said before a
-noun: "veintiún grados", "treinta y una horas", "vingt et une minutes".
+media"; "mezz'ora"; "полчаса", "półtorej minuty", "дві з половиною
+хвилини". Spanish, French, Italian and Slavic numbers are also heard as
+said before a noun: "veintiún grados", "vingt et une minutes", "ventun
+minuti", "две минуты", "dwie minuty". Polish, Russian and Ukrainian units
+have more forms than two (`UNIT_WORDS`: "minuta", "minut", "minuty",
+"minutę").
 
 **Includes.** `include` files are merged in order, then the file's own keys on
 top. An intent with the same name replaces the included one. Names and
@@ -292,9 +296,15 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   own. One lattice spells every form of a word, and where the name and its
   longer form fit equally the longer is taken, so the ending isn't left
   unexplained.
-- In French, a name starting with a vowel or an h may be heard with "l'" or
-  "d'" joined to it (`morphology.ELISIONS`): the model writes "dans
-  l'entrée" with "l'entrée" as one word, and that is the Entrée.
+- In French and Italian, a name starting with a vowel or an h may be heard
+  with an article or preposition joined to it (`morphology.ELISIONS`): the
+  model writes "dans l'entrée" and "nell'ingresso" as one word, and that is
+  the Entrée, the Ingresso.
+- Polish, Russian and Ukrainian decline names by case, with endings as
+  German's ("w kuchni", "в гостиной", "на першому поверсі"); Polish and
+  Ukrainian also change the consonant before some, which
+  `morphology.ALTERNATIONS` give ("w łazience" for the Łazienka, "на
+  поверсі" for the поверх).
 - A keyword in `compounds` may also end a compound after an area or floor
   name, as one word: German's "Küchenlicht" is the light in the kitchen
   (Küche, its linking "-n" an ending, then "licht"). The model writes the

@@ -739,14 +739,11 @@ def unit_words() -> list[str]:
 def _in_language(preset: dict[str, Any]) -> dict[str, Any]:
     """A preset with its prior's unit words ("seconds") in the app's language."""
     language = languages.current().code
-    words = {
-        english: own
-        for unit in DURATION_UNITS
-        for english, own in zip(said_units(unit, "en"), said_units(unit, language), strict=True)
-    }
+    # Every form of the unit: Slavic has more than two ("sekundy", "sekund").
+    words = {english: said_units(unit, language) for unit in DURATION_UNITS for english in said_units(unit, "en")}
     for rule in preset.get("prior") or []:
         if "when" in rule:
-            rule["when"] = [words.get(word, word) for word in rule["when"]]
+            rule["when"] = list(dict.fromkeys(own for word in rule["when"] for own in words.get(word, (word,))))
     return preset
 
 

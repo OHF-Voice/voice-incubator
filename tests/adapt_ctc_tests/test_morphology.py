@@ -7,7 +7,7 @@ from adapt_ctc.acoustic import SPM_SPACE, Vocabulary
 from adapt_ctc.config import ConfigError, parse_config
 from adapt_ctc.graph import Meaning, PhraseGraph
 from adapt_ctc.matcher import Recognizer
-from adapt_ctc.morphology import elided, elisions, endings, word_forms
+from adapt_ctc.morphology import alternated, alternations, elided, elisions, endings, word_forms
 from adapt_ctc.spotter import spot
 
 from .conftest import utterance
@@ -210,3 +210,31 @@ def test_a_french_name_with_its_article_joined():
     recognizer = Recognizer(parse_config(config), vocab=vocab)
     found = recognizer.recognize_log_probs(utterance(vocab, ["allume", "la", "lumière", "de", "l", "+'", "+entrée"]), 0.08)
     assert found.best.slots == {"area": ["entree"]}
+
+
+def test_italian_names_with_their_preposition_and_plural():
+    assert {"nell'ingresso", "dell'ingresso"} <= set(elided(("ingresso",), elisions("it")))
+    assert "lampade" in word_forms("lampada", endings("it"))
+
+
+@pytest.mark.parametrize(
+    ("language", "name", "said"),
+    [
+        ("pl", "kuchnia", "kuchni"),
+        ("pl", "salon", "salonie"),
+        ("pl", "łazienka", "łazience"),
+        ("pl", "biuro", "biurze"),
+        ("pl", "pokój", "pokoju"),
+        ("pl", "gabinet", "gabinecie"),
+        ("ru", "кухня", "кухне"),
+        ("ru", "гостиная", "гостиной"),
+        ("ru", "этаж", "этаже"),
+        ("uk", "вітальня", "вітальні"),
+        ("uk", "ванна", "ванній"),
+        ("uk", "поверх", "поверсі"),
+    ],
+)
+def test_a_slavic_name_in_its_cases(language, name, said):
+    # "W kuchni", "в гостиной", "на першому поверсі": endings, and the
+    # consonant before them changed ("łazience", "поверсі").
+    assert said in alternated(word_forms(name, endings(language)), alternations(language))

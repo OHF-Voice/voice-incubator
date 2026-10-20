@@ -29,9 +29,18 @@ UNIT_WORDS: dict[str, dict[str, tuple[str, str]]] = {
     "nl": {"second": ("seconde", "seconden"), "minute": ("minuut", "minuten"), "hour": ("uur", "uren")},
     "fr": {"second": ("seconde", "secondes"), "minute": ("minute", "minutes"), "hour": ("heure", "heures")},
     "es": {"second": ("segundo", "segundos"), "minute": ("minuto", "minutos"), "hour": ("hora", "horas")},
+    "it": {"second": ("secondo", "secondi"), "minute": ("minuto", "minuti"), "hour": ("ora", "ore")},
+    # Slavic: one, five and more, two to four, and "for one" ("na minutę").
+    "pl": {"second": ("sekunda", "sekund", "sekundy", "sekundę"), "minute": ("minuta", "minut", "minuty", "minutę"),
+           "hour": ("godzina", "godzin", "godziny", "godzinę")},
+    "ru": {"second": ("секунда", "секунд", "секунды", "секунду"), "minute": ("минута", "минут", "минуты", "минуту"),
+           "hour": ("час", "часов", "часа")},
+    "uk": {"second": ("секунда", "секунд", "секунди", "секунду"), "minute": ("хвилина", "хвилин", "хвилини", "хвилину"),
+           "hour": ("година", "годин", "години", "годину")},
 }
-"""A duration unit's words, singular and plural, by language; in English,
-the unit and its plural."""
+"""A duration unit's words, singular and plural first, by language (Slavic
+has more: "2 minuty", "5 minut", "na minutę"); in English, the unit and its
+plural."""
 
 
 def value_grid(minimum: Decimal, maximum: Decimal, step: Decimal) -> list[Decimal]:
@@ -57,6 +66,7 @@ def _clean(text: str) -> str:
     as word breaks ("twenty-one" is two spoken words)."""
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     text = unicodedata.normalize("NFC", text).replace("-", " ").replace("­", "")
+    text = text.replace("ʼ", "'").replace("’", "'")  # Ukrainian "пʼять", as models write it
     return " ".join(text.lower().split())
 
 
@@ -92,7 +102,21 @@ def _before_a_noun(spelled: str, language: str) -> list[str]:
         return [" ".join([*words[:-1], ending]) for ending in endings]
     if base == "fr" and len(words) > 1 and words[-1] == "un":
         return [" ".join([*words[:-1], "une"])]
+    if base == "it" and words and len(words[-1]) > 3 and words[-1].endswith("uno"):
+        return [" ".join([*words[:-1], words[-1][:-1]])]  # "ventun minuti"
+    if words and words[-1] in _FEMININE.get(base, {}):
+        # "Одну минуту", "две минуты", "dwie minuty", "двадцять одну хвилину".
+        return [" ".join([*words[:-1], form]) for form in _FEMININE[base][words[-1]]]
     return []
+
+
+_FEMININE = {
+    "pl": {"jeden": ("jedna", "jedną"), "dwa": ("dwie",)},
+    "ru": {"один": ("одна", "одну"), "два": ("две",)},
+    "uk": {"один": ("одна", "одну"), "два": ("дві",)},
+}
+"""A number's last word before a feminine noun, by language: Slavic
+minutes, seconds and (but Russian's "час") hours are feminine."""
 
 
 HALVES = range(2, 31)
@@ -172,6 +196,24 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
         forms += [(f"{form} {plural} y {half}", count + HALF)
                   for count in map(Decimal, HALVES) for form in said(spoken_forms(count, language))]
         return forms
+    if _base(language) == "it":
+        # Ora is feminine and elides: "un'ora", "un'ora e mezza", "mezz'ora";
+        # minuto and secondo masculine: "un minuto e mezzo", "mezzo minuto".
+        single, plural = unit_words(unit, language)
+        if unit == "hour":
+            forms = [("un'ora", one), ("un ora", one), ("un'ora e mezza", one_and_a_half), ("un ora e mezza", one_and_a_half),
+                     ("mezz'ora", HALF), ("mezza ora", HALF), ("un quarto d'ora", Decimal("0.25")),
+                     ("tre quarti d'ora", Decimal("0.75"))]
+            half = "mezza"
+        else:
+            forms = [(f"un {single}", one), (f"un {single} e mezzo", one_and_a_half), (f"mezzo {single}", HALF)]
+            half = "mezzo"
+        # "Due minuti e mezzo", "due ore e mezza", "ventun minuti e mezzo".
+        forms += [(f"{said} {plural} e {half}", count + HALF)
+                  for count in map(Decimal, HALVES) for said in spoken_forms(count, language)]
+        return forms
+    if _base(language) in _SLAVIC_UNITS:
+        return _slavic_unit_forms(unit, language)
     if not _is_english(language):
         return []
     forms = [(f"one {unit} and a half", one_and_a_half)]
@@ -180,6 +222,40 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
         forms.append((f"{article} {unit} and a half", one_and_a_half))
         forms.append((f"half {article} {unit}", HALF))
     return forms
+
+
+_SLAVIC_UNITS = {
+    # One said by the unit alone ("na minutę"), a half, one and a half, and a
+    # count and a half ("dwie i pół minuty").
+    "pl": {"one": "{acc}", "half": ("pół {few}",), "one_and_a_half": ("półtorej {few}",),
+           "and_a_half": ("{n} i pół {few}",), "quarters": (("kwadrans", "0.25"), ("trzy kwadranse", "0.75"))},
+    "ru": {"one": "{acc}", "half": ("пол{few}", "пол {few}"), "one_and_a_half": ("полторы {few}", "полтора {few}"),
+           "and_a_half": ("{n} с половиной {few}", "{n} с половиной {many}"),
+           "quarters": (("четверть часа", "0.25"), ("три четверти часа", "0.75"))},
+    "uk": {"one": "{acc}", "half": ("пів{few}", "пів {few}"), "one_and_a_half": ("півтори {few}",),
+           "and_a_half": ("{n} з половиною {few}", "{n} з половиною {many}"),
+           "quarters": (("чверть години", "0.25"), ("три чверті години", "0.75"))},
+}
+"""How Polish, Russian and Ukrainian say a duration by its unit: ``{acc}``
+the unit as in "for one" (минуту; Russian's hour is "час"), ``{few}`` its
+form after two to four and in "half", ``{many}`` after five."""
+
+
+def _slavic_unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
+    """"Na minutę", "полчаса", "півтори години", "dwie i pół minuty",
+    "четверть часа"."""
+    rules = _SLAVIC_UNITS[_base(language)]
+    words = unit_words(unit, language)
+    said = {"one": words[0], "many": words[1], "few": words[2], "acc": words[3] if len(words) > 3 else words[0]}
+    forms = [(rules["one"].format(**said), Decimal(1))]
+    forms += [(form.format(**said), HALF) for form in rules["half"]]
+    forms += [(form.format(**said), Decimal("1.5")) for form in rules["one_and_a_half"]]
+    forms += [(form.format(n=n, **said), count + HALF)
+              for count in map(Decimal, HALVES) for n in spoken_forms(count, language)
+              for form in rules["and_a_half"]]
+    if unit == "hour":
+        forms += [(form, Decimal(value)) for form, value in rules["quarters"]]
+    return list(dict.fromkeys(forms))
 
 
 def _feminine(forms: list[str]) -> list[str]:

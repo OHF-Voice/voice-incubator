@@ -32,7 +32,7 @@ from .acoustic import CtcModel, Vocabulary
 from .config import NAME_TYPES, Config, Intent, Wildcard, phrase_parts
 from .embedding import distractors
 from .graph import CompiledGraph, Meaning, PhraseGraph
-from .morphology import elided, elisions, word_forms
+from .morphology import alternated, alternations, elided, elisions, word_forms
 from .numbers import (
     DURATION_UNITS,
     spoken_forms,
@@ -53,6 +53,11 @@ PLACE_WORDS = {
     "nl": ("in", "op", "bij", "naar", "aan"),
     "fr": ("dans", "à", "au", "aux", "en", "sur", "chez"),
     "es": ("en", "a", "al", "del", "por"),
+    "it": ("in", "nel", "nella", "nello", "nell'", "nei", "negli", "nelle", "a", "al", "alla", "allo", "all'", "ai",
+           "agli", "alle", "su", "sul", "sulla", "sull'", "da", "dal", "dalla", "di", "del", "della", "dell'", "per"),
+    "pl": ("w", "we", "na", "do", "przy", "u"),
+    "ru": ("в", "во", "на", "у", "к", "ко", "при"),
+    "uk": ("в", "у", "на", "до", "біля"),
 }
 """What says a place follows, by language: "play jazz *in the* kitchen", "*on
 the* Mark 2"; "spiel Jazz *in der* Küche", "*im* Wohnzimmer"."""
@@ -62,6 +67,10 @@ PLACE_ARTICLES = {
     "nl": ("de", "het", "den"),
     "fr": ("le", "la", "les", "l'", "du", "de", "des"),
     "es": ("el", "la", "los", "las"),
+    "it": ("il", "lo", "la", "l'", "i", "gli", "le"),
+    "pl": (),
+    "ru": (),
+    "uk": (),
 }
 """An article between that word and the place."""
 BARE_PLACES = {
@@ -70,6 +79,10 @@ BARE_PLACES = {
     "nl": ("boven", "beneden"),
     "fr": (),
     "es": ("arriba", "abajo"),
+    "it": ("sopra", "sotto", "giù", "fuori"),
+    "pl": (),
+    "ru": ("наверху", "внизу"),
+    "uk": ("нагорі", "внизу", "унизу"),
 }
 """Places said without one: "play jazz upstairs", "spiel Jazz oben"."""
 
@@ -435,9 +448,10 @@ class Recognizer:
                             "name", " ".join(units), entry.type, entry.id, scope
                         )
                         # Each word with its language's endings: "des
-                        # Wohnzimmers", "den kleinen Ventilator"; the first
-                        # with an elided article: "l'entrée".
-                        forms = [word_forms(unit, config.name_endings) for unit in units]
+                        # Wohnzimmers", "den kleinen Ventilator", "w łazience";
+                        # the first with an elided article: "l'entrée".
+                        changes = alternations(language)
+                        forms = [alternated(word_forms(unit, config.name_endings), changes) for unit in units]
                         forms[0] = elided(forms[0], elisions(language))
                         graph.add(forms, meaning, flexible=True)
 
