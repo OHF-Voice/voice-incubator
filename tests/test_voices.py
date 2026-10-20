@@ -9,7 +9,7 @@ import pytest
 
 from voice_call.engine import free_text
 from voice_call.hass import HassError, HomeAssistant
-from voice_call.voices import HassTranscriber, VoiceChoice, Voices, _match, choose, language_code
+from voice_call.voices import HassTranscriber, StreamingTranscriber, VoiceChoice, Voices, _match, choose, language_code
 
 from . import fake_hass
 
@@ -107,6 +107,74 @@ def test_the_transcriber_asks_once_from_the_engines_thread():
         assert failing.source == "TDT" and "503" in failing.error
 
     asyncio.run(scenario())
+
+
+class StreamingHass(StubHass):
+    """Reads an upload as it comes: chunks, each when it came."""
+
+    def __init__(self, text=None, error=None, fail_stream=False):
+        super().__init__(text, error)
+        self.fail_stream, self.chunks = fail_stream, []
+
+    async def speech_to_text(self, entity_id, pcm, language, timeout=30.0):
+        if isinstance(pcm, bytes):
+            return await super().speech_to_text(entity_id, pcm, language)
+        async for chunk in pcm:
+            self.chunks.append(len(chunk))
+        if self.fail_stream:
+            raise HassError("stream reset")
+        self.calls.append((entity_id, sum(self.chunks), language))
+        return self.text
+
+
+def test_streaming_while_the_command_is_said():
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        audio = np.zeros(16000, dtype=np.float32)
+        hass = StreamingHass("turn on the lights")
+        stream = StreamingTranscriber(hass, "stt.whisper", "en-US", loop, StubTdt())
+        for _ in range(3):
+            stream.feed(bytes(3200))
+            await asyncio.sleep(0)
+        assert hass.chunks == [3200, 3200, 3200] and hass.calls == []  # still listening
+        stream.finish()
+        stream.feed(bytes(3200))  # after the end: not sent
+        # Not needed: the transcript is had all the same.
+        assert await stream.result() == "turn on the lights"
+        assert stream.to_json()["text"] == "turn on the lights" and not stream.to_json()["asked"]
+        assert stream.to_json()["streamed"]["seconds"] == 0.3
+        # Needed: no second request.
+        assert await asyncio.to_thread(stream.transcribe, audio) == "turn on the lights"
+        assert stream.asked and hass.calls == [("stt.whisper", 9600, "en-US")]
+        assert stream.source == "stt.whisper" and stream.seconds is not None
+
+        # A stream that fails: asked again as without it, then the TDT head.
+        failing = StreamingTranscriber(StreamingHass("hello", fail_stream=True), "stt.whisper", "en-US", loop, StubTdt())
+        failing.feed(bytes(3200))
+        failing.finish()
+        assert await failing.result() is None and "stream reset" in failing.error
+        assert await asyncio.to_thread(failing.transcribe, audio) == "hello"
+        assert failing.hass.calls == [("stt.whisper", 32000, "en-US")]
+        broken = StreamingTranscriber(StreamingHass(error="503", fail_stream=True), "stt.whisper", "en-US", loop, StubTdt())
+        broken.finish()
+        assert await asyncio.to_thread(broken.transcribe, audio) == "from tdt" and broken.source == "TDT"
+
+        # A call that ended without a command: the stream is dropped.
+        dropped = StreamingTranscriber(StreamingHass("x"), "stt.whisper", "en-US", loop)
+        dropped.feed(bytes(3200))
+        dropped.cancel()
+        assert await dropped.result() is None and dropped.closed
+
+    asyncio.run(scenario())
+
+
+def test_always_run_is_chosen_with_an_entity():
+    assert choose({"stt": "stt.whisper", "stt_always": True}, {}).stt_always
+    assert not choose({"stt": "stt.whisper", "stt_always": True}, {"stt_always": False}).stt_always
+    assert choose({"stt": "stt.whisper"}, {"stt_always": True}).stt_always
+    # The built-in model doesn't stream: nothing to always run.
+    assert not choose({"stt_always": True}, {}).stt_always
+    assert not choose({"stt": "stt.whisper", "stt_always": True}, {"stt": "builtin"}).stt_always
 
 
 def test_through_home_assistant():

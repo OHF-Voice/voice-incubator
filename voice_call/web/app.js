@@ -1544,6 +1544,7 @@ async function pageSatellite(key, opened) {
   const ttsLanguage = languagePicker(voices.tts, tts, own.tts_language, settings.tts_language || "automatic", settings.tts);
   const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "", ttsLanguage);
   const sttAudio = sttAudioSelect(own.stt_audio, settings.stt_audio || "agc");
+  const sttRuns = sttRunsSelect(own.stt_always, !!settings.stt_always);
   const speakOn = h("select", {},
     h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
     ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
@@ -1556,9 +1557,9 @@ async function pageSatellite(key, opened) {
   const groups = [
     settingsGroup("music", "Music", s.media_player ? playerName(s.media_player) : "no player found", opened,
       h("div", { class: "row" }, field("Player", player, "Where music asked for here plays. Its Sendspin player in Music Assistant unless you pick another."))),
-    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language, used.stt && used.stt_audio !== "agc" ? (used.stt_audio === "aec_boost" ? "AEC, boosted" : "AEC") : null].filter(Boolean).join(" · "), opened,
-      h("div", { class: "row" }, field("Speech-to-text", stt, "Asked only when the words are needed: free text, example sentences, hints. Commands are matched on the audio first."), field("Language", sttLanguage),
-        field("Audio", sttAudio, STT_AUDIO_HINT))),
+    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language, used.stt && used.stt_audio !== "agc" ? (used.stt_audio === "aec_boost" ? "AEC, boosted" : "AEC") : null, used.stt_always ? "always" : null].filter(Boolean).join(" · "), opened,
+      h("div", { class: "row" }, field("Speech-to-text", stt, "Commands are matched on the audio first; the speech-to-text entity writes the words when they're needed: free text, example sentences, hints."), field("Language", sttLanguage),
+        field("Audio", sttAudio, STT_AUDIO_HINT), field("Runs", sttRuns, STT_RUNS_HINT))),
     settingsGroup("output", "Output", [used.tts || "Piper", used.tts_language, used.tts_voice, used.speak_on ? `on ${used.speak_on}` : null].filter(Boolean).join(" · "), opened,
       h("div", { class: "row" }, field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
         field("Speak on", speakOn, "With a text-to-speech entity: this satellite, or another media player. The acknowledgement sound stays here."))),
@@ -1569,7 +1570,7 @@ async function pageSatellite(key, opened) {
         name: name.value, area: area.value || null, icon: chosenIcon, media_player: player.value || null,
         stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
         stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
-        stt_audio: sttAudio.value || null,
+        stt_audio: sttAudio.value || null, stt_always: sttRunsValue(sttRuns),
       });
       toast("Saved"); pageSatellite(key, new Set(groups.filter((g) => g.open).map((g) => g.dataset.group)));
     } catch (err) { toast(err.message); }
@@ -1919,6 +1920,7 @@ function fillSpeechPanel(panel, voices) {
   const globalTtsLanguage = languagePicker(voices.tts, globalTts, settings.tts_language);
   const globalVoice = voicePicker(globalTts, settings.tts_voice, undefined, globalTtsLanguage);
   const globalSttAudio = sttAudioSelect(settings.stt_audio);
+  const globalSttRuns = sttRunsSelect(!!settings.stt_always);
   const models = (state.status && state.status.tdt_models) || [];
   const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: (settings.tdt_model || "en") === m.id, disabled: !m.available },
     `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
@@ -1928,7 +1930,7 @@ function fillSpeechPanel(panel, voices) {
     field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
     state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
     h("div", { class: "row" },
-      field("Speech-to-text", globalStt), field("Language", globalSttLanguage), field("Audio", globalSttAudio, STT_AUDIO_HINT),
+      field("Speech-to-text", globalStt), field("Language", globalSttLanguage), field("Audio", globalSttAudio, STT_AUDIO_HINT), field("Runs", globalSttRuns, STT_RUNS_HINT),
       field("Text-to-speech", globalTts), field("Language", globalTtsLanguage), field("Voice", globalVoice),
       h("button", { class: "primary", onclick: async () => {
         try {
@@ -1936,6 +1938,7 @@ function fillSpeechPanel(panel, voices) {
             stt: voiceSelectValue(globalStt), tts: voiceSelectValue(globalTts), tts_voice: globalVoice.value === "default" ? null : globalVoice.value || null,
             stt_language: languageValue(globalSttLanguage), tts_language: languageValue(globalTtsLanguage), tdt_model: tdtModel.value,
             stt_audio: globalSttAudio.value === "agc" ? null : globalSttAudio.value,
+            stt_always: sttRunsValue(globalSttRuns),
           });
           await refreshStatus(); toast("Saved"); pageSettings();
         } catch (err) { toast(err.message); }
@@ -2022,6 +2025,18 @@ function voiceSelect(kind, entities, value, inherit) {
 
 // The capture a speech-to-text entity hears; with `inherit`, "Default" first.
 const STT_AUDIO_HINT = "What the speech-to-text entity hears. AGC: the microphone with automatic gain, as commands are matched. AEC: echo-cancelled, with the satellite's own playback (its music, its voice) taken out — about 25 dB quieter, as captured, or boosted to a normal level for an entity that doesn't level it itself. Sound from other speakers is in both.";
+const STT_RUNS_HINT = "When needed: asked after you finish speaking, and only when the words are needed — free text, example sentences, hints. Always: it hears every command as you say it, so every session has its transcript, and one that is needed is ready sooner. Every command is sent to it.";
+// When the speech-to-text entity runs: true (always), false (when needed);
+// `inherit`, every satellite's, for one satellite's Default.
+function sttRunsSelect(value, inherit) {
+  const name = (always) => (always ? "Always, as you speak" : "When needed");
+  return h("select", {},
+    inherit !== undefined ? h("option", { value: "", selected: value === undefined || value === null }, `Default (${name(inherit).toLowerCase()})`) : null,
+    h("option", { value: "false", selected: inherit === undefined ? !value : value === false }, name(false)),
+    h("option", { value: "true", selected: value === true }, name(true)));
+}
+const sttRunsValue = (select) => (select.value === "" ? null : select.value === "true");
+
 function sttAudioSelect(value, inherit) {
   const name = { agc: "AGC", aec: "AEC (echo-cancelled)", aec_boost: "AEC, boosted" };
   return h("select", {},
@@ -2534,7 +2549,8 @@ function sessionGlance(record) {
   const rec = stageOf(record, "recognition");
   const typed = stageOf(record, "typed");
   const r = (rec && rec.recognition) || {};
-  const heard = r.tdt_transcript || r.transcript || (typed && typed.text) || "";
+  // An STT entity that always runs heard it, needed or not.
+  const heard = r.tdt_transcript || (rec && rec.stt && rec.stt.text) || r.transcript || (typed && typed.text) || "";
   const speech = (record.stages || []).filter((s) => s.stage === "speech").pop();
   const errors = (record.stages || []).filter((s) => s.error && ["action", "error", "speech_failed", "agent"].includes(s.stage)).map((s) => s.error);
   const [resultIcon, result] = sessionResult(record);
@@ -2581,7 +2597,9 @@ function renderRecognition(rec) {
     h("div", { class: "kv" },
       h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
       h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run")),
-      rec.stt && rec.stt.asked && rec.stt.audio ? [h("div", {}, "Sent"), h("div", {}, rec.stt.audio.channel === "aec" ? (rec.stt.audio.gain_db !== undefined ? `AEC, boosted ${num(rec.stt.audio.gain_db, 1)} dB` : "AEC") : `AGC${rec.stt.audio.why ? ` (${rec.stt.audio.why})` : ""}`)] : null,
+      rec.stt && rec.stt.streamed && !rec.stt.asked ? [h("div", {}, `${rec.stt.entity} heard`), h("div", {}, rec.stt.text ? rec.stt.text : h("span", { class: "muted" }, rec.stt.error ? `nothing (${rec.stt.error})` : "nothing yet"), h("span", { class: "muted small" }, " · not needed"))] : null,
+      rec.stt && rec.stt.streamed ? [h("div", {}, "Streamed"), h("div", { class: "small" }, `${num(rec.stt.streamed.seconds, 1)} s as you spoke`, rec.stt.streamed.after_speech !== null && rec.stt.streamed.after_speech !== undefined ? `; answered ${Math.round(rec.stt.streamed.after_speech * 1000)} ms after` : "")] : null,
+      rec.stt && (rec.stt.asked || rec.stt.streamed) && rec.stt.audio ? [h("div", {}, "Sent"), h("div", {}, rec.stt.audio.channel === "aec" ? (rec.stt.audio.gain_db !== undefined ? `AEC, boosted ${num(rec.stt.audio.gain_db, 1)} dB` : "AEC") : `AGC${rec.stt.audio.why ? ` (${rec.stt.audio.why})` : ""}`)] : null,
       r.unspellable ? [h("div", {}, "Not in the model's pieces"), h("div", {}, r.unspellable.join(", "))] : null,
       r.lead_in ? [h("div", {}, "Lead-in ignored"), h("div", {}, r.lead_in)] : null,
       h("div", {}, "Timing"), h("div", { class: "small" }, Object.entries(rec.timings || {}).map(([k, v]) => `${k} ${Math.round(v * 1000)} ms`).join(" · "))),

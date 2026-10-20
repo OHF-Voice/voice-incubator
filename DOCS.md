@@ -100,6 +100,16 @@ page.
   example sentences said word for word, free text ("play …", timer names),
   and hints. It is only asked when one of those is needed, so "turn on the
   lights" never waits for it. Should it fail, the built-in model stands in.
+- **Runs.** **When needed** (the default): the command is sent to the
+  speech-to-text entity after you finish speaking, and only when its words
+  are needed. **Always, as you speak**: it hears every command while you say
+  it, streamed from just after the wake word. Every session then has its
+  transcript (in the list, and the Recognition step: what it heard, even
+  when it wasn't needed), and one that is needed is ready as soon as the
+  entity answers, with nothing left to send. Everything else is the same:
+  commands are still matched on the audio first. Every command goes to the
+  entity, which matters for a cloud one. For every satellite on the Settings
+  page, or one satellite's own under Input.
 - **Audio.** What the speech-to-text entity hears: **AGC** (the default), the
   microphone with automatic gain that commands are matched on; or **AEC**,
   echo-cancelled, with the satellite's own playback (its music, its voice)

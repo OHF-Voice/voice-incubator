@@ -116,6 +116,12 @@ def _satellite_key(hello: dict, fallback: str) -> str:
     return mac or fallback
 
 
+def _cancel_stt(call: Call | None) -> None:
+    """A call ended before its command did: nothing for its STT stream."""
+    if call is not None and call.stt is not None and not call.stt.closed:
+        call.stt.cancel()
+
+
 def _stt_json(transcriber) -> dict | None:
     return transcriber.to_json() if hasattr(transcriber, "to_json") else None
 
@@ -307,6 +313,11 @@ class Call:
     live_bytes: int = 0
     """How much of the AGC capture someone listening live has been given (or
     skipped: the pre-roll, which they heard as it happened)."""
+    stt: Any = None
+    """The STT entity hearing the command as it is said (voices.StreamingTranscriber),
+    when it always runs."""
+    stt_gain: float = 1.0
+    """What the AEC capture is boosted by as it is streamed."""
 
 
 @dataclass
@@ -1053,6 +1064,7 @@ class VoiceCallApp:
                     # which surfaces as ETIMEDOUT rather than a ConnectionError.
                     _LOGGER.warning("[%s] Connection lost: %s", session, err)
                 finally:
+                    _cancel_stt(session.call)
                     session.call = None
                     session.writer = None
                     session.connected_at = None
@@ -1156,6 +1168,7 @@ class VoiceCallApp:
         if msg_type == Message.AUDIO_IN_AEC:
             if session.call is not None:
                 session.call.aec += payload
+                self._feed_stt(session.call)
             return
 
         info = json.loads(payload) if payload else {}
@@ -1195,6 +1208,7 @@ class VoiceCallApp:
             call = session.call
             if call is not None and call.record is not None and call.record.finished is None:
                 self.calls.finish(call.record, "ended by device", str(info.get("reason") or ""))
+            _cancel_stt(call)
             session.call = None
         elif msg_type == Message.PLAYBACK_DRAINED:
             session.drained.set()
@@ -1412,6 +1426,7 @@ class VoiceCallApp:
         if not new_audio:
             return
         call.command += new_audio
+        self._feed_stt(call)
         if call.endpointer.process(new_audio) and not call.finished:
             call.finished = True
             self._spawn(self._respond(session, call))
@@ -1528,12 +1543,71 @@ class VoiceCallApp:
             )
 
         self._place_split(call, verdict)
+        await self._start_stt(session, call)
         call.endpointer = Endpointer(self.end_of_speech())
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:
             call.finished = True
             self._spawn(self._respond(session, call))
+
+    async def _start_stt(self, session: Session, call: Call) -> None:
+        """When the satellite's STT entity always runs: the stream it hears
+        the command on, from the split (Kaldi's: where endpointing starts) --
+        the AGC capture, or the AEC one lined up with it (``aec_for_stt``),
+        boosted by what brings the wake word in it to ``STT_PEAK``."""
+        satellite = self.satellite(session.satellite)
+        voice = satellite.voice
+        if not voice.stt_always or voice.stt is None or self.engine is None:
+            return
+        start, gain = call.split_bytes, 1.0
+        audio: dict[str, Any] = {"channel": "agc"}
+        if voice.stt_audio != "agc" and not call.aec:
+            audio["why"] = "no AEC capture"
+        elif voice.stt_audio != "agc":
+            audio = {"channel": "aec"}
+            shift = (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - AEC_LEAD_SAMPLES * 2
+            start = max(0, start + shift)
+            if voice.stt_audio == "aec_boost":
+                wake_start = (
+                    ms_to_bytes(call.wake_start * 1000)
+                    if call.wake_start is not None
+                    else call.split_bytes - BYTE_RATE
+                )
+                wake = _pcm_to_float(bytes(call.aec[max(0, wake_start + shift) & ~1 : start & ~1]))
+                peak = float(np.max(np.abs(wake))) if len(wake) else 0.0
+                gain = min(STT_MAX_GAIN, STT_PEAK / peak) if peak > 0 else 1.0
+                audio.update(gain_db=round(20 * math.log10(gain), 1), set_by="the wake word")
+        stream = await self.voices.streaming_transcriber(voice.stt, self.engine.transcriber, voice.stt_language, audio)
+        if stream is None:
+            return
+        if call.finished or session.call is not call:
+            stream.cancel()
+            return
+        stream.position = start & ~1
+        call.stt, call.stt_gain = stream, gain
+        self._feed_stt(call)
+
+    @staticmethod
+    def _feed_stt(call: Call) -> None:
+        """What has come of the command since, to the STT entity hearing it."""
+        stream = call.stt
+        if stream is None or stream.closed or stream.position is None:
+            return
+        if stream.audio["channel"] == "aec":
+            # Up to the end of the AGC capture, lined up.
+            shift = (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - AEC_LEAD_SAMPLES * 2
+            end = min(len(call.aec), len(call.audio) + shift) & ~1
+            pcm = bytes(call.aec[stream.position : end])
+            if call.stt_gain != 1.0 and pcm:
+                scaled = np.clip(np.frombuffer(pcm, dtype="<i2").astype(np.float32) * call.stt_gain, -32768, 32767)
+                pcm = scaled.astype("<i2").tobytes()
+        else:
+            end = len(call.audio) & ~1
+            pcm = bytes(call.audio[stream.position : end])
+        if end > stream.position:
+            stream.feed(pcm)
+            stream.position = end
 
     @staticmethod
     def _place_split(call: Call, verdict: WakeVerdict) -> None:
@@ -1584,6 +1658,13 @@ class VoiceCallApp:
                 self._call_audio(call),
             )
         await self._hang_up(session, "wake_rejected")
+
+    async def _keep_streamed(self, record: CallRecord, recognized: dict[str, Any], stream: Any) -> None:
+        """The streamed transcript the engine didn't need, in the session's
+        recognition step when the entity has answered."""
+        await stream.result()
+        recognized["stt"] = stream.to_json()
+        self.calls.update(record)
 
     @staticmethod
     def _call_audio(call: Call) -> dict[str, bytes]:
@@ -1638,7 +1719,13 @@ class VoiceCallApp:
             await self._event(session, "processing", speaker="unknown")
 
         satellite = self.satellite(session.satellite)
-        transcriber = await self._transcriber(satellite)
+        transcriber = call.stt
+        if transcriber is not None:
+            # It has heard the command as it was said: all of it, now.
+            self._feed_stt(call)
+            transcriber.finish()
+        else:
+            transcriber = await self._transcriber(satellite)
         agc = bytes(call.audio)
         if transcriber is not None and satellite.voice.stt_audio != "agc":
             transcriber.audio_for = aec_for_stt(
@@ -1663,7 +1750,10 @@ class VoiceCallApp:
             if split.wake_end is not None:
                 record.marks["wake_start"] = split.wake_start
                 record.marks["wake_end"] = split.wake_end
-            record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
+            recognized = record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
+            if call.stt is not None and not call.stt.asked:
+                # Not needed, and so not waited for: kept when it comes.
+                self._spawn(self._keep_streamed(record, recognized, call.stt))
         ident = await speaker_task if speaker_task is not None else None
 
         self._after_identify(session, ident)
@@ -2224,6 +2314,7 @@ class VoiceCallApp:
     async def _hang_up(self, session: Session, reason: str) -> None:
         _LOGGER.info("[%s] Hanging up: %s", session, reason)
         await self._send_json(session, Message.HANGUP, {"reason": reason})
+        _cancel_stt(session.call)
         session.call = None
         self._live_call_ended(session)
 

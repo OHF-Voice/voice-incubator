@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **Speech-to-text can always run** (Settings, and a satellite's Input:
+  Runs, "Always, as you speak"): the entity hears every command while it is
+  said, streamed from just after the wake word, so every session has its
+  transcript and a needed one is ready as soon as the entity answers.
+  Matching is unchanged.
 - **Skills have settings**, on their pages. Unit conversions: its units
   (change, take out or add one, each with its size, plural and other names),
   US or imperial volumes (the UK pint and gallon, metric cup and spoons;

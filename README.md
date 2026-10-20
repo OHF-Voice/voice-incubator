@@ -921,6 +921,33 @@ best match for English (`stt/engine/list`); TTS has `tts_language` the same
 way, and a satellite may say `auto` to override the home's language with the
 automatic one.
 
+**Always run** (`stt_always`, in `settings.yaml` or per satellite, with an
+STT entity): `StreamingTranscriber` posts to the same `/api/stt/<entity>` as
+a chunked upload, which Home Assistant hands the entity as it arrives
+(`request.content`). `VoiceCallApp._start_stt` opens it once Kaldi has
+verified the wake word, from Kaldi's split (where endpointing starts) --
+the AGC capture, or the AEC one lined up with it as `aec_for_stt` does,
+boosted by the gain that brings the wake word in it to -3 dBFS (the
+command's own peak isn't known yet). `_feed_stt` sends what arrives (both
+captures' messages), and `_respond` sends the rest and ends the upload. The
+engine asks it as it would `HassTranscriber`, and waits only for the
+entity's answer; if the stream failed it asks again in one request, then
+falls back to TDT. When it isn't asked, `_keep_streamed` puts the answer in
+the session's recognition step when it comes (`CallLog.update` saves a kept
+one again). A call that ends without a command (the device, a dropped
+connection, a timeout) cancels the upload.
+
+The stream starts at Kaldi's split, not the engine's cut, which is only known
+once the whole call is (`place_command` on the start of a call, even with a
+second of audio past the split, matched the full call's cut on 89 of 205 test
+calls). On the 205 recordings in `calls/`, Kaldi's split was later than the
+cut by more than 0.3 s on 62 -- mostly the end of "Nabu", which the CTC
+placement leaves in the command. TDT from Kaldi's split began with a likely
+first word ("turn", "set", "what") on 141 of them, from the cut on 103 ("I
+would turn on...", "Taboo set..."); starting 0.15 s or 0.3 s before the split
+did worse (132, 74). Kaldi's split clips the first word now and then ("that
+kitchen brightness" for "set kitchen brightness").
+
 **TTS on the satellite.** `tts.speak` on the satellite's ESPHome media player
 (found by its MAC in the device registry): the firmware's `speaker_source`
 has an announcement pipeline with an `audio_http` source on a third mixer

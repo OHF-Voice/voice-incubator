@@ -113,7 +113,9 @@ class CallRecord:
                 out["heard"] = stage["text"]
             elif kind == "recognition":
                 heard = stage.get("recognition") or {}
-                out["heard"] = heard.get("tdt_transcript") or heard.get("transcript") or out.get("heard")
+                # An STT entity that always runs heard it, needed or not.
+                streamed = (stage.get("stt") or {}).get("text")
+                out["heard"] = heard.get("tdt_transcript") or streamed or heard.get("transcript") or out.get("heard")
                 if stage.get("command"):
                     out["command"] = stage["command"]
             elif kind == "speech" and stage.get("text"):
@@ -199,12 +201,25 @@ class CallLog:
                     wav.writeframes(pcm)
                 record.audio[name] = file_name
             record.kept = True
-            (directory / "trace.json").write_text(
-                json.dumps(record.to_json(), indent=1, default=str), "utf-8"
-            )
+            self._write_trace(record)
         except OSError as err:
             _LOGGER.error("Could not save call %s: %s", record.id, err)
         self._prune()
+
+    def _write_trace(self, record: CallRecord) -> None:
+        (self.calls_dir / record.id / "trace.json").write_text(
+            json.dumps(record.to_json(), indent=1, default=str), "utf-8"
+        )
+
+    def update(self, record: CallRecord) -> None:
+        """A record changed after it finished (a transcript that came later):
+        saved again, when kept."""
+        if not record.kept or not (self.calls_dir / record.id).is_dir():
+            return
+        try:
+            self._write_trace(record)
+        except OSError as err:
+            _LOGGER.error("Could not save call %s: %s", record.id, err)
 
     def _prune(self) -> None:
         limit = int(self.settings.get("max_saved_calls") or 0)

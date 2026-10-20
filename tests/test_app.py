@@ -317,6 +317,17 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put(f"/api/satellites/{MAC}", json={"stt_audio": None})).status == 200
             assert (await http.put("/api/settings", json={"stt_audio": None})).status == 200
             assert "stt_audio" not in app.store.settings and "stt_audio" not in app.store.satellites[MAC]
+            # Whether it always runs: every satellite's, and one's own (false too).
+            assert (await http.put("/api/settings", json={"stt_always": "yes"})).status == 400
+            assert (await http.put("/api/settings", json={"stt_always": True})).status == 200
+            assert app.store.settings["stt_always"] is True
+            assert (await http.put(f"/api/satellites/{MAC}", json={"stt_always": False})).status == 200
+            assert app.store.satellites[MAC]["stt_always"] is False
+            satellites = (await (await http.get("/api/satellites")).json())["satellites"]
+            assert next(s for s in satellites if s["key"] == MAC)["voice"]["stt_always"] is False
+            assert (await http.put(f"/api/satellites/{MAC}", json={"stt_always": None})).status == 200
+            assert (await http.put("/api/settings", json={"stt_always": False})).status == 200
+            assert "stt_always" not in app.store.settings and "stt_always" not in app.store.satellites[MAC]
 
             # A question no command takes is answered exactly by a skill; one
             # about now or here is not a skill's.
@@ -689,6 +700,46 @@ async def _voices(tmp_path: Path) -> None:
         recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
         assert recognition["stt"]["audio"]["channel"] == "aec" and "gain_db" in recognition["stt"]["audio"]
         for key in ("stt_audio", "home"):
+            stored.pop(key)
+
+        # Always run: the STT entity hears every command as it is said --
+        # here one the keywords decide, whose words aren't needed.
+        async def recognized_after(stt_request):
+            for _ in range(100):
+                if len(hass.stt_requests) > stt_request:
+                    break
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
+            return next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
+
+        stored["stt_always"] = True
+        asked = len(hass.stt_requests)
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        recognition = await recognized_after(asked)
+        assert len(hass.stt_requests) == asked + 1
+        streamed = hass.stt_requests[-1]
+        assert streamed["chunks"] > 1 and streamed["bytes"] > 32000, streamed
+        assert recognition["command"] == "lights_on" and not recognition["stt"]["asked"]
+        assert recognition["stt"]["text"] == hass.stt_text and recognition["stt"]["streamed"]["seconds"] > 1
+        assert app.calls.recent[-1].to_json(full=False)["heard"] == hass.stt_text
+        # Needed: the streamed transcript, and no second request.
+        stored["home"] = False
+        await satellite.call(read_call(CALLS / "call-15788.wav"))
+        recognition = await recognized_after(asked + 1)
+        assert len(hass.stt_requests) == asked + 2
+        assert recognition["stt"]["asked"] and recognition["text_source"] == "stt.fake_whisper"
+        assert recognition["stt"]["audio"] == {"channel": "agc"}
+        # The AEC capture, lined up; boosted by the wake word's level in it.
+        stored["stt_audio"] = "aec"
+        await satellite.call(read_call(CALLS / "call-15788.wav"))
+        recognition = await recognized_after(asked + 2)
+        assert recognition["stt"]["audio"] == {"channel": "aec"}
+        assert abs(hass.stt_requests[-1]["bytes"] - streamed["bytes"]) < 3200, (hass.stt_requests[-1], streamed)
+        stored["stt_audio"] = "aec_boost"
+        await satellite.call(read_call(CALLS / "call-15788.wav"))
+        recognition = await recognized_after(asked + 3)
+        assert recognition["stt"]["audio"]["set_by"] == "the wake word" and recognition["stt"]["audio"]["gain_db"] > 0
+        for key in ("stt_audio", "home", "stt_always"):
             stored.pop(key)
 
         # The multilingual TDT model, picked and loaded while running.

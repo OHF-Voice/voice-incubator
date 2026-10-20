@@ -25,7 +25,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -457,10 +457,17 @@ class HomeAssistant:
     # --------------------------------------------------------- speech, text
 
     async def speech_to_text(
-        self, entity_id: str, pcm: bytes, language: str, rate: int = 16000, timeout: float = 30.0
+        self,
+        entity_id: str,
+        pcm: bytes | AsyncIterator[bytes],
+        language: str,
+        rate: int = 16000,
+        timeout: float = 30.0,
     ) -> str:
         """Transcribe 16-bit mono PCM with an STT entity (``/api/stt``: there
-        is no websocket command outside a pipeline). Raises HassError."""
+        is no websocket command outside a pipeline). ``pcm`` may be chunks as
+        they come: sent as they come (a chunked upload, which Home Assistant
+        hands the entity as it arrives). Raises HassError."""
         import aiohttp  # pylint: disable=import-outside-toplevel
 
         headers = {

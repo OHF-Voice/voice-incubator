@@ -771,7 +771,7 @@ class Api:
                     # As stored (absent: as every satellite) and as it comes out.
                     "voice": {
                         k: stored.get(k)
-                        for k in ("stt", "tts", "tts_voice", "speak_on", "stt_language", "tts_language", "stt_audio")
+                        for k in ("stt", "tts", "tts_voice", "speak_on", "stt_language", "tts_language", "stt_audio", "stt_always")
                         if k in stored
                     },
                     "voice_used": satellite.voice.__dict__,
@@ -837,6 +837,13 @@ class Api:
                 entry["stt_audio"] = entry_audio
             else:
                 entry.pop("stt_audio", None)
+        if "stt_always" in body:
+            # True or false of its own; null: as every satellite.
+            always = _stt_always(body["stt_always"])
+            if always is None:
+                entry.pop("stt_always", None)
+            else:
+                entry["stt_always"] = always
         if "icon" in body:
             icon = str(body["icon"] or "")
             if icon and not ICON.match(icon):
@@ -996,6 +1003,11 @@ class Api:
                 settings["stt_audio"] = audio
             else:
                 settings.pop("stt_audio", None)
+        if "stt_always" in body:
+            if _stt_always(body["stt_always"]):
+                settings["stt_always"] = True
+            else:
+                settings.pop("stt_always", None)
         if "tts" in body and not settings.get("tts"):
             settings.pop("tts_voice", None)
             settings.pop("tts_language", None)
@@ -1448,6 +1460,13 @@ def _number(value: Any, name: str, low: float, high: float) -> float | None:
     if not low <= number <= high or math.isnan(number):
         raise ConfigError(f"{name}: a number from {low} to {high}")
     return number
+
+
+def _stt_always(value: Any) -> bool | None:
+    """Whether an STT entity always runs: true, false, or null (the default)."""
+    if value is not None and not isinstance(value, bool):
+        raise ConfigError("stt_always: true or false")
+    return value
 
 
 def _stt_audio(value: Any) -> str:

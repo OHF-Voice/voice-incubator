@@ -20,6 +20,7 @@ import datetime
 import itertools
 import json
 import logging
+import time
 from typing import Any
 
 import jinja2
@@ -472,9 +473,20 @@ async def serve_rest(fake: FakeHass, host: str = "127.0.0.1", port: int = 0):
     async def stt(request: web.Request) -> web.Response:
         if request.headers.get("Authorization") != f"Bearer {TOKEN}":
             return web.Response(status=401)
-        audio = await request.read()
+        # Read as Home Assistant does: as it comes (a streamed upload, in
+        # chunks over the call).
+        started, chunks, size = time.monotonic(), 0, 0
+        async for chunk in request.content.iter_any():
+            chunks += 1
+            size += len(chunk)
         fake.stt_requests.append(
-            {"entity_id": request.match_info["entity_id"], "header": request.headers.get("X-Speech-Content"), "bytes": len(audio)}
+            {
+                "entity_id": request.match_info["entity_id"],
+                "header": request.headers.get("X-Speech-Content"),
+                "bytes": size,
+                "chunks": chunks,
+                "seconds": time.monotonic() - started,
+            }
         )
         return web.json_response({"text": fake.stt_text, "result": "success"})
 

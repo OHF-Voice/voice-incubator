@@ -12,7 +12,10 @@ entity's best match for English.
 * **STT.** The CTC matcher always runs. Text -- examples not found in the CTC
   evidence, free text, hints -- comes from the STT entity instead of the TDT
   head, and only when it is needed (``HassTranscriber``, which the engine
-  calls from its thread). Should it fail, the TDT head stands in.
+  calls from its thread). Should it fail, the TDT head stands in. Set to
+  always run (``stt_always``), the entity hears the command as it is said
+  (``StreamingTranscriber``): its transcript is there whether or not it is
+  needed, and sooner when it is.
 * **TTS.** Responses are spoken by ``tts.speak`` on the satellite's own media
   player (the firmware's announcement pipeline: Home Assistant sends the URL,
   the device fetches it) or on ``speak_on``. The acknowledgement sound, for a
@@ -41,6 +44,8 @@ AUTO = "auto"
 """A satellite's own choice of the TTS entity's default voice."""
 LANGUAGE = "en"
 STT_TIMEOUT = 15.0
+STREAM_TIMEOUT = 90.0
+"""A streamed request: the longest command (60 s at most), then an answer."""
 STT_AUDIO = ("agc", "aec", "aec_boost")
 """What an STT entity hears: the satellite's AGC capture (what commands are
 recognized from), or its AEC capture (the satellite's own playback taken out)
@@ -63,6 +68,9 @@ class VoiceChoice:
     stt_audio: str = "agc"
     """The capture the STT entity hears: ``agc``, ``aec`` or ``aec_boost``
     (STT_AUDIO)."""
+    stt_always: bool = False
+    """The STT entity hears every command, as it is said, not only when its
+    words are needed."""
 
 
 def choose(settings: dict[str, Any], stored: dict[str, Any]) -> VoiceChoice:
@@ -82,6 +90,7 @@ def choose(settings: dict[str, Any], stored: dict[str, Any]) -> VoiceChoice:
         stt_language=pick("stt_language") if stt else None,
         tts_language=pick("tts_language") if tts else None,
         stt_audio=(pick("stt_audio") if stt and pick("stt_audio") in STT_AUDIO else "agc"),
+        stt_always=bool(stt) and (stored.get("stt_always") if "stt_always" in stored else settings.get("stt_always")) is True,
     )
 
 
@@ -118,6 +127,8 @@ class HassTranscriber:
         self.source = entity_id
         self.error: str | None = None
         self.seconds: float | None = None
+        self.asked = False
+        """The engine needed the words."""
         self._text: str | None = None
         self.audio_for: Any = None
         """The audio to send in place of the command's (AGC) audio: a function
@@ -125,6 +136,7 @@ class HassTranscriber:
         self.audio: dict[str, Any] = {"channel": "agc"}
 
     def transcribe(self, audio: np.ndarray) -> str:
+        self.asked = True
         if self._text is None:
             sent = audio
             if self.audio_for is not None:
@@ -157,12 +169,129 @@ class HassTranscriber:
         return {
             "entity": self.entity_id,
             "language": self.language,
-            "asked": self._text is not None,
+            "asked": self.asked,
             "text": self._text,
             "seconds": round(self.seconds, 3) if self.seconds is not None else None,
             "error": self.error,
             "audio": self.audio,
         }
+
+
+class StreamingTranscriber(HassTranscriber):
+    """The STT entity hearing the command as it is said ("always run"):
+    started when the wake word is verified, sent each chunk as it comes
+    (``feed``) and ended with the command (``finish``). The engine asks it as
+    it would ``HassTranscriber`` -- and waits for the entity's answer, not an
+    upload -- or not at all; the transcript is had either way (``result``).
+    Should the stream fail, a request as without it is made; should that
+    fail, the TDT head stands in."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entity_id: str,
+        language: str,
+        loop: asyncio.AbstractEventLoop,
+        fallback: Any = None,
+        audio: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(hass, entity_id, language, loop, fallback)
+        self.audio = audio or {"channel": "agc"}
+        self.sent = 0
+        """Bytes streamed."""
+        self.position: int | None = None
+        """Where the stream is in the capture it's cut from (the server's)."""
+        self.closed = False
+        self.dropped = False
+        """The call ended without a command (``cancel``)."""
+        self._ended: float | None = None
+        self._answered: float | None = None
+        self._chunks: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._task = loop.create_task(self._stream())
+        self._task.add_done_callback(self._done)
+
+    async def _upload(self):
+        while (chunk := await self._chunks.get()) is not None:
+            yield chunk
+
+    async def _stream(self) -> str:
+        # As long as the longest command, and then as long as one request.
+        return await self.hass.speech_to_text(self.entity_id, self._upload(), self.language, timeout=STREAM_TIMEOUT)
+
+    def _done(self, task: asyncio.Task) -> None:
+        self._answered = time.perf_counter()
+        if not task.cancelled() and task.exception() is not None:
+            self.error = str(task.exception()) or type(task.exception()).__name__
+            _LOGGER.warning("%s: streaming failed (%s)", self.entity_id, self.error)
+
+    def feed(self, pcm: bytes) -> None:
+        """More of the command (on the event loop)."""
+        if pcm and not self.closed:
+            self._chunks.put_nowait(pcm)
+            self.sent += len(pcm)
+
+    def finish(self) -> None:
+        """The command ended: the entity has all of it."""
+        if not self.closed:
+            self.closed = True
+            self._ended = time.perf_counter()
+            self._chunks.put_nowait(None)
+
+    def cancel(self) -> None:
+        """The call ended without a command: nothing to hear."""
+        self.closed = self.dropped = True
+        self._task.cancel()
+
+    async def result(self, timeout: float = STT_TIMEOUT) -> str | None:
+        """What the entity heard (on the event loop), once the command
+        ended; None when it failed or took longer than ``timeout``."""
+        if self.dropped:
+            return None
+        try:
+            return await asyncio.wait_for(asyncio.shield(self._task), timeout)
+        except asyncio.CancelledError:
+            if self._task.cancelled():
+                return None
+            raise
+        except Exception:  # noqa: BLE001 - recorded in error
+            if self.error is None and not self._task.done():
+                self.error = f"no answer in {timeout:g} s"
+            return None
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        """The streamed transcript (from the engine's thread): waited for, if
+        the entity is still working on it."""
+        self.asked = True
+        if self._text is None:
+            future = asyncio.run_coroutine_threadsafe(self.result(), self.loop)
+            try:
+                text = future.result(STT_TIMEOUT + 1)
+            except Exception:  # noqa: BLE001 - as a failed stream
+                future.cancel()
+                text = None
+            if text is None:
+                _LOGGER.warning("%s: no streamed transcript (%s); asking again", self.entity_id, self.error)
+                return super().transcribe(audio)
+            self._text = text
+            self.seconds = self.waited
+        return self._text
+
+    @property
+    def waited(self) -> float | None:
+        """From the end of the command to the entity's answer."""
+        if self._ended is None or self._answered is None:
+            return None
+        return max(0.0, self._answered - self._ended)
+
+    def to_json(self) -> dict[str, Any]:
+        out = super().to_json()
+        if out["text"] is None and self._task.done() and not self._task.cancelled() and self._task.exception() is None:
+            out["text"] = self._task.result()
+        out["streamed"] = {
+            "seconds": round(self.sent / 32000, 3),
+            "after_speech": round(self.waited, 3) if self.waited is not None else None,
+        }
+        return out
 
 
 class TypedText:
@@ -260,6 +389,18 @@ class Voices:
             _LOGGER.warning("%s: %s; using TDT", entity_id, err)
             return fallback
         return HassTranscriber(self.hass, entity_id, language, asyncio.get_running_loop(), fallback)
+
+    async def streaming_transcriber(
+        self, entity_id: str, fallback: Any = None, wanted: str | None = None, audio: dict[str, Any] | None = None
+    ) -> StreamingTranscriber | None:
+        """The STT entity hearing a command as it is said, or None when its
+        language cannot be had (it is asked as usual, or falls back, then)."""
+        try:
+            language = await self.stt_language(entity_id, wanted)
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("%s: %s; not streaming", entity_id, err)
+            return None
+        return StreamingTranscriber(self.hass, entity_id, language, asyncio.get_running_loop(), fallback, audio)
 
     def forget(self) -> None:
         """Entities changed: look their languages up again."""
