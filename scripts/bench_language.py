@@ -10,7 +10,7 @@ slots it must become.
         --tts tts.home_assistant_cloud --voice KatjaNeural --voice ConradNeural
 
 Home Assistant voices are asked in the pack's language (``--tts-language``,
-default ``<code>-<CODE>``). Speech is cached under ``--cache``
+default ``<code>-<CODE>``, or ``uk-UA``). Speech is cached under ``--cache``
 (``<cache>/<voice>/<n>.wav``), so a run after a change only recognizes.
 """
 
@@ -36,6 +36,9 @@ from voice_call import languages  # noqa: E402
 from voice_call.protocol import SAMPLE_RATE  # noqa: E402
 
 DEFAULT_CACHE = Path.home() / ".cache/voice_call/bench"
+
+TTS_LOCALES = {"en": "en-US", "uk": "uk-UA"}
+"""A pack's Home Assistant TTS language where it isn't ``<code>-<CODE>``."""
 
 LEAD_SECONDS = 0.3
 """Silence before each sentence, as a call's command has after the wake word:
@@ -141,7 +144,8 @@ async def hass_tts(texts: list[str], folder: Path, args, voice: str) -> None:
     import soundfile as sf  # pylint: disable=import-outside-toplevel
 
     token = Path(args.token_file).expanduser().read_text().strip()
-    language = args.tts_language or f"{languages.current().code}-{languages.current().code.upper()}"
+    code = languages.current().code
+    language = args.tts_language or TTS_LOCALES.get(code, f"{code}-{code.upper()}")
     async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {token}"}) as http:
         for index, text in enumerate(texts):
             path = folder / f"{index:02d}.wav"

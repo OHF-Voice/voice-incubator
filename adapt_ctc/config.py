@@ -359,6 +359,18 @@ class WakeConfig:
 
 
 @dataclass(frozen=True)
+class Contrast:
+    """Phrases heard only where they explain the audio better than every one
+    of ``against`` by ``margin`` nats: Ukrainian's "вимкни" (off) on audio
+    of "ввімкни" (on) can score better than "ввімкни" itself, and turning
+    off what was to be turned on is worse than doing nothing."""
+
+    phrases: tuple[str, ...]
+    against: tuple[str, ...]
+    margin: float = 10.0
+
+
+@dataclass(frozen=True)
 class Config:
     language: str
     settings: Settings
@@ -383,6 +395,9 @@ class Config:
     """Endings a word of a name may be heard with, added or in place of one
     it has (morphology.word_forms): the language's (morphology.ENDINGS)
     unless the config gives its own (``name_endings``)."""
+
+    contrasts: tuple[Contrast, ...] = ()
+    """Keywords heard only when they clearly beat their opposites (``Contrast``)."""
 
 
 class _Loader(yaml.SafeLoader):
@@ -446,7 +461,7 @@ def parse_config(data: Any) -> Config:
         data,
         {
             "language", "settings", "filler", "name_cues", "numbers", "names", "intents",
-            "wake", "lists", "name_endings", "compounds",
+            "wake", "lists", "name_endings", "compounds", "contrasts",
         },
         "config",
     )
@@ -515,9 +530,32 @@ def parse_config(data: Any) -> Config:
         if word not in keywords:
             raise ConfigError(f"compounds: {word!r} is no intent's keyword")
     wake = _wake(data["wake"], language) if data.get("wake") else None
-    return Config(
-        language, settings, filler, detect, names, intents, wake, name_cues, lists, compounds, name_endings
+    contrasts = tuple(
+        _contrast(spec, language, f"contrasts[{index}]")
+        for index, spec in enumerate(_list(data.get("contrasts") or [], "contrasts"))
     )
+    return Config(
+        language, settings, filler, detect, names, intents, wake, name_cues, lists, compounds, name_endings,
+        contrasts,
+    )
+
+
+def _contrast(spec: Any, language: str, where: str) -> Contrast:
+    """``{phrases, against, margin}``."""
+    spec = _mapping(spec, where)
+    _known(spec, {"phrases", "against", "margin"}, where)
+    sides = {
+        key: tuple(dict.fromkeys(_phrase(p, language, f"{where}.{key}") for p in _list(spec.get(key) or [], f"{where}.{key}")))
+        for key in ("phrases", "against")
+    }
+    if not sides["phrases"] or not sides["against"]:
+        raise ConfigError(f"{where}: needs both 'phrases' and 'against'")
+    if set(sides["phrases"]) & set(sides["against"]):
+        raise ConfigError(f"{where}: a phrase can't be against itself")
+    margin = spec.get("margin", Contrast.margin)
+    if not isinstance(margin, (int, float)) or isinstance(margin, bool) or margin < 0:
+        raise ConfigError(f"{where}.margin: expected a number of nats, 0 or more")
+    return Contrast(sides["phrases"], sides["against"], float(margin))
 
 
 def _wake(spec: Any, language: str) -> WakeConfig:

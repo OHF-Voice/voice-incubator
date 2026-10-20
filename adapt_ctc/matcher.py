@@ -29,10 +29,10 @@ from typing import Any
 import numpy as np
 
 from .acoustic import CtcModel, Vocabulary
-from .config import NAME_TYPES, Config, Intent, Wildcard, phrase_parts
+from .config import NAME_TYPES, Config, Contrast, Intent, Wildcard, phrase_parts
 from .embedding import distractors
 from .graph import CompiledGraph, Meaning, PhraseGraph
-from .morphology import alternated, alternations, elided, elisions, singled, word_forms
+from .morphology import alternated, alternations, elided, elisions, singled, split_at_prefix, word_forms
 from .numbers import (
     DURATION_UNITS,
     spoken_forms,
@@ -41,7 +41,7 @@ from .numbers import (
     unit_words,
     value_grid,
 )
-from .spotter import Hit, Spotting, spot
+from .spotter import Hit, Spotting, relative_log_probs, spot, viterbi
 from .text import name_units, sentence_key, spoken_words
 
 _INF = float("inf")
@@ -297,6 +297,7 @@ class Recognizer:
         self._embed_examples()
         started = time.perf_counter()
         self.graph, self.unspeakable, self.graph_stats = self._build_graph()
+        self._contrast_graphs = self._build_contrasts()
         self.build_seconds = time.perf_counter() - started
 
         self._terminals_by_meaning: dict[tuple, list[int]] = defaultdict(list)
@@ -457,6 +458,12 @@ class Recognizer:
                         ]
                         forms[0] = elided(forms[0], elisions(language))
                         graph.add(forms, meaning, flexible=True)
+                        # A word's prefix written apart: "на стільну лампу".
+                        for index, word in enumerate(forms):
+                            split = split_at_prefix(word, language)
+                            if split is not None:
+                                prefix, rests = split
+                                graph.add([*forms[:index], (prefix,), rests, *forms[index + 1:]], meaning, flexible=True)
 
         for items in config.names.values():
             add_names(items.values(), None)
@@ -489,6 +496,53 @@ class Recognizer:
 
         stats = graph.stats()
         return graph.compile(), graph.unspeakable, stats
+
+    def _build_contrasts(self) -> list[tuple[Contrast, CompiledGraph]]:
+        """Each contrast's phrases, both sides, in a graph of their own: scored
+        without the gate, so an opposite far off the greedy reading still
+        has a cost."""
+        out = []
+        for contrast in self.config.contrasts:
+            graph = PhraseGraph(self.vocab)
+            for side, phrases in (("phrases", contrast.phrases), ("against", contrast.against)):
+                for phrase in phrases:
+                    for units in name_units(phrase, self.config.language):
+                        graph.add(units, Meaning("keyword", phrase, name_type=side), flexible=True)
+            out.append((contrast, graph.compile()))
+        return out
+
+    def _contrast(self, spotting: Spotting, log_probs: np.ndarray) -> None:
+        """A heard phrase of a contrast that doesn't beat every phrase it is
+        against by the margin, over the same stretch of audio, is not heard
+        (Config.contrasts)."""
+        rel_tokens, rel_blank = relative_log_probs(log_probs, self.vocab)
+        for contrast, graph in self._contrast_graphs:
+            hits = [
+                hit for hit in spotting.hits
+                if hit.heard and any(m.kind == "keyword" and m.phrase in contrast.phrases for m in hit.meanings)
+            ]
+            if not hits:
+                continue
+            score, start, _tokens = viterbi(graph, rel_tokens, rel_blank)
+            penalty = np.where(np.isfinite(score), -score.astype(np.float64), np.inf)
+            against = np.asarray([i for i, m in enumerate(graph.meanings) if m[0].name_type == "against"])
+            ours = np.asarray([i for i, m in enumerate(graph.meanings) if m[0].name_type == "phrases"])
+            for hit in hits:
+                # Placements over the hit's audio: ending within it (or just
+                # after), starting before it ends.
+                ends = np.arange(hit.start, min(hit.end + 3, penalty.shape[0] - 1) + 1)
+
+                def best(columns: np.ndarray) -> tuple[float, int, int]:
+                    block = np.where(start[np.ix_(ends, columns)] <= hit.end, penalty[np.ix_(ends, columns)], np.inf)
+                    row, col = np.unravel_index(np.argmin(block), block.shape)
+                    return float(block[row, col]), int(ends[row]), int(columns[col])
+
+                own, _, _ = best(ours)
+                rival, end, column = best(against)
+                if rival < own + contrast.margin:
+                    # Not clearly itself: what it is against takes its place.
+                    meaning = graph.meanings[column][0]
+                    hit.dominated_by = Hit(-1, [Meaning("keyword", meaning.phrase)], int(start[end, column]), end, rival, 0)
 
     # -- recognition -------------------------------------------------------
 
@@ -689,6 +743,8 @@ class Recognizer:
         spotted = time.perf_counter()
         if self.config.compounds:
             spotting.hits = _compounds(spotting)
+        if self._contrast_graphs:
+            self._contrast(spotting, log_probs)
 
         heard = [hit for hit in spotting.hits if hit.heard]
         word_costs, important, lead_in = self._word_costs(spotting, heard)

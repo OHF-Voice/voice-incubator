@@ -304,7 +304,10 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   German's ("w kuchni", "в гостиной", "на першому поверсі"); Polish and
   Ukrainian also change the consonant before some, which
   `morphology.ALTERNATIONS` give ("w łazience" for the Łazienka, "на
-  поверсі" for the поверх).
+  поверсі" for the поверх). Their models may write a word's first syllable
+  apart, as a preposition (`morphology.PREFIXES`: "на стільну лампу" for
+  the Настільна лампа), and Ukrainian's hears a doubled letter once
+  (`morphology.SINGLED`).
 - A keyword in `compounds` may also end a compound after an area or floor
   name, as one word: German's "Küchenlicht" is the light in the kitchen
   (Küche, its linking "-n" an ending, then "licht"). The model writes the
@@ -736,6 +739,7 @@ All are off unless a config uses them; upstream configs behave as before, and
 | `lists` | value lists: a required (or `optional`) group whose alternatives carry values, reported as slots (`{color: red}` for "crimson"). Inline (`values:`) or shared (top-level `lists:`, referred to by name) |
 | `wildcard.bounded` | free text right after an `after` keyword *and* right before a `before` keyword ("add <milk> to the list"), fillers allowed between; fillers and name cues may sit inside the text but not at its edges |
 | `wildcard.to_end` | free text from an `after` keyword to the last word ("remind me to <take out the trash>") |
+| `contrasts` | `[{phrases, against, margin}]`: phrases heard only where they explain the audio better than every one of `against` by `margin` nats (default 10). Opposites a model confuses one way: Ukrainian "вимкни" (off) can score better than "ввімкни" (on) on audio of "ввімкни", and turning off what was to be turned on is worse than doing nothing |
 | `wildcard.exclude_inside` | the intent's `exclude` keywords rule out free text holding them too: a verb that both plays music and sets things (Spanish "pon", Italian "metti") plays no song called "temporizador" |
 | `wildcard.required` | the intent matches only with its free text |
 | `settings.examples_first` | search the CTC evidence for example sentences on every command, and let a sentence said word for word win over keyword matches |

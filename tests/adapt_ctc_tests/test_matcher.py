@@ -92,6 +92,18 @@ def test_hedged_frame_scores_the_keyword_not_the_transcript():
     assert "outscored by 'turn on'" in reasons[0]
 
 
+def test_a_contrast_needs_a_clear_win():
+    # "Off" scoring barely better than "on" is no "turn off" when the config
+    # says off must beat on clearly; a plain "turn off" still is.
+    hedged = ["turn", {"off": 0.5, "on": 0.4}, "the", "lights"]
+    assert recognize(hedged).best.intent == "TurnOff"
+    contrast = {"contrasts": [{"phrases": ["turn off"], "against": ["turn on"], "margin": 3}]}
+    result = recognize(hedged, config=contrast)
+    assert result.best is None or result.best.intent != "TurnOff"
+    assert "outscored by 'turn on'" in rejected(result, "TurnOff").reasons[0]
+    assert recognize(["turn", "off", "the", "lights"], config=contrast).best.intent == "TurnOff"
+
+
 def test_excluded_keyword_vetoes_only_unexplained_audio():
     result = recognize(["turn", "on", "the", "lights", "off"])
     assert "TurnOn" not in [m.intent for m in result.matches]

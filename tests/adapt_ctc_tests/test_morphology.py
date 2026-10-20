@@ -7,7 +7,16 @@ from adapt_ctc.acoustic import SPM_SPACE, Vocabulary
 from adapt_ctc.config import ConfigError, parse_config
 from adapt_ctc.graph import Meaning, PhraseGraph
 from adapt_ctc.matcher import Recognizer
-from adapt_ctc.morphology import alternated, alternations, elided, elisions, endings, singled, word_forms
+from adapt_ctc.morphology import (
+    alternated,
+    alternations,
+    elided,
+    elisions,
+    endings,
+    singled,
+    split_at_prefix,
+    word_forms,
+)
 from adapt_ctc.spotter import spot
 
 from .conftest import utterance
@@ -244,3 +253,11 @@ def test_a_doubled_letter_heard_once():
     # Ukrainian's model writes "у ванній" as "у ваній".
     assert "ваній" in singled(word_forms("ванна", endings("uk")), "uk")
     assert singled(("ванна",), "ru") == ("ванна",)
+
+
+def test_a_prefix_written_apart():
+    # Ukrainian's model writes "настільну лампу" as "на стільну лампу".
+    prefix, rests = split_at_prefix(word_forms("настільна", endings("uk")), "uk")
+    assert prefix == "на" and "стільну" in rests
+    assert split_at_prefix(("нарис",), "uk") is None  # too little left
+    assert split_at_prefix(("настільна",), "en") is None

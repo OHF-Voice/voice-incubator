@@ -100,6 +100,26 @@ def singled(forms: tuple[str, ...], language: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys([*forms, *(re.sub(r"(\w)\1", r"\1", form) for form in forms)]))
 
 
+PREFIXES: dict[str, tuple[str, ...]] = {
+    "uk": ("на", "за", "по", "при", "під", "від"),
+    "ru": ("на", "за", "по", "при", "под", "от"),
+    "pl": ("na", "za", "po", "przy", "pod", "od"),
+}
+"""A word's beginning the model may write as a preposition of its own:
+Ukrainian's writes "настільну лампу" as "на стільну лампу"."""
+
+
+def split_at_prefix(forms: tuple[str, ...], language: str) -> tuple[str, tuple[str, ...]] | None:
+    """The prefix ``forms`` start with, and their rests, when the language's
+    model may write it apart: ("на", ("стільна", "стільну", ...)); None."""
+    prefixes = PREFIXES.get(language.replace("_", "-").split("-")[0].lower(), ())
+    word = forms[0] if forms else ""
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if word.startswith(prefix) and len(word) - len(prefix) >= 4:
+            return prefix, tuple(dict.fromkeys(f[len(prefix):] for f in forms if f.startswith(prefix)))
+    return None
+
+
 def alternations(language: str) -> tuple[tuple[str, str], ...]:
     """The alternations for ``language`` ("pl", "uk-UA")."""
     return ALTERNATIONS.get(language.replace("_", "-").split("-")[0].lower(), ())
