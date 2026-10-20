@@ -294,7 +294,7 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   (Küche, its linking "-n" an ending, then "licht"). The model writes the
   compound as one word, so the keyword is also listened for mid-word, and
   counts only where it starts in the word a place name ends in -- no word
-  starting between them, at most `COMPOUND_GAP` (3) frames on -- and not
+  starting between them, at most `COMPOUND_GAP` (8) frames on -- and not
   where it was heard as a word of its own.
 - A place the sentence ends on is said with the language's words
   (`matcher.PLACE_WORDS`, `PLACE_ARTICLES`, `BARE_PLACES`): "in the kitchen",

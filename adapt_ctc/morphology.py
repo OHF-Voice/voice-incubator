@@ -17,6 +17,12 @@ ENDINGS: dict[str, tuple[str, ...]] = {
     # kleiner, kleines, kleinen, kleinem), and the linking letters of a
     # compound (Küchen-, Arbeits-, Kinder-, Namens-).
     "de": ("e", "s", "n", "en", "er", "es", "em", "ns"),
+    # Plurals and adjectives (lampen, grote), the genitive and linking -s
+    # (woonkamerslampen), -en- (keukenlamp).
+    "nl": ("e", "s", "en", "n"),
+    # Plurals: les lampes, las lámparas, los ventiladores.
+    "fr": ("s",),
+    "es": ("s", "es"),
 }
 """The endings a word of a name may take, by language."""
 

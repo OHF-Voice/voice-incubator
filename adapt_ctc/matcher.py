@@ -50,12 +50,27 @@ PLACE_TYPES = ("area", "floor")
 PLACE_WORDS = {
     "en": ("in", "on", "at", "to"),
     "de": ("in", "im", "ins", "auf", "am", "an", "zu", "zum", "zur", "nach", "bei", "beim"),
+    "nl": ("in", "op", "bij", "naar", "aan"),
+    "fr": ("dans", "à", "au", "aux", "en", "sur", "chez"),
+    "es": ("en", "a", "al", "del", "por"),
 }
 """What says a place follows, by language: "play jazz *in the* kitchen", "*on
 the* Mark 2"; "spiel Jazz *in der* Küche", "*im* Wohnzimmer"."""
-PLACE_ARTICLES = {"en": ("the",), "de": ("der", "die", "das", "dem", "den", "des")}
+PLACE_ARTICLES = {
+    "en": ("the",),
+    "de": ("der", "die", "das", "dem", "den", "des"),
+    "nl": ("de", "het", "den"),
+    "fr": ("le", "la", "les", "l'", "du", "de", "des"),
+    "es": ("el", "la", "los", "las"),
+}
 """An article between that word and the place."""
-BARE_PLACES = {"en": ("upstairs", "downstairs"), "de": ("oben", "unten")}
+BARE_PLACES = {
+    "en": ("upstairs", "downstairs"),
+    "de": ("oben", "unten"),
+    "nl": ("boven", "beneden"),
+    "fr": (),
+    "es": ("arriba", "abajo"),
+}
 """Places said without one: "play jazz upstairs", "spiel Jazz oben"."""
 
 
@@ -199,9 +214,10 @@ def _named(result: IntentResult) -> int:
     return sum(len(ids) for kind, ids in result.slots.items() if kind in NAME_TYPES and isinstance(ids, list))
 
 
-COMPOUND_GAP = 3
+COMPOUND_GAP = 8
 """Frames a compound's tail may start after its place name ends: its pieces
-follow on, with a blank or two between."""
+follow on, with blanks between -- five in Dutch's "begane gronduit" (0.4 s).
+That no word starts between them is what makes it one word."""
 
 
 def _compounds(spotting: Spotting) -> list[Hit]:

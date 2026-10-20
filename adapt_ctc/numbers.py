@@ -26,6 +26,9 @@ minutes and thirty seconds"."""
 
 UNIT_WORDS: dict[str, dict[str, tuple[str, str]]] = {
     "de": {"second": ("sekunde", "sekunden"), "minute": ("minute", "minuten"), "hour": ("stunde", "stunden")},
+    "nl": {"second": ("seconde", "seconden"), "minute": ("minuut", "minuten"), "hour": ("uur", "uren")},
+    "fr": {"second": ("seconde", "secondes"), "minute": ("minute", "minutes"), "hour": ("heure", "heures")},
+    "es": {"second": ("segundo", "segundos"), "minute": ("minuto", "minutos"), "hour": ("hora", "horas")},
 }
 """A duration unit's words, singular and plural, by language; in English,
 the unit and its plural."""
@@ -97,6 +100,33 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
             (f"eine halbe {single}", HALF),
             (f"einer halben {single}", HALF),
         ]
+    if _base(language) == "nl":
+        # Uur is a het-word ("een half uur"), minuut and seconde de-words
+        # ("een halve minuut"); a kwartier is a quarter of an hour.
+        single, _plural = unit_words(unit, language)
+        half = "half" if unit == "hour" else "halve"
+        forms = [(f"een {single}", one), (f"één {single}", one), (f"ander{half} {single}", one_and_a_half),
+                 (f"een {half} {single}", HALF)]
+        if unit == "hour":
+            forms += [("een kwartier", Decimal("0.25")), ("drie kwartier", Decimal("0.75"))]
+        return forms
+    if _base(language) == "fr":
+        # All feminine: "une minute", "une heure et demie", "une demi heure".
+        single, _plural = unit_words(unit, language)
+        forms = [(f"une {single}", one), (f"une {single} et demie", one_and_a_half), (f"une demi {single}", HALF),
+                 (f"demi {single}", HALF)]
+        if unit == "hour":
+            forms += [("un quart d'heure", Decimal("0.25")), ("trois quarts d'heure", Decimal("0.75"))]
+        return forms
+    if _base(language) == "es":
+        # "Un minuto", "una hora", "una hora y media", "media hora".
+        single, _plural = unit_words(unit, language)
+        a, half = ("una", "media") if unit == "hour" else ("un", "medio")
+        forms = [(f"{a} {single}", one), (f"{a} {single} y {half}", one_and_a_half), (f"{single} y {half}", one_and_a_half),
+                 (f"{half} {single}", HALF)]
+        if unit == "hour":
+            forms += [("un cuarto de hora", Decimal("0.25")), ("tres cuartos de hora", Decimal("0.75"))]
+        return forms
     if not _is_english(language):
         return []
     forms = [(f"one {unit} and a half", one_and_a_half)]

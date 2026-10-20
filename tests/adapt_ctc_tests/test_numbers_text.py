@@ -71,5 +71,7 @@ def test_unit_forms():
     german = dict(unit_forms("hour", "de"))
     assert german["eine stunde"] == 1 and german["eineinhalb stunden"] == Decimal("1.5")
     assert german["eine halbe stunde"] == Decimal("0.5")
-    assert unit_forms("hour", "fr") == []
+    assert unit_forms("hour", "it") == []
+    assert dict(unit_forms("hour", "nl"))["een kwartier"] == Decimal("0.25")
+    assert dict(unit_forms("hour", "es"))["una hora y media"] == Decimal("1.5")
     assert unit_words("minute", "en") == ("minute", "minutes") and unit_words("minute", "de-AT") == ("minute", "minuten")
