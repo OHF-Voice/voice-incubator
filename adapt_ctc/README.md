@@ -124,7 +124,10 @@ in any of these cases:
 | too many unexplained words | more than `max_unexplained_important` unused or `max_unexplained_other` unrecognized |
 | cost above `max_cost` | "no intent matched" is when every intent is rejected |
 
-Matches within `ambiguity_margin` of the best are flagged ambiguous.
+At the same cost, the match that names more comes first: a word heard as both
+a keyword and a name ("stell die Heizung auf 21 Grad", a thermostat named
+Heizung) is the thing named. Matches within `ambiguity_margin` of the best
+are flagged ambiguous.
 
 ## Configuration
 
@@ -293,6 +296,14 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   counts only where it starts in the word a place name ends in -- no word
   starting between them, at most `COMPOUND_GAP` (3) frames on -- and not
   where it was heard as a word of its own.
+- A place the sentence ends on is said with the language's words
+  (`matcher.PLACE_WORDS`, `PLACE_ARTICLES`, `BARE_PLACES`): "in the kitchen",
+  "upstairs"; "in der Küche", "im Wohnzimmer", "oben". Free text to the end
+  stops before it.
+- Typed text is spelled in the fewest pieces, the first one starting a word
+  -- or, where none starts a word with its first letter, a bare word marker
+  and then continuation pieces, as the model writes them (German's "▁" "ö"
+  "ff" "ne").
 
 **Numbers.**
 - Numbers come from `icu_rbnf`, since the vocabulary has no digits.

@@ -47,10 +47,22 @@ from .text import name_units, sentence_key, spoken_words
 _INF = float("inf")
 PLACE_TYPES = ("area", "floor")
 """Names that say where: heard, an intent must take them (``places_must_fit``)."""
-PLACE_WORDS = ("in", "on", "at", "to")
-"""What says a place follows: "play jazz *in the* kitchen", "*on the* Mark 2"."""
-BARE_PLACES = ("upstairs", "downstairs")
-"""Places said without one: "play jazz upstairs"."""
+PLACE_WORDS = {
+    "en": ("in", "on", "at", "to"),
+    "de": ("in", "im", "ins", "auf", "am", "an", "zu", "zum", "zur", "nach", "bei", "beim"),
+}
+"""What says a place follows, by language: "play jazz *in the* kitchen", "*on
+the* Mark 2"; "spiel Jazz *in der* Küche", "*im* Wohnzimmer"."""
+PLACE_ARTICLES = {"en": ("the",), "de": ("der", "die", "das", "dem", "den", "des")}
+"""An article between that word and the place."""
+BARE_PLACES = {"en": ("upstairs", "downstairs"), "de": ("oben", "unten")}
+"""Places said without one: "play jazz upstairs", "spiel Jazz oben"."""
+
+
+def _in_language(table: dict[str, tuple[str, ...]], language: str) -> tuple[str, ...]:
+    """``table``'s words for ``language`` ("de-CH" is "de"); English's for one
+    it lacks."""
+    return table.get(language.replace("_", "-").split("-")[0].lower(), table["en"])
 
 
 @dataclass
@@ -180,6 +192,11 @@ _State = tuple[
     str,
 ]
 _INITIAL: _State = (0, tuple(() for _ in NAME_TYPES), None, 0, (), "")
+
+
+def _named(result: IntentResult) -> int:
+    """How many names a match was heard with."""
+    return sum(len(ids) for kind, ids in result.slots.items() if kind in NAME_TYPES and isinstance(ids, list))
 
 
 COMPOUND_GAP = 3
@@ -655,7 +672,10 @@ class Recognizer:
             )
             for intent in self.config.intents.values()
         ]
-        matches = sorted((r for r in results if r.matched), key=lambda r: r.cost)
+        # At the same cost, the one that names more: a word heard as both a
+        # keyword and a name ("stell die Heizung auf 21 Grad", a thermostat
+        # named Heizung) is the thing named.
+        matches = sorted((r for r in results if r.matched), key=lambda r: (r.cost, -_named(r)))
         rejected = [r for r in results if not r.matched]
         if matches:
             best = matches[0]
@@ -807,8 +827,12 @@ class Recognizer:
         """Names the sentence ends on, said as the place it is to happen:
         areas and floors after "in", "on", "at" or "to" (and "the"), or
         "upstairs", "downstairs" alone; devices after one of those words
-        ("play it *on the* Mark 2"). ``[(first frame of the place clause,
-        hit, meaning)]``."""
+        ("play it *on the* Mark 2") -- in the config's language (PLACE_WORDS).
+        ``[(first frame of the place clause, hit, meaning)]``."""
+        language = self.config.language
+        place_words = _in_language(PLACE_WORDS, language)
+        articles = _in_language(PLACE_ARTICLES, language)
+        bare = _in_language(BARE_PLACES, language)
         filler = {f for f in self.config.filler if " " not in f}
         words = [(w, w.text.lower().strip(".,?!;:\"'")) for w in spotting.words if w.frames]
         while words and words[-1][1] in filler:
@@ -827,11 +851,11 @@ class Recognizer:
                 if first is None:
                     continue
                 before = first - 1
-                if before >= 0 and words[before][1] == "the":
+                if before >= 0 and words[before][1] in articles:
                     before -= 1
-                if before >= 0 and words[before][1] in PLACE_WORDS:
+                if before >= 0 and words[before][1] in place_words:
                     out.append((words[before][0].start, hit, meaning))
-                elif words[first][1] in BARE_PLACES and meaning.name_type in PLACE_TYPES:
+                elif words[first][1] in bare and meaning.name_type in PLACE_TYPES:
                     out.append((words[first][0].start, hit, meaning))
         return out
 

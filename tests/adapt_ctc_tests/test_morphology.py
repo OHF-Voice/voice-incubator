@@ -142,3 +142,55 @@ def test_german_durations(script, slots):
     recognizer = Recognizer(parse_config(GERMAN_TIMER), vocab=vocab)
     found = recognizer.recognize_log_probs(utterance(vocab, script), 0.08).best
     assert (found.intent, found.slots, found.unexplained) == ("Timer", slots, [])
+
+
+def test_a_word_begun_by_a_bare_word_marker():
+    # German's vocabulary has no "▁ö": "Öffne" is "▁" "ö" "ff" "ne", typed too.
+    vocab = Vocabulary(dict(enumerate(["<unk>", SPM_SPACE, "ö", "ff", "ne", SPM_SPACE + "die", "<blk>"])))
+    piece = {p: i for i, p in vocab.id2piece.items()}
+    assert vocab.word_pieces("öffne") == [piece[SPM_SPACE], piece["ö"], piece["ff"], piece["ne"]]
+    assert vocab.word_pieces("die") == [piece[SPM_SPACE + "die"]] and vocab.word_pieces("x") is None
+
+
+GERMAN_PLACES_VOCAB = [
+    "<unk>", *(SPM_SPACE + w for w in "spiele jazz in im der küche wohnzimmer oben stelle heizung an".split()), "<blk>"
+]
+
+
+def german(config, script):
+    vocab = Vocabulary(dict(enumerate(GERMAN_PLACES_VOCAB)))
+    recognizer = Recognizer(parse_config({"language": "de", "filler": ["der", "im", "in"], **config}), vocab=vocab)
+    return recognizer.recognize_log_probs(utterance(vocab, script), 0.08)
+
+
+def test_free_text_ends_before_a_german_place():
+    config = {
+        "names": {"areas": {"kueche": "Küche", "wohnzimmer": "Wohnzimmer"}, "floors": {"oben": "Oben"}},
+        "intents": {
+            "Play": {
+                "require": [["spiele"]],
+                "wildcard": {"slot": "query", "after": ["spiele"], "to_end": True},
+                "names": {"area": {"count": 1, "optional": True}, "floor": {"count": 1, "optional": True}},
+            }
+        },
+    }
+    for script, place in (
+        (["spiele", "jazz", "in", "der", "küche"], {"area": ["kueche"]}),
+        (["spiele", "jazz", "im", "wohnzimmer"], {"area": ["wohnzimmer"]}),
+        (["spiele", "jazz", "oben"], {"floor": ["oben"]}),
+    ):
+        assert german(config, script).best.slots == {**place, "query": "jazz"}, script
+
+
+def test_a_word_both_keyword_and_name_is_the_name():
+    # "Stelle die Heizung an", a thermostat named Heizung: the device, though
+    # "heizung" is the other's keyword and both explain every word.
+    config = {
+        "names": {"entities": {"climate.heizung": "Heizung"}},
+        "intents": {
+            "Here": {"require": [["an"]], "optional": [["stelle"], ["heizung"]]},
+            "Device": {"require": [["an"]], "optional": [["stelle"]], "names": {"entity": {"count": 1}}},
+        },
+    }
+    result = german(config, ["stelle", "heizung", "an"])
+    assert [(m.intent, m.cost) for m in result.matches] == [("Device", 0.0), ("Here", 0.0)]

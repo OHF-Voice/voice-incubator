@@ -194,14 +194,24 @@ class Vocabulary:
 
     def word_pieces(self, word: str) -> list[int] | None:
         """``word`` (lowercase) as few of this vocabulary's pieces as spell
-        it, the first one starting a word; None when no sequence does."""
+        it, the first one starting a word -- or a bare word marker and then
+        continuation pieces, where no piece starts a word with its first
+        letter (German's "▁" "ö" "ff" "ne"); None when no sequence does."""
+        spelled = self._spelled(word, True)
+        if spelled is None and self.space_id is not None:
+            rest = self._spelled(word, False)
+            spelled = [self.space_id, *rest] if rest else None
+        return spelled
+
+    def _spelled(self, word: str, starts: bool) -> list[int] | None:
+        """Fewest pieces spelling ``word``, the first a word start if ``starts``."""
         best: list[list[int] | None] = [None] * (len(word) + 1)
         best[0] = []
         for start in range(len(word)):
             if best[start] is None:
                 continue
             for end in range(start + 1, min(len(word), start + self.max_piece_length) + 1):
-                ids = self.pieces.get((word[start:end], start == 0))
+                ids = self.pieces.get((word[start:end], starts and start == 0))
                 if ids is None:
                     continue
                 candidate = best[start] + [ids[0]]
