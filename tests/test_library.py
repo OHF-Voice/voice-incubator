@@ -1,4 +1,5 @@
-"""The library: every command valid, ids unique, icons shipped."""
+"""The library: every command valid, ids unique, icons shipped -- in every
+language (``language``) -- and English's versions."""
 
 import json
 import re
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from adapt_ctc.config import ConfigError
+from voice_call import languages
 from voice_call.commands import parse_command
 from voice_call.web import load_library
 
@@ -18,12 +20,19 @@ def shipped_icons() -> set[str]:
     return set(json.loads(re.search(r"const ICONS = (\{.*?\});", text, re.S).group(1)))
 
 
-def test_every_library_command_is_valid():
+@pytest.fixture(name="language", params=languages.codes())
+def fixture_language(request):
+    """Each language's library in turn."""
+    yield languages.use(request.param)
+    languages.use(languages.DEFAULT)
+
+
+def test_every_library_command_is_valid(language):
     entries = load_library()
     assert entries and not [(e["id"], e["error"]) for e in entries if e.get("error")]
 
 
-def test_ids_are_unique_across_files():
+def test_ids_are_unique_across_files(language):
     # The library page marks a command added by its id; the Commands page
     # lists one by the file its id (or its family's, or a former one) is in.
     from voice_call.web import library_files  # pylint: disable=import-outside-toplevel
@@ -77,7 +86,7 @@ def test_a_variant_must_be_one_of_the_three():
     assert (command_id, variant, spec) == ("x_place", "place", {"response": "ok"})
 
 
-def test_every_icon_is_shipped():
+def test_every_icon_is_shipped(language):
     icons = shipped_icons()
     used = {e["spec"]["icon"] for e in load_library() if e["spec"].get("icon")}
     used |= {e["group_icon"] for e in load_library() if e["group_icon"]}
@@ -110,7 +119,7 @@ def test_icons_are_material_design_names():
         parse_command("x", {**base, "icon": "lightbulb"})
 
 
-def test_every_response_template_renders():
+def test_every_response_template_renders(language):
     """Each library response, at each level, renders with Home Assistant's
     template functions (stubbed): a typo shows here, not in a call."""
     import jinja2  # pylint: disable=import-outside-toplevel
@@ -153,7 +162,7 @@ def test_every_response_template_renders():
                 said = env.from_string(template).render(**variables)
                 if entry["id"] == "turn_on_here" and level == "verbose":
                     lights = said
-    assert lights is not None and "Turned on Ceiling and Ceiling" in lights
+    assert lights is not None and lights.count("Ceiling") == 2, lights
 
 
 ROUTES = [

@@ -86,7 +86,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from adapt_ctc.config import ConfigError
+from adapt_ctc.config import ConfigError, phrase_parts
 from adapt_ctc.numbers import unit_words as said_units
 from adapt_ctc.template import TemplateError, expand
 from adapt_ctc.text import sentence_key
@@ -841,6 +841,17 @@ def adapt_config(store: dict[str, Any], commands: dict[str, Command]) -> dict[st
     if names:
         config["names"] = {k: v for k, v in copy.deepcopy(names).items() if v}
     config["intents"] = copy.deepcopy(intents)
+    if config.get("compounds"):
+        # The language's compound words ("licht" of "Küchenlicht") that are
+        # keywords here: a home without light commands has no "licht".
+        keywords = {
+            part.strip().lower()
+            for intent in intents.values()
+            for group in [*intent.get("require", []), *intent.get("optional", [])]
+            for phrase in (group if isinstance(group, list) else [group])
+            for part in phrase_parts(str(phrase))
+        }
+        config["compounds"] = [word for word in config["compounds"] if word in keywords]
     return config
 
 

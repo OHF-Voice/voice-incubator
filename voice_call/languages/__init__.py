@@ -52,6 +52,9 @@ class Pack:
     """The skills it has (voice_call/skills/)."""
     gliner: bool = False
     """GLiNER, the fallback's model step, understands it."""
+    wake_ratio: bool = False
+    """The wake word's second opinion (voice_call/wake_ratio.py) is
+    calibrated for its CTC model; without, Kaldi alone decides."""
     directory: Path = Path(__file__).parent
 
     @property
@@ -82,6 +85,17 @@ class Pack:
 
         quantized = root / "models" / f"{self.transducer}-int8"
         return quantized if has_model(quantized) else root / "models" / self.transducer
+
+    def missing(self, root: Path) -> list[str]:
+        """Its models not under ``root``/models, which it can't run without:
+        the CTC model and the Piper voice. (Without its transducer, free text
+        comes from the multilingual one, or the CTC model.)"""
+        missing = []
+        if not (self.ctc_dir(root) / "model.onnx").is_file():
+            missing.append(f"models/{self.ctc}")
+        if not (root / "models/piper" / self.piper).is_file():
+            missing.append(f"models/piper/{self.piper}")
+        return missing
 
     def to_json(self) -> dict[str, Any]:
         return {"code": self.code, "name": self.name, "skills": list(self.skills), "gliner": self.gliner}

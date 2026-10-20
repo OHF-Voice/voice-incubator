@@ -642,23 +642,26 @@ def examples() -> dict[str, dict[str, str]]:
     for operation, item, heard in (("play", album, "kind of blew"), ("add", track, "so watt"), ("radio", track, "so watt")):
         out[operation].update(done=found_said(operation, item, [])["specific"], not_found=say.not_found(heard))
     out["status"].update(done=say.now_playing(say.media("So What", "Miles Davis"), paused=False))
-    kitchen = say.place([("area", "Kitchen")], to=True)
-    out["move"].update(done=say.moved(None, "", "Kitchen", kitchen)["specific"], **say.MOVE_SAID)
+    names = say.EXAMPLE_NAMES
+    to = say.place([("area", names["room"])], to=True)
+    out["move"].update(done=say.moved(None, names["other_player"], names["player"], to)["specific"], **say.MOVE_SAID)
     return out
 
 
 def level_examples() -> dict[str, dict[str, str]]:
     """operation -> level -> what done says, for the UI (status answers;
-    it has no levels)."""
-    player = Player("media_player.kitchen", "Kitchen Speaker", "playing", "So What", "Miles Davis", volume=0.4)
+    it has no levels). Names are the language's EXAMPLE_NAMES."""
+    names = languages.speech().EXAMPLE_NAMES
+    player = Player("media_player.kitchen", names["player"], "playing", "So What", "Miles Davis", volume=0.4)
     out: dict[str, dict[str, str]] = {}
     for operation in OUTCOMES:
         if operation == "status":
             continue
         if operation == "move":
-            kitchen = Player("media_player.kitchen", "Kitchen Speaker")
-            to = languages.speech().place([("area", "Kitchen")], to=True)
-            out[operation] = moved_said(Player("media_player.living_room", "Living Room Speaker", "playing", "So What", "Miles Davis"), kitchen, to)
+            kitchen = Player("media_player.kitchen", names["player"])
+            to = languages.speech().place([("area", names["room"])], to=True)
+            other = Player("media_player.living_room", names["other_player"], "playing", "So What", "Miles Davis")
+            out[operation] = moved_said(other, kitchen, to)
         elif operation in FIND:
             item = Item("Kind of Blue", "", "album", "Miles Davis") if operation == "play" else Item("So What", "", "track", "Miles Davis")
             out[operation] = found_said(operation, item, [player])

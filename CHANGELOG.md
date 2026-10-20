@@ -7,8 +7,15 @@
   matcher's filler words and name cues, the command library, and which
   skills and fallback steps it has, every sentence the app makes itself
   (timers, music, places, hints, apologies) and what it reads itself (an
-  alarm's time, "the album …", "in the kitchen" after free text). English
-  is the only one yet; the `language` option picks it. Timer names and
+  alarm's time, "the album …", "in the kitchen" after free text). The
+  `language` option picks one: English, or **German** (`de`): NVIDIA's
+  FastConformer hybrid for matching and writing, Piper's Thorsten, and the
+  whole library in German -- names heard with German's endings ("des
+  Wohnzimmers", "den kleinen Ventilator") and a room joined to what is in
+  it ("das Küchenlicht"), durations ("eine halbe Stunde"), clock times
+  ("halb sieben"), and "in der Küche" said with the room's gender. On 47
+  sentences spoken by five voices, 214 of 235 do what was said; typed, all
+  47. No skills, GLiNER or wake word second opinion in German yet. Timer names and
   music titles are compared with their accented letters ("Beyoncé"), not
   without. `commands.yaml` says what its commands are in
   (`language:`, new files `en`), and the Home page says when that is not the

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
 import re
 from dataclasses import replace
@@ -30,6 +31,9 @@ def test_packs(english):
         languages.load("xx")
     assert english.library.is_dir() and sorted(p.name for p in english.library.glob("*.yaml"))
     assert english.ctc_dir(ROOT).name.startswith("stt_en_parakeet_tdt_ctc_110m")
+    # Without its models, the app says which and stops.
+    assert english.missing(ROOT / "nowhere") == [
+        "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m", "models/piper/en_GB-jenny_dioco-medium.onnx"]
     # Its matcher config is the base every home's commands build on.
     config = base_config()
     assert config["language"] == "en" and "the" in config["filler"] and config["settings"]["examples_first"]
@@ -94,3 +98,32 @@ def test_what_is_said_is_the_apps_language(english, monkeypatch):
     monkeypatch.setattr(languages, "_current", replace(english, code="xx"))
     with pytest.raises(ModuleNotFoundError):
         languages.speech()
+
+
+def bench_script():
+    spec = importlib.util.spec_from_file_location("bench_language", ROOT / "scripts/bench_language.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("code", [c for c in languages.codes() if (languages.load(c).directory / "bench.yaml").is_file()])
+def test_the_bench_typed(code):
+    """A pack's bench sentences, typed: each becomes its command and slots
+    with the pack's whole library (scripts/bench_language.py speaks them)."""
+    pack = languages.use(code)
+    try:
+        if pack.missing(ROOT):
+            pytest.skip(f"no {pack.name} models")
+        bench = bench_script()
+        data = bench.bench(code)
+        engine = bench.engine_for(data, threads=2)
+        satellite = bench.satellite_for(data)
+        wrong = []
+        for text, command, slots, _shows in data["sentences"]:
+            ok, got, got_slots = bench.scored(engine.recognize_text(text, satellite), command, slots or {})
+            if not ok:
+                wrong.append((text, got, got_slots))
+        assert not wrong
+    finally:
+        languages.use(languages.DEFAULT)

@@ -19,5 +19,6 @@ PACK = Pack(
     },
     skills=("spelling", "dates", "clock", "units", "arithmetic"),
     gliner=True,
+    wake_ratio=True,
     directory=Path(__file__).parent,
 )

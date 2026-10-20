@@ -27,6 +27,16 @@ NO_COMMANDS = "No voice commands are set up yet. Add some in the Voice Call app.
 TIMERS_NEED_INTEGRATION = "Timers need the Voice Call integration in Home Assistant."
 
 
+EXAMPLE_NAMES = {
+    "room": "Kitchen",
+    "player": "Kitchen Speaker",
+    "other_player": "Living Room Speaker",
+    "timers": ["pizza", "tea", "lasagna"],
+}
+"""What the UI's example sentences name: a room, two music players, three
+timers (two running, one asked for and not)."""
+
+
 def join(parts: list[str]) -> str:
     """"a", "a and b", "a, b and c"."""
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]

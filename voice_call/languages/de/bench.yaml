@@ -1,0 +1,79 @@
+# German sentences and what each must become with the German library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). The
+# home: these names, the devices in these rooms, a satellite in the Büro.
+# Numbers are written as said, for text-to-speech.
+names:
+  areas:
+    kueche: Küche
+    wohnzimmer: Wohnzimmer
+    schlafzimmer: Schlafzimmer
+    bad: {name: Bad, aliases: [Badezimmer]}
+    buero: Büro
+  floors:
+    erdgeschoss: Erdgeschoss
+    obergeschoss: Obergeschoss
+  entities:
+    light.stehlampe: Stehlampe
+    light.kleine_lampe: Kleine Lampe
+    fan.kleiner_ventilator: Kleiner Ventilator
+    fan.wohnzimmer_ventilator: Wohnzimmer Ventilator
+    fan.deckenventilator: Deckenventilator
+    media_player.kueche: Küchenlautsprecher
+    climate.heizung: Heizung
+    cover.dachfenster: Dachfenster
+    lock.haustuer: Haustür
+rooms:
+  fan.deckenventilator: schlafzimmer
+  fan.wohnzimmer_ventilator: wohnzimmer
+  media_player.kueche: kueche
+satellite: buero
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Schalte das Licht im Wohnzimmer ein.", turn_on_place, {area: [wohnzimmer]}, "im + area"]
+  - ["Mach das Licht in der Küche aus.", turn_off_place, {area: [kueche]}, "in der + area"]
+  - ["Schalte die Lichter im Schlafzimmer aus.", turn_off_place, {area: [schlafzimmer]}, "plural keyword"]
+  - ["Mach im Bad das Licht an.", turn_on_place, {area: [bad]}, "short area first"]
+  - ["Schalte die Lampen des Wohnzimmers ein.", turn_on_place, {area: [wohnzimmer]}, "genitive -s"]
+  - ["Mach die Lichter des Badezimmers aus.", turn_off_place, {area: [bad]}, "genitive -s (alias)"]
+  - ["Schalte das Licht der Küche ein.", turn_on_place, {area: [kueche]}, "genitive, no ending"]
+  - ["Schalte das Küchenlicht ein.", turn_on_place, {area: [kueche]}, "compound area+keyword, linking -n"]
+  - ["Mach das Wohnzimmerlicht aus.", turn_off_place, {area: [wohnzimmer]}, "compound area+keyword"]
+  - ["Schalte die Schlafzimmerlampe aus.", turn_off_place, {area: [schlafzimmer]}, "compound area+keyword"]
+  - ["Mach die Badlampe an.", turn_on_place, {area: [bad]}, "compound, short area"]
+  - ["Schalte die Küchenlampen aus.", turn_off_place, {area: [kueche]}, "compound, plural"]
+  - ["Schalte die Stehlampe ein.", turn_on_device, {entity: [light.stehlampe]}, "compound device name"]
+  - ["Schalte die kleine Lampe aus.", turn_off_device, {entity: [light.kleine_lampe]}, "adjective name, as named"]
+  - ["Schalte den kleinen Ventilator ein.", turn_on_device, {entity: [fan.kleiner_ventilator]}, "adjective ending -er -> -en"]
+  - ["Mach den Wohnzimmerventilator aus.", turn_off_device, {entity: [fan.wohnzimmer_ventilator]}, "two-word name said as one"]
+  - ["Schalte den Deckenventilator im Schlafzimmer ein.", turn_on_device, {entity: [fan.deckenventilator], area: [schlafzimmer]}, "device + area"]
+  - ["Mach alle Lichter im Erdgeschoss aus.", turn_off_place, {floor: [erdgeschoss]}, "floor"]
+  - ["Schalte das Licht im Obergeschoss ein.", turn_on_place, {floor: [obergeschoss]}, "floor"]
+  - ["Wie spät ist es?", what_time, {}, "a question"]
+  - ["Ist die Stehlampe an?", any_lights_on_device, {entity: [light.stehlampe], asked: "on"}, "asking a device"]
+  - ["Mach die Stehlampe blau.", light_color_device, {entity: [light.stehlampe], color: blue}, "a value"]
+  - ["Stelle die Helligkeit im Wohnzimmer auf fünfzig Prozent.", set_brightness_place, {area: [wohnzimmer], percentage: 50}, "a number"]
+  - ["Stelle die Heizung auf einundzwanzig Grad.", set_temperature_device, {entity: [climate.heizung], temperature: 21}, "a keyword that is also a name"]
+  - ["Öffne die Jalousien.", open_covers_here, {device_class: blind}, "umlaut first"]
+  - ["Mach die Rollläden im Obergeschoss runter.", close_covers_place, {floor: [obergeschoss], device_class: shutter}, "separable verb"]
+  - ["Ist das Dachfenster offen?", are_covers_open_device, {entity: [cover.dachfenster], asked: open}, "asking a cover"]
+  - ["Schließ die Haustür ab.", lock, {entity: [lock.haustuer]}, "particle: ab"]
+  - ["Schließ die Haustür auf.", unlock, {entity: [lock.haustuer]}, "particle: auf"]
+  - ["Ist die Haustür abgeschlossen?", is_locked, {entity: [lock.haustuer], asked: locked}, "asking a lock"]
+  - ["Welcher Tag ist heute?", what_date, {}, "a question"]
+  - ["Spiele Jazz.", play_music_here, {query: jazz}, "free text"]
+  - ["Spiele Jazz in der Küche.", play_music_place, {area: [kueche], query: jazz}, "free text, then a place"]
+  - ["Pausiere die Musik.", pause_music_here, {}, "music"]
+  - ["Stelle die Lautstärke auf dreißig Prozent.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["Was läuft gerade in der Küche?", whats_playing_place, {area: [kueche]}, "music, a place"]
+  - ["Verschiebe die Musik auf den Küchenlautsprecher.", move_music_device, {entity: [media_player.kueche]}, "music, a device"]
+  - ["Lauter.", volume_up_here, {}, "one word"]
+  - ["Nächstes Lied.", next_track_here, {}, "music"]
+  - ["Setz Milch auf die Einkaufsliste.", shopping_list_add, {item: milch}, "free text between keywords"]
+  - ["Stell einen Timer für fünf Minuten.", start_timer, {duration: 300}, "a duration"]
+  - ["Timer für eine halbe Stunde.", start_timer, {duration: 1800}, "a duration said with its unit"]
+  - ["Stelle einen Timer namens Pizza für zehn Minuten.", start_timer, {duration: 600, timer: pizza}, "a named timer"]
+  - ["Weck mich um halb sieben.", set_alarm, {time: halb sieben}, "a clock time"]
+  - ["Brich den Timer ab.", cancel_timer, {}, "split verb"]
+  - ["Wie lange läuft der Timer noch?", timer_status, {}, "a timer question"]
+  - ["Vergiss es.", never_mind, {}, "an example sentence"]

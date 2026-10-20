@@ -199,24 +199,23 @@ def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
     return _done("create_timer", data, timer, languages.speech().alarm_set((hour24, minute), round(seconds / 60) * 60))
 
 
-# What each outcome says, from a few made-up timers: the defaults a command's
-# own responses replace (shown in the UI).
-_SAMPLE = [
-    {"timer_id": "1", "name": "pizza", "status": "active", "created_duration": 600, "remaining": 412},
-    {"timer_id": "2", "name": None, "status": "active", "created_duration": 300, "remaining": 61},
-    {"timer_id": "3", "name": "tea", "status": "paused", "created_duration": 240, "remaining": 90},
-]
-
-
+# What each outcome says, from a few made-up timers (named in the language's
+# EXAMPLE_NAMES): the defaults a command's own responses replace (shown in the UI).
 def _scenarios() -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    first, other, missing = languages.speech().EXAMPLE_NAMES["timers"]
+    sample = [
+        {"timer_id": "1", "name": first, "status": "active", "created_duration": 600, "remaining": 412},
+        {"timer_id": "2", "name": None, "status": "active", "created_duration": 300, "remaining": 61},
+        {"timer_id": "3", "name": other, "status": "paused", "created_duration": 240, "remaining": 90},
+    ]
     return [
-        ({"timer": "pizza", "duration": 600, "time": languages.reading().ALARM_EXAMPLE}, []),
-        ({"timer_name": "pizza"}, _SAMPLE),
-        ({"timer_name": "pizza", "duration": 120}, _SAMPLE),
-        ({"timer_name": "tea"}, _SAMPLE),
-        ({"timer_name": "lasagna"}, _SAMPLE),
-        ({}, _SAMPLE),
-        ({}, [{**t, "status": "paused"} for t in _SAMPLE]),
+        ({"timer": first, "duration": 600, "time": languages.reading().ALARM_EXAMPLE}, []),
+        ({"timer_name": first}, sample),
+        ({"timer_name": first, "duration": 120}, sample),
+        ({"timer_name": other}, sample),
+        ({"timer_name": missing}, sample),
+        ({}, sample),
+        ({}, [{**t, "status": "paused"} for t in sample]),
         ({}, []),
     ]
 

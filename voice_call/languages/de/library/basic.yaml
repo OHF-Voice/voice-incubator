@@ -1,0 +1,510 @@
+# Beispielbefehle für die Bibliothek der Weboberfläche (German). Adding one
+# copies it into commands.yaml, where it can be changed like any other command.
+#
+# As the English library (voice_call/languages/en/library/basic.yaml): titles
+# and needs are the UI's, in English; descriptions are said in hints ("Es
+# sieht so aus, als wolltest du <description>, ..."), so each is what one
+# wants to do: "das Licht einschalten".
+#
+# Keywords are lowercase, as the German model writes them lowercased:
+# separable verbs by their parts ("schalte das Licht ein": "licht" + "ein").
+# Articles and "im", "in der" are filler (the language pack's), and a room
+# may be joined to what is in it ("Küchenlicht": compounds).
+title: Basics
+icon: mdi:home-outline
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: die Uhrzeit wissen
+    examples: [wie spät ist es, wie viel uhr ist es]
+    require: [[wie spät, wie viel uhr, uhrzeit]]
+    optional: [[ist es, haben wir], [jetzt, gerade], [sag mir]]
+    # Other times: "wie spät öffnet der Laden", "wie viel Uhr ist es in Tokio".
+    exclude: [öffnet, schließt, macht, zu, auf, nach, vor, bis]
+    response: "Es ist {{ now().hour }} Uhr{{ (' ' ~ now().minute) if now().minute else '' }}."
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: das Datum wissen
+    examples: ["welcher tag ist heute", "welches datum [ist] heute", "der wievielte ist heute"]
+    require: [[datum, welcher tag, wievielte]]
+    optional: [[sag mir], [welches, was für ein], [ist, haben wir], [heute]]
+    response: >-
+      {%- set tage = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'] -%}
+      {%- set monate = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August',
+        'September', 'Oktober', 'November', 'Dezember'] -%}
+      Heute ist {{ tage[now().weekday()] }}, der {{ now().day }}. {{ monate[now().month - 1] }}.
+
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: nichts tun
+    # Said whole only: "brich den Timer ab" is the timer's. Nothing to do, and
+    # by default nothing said, not even a sound: the satellite stops listening.
+    examples: [vergiss es, egal, abbrechen, nichts, schon gut]
+
+  # Lights here, in an area or on a floor named, or a device by name.
+  turn_on:
+    title: Turn on
+    icon: mdi:lightbulb-on-outline
+    description: das Licht einschalten
+    require: [[licht, lichter, lampe, lampen, beleuchtung], [ein, an, einschalten, anschalten, anmachen]]
+    optional: [[schalte, schalt, mach, mache], [alle]]
+    action:
+      action: light.turn_on
+      target: "{{ target }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Licht eingeschaltet.
+        specific: Licht {{ place.said }} eingeschaltet.
+        verbose: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for a in place.areas -%}
+          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
+          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {%- set n = ns.names | count -%}
+          {%- if n == 0 or n > 4 -%}
+          {{ (n ~ ' Lichter') if n else 'Licht' }} {{ place.said }} eingeschaltet.
+          {%- else -%}
+          {{ (ns.names[:-1] | join(', ') ~ ' und ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }} eingeschaltet.
+          {%- endif -%}
+    variants:
+      here:
+        title: Turn on the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns on.
+      device:
+        <<: *device
+        title: Turn on a device by name
+        icon: mdi:toggle-switch-outline
+        description: ein Gerät einschalten
+        require: [[ein, an, einschalten, anschalten, anmachen]]
+        action:
+          action: homeassistant.turn_on
+          target: "{{ target }}"
+        response:
+          done:
+            brief: Eingeschaltet.
+            specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} eingeschaltet."
+            verbose: "{{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }} eingeschaltet."
+        needs:
+          - Add names for the devices it may turn on (Names page).
+      place:
+        <<: *place
+        title: Turn on the lights in an area or floor
+
+  turn_off:
+    title: Turn off
+    icon: mdi:lightbulb-off-outline
+    description: das Licht ausschalten
+    require: [[licht, lichter, lampe, lampen, beleuchtung], [aus, ausschalten, ausmachen, abschalten]]
+    optional: [[schalte, schalt, mach, mache], [alle], [überall]]
+    action:
+      action: light.turn_off
+      target: "{{ target }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Licht ausgeschaltet.
+        specific: Licht {{ place.said }} ausgeschaltet.
+        verbose: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for a in place.areas -%}
+          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
+          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {%- set n = ns.names | count -%}
+          {%- if n == 0 or n > 4 -%}
+          {{ (n ~ ' Lichter') if n else 'Licht' }} {{ place.said }} ausgeschaltet.
+          {%- else -%}
+          {{ (ns.names[:-1] | join(', ') ~ ' und ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }} ausgeschaltet.
+          {%- endif -%}
+    variants:
+      here:
+        title: Turn off the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns off.
+      device:
+        <<: *device
+        title: Turn off a device by name
+        icon: mdi:toggle-switch-off-outline
+        description: ein Gerät ausschalten
+        require: [[aus, ausschalten, ausmachen, abschalten]]
+        optional: [[schalte, schalt, mach, mache]]
+        action:
+          action: homeassistant.turn_off
+          target: "{{ target }}"
+        response:
+          done:
+            brief: Ausgeschaltet.
+            specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} ausgeschaltet."
+            verbose: "{{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }} ausgeschaltet."
+        needs:
+          - Add names for the devices it may turn off (Names page).
+      place:
+        <<: *place
+        title: Turn off the lights in an area or floor
+
+  any_lights_on:
+    title: Are any lights on
+    icon: mdi:lightbulb-question
+    description: wissen, welche Lichter an sind
+    # No example sentences: one said word for word carries no area or floor.
+    require: [[ist, sind, brennt, brennen], [licht, lichter, lampe, lampen], [an, eingeschaltet, ein]]
+    optional: [[noch], [irgendein, irgendwo]]
+    exclude: [schalte, schalt, mach, mache]
+    response: >-
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], on=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' ' ~ place.said) if place.said else '' -%}
+      {%- for s in states.light if (not ns.areas or area_id(s.entity_id) in ns.areas) and s.state == 'on' -%}
+      {%- set ns.on = ns.on + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.on | count -%}
+      {%- if count == 0 -%}
+      Nein, die Lichter{{ where }} sind aus.
+      {%- elif count > 3 -%}
+      Ja, {{ count }} Lichter{{ where }} sind an.
+      {%- else -%}
+      Ja, {{ (ns.on[:-1] | join(', ') ~ ' und ' ~ ns.on[-1]) if count > 1 else ns.on[0] }}
+      {{- ' ist' if count == 1 else ' sind' }} an.
+      {%- endif -%}
+    variants:
+      here:
+        title: Are any lights on in this satellite's area
+        needs:
+          - The satellite's area (Satellites page) is the one it asks about.
+      device:
+        <<: *device
+        title: Is a device on, by name
+        icon: mdi:toggle-switch-outline
+        description: wissen, ob ein Gerät an ist
+        require: [[ist, sind]]
+        optional: [[noch]]
+        names:
+          entity: {count: 1, domains: [light, switch, fan, input_boolean]}
+          area: {count: 1}
+        lists:
+          asked: {list: on_off}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set state = states(e) -%}
+          {%- set words = {'on': 'an', 'off': 'aus', 'unavailable': 'nicht erreichbar', 'unknown': 'unbekannt'} -%}
+          {%- set said = state_attr(e, 'friendly_name') ~ ' ist ' ~ words.get(state, state) ~ '.' -%}
+          {%- if state in ['on', 'off'] -%}
+          {{ 'Ja' if state == slots.asked else 'Nein' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the lights and switches it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are any lights on in an area or floor
+
+  set_brightness:
+    title: Set the brightness
+    icon: mdi:brightness-6
+    description: die Helligkeit einstellen
+    require: [[helligkeit, prozent]]
+    optional: [[stelle, stell, setze, setz, mach, mache, dimme, dimm], [licht, lichter, lampe, lampen], [auf], [helligkeit], [prozent]]
+    number: percentage
+    action:
+      action: light.turn_on
+      target: "{{ target }}"
+      data:
+        brightness_pct: "{{ slots.percentage }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Helligkeit eingestellt.
+        specific: >-
+          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'Licht ' ~ place.said }} auf {{ slots.percentage }} Prozent gestellt.
+    variants:
+      here:
+        title: Set the brightness in this satellite's area
+      device:
+        <<: *device
+        title: Set the brightness of a light by name
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, percentage], [entity, area, percentage]]
+        needs:
+          - Add names for the lights it may dim (Names page).
+      place:
+        <<: *place
+        title: Set the brightness in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
+
+  light_color:
+    title: Set the light color
+    icon: mdi:format-color-fill
+    description: die Lichtfarbe ändern
+    require: [[mach, mache, stelle, stell, setze, setz, färbe, färb], [licht, lichter, lampe, lampen]]
+    optional: [[farbe], [auf, in]]
+    lists:
+      color:
+        values:
+          red: [rot]
+          orange: [orange]
+          yellow: [gelb]
+          green: [grün]
+          blue: [blau]
+          purple: [lila, violett]
+          pink: [rosa, pink]
+          white: [weiß]
+    action:
+      action: light.turn_on
+      target: "{{ target }}"
+      data:
+        color_name: "{{ slots.color }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Farbe geändert.
+        specific: >-
+          {%- set farben = {'red': 'rot', 'orange': 'orange', 'yellow': 'gelb', 'green': 'grün',
+            'blue': 'blau', 'purple': 'lila', 'pink': 'rosa', 'white': 'weiß'} -%}
+          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'Licht ' ~ place.said }} ist jetzt {{ farben.get(slots.color, slots.color) }}.
+    variants:
+      here:
+        title: Set the light color in this satellite's area
+      device:
+        <<: *device
+        title: Set the color of a light by name
+        require: [[mach, mache, stelle, stell, setze, setz, färbe, färb]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, color], [entity, area, color]]
+        needs:
+          - Add names for the lights it may color (Names page).
+      place:
+        <<: *place
+        title: Set the light color in an area or floor
+        combinations: [[area, color], [floor, color]]
+
+  set_temperature:
+    title: Set the temperature
+    icon: mdi:thermometer
+    description: die Temperatur einstellen
+    require: [[stelle, stell, setze, setz, temperatur, grad, heizung]]
+    optional: [[stelle, stell, setze, setz, dreh, drehe], [temperatur, heizung], [auf], [grad]]
+    # A question about degrees is not a setting: "wie viel sind 20 Grad in
+    # Fahrenheit".
+    exclude: [was, wie, wieviel, umrechnen, sind]
+    number: temperature
+    action:
+      action: climate.set_temperature
+      target: "{{ target }}"
+      data:
+        temperature: "{{ slots.temperature }}"
+    # Not seen at once, and a misheard number matters: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Temperatur eingestellt.
+        specific: >-
+          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'Temperatur ' ~ place.said }} auf {{ slots.temperature | string | replace('.', ',') }} Grad gestellt.
+    variants:
+      here:
+        title: Set the temperature in this satellite's area
+      device:
+        <<: *device
+        title: Set the temperature of a thermostat by name
+        names:
+          entity: {count: 1, domains: [climate]}
+          area: {count: 1}
+        combinations: [[entity, temperature], [entity, area, temperature]]
+        needs:
+          - Add names for the thermostats it may set (Names page).
+      place:
+        <<: *place
+        title: Set the temperature in an area or floor
+        combinations: [[area, temperature], [floor, temperature]]
+
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: das Wetter wissen
+    examples: ["wie ist das wetter [heute]", "wird es [heute] regnen", "wie wird das wetter"]
+    require: [[wetter, regnen, wettervorhersage, vorhersage]]
+    slots:
+      entity: [weather.home]
+    response: >-
+      {%- set wetter = {'clear-night': 'klar', 'cloudy': 'bewölkt', 'exceptional': 'ungewöhnlich',
+        'fog': 'neblig', 'hail': 'Hagel', 'lightning': 'Gewitter', 'lightning-rainy': 'Gewitter mit Regen',
+        'partlycloudy': 'teilweise bewölkt', 'pouring': 'starker Regen', 'rainy': 'regnerisch',
+        'snowy': 'Schnee', 'snowy-rainy': 'Schneeregen', 'sunny': 'sonnig', 'windy': 'windig',
+        'windy-variant': 'windig und bewölkt'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      Es ist {{ wetter.get(state, state) }} bei
+      {{ state_attr(slots.entity[0], 'temperature') | round }} Grad.
+    needs:
+      - Set the fixed slot entity to your weather entity (weather.home here).
+
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: etwas auf die Einkaufsliste setzen
+    require: [[setze, setz, füge, füg, schreibe, schreib, packe, pack], [einkaufsliste]]
+    optional: [[auf, zur, zu], [hinzu, dazu]]
+    wildcard:
+      slot: item
+      after: [setze, setz, füge, füg, schreibe, schreib, packe, pack]
+      before: [auf, zur, zu]
+      bounded: true
+      max_words: 5
+    action:
+      action: todo.add_item
+      target:
+        entity_id: todo.shopping_list
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Auf die Einkaufsliste gesetzt.
+        specific: "{{ slots.item }} steht auf der Einkaufsliste."
+
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: etwas von der Einkaufsliste nehmen
+    require: [[nimm, entferne, entfern, lösche, lösch, streiche, streich], [einkaufsliste]]
+    optional: [[von], [runter, herunter, weg]]
+    wildcard:
+      slot: item
+      after: [nimm, entferne, entfern, lösche, lösch, streiche, streich]
+      before: [von]
+      bounded: true
+      max_words: 5
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: todo.shopping_list
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Von der Einkaufsliste genommen.
+        specific: "{{ slots.item }} von der Einkaufsliste genommen."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: etwas auf die Aufgabenliste setzen
+    require: [[setze, setz, füge, füg, schreibe, schreib], [aufgabenliste, to do liste, todo liste]]
+    optional: [[auf, zur, zu], [hinzu, dazu]]
+    wildcard:
+      slot: item
+      after: [setze, setz, füge, füg, schreibe, schreib]
+      before: [auf, zur, zu]
+      bounded: true
+      max_words: 8
+    action:
+      action: todo.add_item
+      target:
+        entity_id: todo.to_do
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Auf die Aufgabenliste gesetzt.
+        specific: "{{ slots.item }} steht auf der Aufgabenliste."
+    needs:
+      - Point it at your to-do list (todo.to_do here).
+
+  remind_me:
+    title: Remember something
+    icon: mdi:note-edit-outline
+    description: an etwas erinnert werden
+    # "Erinnere mich daran, die Wäsche aufzuhängen", "erinnere mich an den Müll".
+    require: [[erinnere mich, erinner mich]]
+    optional: [[daran, an]]
+    wildcard:
+      slot: reminder
+      after: [daran, an, erinnere mich, erinner mich]
+      to_end: true
+      max_words: 10
+    action:
+      action: todo.add_item
+      target:
+        entity_id: todo.reminders
+      data:
+        item: "{{ slots.reminder }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Ich erinnere dich.
+        specific: "Ich erinnere dich daran: {{ slots.reminder }}."
+    needs:
+      - Point it at a to-do list (todo.reminders here).
+
+  scene:
+    title: Activate a scene
+    icon: mdi:palette
+    description: den Filmabend starten
+    examples: ["[starte] [den] filmabend"]
+    scene: scene.movie_time
+    verbosity: beep
+    response:
+      done:
+        brief: Erledigt.
+    needs:
+      - Pick the scene, and change the examples to what you want to say.
+
+  script:
+    title: Run a script
+    icon: mdi:script-text-outline
+    description: gute Nacht sagen
+    examples: [gute nacht]
+    script: script.good_night
+    response: "{{ result.speech if result and result.speech else 'Gute Nacht.' }}"
+    needs:
+      - Pick the script. It gets slots, satellite, speaker and target as variables,
+        and anything it returns (stop with response_variable) as result.
+
+# Shared by the commands above (added with them).
+lists:
+  on_off:
+    "on": [an, eingeschaltet]
+    "off": [aus, ausgeschaltet]

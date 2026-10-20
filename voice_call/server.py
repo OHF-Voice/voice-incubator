@@ -471,6 +471,11 @@ class VoiceCallApp:
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
+        missing = self.language.missing(self.root)
+        if missing:
+            message = f"{self.language.name} needs its models, which aren't here: {', '.join(missing)}"
+            _LOGGER.error("%s", message)
+            raise SystemExit(message)
         self.store.load_extras()
         self.calls.settings = self.store.settings
         for key, entry in self.store.satellites.items():
@@ -844,8 +849,11 @@ class VoiceCallApp:
 
     async def _ensure_ratios(self) -> None:
         """The second opinion for each verified wake word, at its threshold
-        (none with ``--wake-ratio`` below 0)."""
+        (none with ``--wake-ratio`` below 0, or for a language it is not
+        calibrated for)."""
         if self.engine is None or (self.options.wake_ratio is not None and self.options.wake_ratio < 0):
+            return
+        if not self.language.wake_ratio:
             return
         words = self.wake_words.scan()
         for word_id in [w for w in self.wake_ratios if w not in words or not words[w].verified]:
