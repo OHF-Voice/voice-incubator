@@ -1,0 +1,69 @@
+# Italian sentences and what each must become with the Italian library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). The
+# home: these names, the devices in these rooms, a satellite in the studio.
+# Numbers are written as said, for text-to-speech.
+names:
+  areas:
+    cucina: Cucina
+    soggiorno: Soggiorno
+    camera: Camera da letto
+    bagno: Bagno
+    studio: Studio
+    ingresso: Ingresso
+  floors:
+    piano_terra: Piano terra
+    primo_piano: Primo piano
+  entities:
+    light.piantana: Piantana
+    light.lampada_piccola: Lampada piccola
+    fan.ventilatore: Ventilatore da soffitto
+    media_player.cucina: Altoparlante della cucina
+    climate.termostato: Termostato
+    cover.lucernario: Lucernario
+    lock.porta_ingresso: Porta d'ingresso
+rooms:
+  fan.ventilatore: camera
+  media_player.cucina: cucina
+satellite: studio
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Accendi la luce in soggiorno.", turn_on_place, {area: [soggiorno]}, "in + area"]
+  - ["Spegni la luce della cucina.", turn_off_place, {area: [cucina]}, "della + area"]
+  - ["Spegni le luci in camera da letto.", turn_off_place, {area: [camera]}, "plural keyword, three-word area"]
+  - ["Accendi la luce nell'ingresso.", turn_on_place, {area: [ingresso]}, "elided area"]
+  - ["Accendi le luci del bagno.", turn_on_place, {area: [bagno]}, "del + area"]
+  - ["Accendi la piantana.", turn_on_device, {entity: [light.piantana]}, "device name"]
+  - ["Spegni la lampada piccola.", turn_off_device, {entity: [light.lampada_piccola]}, "adjective after its noun"]
+  - ["Accendi il ventilatore da soffitto in camera da letto.", turn_on_device, {entity: [fan.ventilatore], area: [camera]}, "device + area"]
+  - ["Spegni tutte le luci al piano terra.", turn_off_place, {floor: [piano_terra]}, "floor, al"]
+  - ["Accendi la luce al primo piano.", turn_on_place, {floor: [primo_piano]}, "floor"]
+  - ["Che ore sono?", what_time, {}, "a question"]
+  - ["La piantana è accesa?", any_lights_on_device, {entity: [light.piantana], asked: "on"}, "asking a device"]
+  - ["Metti la piantana blu.", light_color_device, {entity: [light.piantana], color: blue}, "a value"]
+  - ["Imposta la luminosità del soggiorno al cinquanta per cento.", set_brightness_place, {area: [soggiorno], percentage: 50}, "a number"]
+  - ["Imposta il termostato a ventuno gradi.", set_temperature_device, {entity: [climate.termostato], temperature: 21}, "a device and a number"]
+  - ["Alza le tapparelle.", open_covers_here, {device_class: shutter}, "open"]
+  - ["Chiudi le tende al primo piano.", close_covers_place, {floor: [primo_piano], device_class: curtain}, "close, a floor"]
+  - ["Il lucernario è aperto?", are_covers_open_device, {entity: [cover.lucernario], asked: open}, "asking a cover"]
+  - ["Chiudi a chiave la porta d'ingresso.", lock, {entity: [lock.porta_ingresso]}, "lock"]
+  - ["Sblocca la porta d'ingresso.", unlock, {entity: [lock.porta_ingresso]}, "unlock"]
+  - ["La porta d'ingresso è chiusa a chiave?", is_locked, {entity: [lock.porta_ingresso], asked: locked}, "asking a lock"]
+  - ["Che giorno è oggi?", what_date, {}, "a question"]
+  - ["Metti del jazz.", play_music_here, {query: jazz}, "free text"]
+  - ["Metti del jazz in cucina.", play_music_place, {area: [cucina], query: jazz}, "free text, then a place"]
+  - ["Metti in pausa la musica.", pause_music_here, {}, "music"]
+  - ["Metti il volume al trenta per cento.", set_volume_here, {percentage: 30}, "music, a number"]
+  - ["Cosa sta suonando in cucina?", whats_playing_place, {area: [cucina]}, "music, a place"]
+  - ["Sposta la musica sull'altoparlante della cucina.", move_music_device, {entity: [media_player.cucina]}, "music, a device"]
+  - ["Più forte.", volume_up_here, {}, "two words"]
+  - ["Canzone successiva.", next_track_here, {}, "music"]
+  - ["Aggiungi il latte alla lista della spesa.", shopping_list_add, {item: latte}, "free text between keywords"]
+  - ["Imposta un timer di cinque minuti.", start_timer, {duration: 300}, "a duration"]
+  - ["Timer di mezz'ora.", start_timer, {duration: 1800}, "a duration said with its unit"]
+  - ["Imposta un timer di due minuti e mezzo.", start_timer, {duration: 150}, "a count and a half"]
+  - ["Metti un timer per la pizza di dieci minuti.", start_timer, {duration: 600, timer: pizza}, "a named timer"]
+  - ["Svegliami alle sette e mezza.", set_alarm, {time: sette e mezza}, "a clock time"]
+  - ["Annulla il timer.", cancel_timer, {}, "a timer"]
+  - ["Quanto manca al timer?", timer_status, {}, "a timer question"]
+  - ["Lascia perdere.", never_mind, {}, "an example sentence"]

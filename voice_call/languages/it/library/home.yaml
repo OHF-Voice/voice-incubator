@@ -1,0 +1,426 @@
+# Covers and locks (Italian), as the English library's home.yaml: opening,
+# closing, locking, and asking about them. Covers by type ("le tapparelle",
+# "la porta del garage") need no names: their device class says what they
+# are, and the area or floor named -- else the satellite's area -- where.
+# When nothing of that type is in the satellite's area, every one in the home
+# is meant.
+title: Covers and locks
+icon: mdi:door
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  cover: &cover
+    names:
+      entity: {count: 1, domains: [cover]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+  nothing_here: &nothing_here
+    - The satellite's area (Satellites page) is where. When nothing of the type
+      is there, every one in the home is meant ("apri la porta del garage" from
+      the kitchen).
+
+commands:
+  open_covers:
+    title: Open covers
+    icon: mdi:blinds-open
+    description: aprire le tapparelle
+    require: [[apri, aprire, aprite, alza, alzare, alzate, tira su, solleva]]
+    optional: [[tutte, tutti]]
+    exclude: [è, sono, chiudi, chiudere, abbassa, a chiave, sblocca, blocca]
+    lists:
+      device_class: {list: cover_classes}
+    action:
+      - variables:
+          covers: >-
+            {%- set named = slots.area or slots.floor -%}
+            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
+            {%- for f in slots.floor or [] -%}
+            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+            {%- endfor -%}
+            {%- if not named and satellite.area_id -%}
+            {%- set ns.areas = [satellite.area_id] -%}
+            {%- endif -%}
+            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+              | selectattr('attributes.device_class', 'eq', slots.device_class)
+              | map(attribute='entity_id') | list -%}
+            {%- for e in every if area_id(e) in ns.areas -%}
+            {%- set ns.picked = ns.picked + [e] -%}
+            {%- endfor -%}
+            {{ ns.picked if ns.picked or named else every }}
+      - if: "{{ covers | count == 0 }}"
+        then:
+          - variables:
+              result: {outcome: not_found}
+          - stop: Nothing to open
+            response_variable: result
+      - action: cover.open_cover
+        target:
+          entity_id: "{{ covers }}"
+      - variables:
+          result:
+            count: "{{ covers | count }}"
+      - stop: Opening
+        response_variable: result
+    verbosity: specific
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['la tenda da sole', 'le tende da sole'], 'blind': ['la veneziana', 'le veneziane'],
+          'curtain': ['la tenda', 'le tende'], 'door': ['la porta', 'le porte'],
+          'garage': ['la porta del garage', 'le porte del garage'], 'gate': ['il cancello', 'i cancelli'],
+          'shade': ['la tenda a rullo', 'le tende a rullo'], 'shutter': ['la tapparella', 'le tapparelle'],
+          'window': ['la finestra', 'le finestre']} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Apro {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
+      not_found: >-
+        {%- set kinds = {'awning': 'tende da sole', 'blind': 'veneziane', 'curtain': 'tende',
+          'door': 'porte', 'garage': 'porte del garage', 'gate': 'cancelli', 'shade': 'tende a rullo',
+          'shutter': 'tapparelle', 'window': 'finestre'} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Non ci sono {{ kinds[slots.device_class] }}{{ where }}.
+    variants:
+      here:
+        title: Open the blinds in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Open a cover by name
+        icon: mdi:window-shutter-open
+        description: aprire qualcosa
+        lists: null
+        action:
+          action: cover.open_cover
+          target: "{{ target }}"
+        # Out of sight, or what keeps people out: said.
+        verbosity: specific
+        response:
+          done:
+            brief: Apro.
+            specific: "Apro {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the covers it may open (Names page).
+      place:
+        <<: *place
+        title: Open the blinds in an area or floor
+        combinations: [[area, device_class], [floor, device_class]]
+
+  close_covers:
+    title: Close covers
+    icon: mdi:blinds
+    description: chiudere le tapparelle
+    require: [[chiudi, chiudere, chiudete, abbassa, abbassare, abbassate, tira giù]]
+    optional: [[tutte, tutti]]
+    # "Chiudi la porta d'ingresso a chiave" locks it.
+    exclude: [è, sono, a chiave, blocca, apri, alza]
+    lists:
+      device_class: {list: cover_classes}
+    action:
+      - variables:
+          covers: >-
+            {%- set named = slots.area or slots.floor -%}
+            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
+            {%- for f in slots.floor or [] -%}
+            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+            {%- endfor -%}
+            {%- if not named and satellite.area_id -%}
+            {%- set ns.areas = [satellite.area_id] -%}
+            {%- endif -%}
+            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+              | selectattr('attributes.device_class', 'eq', slots.device_class)
+              | map(attribute='entity_id') | list -%}
+            {%- for e in every if area_id(e) in ns.areas -%}
+            {%- set ns.picked = ns.picked + [e] -%}
+            {%- endfor -%}
+            {{ ns.picked if ns.picked or named else every }}
+      - if: "{{ covers | count == 0 }}"
+        then:
+          - variables:
+              result: {outcome: not_found}
+          - stop: Nothing to close
+            response_variable: result
+      - action: cover.close_cover
+        target:
+          entity_id: "{{ covers }}"
+      - variables:
+          result:
+            count: "{{ covers | count }}"
+      - stop: Closing
+        response_variable: result
+    verbosity: specific
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['la tenda da sole', 'le tende da sole'], 'blind': ['la veneziana', 'le veneziane'],
+          'curtain': ['la tenda', 'le tende'], 'door': ['la porta', 'le porte'],
+          'garage': ['la porta del garage', 'le porte del garage'], 'gate': ['il cancello', 'i cancelli'],
+          'shade': ['la tenda a rullo', 'le tende a rullo'], 'shutter': ['la tapparella', 'le tapparelle'],
+          'window': ['la finestra', 'le finestre']} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Chiudo {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
+      not_found: >-
+        {%- set kinds = {'awning': 'tende da sole', 'blind': 'veneziane', 'curtain': 'tende',
+          'door': 'porte', 'garage': 'porte del garage', 'gate': 'cancelli', 'shade': 'tende a rullo',
+          'shutter': 'tapparelle', 'window': 'finestre'} -%}
+        {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
+        Non ci sono {{ kinds[slots.device_class] }}{{ where }}.
+    variants:
+      here:
+        title: Close the blinds in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Close a cover by name
+        icon: mdi:window-shutter
+        description: chiudere qualcosa
+        lists: null
+        action:
+          action: cover.close_cover
+          target: "{{ target }}"
+        # Out of sight, or what keeps people out: said.
+        verbosity: specific
+        response:
+          done:
+            brief: Chiudo.
+            specific: "Chiudo {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the covers it may close (Names page).
+      place:
+        <<: *place
+        title: Close the blinds in an area or floor
+        combinations: [[area, device_class], [floor, device_class]]
+
+  lock:
+    title: Lock a lock
+    icon: mdi:lock
+    description: chiudere una porta a chiave
+    require: [[a chiave, blocca, bloccare, bloccate]]
+    optional: [[chiudi, chiudere]]
+    exclude: [sblocca, sbloccare, è, sono, tutto, tutte, tutti]
+    names:
+      entity: {count: 1, domains: [lock]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+    action:
+      action: lock.lock
+      target: "{{ target }}"
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Chiudo a chiave.
+        specific: "Chiudo a chiave {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the locks it may lock (Names page).
+
+  unlock:
+    title: Unlock a lock
+    icon: mdi:lock-open-variant
+    description: sbloccare una porta
+    require: [[sblocca, sbloccare, sbloccate]]
+    exclude: [è, sono]
+    names:
+      entity: {count: 1, domains: [lock]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+    action:
+      action: lock.unlock
+      target: "{{ target }}"
+    # Out of sight, or what keeps people out: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Sblocco.
+        specific: "Sblocco {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the locks it may unlock (Names page). Anyone the satellite
+        hears can unlock them; keep it to the satellites that should with a
+        command group.
+
+  lock_all:
+    title: Lock up
+    icon: mdi:shield-lock
+    description: chiudere a chiave tutte le porte
+    examples: ["chiudi tutto a chiave", "chiudi a chiave tutte le porte", "blocca tutte le porte"]
+    require: [[a chiave, blocca, bloccare], [tutto, tutte, tutti]]
+    optional: [[porte, serrature], [chiudi]]
+    exclude: [sblocca, sbloccare, è, sono]
+    action:
+      action: lock.lock
+      target:
+        entity_id: all
+    verbosity: specific
+    response: Chiudo a chiave tutte le porte.
+
+  are_covers_open:
+    title: Are covers open
+    icon: mdi:blinds-horizontal
+    description: sapere se le tapparelle sono aperte
+    require: [[è, sono]]
+    optional: [[tutte, tutti], [ancora]]
+    lists:
+      device_class: {list: cover_classes}
+      asked: {list: open_closed}
+    # The type's word, both numbers, and its adjectives' endings, singular and plural.
+    response: >-
+      {%- set kinds = {'awning': ['la tenda da sole', 'le tende da sole', 'a', 'e'],
+        'blind': ['la veneziana', 'le veneziane', 'a', 'e'], 'curtain': ['la tenda', 'le tende', 'a', 'e'],
+        'door': ['la porta', 'le porte', 'a', 'e'], 'garage': ['la porta del garage', 'le porte del garage', 'a', 'e'],
+        'gate': ['il cancello', 'i cancelli', 'o', 'i'], 'shade': ['la tenda a rullo', 'le tende a rullo', 'a', 'e'],
+        'shutter': ['la tapparella', 'le tapparelle', 'a', 'e'], 'window': ['la finestra', 'le finestre', 'a', 'e']} -%}
+      {%- set kind = kinds[slots.device_class] -%}
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], picked=[], opened=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' ' ~ place.said) if named else '' -%}
+      {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+        | selectattr('attributes.device_class', 'eq', slots.device_class) | list -%}
+      {%- for s in every if area_id(s.entity_id) in ns.areas -%}
+      {%- set ns.picked = ns.picked + [s] -%}
+      {%- endfor -%}
+      {%- set covers = ns.picked if ns.picked or named else every -%}
+      {%- for s in covers if s.state in ['open', 'opening'] -%}
+      {%- set ns.opened = ns.opened + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.opened | count -%}
+      {%- if not covers -%}
+      Non ci sono {{ kind[1].split(' ', 1)[1] }}{{ where }}.
+      {%- elif count == 0 -%}
+      {{ 'Sì' if slots.asked == 'closed' else 'No' }},
+      {{- (' ' ~ kind[0] ~ ' è chius' ~ kind[2]) if covers | count == 1
+        else (' ' ~ kind[1] ~ ' sono chius' ~ kind[3]) }}{{ where }}.
+      {%- else -%}
+      {{ 'Sì' if slots.asked == 'open' else 'No' }},
+      {{ (ns.opened[:-1] | join(', ') ~ ' e ' ~ ns.opened[-1]) if count > 1 else ns.opened[0] }}
+      {{- (' è apert' ~ kind[2]) if count == 1 else (' sono apert' ~ kind[3]) }}.
+      {%- endif -%}
+    variants:
+      here:
+        title: Are the blinds open in this satellite's area
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Is a cover open, by name
+        icon: mdi:window-shutter-alert
+        description: sapere se qualcosa è aperto
+        lists:
+          asked: {list: open_closed}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set state = states(e) -%}
+          {%- set words = {'open': 'aperto', 'closed': 'chiuso', 'opening': 'in apertura',
+            'closing': 'in chiusura', 'unavailable': 'non disponibile', 'unknown': 'sconosciuto'} -%}
+          {%- set said = state_attr(e, 'friendly_name') ~ ': ' ~ words.get(state, state) ~ '.' -%}
+          {%- if state in ['open', 'closed'] -%}
+          {{ 'Sì' if state == slots.asked else 'No' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the covers it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are the blinds open in an area or floor
+        combinations: [[area, device_class, asked], [floor, device_class, asked]]
+
+  is_locked:
+    title: Is a lock locked
+    icon: mdi:lock-question
+    description: sapere se una porta è chiusa a chiave
+    require: [[è, sono]]
+    optional: [[ancora]]
+    names:
+      entity: {count: 1, domains: [lock, binary_sensor]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity, asked], [entity, area, asked]]
+    lists:
+      asked: {list: locked_unlocked}
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- if e.startswith('binary_sensor.') -%}
+      {%- set state = 'unlocked' if is_state(e, 'on') else ('locked' if is_state(e, 'off') else states(e)) -%}
+      {%- else -%}
+      {%- set state = states(e) -%}
+      {%- endif -%}
+      {%- set words = {'locked': 'chiuso a chiave', 'unlocked': 'sbloccato', 'jammed': 'bloccato',
+        'locking': 'in chiusura', 'unlocking': 'in sblocco', 'open': 'aperto',
+        'unavailable': 'non disponibile', 'unknown': 'sconosciuto'} -%}
+      {%- set said = state_attr(e, 'friendly_name') ~ ': ' ~ words.get(state, state) ~ '.' -%}
+      {%- if state in ['locked', 'unlocked'] -%}
+      {{ 'Sì' if state == slots.asked else 'No' }}, {{ said }}
+      {%- else -%}
+      {{ said }}
+      {%- endif -%}
+    needs:
+      - Add names for the locks it may ask about (Names page). A binary sensor of
+        the lock class works too (on is unlocked); type its entity id there.
+
+  all_locked:
+    title: Is everything locked
+    icon: mdi:lock-alert
+    description: sapere se tutte le porte sono chiuse a chiave
+    require: [[è, sono], [tutto, tutte, tutti, porte]]
+    optional: [[porte, serrature]]
+    lists:
+      asked: {list: locked_unlocked}
+    response: >-
+      {%- set words = {'unlocked': 'sbloccato', 'jammed': 'bloccato', 'locking': 'in chiusura',
+        'unlocking': 'in sblocco', 'open': 'aperto', 'unavailable': 'non disponibile', 'unknown': 'sconosciuto'} -%}
+      {%- set ns = namespace(open=[], total=0) -%}
+      {%- for s in states.lock -%}
+      {%- set ns.total = ns.total + 1 -%}
+      {%- if s.state != 'locked' -%}
+      {%- set ns.open = ns.open + [s.name ~ ': ' ~ words.get(s.state, s.state)] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- for s in states.binary_sensor | selectattr('attributes.device_class', 'defined')
+        | selectattr('attributes.device_class', 'eq', 'lock') -%}
+      {%- set ns.total = ns.total + 1 -%}
+      {%- if s.state != 'off' -%}
+      {%- set ns.open = ns.open + [s.name ~ ': ' ~ ('sbloccato' if s.state == 'on' else words.get(s.state, s.state))] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set count = ns.open | count -%}
+      {%- set asked = slots.asked or 'locked' -%}
+      {%- if ns.total == 0 -%}
+      Non ci sono serrature.
+      {%- elif count == 0 -%}
+      {{ 'Sì' if asked == 'locked' else 'No' }},
+      {{- ' la serratura è chiusa a chiave' if ns.total == 1 else ' tutte le ' ~ ns.total ~ ' serrature sono chiuse a chiave' }}.
+      {%- else -%}
+      {{ 'Sì' if asked == 'unlocked' else 'No' }},
+      {{ (ns.open[:-1] | join(', ') ~ ' e ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
+      {%- endif -%}
+
+# Shared by the commands above (added with them).
+lists:
+  cover_classes:
+    awning: [tenda da sole, tende da sole]
+    blind: [veneziana, veneziane]
+    curtain: [tenda, tende, tendaggio, tendaggi]
+    door: [porta, porte]
+    garage: [porta del garage, porte del garage, basculante]
+    gate: [cancello, cancelli]
+    shade: [tenda a rullo, tende a rullo, tendina, tendine]
+    # "paparelle": tapparelle as a speech-to-text often writes it.
+    shutter: [tapparella, tapparelle, paparella, paparelle, persiana, persiane, avvolgibile, avvolgibili, scuro, scuri]
+    window: [finestra, finestre]
+  open_closed:
+    open: [aperto, aperta, aperti, aperte]
+    closed: [chiuso, chiusa, chiusi, chiuse]
+  locked_unlocked:
+    locked: [chiuso a chiave, chiusa a chiave, chiusi a chiave, chiuse a chiave, bloccato, bloccata]
+    unlocked: [sbloccato, sbloccata, sbloccati, sbloccate]

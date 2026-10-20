@@ -1,0 +1,436 @@
+# Music (Italian), as the English library's music.yaml: on Music Assistant's
+# players, in versions for where it plays (the satellite's own player, a
+# player by name, the players in an area or on a floor).
+#
+# "Metti …" searches Music Assistant for what was heard (free text to the end
+# of the sentence, spelled from the transducer's transcript) and plays the
+# closest match; "l'album …", "canzoni di …", "la playlist …", "… di …"
+# narrow it (the language's reading). "Metti" also sets things ("metti un
+# timer", "metti il volume"): those commands match without their number too,
+# and ask for it, rather than play music called "timer".
+title: Music
+icon: mdi:music
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  player: &player
+    names:
+      entity: {count: 1, domains: [media_player]}
+    combinations: [[entity]]
+    needs:
+      - Add names for the players it may act on (Names page). A player must be
+        a Music Assistant player.
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page). It acts
+        on the Music Assistant players there.
+
+commands:
+  play_music:
+    title: Play music
+    icon: mdi:music
+    description: ascoltare un artista, un album, una canzone o una playlist
+    require: [[metti, mettimi, riproduci, suona, fammi sentire, fammi ascoltare, voglio ascoltare]]
+    # Not "play": "cosa sta suonando", "metti la prossima canzone", "metti
+    # qualcosa di simile", "metti un timer", "metti la luce rossa".
+    exclude: [prossima, prossimo, successiva, successivo, precedente, sta suonando, simile, simili, genere,
+              timer, sveglia, volume, per cento, gradi, lista della spesa, cose da fare, coda, luce, luci]
+    optional: [[in, su, nel, nella, sul, sulla]]
+    wildcard: {slot: query, after: [metti, mettimi, riproduci, suona, fammi sentire, fammi ascoltare, voglio ascoltare], to_end: true, max_words: 8}
+    music: play
+    verbosity: specific
+    variants:
+      here:
+        title: Play music on this satellite
+      device:
+        <<: *player
+        title: Play music on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Play music in an area or floor
+        combinations: [[area, query], [floor, query]]
+
+  add_to_queue:
+    title: Add to the queue
+    icon: mdi:playlist-plus
+    description: aggiungere qualcosa alla coda
+    require: [[aggiungi, metti], [coda]]
+    optional: [[alla, in, nella]]
+    wildcard: {slot: query, after: [aggiungi, metti], before: [alla, in, nella], bounded: true, max_words: 6}
+    music: add
+    verbosity: specific
+    variants:
+      here:
+        title: Add to the queue on this satellite
+      device:
+        <<: *player
+        title: Add to the queue on a different device
+        combinations: [[entity, query]]
+      place:
+        <<: *place
+        title: Add to the queue in an area or floor
+        combinations: [[area, query], [floor, query]]
+
+  play_similar:
+    title: Play music like it
+    icon: mdi:radio
+    description: ascoltare musica dello stesso genere
+    require: [[simile, simili, stesso genere, musica come, canzoni come, qualcosa come]]
+    optional: [[metti, riproduci, suona], [qualcosa di, musica], [in, su, nel, nella]]
+    wildcard: {slot: query, after: [musica come, canzoni come, qualcosa come], to_end: true, max_words: 6}
+    music: radio
+    verbosity: specific
+    # Like what plays there, or like what was said.
+    variants:
+      here:
+        title: Play music like it on this satellite
+        examples: ["metti qualcosa di simile", "metti musica dello stesso genere"]
+        combinations: [[], [query]]
+      device:
+        <<: *player
+        title: Play music like it on a different device
+        combinations: [[entity], [entity, query]]
+      place:
+        <<: *place
+        title: Play music like it in an area or floor
+        combinations: [[area], [floor], [area, query], [floor, query]]
+
+  pause_music:
+    title: Pause the music
+    icon: mdi:pause
+    description: mettere in pausa la musica
+    require: [[pausa, metti ... in pausa]]
+    optional: [[musica, riproduzione], [in, su, nel, nella]]
+    exclude: [timer]
+    music: pause
+    verbosity: beep
+    variants:
+      here:
+        title: Pause the music on this satellite
+        examples: ["pausa", "metti in pausa", "metti in pausa la musica"]
+      device:
+        <<: *player
+        title: Pause the music on a different device
+      place:
+        <<: *place
+        title: Pause the music in an area or floor
+
+  resume_music:
+    title: Resume the music
+    icon: mdi:play
+    description: riprendere la musica
+    require: [[riprendi, riprendere, continua, fai ripartire, riparti]]
+    optional: [[musica, riproduzione], [in, su, nel, nella]]
+    exclude: [timer]
+    music: resume
+    verbosity: beep
+    variants:
+      here:
+        title: Resume the music on this satellite
+        examples: ["riprendi la musica", "continua", "riprendi la riproduzione"]
+      device:
+        <<: *player
+        title: Resume the music on a different device
+      place:
+        <<: *place
+        title: Resume the music in an area or floor
+
+  stop_music:
+    title: Stop the music
+    icon: mdi:stop
+    description: fermare la musica
+    require: [[ferma, fermare, stop, spegni, interrompi], [musica, riproduzione, canzone]]
+    optional: [[in, su, nel, nella]]
+    exclude: [timer, casuale, ripetizione, ripetere]
+    music: stop
+    verbosity: beep
+    variants:
+      here:
+        title: Stop the music on this satellite
+      device:
+        <<: *player
+        title: Stop the music on a different device
+      place:
+        <<: *place
+        title: Stop the music in an area or floor
+
+  next_track:
+    title: Next track
+    icon: mdi:skip-next
+    description: passare alla canzone successiva
+    require: [[successiva, successivo, prossima, prossimo, salta, avanti]]
+    optional: [[canzone, brano, pezzo, traccia], [metti, passa alla, vai alla], [in, su, nel, nella]]
+    music: next
+    verbosity: beep
+    variants:
+      here:
+        title: Next track on this satellite
+        examples: ["canzone successiva", "prossima canzone", "salta questa canzone", "avanti"]
+      device:
+        <<: *player
+        title: Next track on a different device
+      place:
+        <<: *place
+        title: Next track in an area or floor
+
+  previous_track:
+    title: Previous track
+    icon: mdi:skip-previous
+    description: tornare alla canzone precedente
+    require: [[precedente, indietro]]
+    optional: [[canzone, brano, pezzo, traccia], [metti, torna alla, vai alla, torna], [in, su, nel, nella]]
+    music: previous
+    verbosity: beep
+    variants:
+      here:
+        title: Previous track on this satellite
+        examples: ["canzone precedente", "torna indietro"]
+      device:
+        <<: *player
+        title: Previous track on a different device
+      place:
+        <<: *place
+        title: Previous track in an area or floor
+
+  volume_up:
+    title: Turn it up
+    icon: mdi:volume-plus
+    description: alzare il volume
+    require: [[alza il volume, alza la musica, più forte, volume più alto, aumenta il volume]]
+    optional: [[un po'], [in, su, nel, nella]]
+    exclude: [luce, luci, luminosità, riscaldamento, temperatura]
+    music: volume_up
+    verbosity: beep
+    variants:
+      here:
+        title: Turn it up on this satellite
+        examples: [più forte, alza il volume, alza un po' il volume]
+      device:
+        <<: *player
+        title: Turn it up on a different device
+      place:
+        <<: *place
+        title: Turn it up in an area or floor
+
+  volume_down:
+    title: Turn it down
+    icon: mdi:volume-minus
+    description: abbassare il volume
+    require: [[abbassa il volume, abbassa la musica, più piano, volume più basso, diminuisci il volume]]
+    optional: [[un po'], [in, su, nel, nella]]
+    exclude: [luce, luci, luminosità, riscaldamento, temperatura]
+    music: volume_down
+    verbosity: beep
+    variants:
+      here:
+        title: Turn it down on this satellite
+        examples: [più piano, abbassa il volume, abbassa un po' il volume]
+      device:
+        <<: *player
+        title: Turn it down on a different device
+      place:
+        <<: *place
+        title: Turn it down in an area or floor
+
+  set_volume:
+    title: Set the volume
+    icon: mdi:volume-equal
+    description: impostare il volume
+    require: [[volume]]
+    optional: [[metti, imposta, regola, porta], [per cento], [in, su, nel, nella]]
+    number: percentage
+    # Without a number it asks for one ("metti il volume").
+    combinations: [[], [percentage]]
+    music: volume_set
+    verbosity: beep
+    variants:
+      here:
+        title: Set the volume on this satellite
+        combinations: [[], [percentage]]
+      device:
+        <<: *player
+        title: Set the volume on a different device
+        combinations: [[entity, percentage]]
+      place:
+        <<: *place
+        title: Set the volume in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
+
+  mute_music:
+    title: Mute
+    icon: mdi:volume-off
+    description: togliere l'audio
+    require: [[muto, togli l'audio, togli il volume, silenzia, silenzio]]
+    optional: [[metti, modalità], [in, su, nel, nella]]
+    exclude: [rimetti, riattiva]
+    music: mute
+    verbosity: beep
+    variants:
+      here:
+        title: Mute this satellite
+        examples: ["togli l'audio", "silenzia"]
+      device:
+        <<: *player
+        title: Mute a different device
+      place:
+        <<: *place
+        title: Mute an area or floor
+
+  unmute_music:
+    title: Unmute
+    icon: mdi:volume-high
+    description: riattivare l'audio
+    require: [[rimetti l'audio, riattiva l'audio, rimetti il volume, togli il muto]]
+    optional: [[in, su, nel, nella]]
+    music: unmute
+    verbosity: beep
+    variants:
+      here:
+        title: Unmute this satellite
+        examples: ["rimetti l'audio", "riattiva l'audio"]
+      device:
+        <<: *player
+        title: Unmute a different device
+      place:
+        <<: *place
+        title: Unmute an area or floor
+
+  shuffle_on:
+    title: Shuffle
+    icon: mdi:shuffle-variant
+    description: ascoltare la musica in ordine casuale
+    require: [[casuale, mescola, shuffle]]
+    optional: [[attiva, metti, riproduci], [riproduzione, modalità, musica, in ordine], [in, su, nel, nella]]
+    exclude: [disattiva, ferma, togli, non]
+    music: shuffle_on
+    verbosity: beep
+    variants:
+      here:
+        title: Shuffle on this satellite
+        examples: ["riproduzione casuale", "attiva la riproduzione casuale", "mescola le canzoni"]
+      device:
+        <<: *player
+        title: Shuffle on a different device
+      place:
+        <<: *place
+        title: Shuffle in an area or floor
+
+  shuffle_off:
+    title: Stop shuffling
+    icon: mdi:shuffle-disabled
+    description: disattivare la riproduzione casuale
+    require: [[casuale, shuffle], [disattiva, ferma, togli, non]]
+    optional: [[riproduzione, modalità, più], [in, su, nel, nella]]
+    music: shuffle_off
+    verbosity: beep
+    variants:
+      here:
+        title: Stop shuffling on this satellite
+        examples: ["disattiva la riproduzione casuale", "togli la modalità casuale"]
+      device:
+        <<: *player
+        title: Stop shuffling on a different device
+      place:
+        <<: *place
+        title: Stop shuffling in an area or floor
+
+  repeat_one:
+    title: Repeat this song
+    icon: mdi:repeat-once
+    description: ripetere questa canzone
+    require: [[ripeti, ripetere, rimetti], [questa canzone, questo brano, questo pezzo]]
+    optional: [[ancora], [in, su, nel, nella]]
+    music: repeat_one
+    verbosity: beep
+    variants:
+      here:
+        title: Repeat this song on this satellite
+        examples: [ripeti questa canzone, rimetti questo brano]
+      device:
+        <<: *player
+        title: Repeat the song on a different device
+      place:
+        <<: *place
+        title: Repeat the song in an area or floor
+
+  repeat_all:
+    title: Repeat
+    icon: mdi:repeat
+    description: ripetere la musica
+    require: [[ripeti, ripetere, ripetizione, in loop, a ripetizione]]
+    optional: [[tutto, musica, playlist, album], [attiva, metti, modalità], [in, su, nel, nella]]
+    exclude: [disattiva, ferma, togli, non, canzone, brano, pezzo, questa, questo]
+    music: repeat_all
+    verbosity: beep
+    variants:
+      here:
+        title: Repeat on this satellite
+        examples: ["ripeti tutto", "attiva la ripetizione", "metti la musica in loop"]
+      device:
+        <<: *player
+        title: Repeat on a different device
+      place:
+        <<: *place
+        title: Repeat in an area or floor
+
+  repeat_off:
+    title: Stop repeating
+    icon: mdi:repeat-off
+    description: smettere di ripetere
+    require: [[ripetizione, ripetere, in loop], [disattiva, ferma, togli, non, smetti]]
+    optional: [[modalità], [di], [in, su, nel, nella]]
+    music: repeat_off
+    verbosity: beep
+    variants:
+      here:
+        title: Stop repeating on this satellite
+        examples: ["disattiva la ripetizione", "smetti di ripetere"]
+      device:
+        <<: *player
+        title: Stop repeating on a different device
+      place:
+        <<: *place
+        title: Stop repeating in an area or floor
+
+  # Where it is told to go: from what is playing here (or the one player
+  # playing anywhere) to the device, area or floor named, queue and all.
+  move_music:
+    title: Move the music
+    icon: mdi:cast-audio
+    description: spostare la musica in un'altra stanza o su un altro altoparlante
+    require: [[sposta, trasferisci, porta, manda], [musica, canzone, riproduzione]]
+    optional: [[in, su, nel, nella, sul, sulla, a, al, alla]]
+    music: move
+    verbosity: specific
+    variants:
+      device:
+        <<: *player
+        title: Move the music to a different device
+        description: spostare la musica su un altro altoparlante
+      place:
+        <<: *place
+        title: Move the music to an area or floor
+        description: spostare la musica in un'altra stanza
+
+  whats_playing:
+    title: What's playing
+    icon: mdi:playlist-music
+    description: sapere cosa sta suonando
+    require: [[cosa sta suonando, che canzone, quale canzone, che brano, chi canta, cos'è questa canzone, cosa stiamo ascoltando]]
+    optional: [[adesso, ora, in questo momento], [è questa, è], [in, su, nel, nella]]
+    music: status
+    variants:
+      here:
+        title: What's playing on this satellite
+        examples: ["cosa sta suonando [adesso]", "che canzone è questa", "chi canta"]
+      device:
+        <<: *player
+        title: What's playing on a different device
+      place:
+        <<: *place
+        title: What's playing in an area or floor

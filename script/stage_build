@@ -25,8 +25,8 @@ fi
 # models/: NVIDIA's FastConformer hybrid as int8 CTC and transducer (about 350
 # MB a language), from scripts/export_nemo_hybrid.py. Their Piper voices come
 # with models/piper. Until other languages are downloaded, they ship in the
-# image.
-for lang in de nl fr es; do
+# image. NVIDIA names Ukrainian's "ua".
+for lang in de nl fr es it pl ru ua; do
     name="stt_${lang}_fastconformer_hybrid_large_pc"
     if [[ -d "models/speech-to-phrase/$name-int8" ]]; then
         cp -a "models/speech-to-phrase/$name-int8" local/models/speech-to-phrase/

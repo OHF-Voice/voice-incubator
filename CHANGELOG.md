@@ -50,6 +50,14 @@
   temporizador" or "pon una alarma" alone asks how long or when, rather than
   playing music called that. On 39 sentences spoken by four voices, 144 of
   156 do what was said; typed, all 39.
+- **Italian** (`it`): NVIDIA's FastConformer hybrid and Piper's Serena, the
+  whole library and every skill in Italian ("accendi la luce in cucina",
+  "nell'ingresso", "alza le tapparelle", "metti un timer di mezz'ora",
+  "svegliami alle sette e mezza", "quanti grammi ci sono in un etto", "quando
+  è Pasqua"). "Metti" plays music but also sets things: "metti un timer",
+  "metti la sveglia" or "metti il volume" alone ask how long, when or how
+  loud. On 39 sentences spoken by four voices, 149 of 156 do what was said;
+  typed, all 39.
 - French and Dutch timers take quarter hours ("un quart d'heure", "een
   kwartier"), and a French duration after "de" is heard elided ("un minuteur
   d'une heure"). German and Dutch durations take a count and a half
