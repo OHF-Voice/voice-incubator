@@ -143,10 +143,8 @@ REMOVED_KEYS = {
     "scope": "a command is the Home's or one satellite's (satellite: its key)",
     "overrides": "make a copy of the command that does the other thing (Duplicate, on its page) "
     "on the satellite it is for: there, its own copy goes first",
+    "groups": "command groups are gone: a command is the Home's, or one satellite's (satellite: its key)",
 }
-LEGACY_KEYS = {"groups"}
-"""Read, and left alone: command groups are gone, and a command that was in
-some is the Home's (``Compiled.legacy_groups`` says which)."""
 FALLBACK_STEPS = ("meaning", "llm")
 
 # Shared settings for every home: the core intents' filler words and name
@@ -390,7 +388,7 @@ def parse_command(command_id: str, spec: Any) -> Command:
     spec = _mapping(spec, where)
     for key in sorted(set(spec) & set(REMOVED_KEYS)):
         raise ConfigError(f"{where}.{key}: no longer used: {REMOVED_KEYS[key]}")
-    unknown = set(spec) - COMMAND_KEYS - LEGACY_KEYS
+    unknown = set(spec) - COMMAND_KEYS
     if unknown:
         raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
     if spec.get("icon") is not None and not ICON.match(str(spec["icon"])):

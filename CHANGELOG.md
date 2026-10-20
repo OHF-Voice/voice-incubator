@@ -100,8 +100,8 @@
   satellite's own; a satellite takes the Home's unless told not to. Where a
   satellite's own and the Home's take the same sentence, its own goes first:
   duplicate one of the Home's onto a satellite to do something else there.
-  A command that was in groups loads as the Home's, and the Home page says
-  which.
+  A `groups` key is refused, saying so: take it out of `commands.yaml`, and
+  the command is the Home's.
 - A skill turned off for one satellite (before) no longer takes it away: a
   satellite either takes all the Home's or none.
 - **Sessions** show the probability each wake word came in with -- the

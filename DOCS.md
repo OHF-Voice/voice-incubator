@@ -297,10 +297,6 @@ A command another satellite has, or the Home's on a satellite that doesn't
 take them, is not run there: it says "It looks like you're trying to …, but
 that isn't set up here."
 
-Command groups are gone. A command that was in some loads as the Home's, and
-the Home page says which: open one meant for one satellite and change where
-it is.
-
 ### What Home Assistant gets
 
 The action, the script and the response template all see:

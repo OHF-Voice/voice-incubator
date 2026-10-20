@@ -369,10 +369,6 @@ class Api:
                 "lists": data.get("lists") or {},
                 # What is said when nothing understood a sentence.
                 "unknown": data.get("unknown") or {},
-                # Command groups are gone: what was in one is the Home's now.
-                "legacy_groups": [
-                    command_id for command_id, spec in commands.items() if isinstance(spec, dict) and spec.get("groups")
-                ],
                 "error": error,
             }
         )

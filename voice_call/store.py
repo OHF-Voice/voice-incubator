@@ -28,8 +28,7 @@ from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, par
 
 _LOGGER = logging.getLogger(__name__)
 
-# "groups": command groups, which are gone, read and left alone.
-STORE_KEYS = {"commands", "names", "lists", "groups", "unknown", "settings"}
+STORE_KEYS = {"commands", "names", "lists", "unknown", "settings"}
 NAME_KINDS = ("entities", "areas", "floors")
 
 NEW_FILE = """\
@@ -38,7 +37,6 @@ NEW_FILE = """\
 #
 #   names:     what things are called, each pointing at one Home Assistant id
 #   lists:     value lists for slots ("red" -> red), shared by commands
-#   groups:    command groups, given to the whole home or a satellite
 #   commands:  what is listened for, and what happens
 #   unknown:   what is said when nothing understood a sentence
 names: {}
@@ -101,9 +99,6 @@ class Compiled:
     commands: dict[str, Command]
     config: dict[str, Any] | None
     """None when no command is enabled."""
-    legacy_groups: list[str] = field(default_factory=list)
-    """Commands that were in command groups, which are gone: they are the
-    Home's now (what the page asks to look at)."""
     twins: dict[str, tuple[str, ...]] = field(default_factory=dict)
     """Intents that say another's example sentences (a command's copy), by
     the intent the sentences went to (``shared_examples``)."""
@@ -125,15 +120,10 @@ def compile_store(data: dict[str, Any]) -> Compiled:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
     commands = parse_commands(data.get("commands") or {})
     unknown_response = parse_unknown(data.get("unknown"))
-    legacy = [
-        str(command_id)
-        for command_id, spec in (data.get("commands") or {}).items()
-        if isinstance(spec, dict) and spec.get("groups")
-    ]
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, legacy, shared_examples(commands)[1], unknown_response)
+    return Compiled(data, commands, config, shared_examples(commands)[1], unknown_response)
 
 
 @dataclass
@@ -243,7 +233,6 @@ class Store:
             if new_id in commands:
                 raise ConfigError(f"There is already a command {new_id!r}")
             spec = plain(commands[command_id])
-            spec.pop("groups", None)
             if title:
                 spec["title"] = title
             if satellite:

@@ -1485,12 +1485,10 @@ async function pageHome() {
       h("div", { class: "title" }, "Unknown command"),
       h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What's said when nothing understood a sentence.")),
     h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
-  const legacy = store.legacy_groups || [];
   fill($main,
     h("h1", {}, "Home"),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
-    legacy.length ? h("div", { class: "notice warn" }, `Command groups are gone, so ${legacy.join(", ")} — in some before — ${legacy.length === 1 ? "is" : "are"} the Home's now, on every satellite that takes the Home's. Meant for one satellite? Open it and change where it is.`) : null,
     h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
     h("div", { class: "panel" },

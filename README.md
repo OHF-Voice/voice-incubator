@@ -170,9 +170,8 @@ satellite's (`satellite: <key>` in `commands.yaml`); a satellite takes the
 Home's unless `home: false` in `satellites.yaml` (`Satellite.available`).
 Skills the same way: the Home's (`settings.yaml` `skills`, each on unless
 false) and a satellite's own (`satellites.yaml` `skills: {id: true}`). There
-are no command groups any more (a `groups` key is read and left alone: the
-command is the Home's, and the Home page lists it), and no per-area
-overrides. A command that should do something else on one satellite is a
+are no command groups or per-area overrides any more (either key is refused,
+saying what to do instead). A command that should do something else on one satellite is a
 copy of it there (Duplicate, on its page), and on that satellite its own goes
 first. The copy says the same example sentences, which adapt-ctc gives to one
 intent only: `commands.shared_examples` leaves each sentence to the first

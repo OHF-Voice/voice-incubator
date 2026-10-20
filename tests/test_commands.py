@@ -221,9 +221,10 @@ def test_choosing_commands_for_the_fallback(tmp_path):
 
 
 def test_command_groups_are_gone():
-    # Read and left alone: what was in a group is the Home's.
-    compiled = compile_store({"groups": {"kids": {"name": "Kids"}}, "commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
-    assert compiled.commands["lights"].satellite is None and compiled.legacy_groups == ["lights"]
+    with pytest.raises(ConfigError, match="command groups are gone"):
+        compile_store({"commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
+    with pytest.raises(ConfigError, match="unknown top-level key"):
+        compile_store({"groups": {"kids": {"name": "Kids"}}, "commands": {"lights": LIGHTS}})
 
 
 def test_store_duplicates_a_command(tmp_path):
@@ -231,14 +232,13 @@ def test_store_duplicates_a_command(tmp_path):
     store.save_text(
         "commands:\n"
         "  lights:\n    description: turn on the lights\n    require: [[turn on], [lights]]\n"
-        "    response: ok  # said\n    groups: [kids]\n"
+        "    response: ok  # said\n"
         "  time:\n    description: tell the time\n    examples: [what time is it]\n    response: Noon.\n"
     )
-    # The Home's, right after it, without the groups that are gone.
+    # The Home's, right after it.
     compiled = store.duplicate_command("lights", "lights_copy", "Lights, again")
     assert list(compiled.commands) == ["lights", "lights_copy", "time"]
     assert compiled.commands["lights_copy"].satellite is None and compiled.commands["lights_copy"].title == "Lights, again"
-    assert compiled.legacy_groups == ["lights"]
     # On a satellite; a copy of it back on the Home.
     compiled = store.duplicate_command("time", "kids_time", satellite="sat1")
     assert compiled.commands["kids_time"].satellite == "sat1" and compiled.commands["time"].satellite is None
