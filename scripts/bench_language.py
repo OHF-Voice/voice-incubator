@@ -37,6 +37,11 @@ from voice_call.protocol import SAMPLE_RATE  # noqa: E402
 
 DEFAULT_CACHE = Path.home() / ".cache/voice_call/bench"
 
+LEAD_SECONDS = 0.3
+"""Silence before each sentence, as a call's command has after the wake word:
+some voices start at the very first sample (Piper's Davefx), and a word cut
+there is not one a call would have."""
+
 
 def bench(code: str, path: Path | None = None) -> dict[str, Any]:
     path = path or languages.load(code).directory / "bench.yaml"
@@ -114,8 +119,10 @@ def write_wav(path: Path, samples: np.ndarray, rate: int) -> None:
 
 
 def read_wav(path: Path) -> np.ndarray:
+    """A sentence's audio, with ``LEAD_SECONDS`` of silence before it."""
     with wave.open(str(path)) as audio:
-        return np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2").astype(np.float32) / 32768
+        samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2").astype(np.float32) / 32768
+    return np.concatenate([np.zeros(int(LEAD_SECONDS * SAMPLE_RATE), dtype=np.float32), samples])
 
 
 def piper(texts: list[str], folder: Path) -> None:

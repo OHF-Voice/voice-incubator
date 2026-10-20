@@ -14,7 +14,7 @@
   Wohnzimmers", "den kleinen Ventilator") and a room joined to what is in
   it ("das Küchenlicht"), durations ("eine halbe Stunde"), clock times
   ("halb sieben"), and "in der Küche" said with the room's gender. On 47
-  sentences spoken by five voices, 214 of 235 do what was said; typed, all
+  sentences spoken by five voices, 210 of 235 do what was said; typed, all
   47. Its skills are German's: "wie schreibt man notwendig", "was ist zwölf
   mal acht", "wann ist Ostern", "wie viele Gramm hat ein Pfund", "was ist
   45 Minuten nach 15 Uhr" -- German units (a Pfund is 500 g; metric spoons
@@ -31,7 +31,7 @@
   aan", "de keukenlamp", "zet een timer van vijf minuten", "maak me wakker
   om half zeven", "hoeveel gram is een pond", "wanneer is Koningsdag"). A
   particle the model writes onto the place before it is heard as one ("op
-  de begane gronduit"). On 39 sentences spoken by four voices, 128 of 156
+  de begane gronduit"). On 39 sentences spoken by four voices, 123 of 156
   do what was said; typed, all 39.
 - **French** (`fr`): NVIDIA's FastConformer hybrid and Piper's Siwis, the
   whole library and every skill in French ("allume la lumière dans
@@ -39,7 +39,7 @@
   heures et demie", "combien de grammes dans une livre", "quand tombe
   Pâques"). A name is heard with "l'" or "d'" joined to it ("l'entrée"), and
   "mets" as the model often writes it ("mais"). On 38 sentences spoken by
-  four voices, 132 of 152 do what was said; typed, all 38.
+  four voices, 135 of 152 do what was said; typed, all 38.
 - **The speech-to-text entity hears the command from where the wake word
   check ended the wake word**, asked or streamed: on 205 test calls, a
   transcript from there began with a likely first word on 141, from where the
