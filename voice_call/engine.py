@@ -733,7 +733,7 @@ class Engine:
             places = [use.meaning.phrase for use in decision.intent.spans if use.role == "name"]
             config = self.recognizer.config if self.recognizer is not None else None
             filler = list(config.filler) if config is not None else []
-            text = without_place(text, places, filler, config.language if config is not None else "en")
+            text = without_place(text, places, filler, config.language if config is not None else None)
         else:
             use = uses[0]
             start = use.hit.start * frame_seconds - frame_seconds
@@ -884,7 +884,7 @@ def _strip(word: str) -> str:
 
 
 def _norm(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return re.sub(r"[\W_]+", "", value.lower())
 
 
 def model_note(fallback: dict[str, Any] | None) -> str | None:
@@ -921,11 +921,15 @@ def _timing(transcriber: Any) -> str:
     return "tdt" if source == "TDT" else "typed" if source == "typed" else "stt"
 
 
-def without_place(text: str, places: list[str], filler: list[str] | None = None, language: str = "en") -> str:
+def without_place(text: str, places: list[str], filler: list[str] | None = None, language: str | None = None) -> str:
     """Free text without a place it ends on, that was heard as one -- a room,
     a floor, a device -- compared as spoken: "jazz in the kitchen" -> "jazz",
     "jazz upstairs please" -> "jazz", "jazz on the Mark 2" -> "jazz" (the
-    name "Mark two")."""
+    name "Mark two"). What may come before it is the language's reading
+    (PLACE_BEFORE, ARTICLES)."""
+    read = languages.reading()
+    language = language or languages.current().code
+    articles = set(read.ARTICLES)
     words = text.split()
     fill = {f.lower() for f in filler or []}
     end = len(words)
@@ -935,12 +939,12 @@ def without_place(text: str, places: list[str], filler: list[str] | None = None,
     # The longest tail that is the place, with "in the" before it; some text stays.
     for start in range(1, end):
         tail = [_strip(w).lower() for w in words[start:end]]
-        skip = 1 if tail[0] in ("in", "on", "at", "to") else 0
-        if skip < len(tail) and tail[skip] == "the":
+        skip = 1 if tail[0] in read.PLACE_BEFORE else 0
+        if skip < len(tail) and tail[skip] in articles:
             skip += 1
         if skip < len(tail) and sentence_key(" ".join(words[start + skip : end]), language) in wanted:
             kept = words[:start]
-            if all(_strip(w).lower() in fill | {"the"} for w in kept):
+            if all(_strip(w).lower() in fill | articles for w in kept):
                 break  # nothing but "the" before it: the place is the text
             return " ".join(kept).strip()
     return text

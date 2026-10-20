@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -58,27 +59,32 @@ def test_the_transducer_choice():
     assert tdt_choice("multilingual") == "multilingual" and tdt_choice("nope") == "own"
 
 
+DATA = (str, dict, list, tuple, set, re.Pattern)
+
+
 def public(module) -> dict[str, object]:
     """Its sentences and what makes them: not what it imports."""
     return {
         name: value
         for name, value in vars(module).items()
         if not name.startswith("_")
-        and (isinstance(value, (str, dict)) or getattr(value, "__module__", None) == module.__name__)
+        and (isinstance(value, DATA) or getattr(value, "__module__", None) == module.__name__)
     }
 
 
+@pytest.mark.parametrize("module", ["speech", "reading"])
 @pytest.mark.parametrize("code", languages.codes())
-def test_every_language_says_what_english_does(code):
-    english, speech = public(languages.load("en").speech), public(languages.load(code).speech)
-    assert set(english) <= set(speech), f"{code} lacks {sorted(set(english) - set(speech))}"
-    for name, said in english.items():
-        if callable(said):
-            assert inspect.signature(speech[name]).parameters.keys() == inspect.signature(said).parameters.keys(), name
-        elif isinstance(said, dict):
-            assert set(speech[name]) == set(said), name
+def test_every_language_says_and_reads_what_english_does(code, module):
+    english = public(getattr(languages.load("en"), module))
+    own = public(getattr(languages.load(code), module))
+    assert set(english) <= set(own), f"{code} lacks {sorted(set(english) - set(own))}"
+    for name, value in english.items():
+        if callable(value) and not isinstance(value, re.Pattern):
+            assert inspect.signature(own[name]).parameters.keys() == inspect.signature(value).parameters.keys(), name
+        elif isinstance(value, dict):
+            assert set(own[name]) == set(value), name
         else:
-            assert isinstance(speech[name], str) and speech[name], name
+            assert type(own[name]) is type(value) and own[name], name
 
 
 def test_what_is_said_is_the_apps_language(english, monkeypatch):

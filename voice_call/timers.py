@@ -174,7 +174,7 @@ def _done(service: str, data: dict[str, Any], timer: dict[str, Any], levels: dic
 def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
     """A timer that rings at a clock time: "seven thirty", "6 am", "half past
     six", "noon". Without am or pm, the next time it comes round."""
-    clock = parse_clock(str(slots.get("time") or ""))
+    clock = languages.reading().clock(str(slots.get("time") or ""))
     if clock is None:
         return Plan(languages.speech().ALARM_WHEN, "missing_time")
     hour, minute, meridiem = clock
@@ -199,97 +199,6 @@ def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
     return _done("create_timer", data, timer, languages.speech().alarm_set((hour24, minute), round(seconds / 60) * 60))
 
 
-_SMALL = {
-    "zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
-    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
-    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
-}
-_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50}
-
-
-def _number_words(words: list[str]) -> list[int | str]:
-    """Number words to numbers ("twenty five" -> 25, "oh five" -> 0, 5),
-    other words kept."""
-    out: list[int | str] = []
-    index = 0
-    while index < len(words):
-        word = words[index]
-        if word.isdigit():
-            out.append(int(word))
-        elif word in _TENS:
-            value = _TENS[word]
-            if index + 1 < len(words) and words[index + 1] in _SMALL and 0 < _SMALL[words[index + 1]] < 10:
-                value += _SMALL[words[index + 1]]
-                index += 1
-            out.append(value)
-        elif word in _SMALL:
-            out.append(_SMALL[word])
-        else:
-            out.append(word)
-        index += 1
-    return out
-
-
-def parse_clock(text: str) -> tuple[int, int, str | None] | None:
-    """A clock time said or written: (hour, minute, "am" | "pm" | None)."""
-    text = text.lower().replace(".", "").replace("o'clock", " ").replace("oclock", " ")
-    text = re.sub(r"(\d)(am|pm)\b", r"\1 \2", text)
-    text = re.sub(r"(\d{1,2}):(\d{2})", r"\1 \2", text)
-    words = re.findall(r"[a-z]+|\d+", text)
-    meridiem = None
-    if any(w in ("pm", "evening", "night", "afternoon", "tonight") for w in words):
-        meridiem = "pm"
-    elif any(w in ("am", "morning") for w in words):
-        meridiem = "am"
-    if "noon" in words or "midday" in words:
-        return 12, 0, "pm"
-    if "midnight" in words:
-        return 0, 0, "am"
-    tokens = _number_words(words)
-    numbers = [t for t in tokens if isinstance(t, int)]
-    if not numbers:
-        return None
-    joined = " ".join(str(t) for t in tokens)
-    # "half past seven", "quarter past seven", "quarter to eight", "ten to eight"
-    for pattern, offset in (
-        (r"half past (\d+)", 30),
-        (r"quarter past (\d+)", 15),
-        (r"quarter to (\d+)", -15),
-        (r"(\d+) (?:minutes )?past (\d+)", None),
-        (r"(\d+) (?:minutes )?to (\d+)", None),
-    ):
-        found = re.search(pattern, joined)
-        if not found:
-            continue
-        if offset is not None:
-            hour, minute = int(found.group(1)), offset
-        else:
-            amount, hour = int(found.group(1)), int(found.group(2))
-            minute = amount if "past" in found.group(0) else -amount
-        if minute < 0:
-            hour, minute = hour - 1, 60 + minute
-        return _valid(hour % 24 if hour >= 0 else 23, minute, meridiem)
-    # "7 30", "seven thirty", "7 oh 5", "1930", "7"
-    first = numbers[0]
-    if first >= 100 and len(numbers) == 1:
-        return _valid(first // 100, first % 100, meridiem)
-    minute = 0
-    rest = numbers[1:]
-    if rest and rest[0] == 0 and len(rest) > 1:  # "seven oh five"
-        minute = rest[1]
-    elif rest:
-        minute = rest[0]
-    return _valid(first, minute, meridiem)
-
-
-def _valid(hour: int, minute: int, meridiem: str | None) -> tuple[int, int, str | None] | None:
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        return None
-    if hour > 12:
-        meridiem = None  # 24-hour
-    return hour, minute, meridiem
-
-
 # What each outcome says, from a few made-up timers: the defaults a command's
 # own responses replace (shown in the UI).
 _SAMPLE = [
@@ -297,16 +206,19 @@ _SAMPLE = [
     {"timer_id": "2", "name": None, "status": "active", "created_duration": 300, "remaining": 61},
     {"timer_id": "3", "name": "tea", "status": "paused", "created_duration": 240, "remaining": 90},
 ]
-_SCENARIOS: list[tuple[dict[str, Any], list[dict[str, Any]]]] = [
-    ({"timer": "pizza", "duration": 600, "time": "seven thirty in the morning"}, []),
-    ({"timer_name": "pizza"}, _SAMPLE),
-    ({"timer_name": "pizza", "duration": 120}, _SAMPLE),
-    ({"timer_name": "tea"}, _SAMPLE),
-    ({"timer_name": "lasagna"}, _SAMPLE),
-    ({}, _SAMPLE),
-    ({}, [{**t, "status": "paused"} for t in _SAMPLE]),
-    ({}, []),
-]
+
+
+def _scenarios() -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    return [
+        ({"timer": "pizza", "duration": 600, "time": languages.reading().ALARM_EXAMPLE}, []),
+        ({"timer_name": "pizza"}, _SAMPLE),
+        ({"timer_name": "pizza", "duration": 120}, _SAMPLE),
+        ({"timer_name": "tea"}, _SAMPLE),
+        ({"timer_name": "lasagna"}, _SAMPLE),
+        ({}, _SAMPLE),
+        ({}, [{**t, "status": "paused"} for t in _SAMPLE]),
+        ({}, []),
+    ]
 
 
 def outcome_examples() -> dict[str, dict[str, str]]:
@@ -314,7 +226,7 @@ def outcome_examples() -> dict[str, dict[str, str]]:
     out: dict[str, dict[str, str]] = {}
     for operation, outcomes in OUTCOMES.items():
         said: dict[str, str] = {}
-        for slots, running in _SCENARIOS:
+        for slots, running in _scenarios():
             result = plan(operation, slots, running)
             said.setdefault(result.outcome, result.speech)
         out[operation] = {outcome: said[outcome] for outcome in outcomes}
@@ -327,7 +239,7 @@ def level_examples() -> dict[str, dict[str, str]]:
     evening = datetime(2026, 1, 1, 21, 55)  # noqa: DTZ001 - local time, as plan takes it
     out: dict[str, dict[str, str]] = {}
     for operation in OPERATIONS:
-        for slots, running in _SCENARIOS:
+        for slots, running in _scenarios():
             result = plan(operation, slots, running, evening)
             if result.outcome == "done" and result.levels:
                 out[operation] = result.levels
@@ -412,4 +324,4 @@ def _clean_name(value: Any) -> str | None:
 
 
 def _norm(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    return re.sub(r"[\W_]+", "", str(value or "").lower())

@@ -10,8 +10,8 @@ option, ``--language``). A language's pack (``languages/<code>``, its
 - the language Home Assistant's speech-to-text, text-to-speech and
   conversation agent are asked in;
 - the matcher's base config: filler words, name cues, compounds;
-- what the app says itself (``speech.py``: English's says what every
-  language's has);
+- what the app says itself (``speech.py``) and reads itself, past the
+  matcher (``reading.py``): English's say what every language's has;
 - its command library (``library/``);
 - which skills, and whether GLiNER (the fallback's model step), it has.
 
@@ -58,6 +58,11 @@ class Pack:
     def speech(self) -> ModuleType:
         """What it says: its ``speech`` module."""
         return importlib.import_module(f"{__name__}.{self.code}.speech")
+
+    @property
+    def reading(self) -> ModuleType:
+        """What it reads: its ``reading`` module."""
+        return importlib.import_module(f"{__name__}.{self.code}.reading")
 
     @property
     def library(self) -> Path:
@@ -107,6 +112,12 @@ def speech() -> ModuleType:
     said, not when a module is imported, which is before the app has its
     language."""
     return current().speech
+
+
+def reading() -> ModuleType:
+    """What the app's language reads (``current().reading``), read when it
+    is needed, as ``speech``."""
+    return current().reading
 
 
 def use(code: str) -> Pack:

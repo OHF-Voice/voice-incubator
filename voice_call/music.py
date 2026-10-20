@@ -106,12 +106,6 @@ SEARCH_TYPES = ["artist", "album", "track", "playlist", "radio"]
 # A small preference between results as close to what was heard: an artist's
 # name is more often asked for than a track that happens to share it.
 TYPE_PRIOR = {"artist": 0.03, "playlist": 0.02, "album": 0.01, "track": 0.0, "radio": 0.0}
-GENERIC = {
-    "music", "some music", "something", "anything", "songs", "some songs", "the music", "my music",
-    "this", "that", "this one", "that one", "this song", "that song", "it",
-}
-"""Asked to play these, the player resumes instead; to play music like
-these, like what is playing."""
 
 
 @dataclass
@@ -387,52 +381,41 @@ def volume_level(slots: dict[str, Any]) -> float | None:
 
 # ----------------------------------------------------------------- searching
 
-_CUES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"^(?:some |any )?(?:songs|music|something|anything|stuff|tracks) (?:by|from) (?P<q>.+)$"), "artist"),
-    (re.compile(r"^(?:the )?artist (?P<q>.+)$"), "artist"),
-    (re.compile(r"^(?:the )?album (?P<q>.+)$"), "album"),
-    (re.compile(r"^(?:the )?(?P<q>.+) album$"), "album"),
-    (re.compile(r"^(?:the )?(?:song|track) (?P<q>.+)$"), "track"),
-    (re.compile(r"^(?:the )?(?P<q>.+) (?:song|track)$"), "track"),
-    (re.compile(r"^(?:the |my )?playlist (?P<q>.+)$"), "playlist"),
-    (re.compile(r"^(?:the |my )?(?P<q>.+) playlist$"), "playlist"),
-    (re.compile(r"^(?:the )?(?:radio station|station) (?P<q>.+)$"), "radio"),
-    (re.compile(r"^(?:the )?(?P<q>.+) (?:radio station|station)$"), "radio"),
-]
-_LEADING = re.compile(r"^(?:me |us |some )+")
-_TRAILING = re.compile(r"(?: please| for me| for us| on music assistant)+$")
-
-
 def clean(text: Any) -> str:
-    """What was heard, lowercase, without punctuation or politeness."""
+    """What was heard, lowercase, without punctuation or politeness (the
+    language's reading: MUSIC_LEADING, MUSIC_TRAILING)."""
+    read = languages.reading()
     value = re.sub(r"[^\w' &-]+", " ", str(text or "").lower())
     value = re.sub(r"\s+", " ", value).strip()
-    value = _TRAILING.sub("", value).strip()
-    return _LEADING.sub("", value).strip()
+    value = read.MUSIC_TRAILING.sub("", value).strip()
+    return read.MUSIC_LEADING.sub("", value).strip()
 
 
 def generic(text: Any) -> bool:
-    """"play some music": nothing in particular."""
-    return clean(text) in GENERIC or not clean(text)
+    """"play some music": nothing in particular (MUSIC_GENERIC). The player
+    resumes instead; music like it is like what is playing."""
+    return clean(text) in languages.reading().MUSIC_GENERIC or not clean(text)
 
 
 def queries(text: Any, media_type: str | None = None) -> list[Query]:
     """The readings of what was asked for, most literal first. "So what by
     Miles Davis" is both a title and a title by an artist ("Stand by Me" is
-    only the first)."""
+    only the first). A cue picks the type: "the album …" (MUSIC_CUES)."""
     value = clean(text)
     if not value:
         return []
+    read = languages.reading()
+    by = f" {read.BY} "
     types = [media_type] if media_type in SEARCH_TYPES else None
     if types is None:
-        for pattern, kind in _CUES:
+        for pattern, kind in read.MUSIC_CUES:
             match = pattern.match(value)
             if match and match.group("q").strip():
                 value, types = match.group("q").strip(), [kind]
                 break
     readings = [Query(value, value, None, types)]
-    if " by " in value and (types is None or set(types) & {"track", "album"}):
-        name, artist = value.rsplit(" by ", 1)
+    if by in value and (types is None or set(types) & {"track", "album"}):
+        name, artist = value.rsplit(by, 1)
         if name.strip() and artist.strip():
             readings.append(Query(value, name.strip(), artist.strip(), types or ["track", "album"]))
     return readings
@@ -502,7 +485,7 @@ def _similarity(query: Query, item: Item) -> float:
     heard = _norm(query.text)
     forms = [name]
     if item.artist:
-        forms += [_norm(f"{item.name} by {item.artist}"), _norm(f"{item.artist} {item.name}")]
+        forms += [_norm(f"{item.name} {languages.reading().BY} {item.artist}"), _norm(f"{item.artist} {item.name}")]
     return max(_ratio(heard, form) for form in forms)
 
 
@@ -511,7 +494,7 @@ def _ratio(a: str, b: str) -> float:
 
 
 def _norm(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    return re.sub(r"[\W_]+", "", str(value or "").lower())
 
 
 # --------------------------------------------------------- Home Assistant side

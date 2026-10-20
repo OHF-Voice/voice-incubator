@@ -8,6 +8,7 @@ import pytest
 from adapt_ctc.config import parse_config
 from voice_call import timers
 from voice_call.engine import Engine
+from voice_call.languages.en import reading as english_reading
 from voice_call.languages.en import speech as english
 from voice_call.store import compile_store
 
@@ -225,7 +226,7 @@ def test_the_ring_shows_the_timer_that_finishes_soonest():
     ],
 )
 def test_clock_times(said, clock):
-    assert timers.parse_clock(said) == clock
+    assert english_reading.clock(said) == clock
 
 
 def test_alarms_ring_at_the_next_time_it_comes_round():

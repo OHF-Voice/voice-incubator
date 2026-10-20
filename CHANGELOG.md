@@ -5,9 +5,12 @@
 - **Language packs**: what the app hears and says is one language's pack
   (`voice_call/languages/<code>`): its speech models, Piper voice, the
   matcher's filler words and name cues, the command library, and which
-  skills and fallback steps it has, and every sentence the app makes itself
-  (timers, music, places, hints, apologies). English is the only one yet;
-  the `language` option picks it. `commands.yaml` says what its commands are in
+  skills and fallback steps it has, every sentence the app makes itself
+  (timers, music, places, hints, apologies) and what it reads itself (an
+  alarm's time, "the album …", "in the kitchen" after free text). English
+  is the only one yet; the `language` option picks it. Timer names and
+  music titles are compared with their accented letters ("Beyoncé"), not
+  without. `commands.yaml` says what its commands are in
   (`language:`, new files `en`), and the Home page says when that is not the
   app's language. The built-in speech model's "English" is now "the
   language's own" (`own`; `en` still read).
