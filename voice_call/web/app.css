@@ -226,6 +226,26 @@ th { color: var(--muted); font-weight: 600; border-top: none; }
 .wake-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .wake-list label { display: inline-flex; align-items: center; gap: 6px; }
 
+/* A table of things to edit (a skill's units, holidays, words): on a
+   phone, each row stacks, its controls labelled. */
+.edit-table { margin: 4px 0 8px; }
+.edit-table th { font-size: 0.8rem; padding: 4px; }
+.edit-table td { padding: 3px 4px; vertical-align: middle; }
+.edit-table input { width: 100%; min-width: 4em; box-sizing: border-box; }
+.edit-table td.remove { width: 1%; text-align: right; }
+.edit-table td.remove button { font-size: 1.2rem; padding: 0 6px; }
+.edit-table tr.yours td:first-child { box-shadow: inset 3px 0 var(--accent); }
+.edit-table .nowrap { white-space: nowrap; }
+@media (max-width: 640px) {
+  .edit-table thead { display: none; }
+  .edit-table tr { display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .edit-table td { border: none; padding: 0; }
+  .edit-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; color: var(--muted); }
+  .edit-table td.remove { grid-column: 3; grid-row: 1; align-self: start; width: auto; }
+  .edit-table tr.yours td:first-child { box-shadow: none; }
+  .edit-table tr.yours { box-shadow: inset 3px 0 var(--accent); padding-left: 8px; }
+}
+
 /* Skills: a satellite's own setting for one skill. */
 .skill-satellites { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
 .skill-satellite { display: flex; align-items: center; gap: 8px; min-width: 240px; }

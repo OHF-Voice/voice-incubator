@@ -1639,6 +1639,154 @@ async function pageSatellite(key, opened) {
 
 // ----------------------------------------------------------------- skills
 
+// A skill's settings: an editor for each (by skill id), from the settings
+// as GET /api/skills gives them -- { el, value() }, value() the settings to
+// PUT, in full.
+const SKILL_SETTINGS = { units: unitsEditor, spelling: spellingEditor, dates: holidaysEditor, clock: clockEditor, arithmetic: precisionEditor };
+
+const MEASURE_NAMES = { length: "Length", area: "Area", volume: "Volume", weight: "Weight", time: "Time", data: "Data", temperature: "Temperature" };
+const PRECISION_HINT = "Significant digits in an answer that isn't a whole number: 8.047 kilometers at 4, 8.05 at 3. Whole numbers are said in full.";
+const namesText = (list) => asList(list).join(", ");
+const namesList = (text) => String(text || "").split(",").map((s) => s.trim()).filter(Boolean);
+
+// A table of things to edit: a row of inputs each, removable, and added to.
+// `columns`: [label, (item) => control]; on a phone, each row stacks, its
+// controls labelled.
+function editTable(items, columns, blank, addLabel, rowClass) {
+  const body = h("div");
+  function render() {
+    fill(body,
+      items.length ? h("table", { class: "edit-table" },
+        h("thead", {}, h("tr", {}, ...columns.map(([label]) => h("th", {}, label)), h("th", {}))),
+        h("tbody", {}, ...items.map((item, i) => h("tr", { class: rowClass ? rowClass(item) : null },
+          ...columns.map(([label, control]) => h("td", { "data-label": label }, control(item))),
+          h("td", { class: "remove" }, h("button", { type: "button", class: "link", "aria-label": `Remove ${item.name || item.asked || "this row"}`, title: "Remove", onclick: () => { items.splice(i, 1); render(); } }, "×")))))) : null,
+      h("button", { type: "button", onclick: () => { items.push(blank()); render(); body.querySelector("tbody tr:last-child input")?.focus(); } }, addLabel));
+  }
+  render();
+  return { el: body, render };
+}
+
+// A text input bound to item[key]; `example`, a placeholder for a row just
+// added (on one listed, it would read as its value).
+function boundText(item, key, attrs, example) {
+  return h("input", { type: "text", value: item[key] ?? "", placeholder: item.fresh ? example : null, oninput: (e) => { item[key] = e.target.value; }, ...attrs });
+}
+
+// A number input bound to item[key] (empty: null).
+function boundNumber(item, key, attrs) {
+  return h("input", { type: "number", step: "any", value: item[key] ?? "", oninput: (e) => { item[key] = e.target.value === "" ? null : Number(e.target.value); }, ...attrs });
+}
+
+// What was taken out of the built-in ones, to put back (`add`).
+function putBack(removed, add, what) {
+  const line = h("p", { class: "small muted" });
+  function show() {
+    fill(line, removed.length ? ["Taken out: ", ...removed.flatMap((item, i) => [i ? ", " : "",
+      h("button", { type: "button", class: "link", title: `Put ${item.name} back`, onclick: () => { removed.splice(i, 1); add(item); show(); } }, item.name)]),
+    hint(`Built-in ${what} you took out. Press one to put it back.`)] : null);
+  }
+  show();
+  return line;
+}
+
+function precisionField(settings) {
+  const input = defaultNumber(settings.digits === 4 ? null : settings.digits, 4, 1, 12);
+  input.min = 1;
+  return { el: field("Precision", input, PRECISION_HINT), value: () => numberOrNull(input) };
+}
+
+function precisionEditor(settings) {
+  const precision = precisionField(settings);
+  return { el: precision.el, value: () => ({ digits: precision.value() }) };
+}
+
+function clockEditor(settings) {
+  const select = h("select", { style: "max-width:240px" },
+    h("option", { value: "12", selected: settings.hours !== 24 }, "12-hour (4:45 PM)"),
+    h("option", { value: "24", selected: settings.hours === 24 }, "24-hour (16:45)"));
+  return { el: field("Clock", select), value: () => ({ hours: Number(select.value) }) };
+}
+
+function spellingEditor(settings) {
+  const words = Object.entries(settings.words || {}).map(([asked, spelled]) => ({ asked, spelled }));
+  const table = editTable(words, [
+    ["Asked", (w) => boundText(w, "asked", { "aria-label": "Asked" }, "color")],
+    ["Spelled", (w) => boundText(w, "spelled", { "aria-label": "Spelled" }, "colour")],
+  ], () => ({ asked: "", spelled: "", fresh: true }), "Add a word");
+  return {
+    el: h("div", {}, heading("h3", "Spelled your way", "Asked to spell one of these — a word or a phrase, as the speech-to-text writes it — it spells it your way: colour for color, a name the speech-to-text writes differently, “my last name”."), table.el),
+    value: () => ({ words: Object.fromEntries(words.filter((w) => w.asked.trim() || w.spelled.trim()).map((w) => [w.asked, w.spelled])) }),
+  };
+}
+
+function holidaysEditor(settings) {
+  const holidays = clone(settings.holidays || []).map((x) => ({ ...x, also: namesText(x.also) }));
+  const removed = clone(settings.removed || []).map((x) => ({ ...x, also: namesText(x.also) }));
+  const nextText = (x) => x.next ? new Date(`${x.next}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
+  const table = editTable(holidays, [
+    ["Name", (x) => boundText(x, "name", { "aria-label": "Name" }, "My birthday")],
+    ["Also called", (x) => boundText(x, "also", { "aria-label": "Also called" }, "my bday")],
+    ["When", (x) => boundText(x, "when", { "aria-label": "When" }, "June 3")],
+    ["Next", (x) => h("span", { class: "muted small nowrap" }, nextText(x))],
+  ], () => ({ name: "", also: "", when: "", fresh: true }), "Add a holiday", (x) => x.built_in === false ? "yours" : null);
+  return {
+    el: h("div", {},
+      heading("h3", "Holidays", "What “when is …” and “how many days until …” know. When: a date (December 25), a weekday in a month (fourth Thursday of November, last Monday of May), Easter or days from it (2 days before Easter), or a date with its year, for one that happens once (June 20 2027). Yours are marked at the left."),
+      table.el, putBack(removed, (x) => { holidays.push(x); table.render(); }, "holidays")),
+    value: () => ({ holidays: holidays.filter((x) => x.name.trim() || x.when.trim()).map((x) => ({ name: x.name, when: x.when, also: namesList(x.also) })) }),
+  };
+}
+
+// Units, grouped by what they measure (collapsed), each group a table.
+function unitsEditor(settings) {
+  const measures = settings.measures || {};
+  const byMeasure = Object.fromEntries(Object.keys(measures).map((m) => [m, []]));
+  for (const u of clone(settings.units || [])) (byMeasure[u.measures] ||= []).push({ ...u, also: namesText(u.also) });
+  const removed = clone(settings.removed || []).map((u) => ({ ...u, also: namesText(u.also) }));
+  const precision = precisionField(settings);
+  const tables = {};
+  const groups = Object.entries(measures).map(([measure, base]) => {
+    const units = byMeasure[measure];
+    const summary = h("span", { class: "muted small" });
+    const columns = base ? [
+      ["Name", (u) => boundText(u, "name", { "aria-label": "Name" }, "nautical mile")],
+      // Empty: the usual plural, shown.
+      ["Plural", (u) => boundText(u, "plural", { "aria-label": "Plural", placeholder: u.plural_of || null })],
+      ["Also called", (u) => boundText(u, "also", { "aria-label": "Also called" }, "nmi")],
+      [`Size (${base}s)`, (u) => boundNumber(u, "size", { "aria-label": `Size in ${base}s`, min: 0 })],
+    ] : [
+      ["Name", (u) => boundText(u, "name", { "aria-label": "Name" }, "Rankine")],
+      ["Also called", (u) => boundText(u, "also", { "aria-label": "Also called" }, "R")],
+      ["Water freezes", (u) => boundNumber(u, "freezes", { "aria-label": "Water freezes at" })],
+      ["Water boils", (u) => boundNumber(u, "boils", { "aria-label": "Water boils at" })],
+    ];
+    const table = editTable(units, columns, () => ({ name: "", measures: measure, plural: "", also: "", size: null, freezes: null, boils: null, fresh: true }),
+      "Add a unit", (u) => u.built_in === false ? "yours" : null);
+    const show = () => { summary.textContent = units.map((u) => u.name).filter(Boolean).join(", ") || "none"; };
+    tables[measure] = () => { table.render(); show(); };
+    table.el.addEventListener("click", (e) => { if (e.target.closest("button")) show(); });
+    table.el.addEventListener("input", show);
+    show();
+    return h("details", { class: "settings-group" },
+      h("summary", {}, icon("mdi:chevron-right", "chevron"), h("span", { class: "title" }, MEASURE_NAMES[measure] || measure), summary),
+      h("div", { class: "group-body" }, table.el));
+  });
+  return {
+    el: h("div", {},
+      precision.el,
+      heading("h3", "Units", "What it converts between. A unit's size is in its measure's base unit: a cup is 236.6 milliliters. A temperature scale is set by where water freezes and boils on it. Volumes are US customary as built in; for imperial, a pint is 568.26 mL, a fluid ounce 28.41, a gallon 4546.09. Yours are marked at the left."),
+      h("div", { class: "settings-groups" }, ...groups),
+      putBack(removed, (u) => { (byMeasure[u.measures] ||= []).push(u); tables[u.measures]?.(); }, "units")),
+    value: () => ({
+      digits: precision.value(),
+      units: Object.values(byMeasure).flat().filter((u) => u.name.trim() || u.size != null || u.freezes != null).map((u) => (u.measures === "temperature"
+        ? { name: u.name, measures: u.measures, freezes: u.freezes, boils: u.boils, also: namesList(u.also) }
+        : { name: u.name, measures: u.measures, size: u.size, plural: u.plural || "", also: namesList(u.also) })),
+    }),
+  };
+}
+
 // A skill: what it answers, and how -- its level, and a response of your own
 // for any level. Opened from the Home or a satellite (?satellite=), it can be
 // taken off there; it's added with Add on the Home or a satellite's page.
@@ -1655,6 +1803,8 @@ async function pageSkill(id, query) {
   const example = skill.example || { levels: {}, question: skill.examples[0] };
   const levels = example.levels || {};
   const LABELS = { brief: "Brief: the answer", specific: "Specific: the answer as a sentence", verbose: "Verbose: the question said back with it" };
+
+  const settings = SKILL_SETTINGS[skill.id] ? SKILL_SETTINGS[skill.id](skill.settings || {}) : null;
 
   const editor = h("div");
   function render() {
@@ -1690,8 +1840,17 @@ async function pageSkill(id, query) {
   render();
   async function save() {
     try {
-      await api("PUT", `skills/${id}`, { verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() });
+      const body = { verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() };
+      if (settings) body.settings = settings.value();
+      await api("PUT", `skills/${id}`, body);
       toast("Saved"); pageSkill(id, query);
+    } catch (err) { toast(err.message); }
+  }
+  async function restore() {
+    if (!confirm(`Put ${skill.name}'s settings back as built in? Yours are lost.`)) return;
+    try {
+      await api("PUT", `skills/${id}`, { settings: null });
+      toast("Restored"); pageSkill(id, query);
     } catch (err) { toast(err.message); }
   }
   async function takeOff() {
@@ -1713,6 +1872,12 @@ async function pageSkill(id, query) {
       h("p", {}, skill.description),
       h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · "), hint("A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model). How it answers is the same wherever it's added.")),
     ),
+    settings ? h("div", { class: "panel" }, h("h2", {}, "Settings"),
+      skill.settings_error ? h("div", { class: "notice warn" }, "Yours can't be used, so the built-in ones are: ", skill.settings_error) : null,
+      settings.el,
+      h("div", { class: "row" }, h("span", { class: "grow" }),
+        skill.settings_set ? h("button", { onclick: restore }, "Restore built-in") : null,
+        h("button", { class: "primary", onclick: save }, "Save"))) : null,
     h("div", { class: "panel" }, h("h2", {}, "Responses"), editor,
       h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save"))),
   );

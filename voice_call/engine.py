@@ -273,6 +273,8 @@ class Engine:
         self.placer = self.placer_for(WAKE_PHRASES)
         self.fallback: Any = None
         """When nothing matched: meaning, then an LLM (voice_call/fallback.py)."""
+        self.skill_settings: dict[str, Any] | None = None
+        """Each skill's settings (skills.configure); None: as built in."""
         self.dynamic: dict[str, list[str]] = {name: [] for name in DYNAMIC_LISTS}
         """Values of the lists the app keeps current: running timers' names."""
         self.entity_area: Any = None
@@ -507,7 +509,7 @@ class Engine:
             # Each transcript, TDT's first: one may hear "fifty degrees F in
             # Celsius" where the other heard "FN Celsius".
             transcripts = dict.fromkeys(t for t in (recognition.tdt_transcript, recognition.transcript) if t)
-            exact = next(filter(None, (skills.answer(t, satellite.skills) for t in transcripts)), None)
+            exact = next(filter(None, (skills.answer(t, satellite.skills, self.skill_settings) for t in transcripts)), None)
             if exact is not None:
                 # Spelling, dates, units, arithmetic: exact, and instant.
                 decision.answer = exact.to_json()

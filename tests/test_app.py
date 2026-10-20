@@ -374,6 +374,47 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/skills/units", json={"satellites": {MAC: "off"}})).status == 400
             assert (await http.put("/api/skills/units", json={"satellites": {"nope": True}})).status == 400
 
+            # A skill's settings: edited in full, stored as what differs.
+            def skill(skills, skill_id):
+                return next(s for s in skills["skills"] if s["id"] == skill_id)
+
+            assert skill(listed, "clock")["settings"] == {"hours": 12} and not skill(listed, "clock")["settings_set"]
+            assert (await http.put("/api/skills/clock", json={"settings": {"hours": 24}})).status == 200
+            assert app.store.settings["skill_settings"] == {"clock": {"hours": 24}}
+            assert await said("what time is 45 minutes after 3 pm") == "It's 15:45."
+            units = skill(listed, "units")["settings"]
+            edited = [u for u in units["units"] if u["name"] != "stone"]
+            edited.append({"name": "nautical mile", "measures": "length", "size": 1852, "also": ["nmi"]})
+            body = {"settings": {**units, "units": edited, "digits": 3}}
+            assert (await http.put("/api/skills/units", json=body)).status == 200
+            assert app.store.settings["skill_settings"]["units"] == {
+                "units": {"stone": False, "nautical mile": {"measures": "length", "size": 1852, "also": ["nmi"]}},
+                "digits": 3,
+            }
+            assert await said("how many feet are in a nautical mile") == "It's 6076."
+            assert await said("what is 5 miles in kilometers") == "It's 8.05 kilometers."
+            listed = await (await http.get("/api/skills")).json()
+            assert [u["name"] for u in skill(listed, "units")["settings"]["removed"]] == ["stone"]
+            assert skill(listed, "units")["example"]["text"] == "It's 4."
+            # What can't be stored is refused, and says why.
+            bad = {"settings": {"units": [*edited, {"name": "smoot", "measures": "length", "size": -1}]}}
+            response = await http.put("/api/skills/units", json=bad)
+            assert response.status == 400 and "smoot" in (await response.json())["error"]
+            assert (await http.put("/api/skills/dates", json={"settings": {"holidays": [{"name": "x", "when": "someday"}]}})).status == 400
+            # Null: as built in.
+            for skill_id in ("clock", "units"):
+                assert (await http.put(f"/api/skills/{skill_id}", json={"settings": None})).status == 200
+            assert "skill_settings" not in app.store.settings
+            assert await said("what time is 45 minutes after 3 pm") == "It's 3:45 PM."
+            # Stored settings that can't be used (edited by hand): the built-in ones.
+            app.store.settings["skill_settings"] = {"clock": {"hours": 13}}
+            listed = await (await http.get("/api/skills")).json()
+            assert skill(listed, "clock")["settings_error"] == "hours: 12 or 24"
+            app.configure_skills()
+            assert await said("what time is 45 minutes after 3 pm") == "It's 3:45 PM."
+            del app.store.settings["skill_settings"]
+            app.configure_skills()
+
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
             template = "Sorry, I couldn't understand the sentence {{ transcript }}."

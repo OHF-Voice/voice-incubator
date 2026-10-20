@@ -214,3 +214,150 @@ def test_responses_as_set():
         "verbosity": "specific",
         "response": {"brief": "{{ response }}", "specific": "{{ response }}", "verbose": "{{ response }}"},
     }
+
+
+# ------------------------------------------------------------------ settings
+
+
+def answered(question, **stored):
+    found = skills.answer(question, settings=skills.configure(stored))
+    return found.text if found else None
+
+
+def test_settings_as_built_in():
+    for skill_id, skill in SKILLS.items():
+        settings = skill.settings.load(None)
+        # The page's, sent back unchanged, stores nothing.
+        assert skill.settings.store(settings.to_json()) is None, skill_id
+        assert skill.settings.load(skill.settings.store(settings.to_json())) == settings
+
+
+def test_units_added_changed_and_taken_out():
+    from voice_call.skills.units import Settings
+
+    page = Settings().to_json()
+    assert page["measures"]["volume"] == "milliliter" and page["removed"] == []
+    edited = [u for u in page["units"] if u["name"] != "stone"]
+    for unit in edited:
+        if unit["name"] == "pint":
+            unit["size"] = 568.26125  # imperial
+    edited.append({"name": "nautical mile", "measures": "length", "size": 1852, "plural": "", "also": ["nmi"]})
+    edited.append({"name": "Rankine", "measures": "temperature", "freezes": 491.67, "boils": 671.67, "also": ["R"]})
+    stored = Settings.store({"units": edited, "digits": 4})
+    assert stored == {"units": {
+        "stone": False,
+        "pint": {"measures": "volume", "size": 568.26125},
+        "nautical mile": {"measures": "length", "size": 1852, "also": ["nmi"]},
+        "Rankine": {"measures": "temperature", "freezes": 491.67, "boils": 671.67, "also": ["R"]},
+    }}
+    assert answered("how many fluid ounces are in a pint", units=stored) == "It's 19.22."
+    assert answered("what is 2 nmi in kilometers", units=stored) == "It's 3.704 kilometers."
+    assert answered("what is 100 celsius in rankine", units=stored) == "It's 671.7 degrees Rankine."
+    assert answered("what is 10 stone in pounds", units=stored) is None
+    assert answered("what is 10 stone in pounds") == "It's 140 pounds."
+    assert [u["name"] for u in Settings.load(stored).to_json()["removed"]] == ["stone"]
+
+
+@pytest.mark.parametrize(
+    ("units", "error"),
+    [
+        ([{"name": "smoot", "measures": "length", "size": 0}], "smoot: its size, a number above 0"),
+        ([{"name": "smoot", "measures": "length", "size": "tall"}], "smoot: its size: a number"),
+        ([{"name": "smoot", "measures": "vibes", "size": 1}], "smoot: it measures one of"),
+        ([{"name": "", "measures": "length", "size": 1}], "A unit needs a name"),
+        ([{"name": "x", "measures": "temperature", "freezes": 5, "boils": 5}], "freeze and boil"),
+        ([{"name": "smoot", "measures": "length", "size": 1, "also": ["mile"]}], "“mile” is both mile and smoot"),
+        ([{"name": "cup", "measures": "volume", "size": 250}, {"name": "Cup", "measures": "volume", "size": 240}], "cup is given twice"),
+    ],
+)
+def test_units_refused(units, error):
+    from voice_call.skills.units import UNITS, Settings
+
+    with pytest.raises(ValueError, match=error):
+        Settings.store({"units": [u.to_json() for u in UNITS] + units})
+
+
+def test_precision():
+    assert answered("what is 5 miles in kilometers", units={"digits": 2}) == "It's 8 kilometers."
+    assert answered("what is 100 divided by 7", arithmetic={"digits": 6}) == "It's 14.2857."
+    assert answered("what is 100 divided by 7", arithmetic={"digits": 2}) == "It's 14."
+    # Whole numbers in full; never in e-notation.
+    assert answered("how many centimeters are in a mile") == "It's 160,934."
+    assert answered("how many seconds are in a year") == "It's 31,536,000."
+    assert answered("what is 12345.6 plus 1") == "It's 12,347."
+    with pytest.raises(ValueError, match="precision"):
+        SKILLS["arithmetic"].settings.load({"digits": 0})
+
+
+def test_spelling_your_way():
+    from voice_call.skills.spelling import Settings
+
+    stored = Settings.store({"words": {"Color": "colour", "my last name": "Hansen", "new york": "New York"}})
+    assert stored == {"words": {"color": "colour", "my last name": "Hansen", "new york": "New York"}}
+    assert answered("how do you spell color", spelling=stored) == "Colour is spelled C, O, L, O, U, R."
+    assert answered("How do you spell my last name?", spelling=stored) == "Hansen is spelled H, A, N, S, E, N."
+    assert answered("how is new york spelled", spelling=stored) == "New York is spelled N, E, W, space, Y, O, R, K."
+    # A phrase that isn't yours isn't spelled; "how is" asks how it's spelled only with "spelled".
+    assert answered("how do you spell my last name") is None
+    assert answered("how is mom") is None
+    assert answered("how do you spell o'clock") == "O'clock is spelled O, apostrophe, C, L, O, C, K."
+    with pytest.raises(ValueError, match="needs a letter"):
+        Settings.store({"words": {"x": "--"}})
+
+
+def test_holidays(monkeypatch):
+    import datetime as dt
+
+    from voice_call.skills import dates
+
+    class Today(dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 15)
+
+    monkeypatch.setattr(dates.dt, "date", Today)
+    # Built in: fixed, the nth weekday of a month, from Easter.
+    assert answered("when is thanksgiving") == "It's November 26."
+    assert answered("when is memorial day") == "It's May 31, 2027."
+    assert answered("when is good friday") == "It's March 26, 2027."
+    assert answered("what day of the week is christmas") == "It's Friday."
+    assert answered("how many days until the fourth of july") == "It's 262 days."
+    page = dates.Settings().to_json()
+    assert {"name": "Thanksgiving", "when": "fourth Thursday of November", "also": ["Thanksgiving Day"],
+            "next": "2026-11-26", "built_in": True} in page["holidays"]
+    edited = [h for h in page["holidays"] if h["name"] != "Juneteenth"]
+    for holiday in edited:
+        if holiday["name"] == "Thanksgiving":
+            holiday["when"] = "second Monday of October"  # Canada's
+    edited += [{"name": "My birthday", "when": "June 3", "also": ["my bday"]},
+               {"name": "the wedding", "when": "June 20 2027", "also": []}]
+    stored = dates.Settings.store({"holidays": edited})
+    assert stored == {"holidays": {
+        "Juneteenth": False,
+        "Thanksgiving": {"when": "second Monday of October", "also": ["Thanksgiving Day"]},
+        "My birthday": {"when": "June 3", "also": ["my bday"]},
+        "the wedding": "June 20 2027",
+    }}
+    assert answered("when is thanksgiving", dates=stored) == "It's October 11, 2027."
+    assert answered("how many days until my bday", dates=stored) == "It's 231 days."
+    assert answered("when is the wedding", dates=stored) == "It's June 20, 2027."
+    assert answered("when is juneteenth", dates=stored) is None
+    for when, error in (("someday", "when is “someday”"), ("February 30", "when is")):
+        with pytest.raises(ValueError, match=error):
+            dates.Settings.store({"holidays": [{"name": "x", "when": when}]})
+    with pytest.raises(ValueError, match="is both"):
+        dates.Settings.store({"holidays": [{"name": "Xmas", "when": "December 25"},
+                                           {"name": "Christmas", "when": "December 25", "also": ["xmas"]}]})
+
+
+def test_24_hour_clock():
+    assert answered("what time is 45 minutes after 3 pm", clock={"hours": 24}) == "It's 15:45."
+    assert answered("what's ninety minutes before 1 am", clock={"hours": 24}) == "It's 23:30."
+    assert SKILLS["clock"].settings.store({"hours": 12}) is None
+
+
+def test_settings_that_cant_be_used():
+    # As stored by hand: the built-in ones, and why.
+    settings, error = skills.load("units", {"units": {"cup": {"measures": "volume"}}})
+    assert settings == skills.BUILT_IN["units"] and error == "cup: its size: a number"
+    assert skills.configure({"clock": {"hours": 13}, "nope": {}})["clock"] == skills.BUILT_IN["clock"]

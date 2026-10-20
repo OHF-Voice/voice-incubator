@@ -545,6 +545,31 @@ seeing `answer` ("96"), `question`, `response` (the built-in sentence at
 that level), `satellite` and `speaker`. It's the same wherever the skill is
 added.
 
+Its page has the skill's **settings** too, the same wherever it's added:
+
+- **Unit conversions**: its units, by what they measure. Each has a name, a
+  plural, other names ("mm"), and a size in its measure's base unit: a cup
+  is 236.6 milliliters. A temperature scale is set by where water freezes
+  and boils on it. Change a unit, take one out, or add your own ("nautical
+  mile", 1852 meters). Volumes are US customary as built in; for imperial, a
+  pint is 568.26 mL, a fluid ounce 28.41, a gallon 4546.09. **Precision**:
+  significant digits in an answer that isn't whole, 4 unless set ("8.047
+  kilometers"); whole numbers are said in full.
+- **Spelling**: words spelled your way. Asked to spell "color", it can say
+  C, O, L, O, U, R; a name the speech-to-text writes differently; or a
+  phrase, such as "my last name". Spaces, hyphens and apostrophes are said.
+- **Dates**: its holidays, each with a name, other names, and when it is: a
+  date ("December 25"), a weekday in a month ("fourth Thursday of November",
+  "last Monday of May"), Easter or days from it ("2 days before Easter"), or
+  a date with its year for one that happens once ("June 20 2027"). The
+  built-in ones are US holidays; change them, take them out, or add your own
+  ("my birthday").
+- **Clock arithmetic**: a 12-hour ("4:45 PM") or 24-hour ("16:45") clock.
+- **Math**: its precision, as Unit conversions'.
+
+Built-in units and holidays you haven't changed follow updates to the app.
+**Restore built-in** puts back all of them.
+
 ## Conversation agent
 
 What no command, skill or step under "When nothing matches" took can go to a

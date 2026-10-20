@@ -470,6 +470,7 @@ class VoiceCallApp:
             self.options.threads,
         )
         self.engine.entity_area = self._entity_area
+        self.configure_skills()
         await self.reload_commands()
         self._spawn(self.configure_fallback())
         self.configure_agent()
@@ -778,6 +779,12 @@ class VoiceCallApp:
         async with self._model_lock:
             loaded = await asyncio.to_thread(self.engine.use_tdt, wanted)
         self.tdt_status = None if loaded else f"could not load {wanted.name}; kept {self.engine.tdt_dir}"
+
+    def configure_skills(self) -> None:
+        """The skills' settings, as their pages set them
+        (``settings.yaml`` ``skill_settings``)."""
+        if self.engine is not None:
+            self.engine.skill_settings = skills.configure(self.store.settings.get("skill_settings"))
 
     def satellite_skills(self, key: str | None) -> frozenset[str]:
         """The skills that answer on a satellite: its own, and the Home's

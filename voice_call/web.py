@@ -32,6 +32,7 @@ from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .skills import LEVELS, SKILLS, home_skills, own_skills
 from .skills import answer as skill_answer
+from .skills import load as load_skill_settings
 from .store import NAME_KINDS, compile_store, dump, plain
 from .protocol import SAMPLE_RATE
 from .voices import language_code
@@ -516,16 +517,24 @@ class Api:
 
     async def skills(self, request: web.Request) -> web.Response:
         """Every skill -- how it answers (``responses``: its level and your
-        templates, as set) and what it says at each level for its first
-        example (``example``) -- the Home's (each unless taken off it), and
-        each satellite's own (given to it)."""
+        templates, as set), its settings (``settings``, in full; and
+        ``settings_error``, what is wrong with those stored, when they can't
+        be used) and what it says at each level for its first example
+        (``example``) -- the Home's (each unless taken off it), and each
+        satellite's own (given to it)."""
         store = self.app.store
         configured = store.settings.get("skill_responses") or {}
+        stored = store.settings.get("skill_settings") or {}
         out = []
         for skill in SKILLS.values():
             item = skill.to_json()
             item["responses"] = configured.get(skill.id) or {}
-            found = skill_answer(skill.examples[0], frozenset({skill.id}))
+            settings, error = load_skill_settings(skill.id, stored.get(skill.id))
+            item["settings"] = settings.to_json()
+            item["settings_set"] = stored.get(skill.id) is not None
+            if error:
+                item["settings_error"] = error
+            found = skill_answer(skill.examples[0], frozenset({skill.id}), {skill.id: settings})
             item["example"] = found.to_json() if found is not None else None
             out.append(item)
         return web.json_response(
@@ -540,14 +549,30 @@ class Api:
     async def put_skill(self, request: web.Request) -> web.Response:
         """Put a skill on the Home or take it off (``home``: true or false),
         give it to satellites or take it from them (``satellites``:
-        ``{key: true | false}``), and how it answers (``verbosity``: a level,
+        ``{key: true | false}``), how it answers (``verbosity``: a level,
         null for the default; ``response``: a template for every level, or
-        ``{brief, specific, verbose}``, empty for the built-in sentences)."""
+        ``{brief, specific, verbose}``, empty for the built-in sentences),
+        and its settings (``settings``: in full, as GET gives them; null for
+        the built-in ones)."""
         skill_id = request.match_info["id"]
         if skill_id not in SKILLS:
             raise FileNotFoundError(f"No skill {skill_id}")
         body = await request.json()
         store = self.app.store
+        if "settings" in body:
+            try:
+                stored = None if body["settings"] is None else SKILLS[skill_id].settings.store(body["settings"])
+            except ValueError as err:
+                raise ConfigError(f"{SKILLS[skill_id].name}: {err}") from err
+            settings = store.settings.setdefault("skill_settings", {})
+            if stored is None:
+                settings.pop(skill_id, None)
+            else:
+                settings[skill_id] = stored
+            if not settings:
+                store.settings.pop("skill_settings")
+            store.save_settings()
+            self.app.configure_skills()
         if "verbosity" in body or "response" in body:
             configured = store.settings.setdefault("skill_responses", {})
             entry = dict(configured.get(skill_id) or {})

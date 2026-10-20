@@ -4,10 +4,34 @@ minutes before noon". Not the time now: that is a command (what_time)."""
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import Any
 
-from .common import N, NUM_RE, WORD_NUM, Skill, clean, parse_num, reply
+from . import common
+from .common import N, NUM_RE, WORD_NUM, Skill, clean, options, parse_num, reply
 
 NUM_RE_GROUPLESS = rf"(?:{NUM_RE})"
+
+
+@dataclass(frozen=True)
+class Settings(common.Settings):
+    hours: int = 12
+    """The clock it answers in: 12 ("4:45 PM") or 24 ("16:45")."""
+
+    @classmethod
+    def load(cls, stored: Any) -> Settings:
+        hours = options(stored, ("hours",)).get("hours", 12)
+        if hours not in (12, 24) or isinstance(hours, bool):
+            raise ValueError("hours: 12 or 24")
+        return cls(int(hours))
+
+    def to_json(self) -> dict[str, Any]:
+        return {"hours": self.hours}
+
+    @classmethod
+    def store(cls, edited: Any) -> Any:
+        settings = cls.load(edited)
+        return {"hours": settings.hours} if settings != cls() else None
 
 
 def parse_clock(s):
@@ -41,13 +65,15 @@ def _clock_digits(s):
     return f"{hour}:{minute:02d} {' '.join(meridiem)}".strip()
 
 
-def show_clock(mins):
+def show_clock(mins, hours=12):
     mins %= 1440
     h, m = divmod(mins, 60)
+    if hours == 24:
+        return f"{h}:{m:02d}"
     return f"{(h % 12) or 12}:{m:02d} {'AM' if h < 12 else 'PM'}"
 
 
-def solve(q):
+def solve(q, hours=12):
     """The time, and what was asked ("45 minutes after 3 pm"); None."""
     s = clean(q)
     if m := re.fullmatch(rf"(?:what(?: is|'s)|what time is) ({NUM_RE_GROUPLESS} (?:minutes?|hours?) (?:before|after|from|past) .+)", s):
@@ -55,12 +81,15 @@ def solve(q):
         v, u, rel, t = parse_num(inner.group(1)), inner.group(2), inner.group(3), parse_clock(_clock_digits(inner.group(4)))
         if v is not None and t is not None:
             delta = v * (60 if u.startswith("hour") else 1)
-            return show_clock(int(t + (-delta if rel == "before" else delta))), m.group(1)
+            return show_clock(int(t + (-delta if rel == "before" else delta)), hours), m.group(1)
     return None
 
 
-def answer(text: str):
-    found = solve(text)
+DEFAULT = Settings()
+
+
+def answer(text: str, settings: Settings = DEFAULT):
+    found = solve(text, settings.hours)
     return reply(found[0], text, f"{found[1]} is {found[0]}") if found else None
 
 
@@ -71,4 +100,5 @@ SKILL = Skill(
     examples=("what time is 45 minutes after 3 pm", "what's ninety minutes before noon"),
     icon="mdi:clock-plus-outline",
     answer=answer,
+    settings=Settings,
 )

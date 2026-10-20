@@ -26,21 +26,49 @@ speech-to-text, may write them, in the words the grammars read.
 Each answers at three levels (``common.LEVELS``): brief ("96."), specific
 ("It's 96.", the default) and verbose ("Twelve times eight is 96."). Which,
 and a template of your own for any of them (rendered by Home Assistant), is
-the skill's page's (``settings.yaml`` ``skill_responses``).
+the skill's page's (``settings.yaml`` ``skill_responses``) -- as are its
+settings (``skill_settings``, by skill; ``common.Settings``): the units and
+their sizes, words spelled your way, holidays, a 24-hour clock, precision.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from . import arithmetic, clock, dates, spelling, units
-from .common import DEFAULT_LEVEL, LEVELS, Reply, Skill, normalize
+from .common import DEFAULT_LEVEL, LEVELS, Reply, Settings, Skill, normalize
 from .live import is_live
+
+_LOGGER = logging.getLogger(__name__)
 
 SKILLS: dict[str, Skill] = {
     skill.id: skill for skill in (spelling.SKILL, dates.SKILL, clock.SKILL, units.SKILL, arithmetic.SKILL)
 }
+
+BUILT_IN: dict[str, Settings] = {skill.id: skill.settings.load(None) for skill in SKILLS.values()}
+"""Each skill's settings, as built in."""
+
+
+def load(skill_id: str, stored: Any) -> tuple[Settings, str | None]:
+    """A skill's settings as stored (``settings.yaml`` ``skill_settings``:
+    by skill), and what is wrong with them -- then, the built-in ones."""
+    try:
+        return SKILLS[skill_id].settings.load(stored), None
+    except ValueError as err:
+        return BUILT_IN[skill_id], str(err)
+
+
+def configure(stored: Any) -> dict[str, Settings]:
+    """Every skill's settings, from ``settings.yaml`` ``skill_settings``."""
+    stored = stored if isinstance(stored, dict) else {}
+    out = {}
+    for skill_id, skill in SKILLS.items():
+        out[skill_id], error = load(skill_id, stored.get(skill_id))
+        if error:
+            _LOGGER.error("%s: its settings can't be used, so the built-in ones are: %s", skill.name, error)
+    return out
 
 
 @dataclass
@@ -91,8 +119,9 @@ def enabled(home: Any = None, own: Any = None, takes_home: bool = True) -> froze
     return own_skills(own) | (home_skills(home) if takes_home else frozenset())
 
 
-def answer(text: str, on: frozenset[str] | None = None) -> Answer | None:
-    """The first answer from the skills that are ``on`` (None: every one)."""
+def answer(text: str, on: frozenset[str] | None = None, settings: dict[str, Settings] | None = None) -> Answer | None:
+    """The first answer from the skills that are ``on`` (None: every one),
+    with their ``settings`` (``configure``; None: as built in)."""
     text = normalize(text)
     if not text:
         return None
@@ -106,7 +135,7 @@ def answer(text: str, on: frozenset[str] | None = None) -> Answer | None:
             if live_question:
                 continue
         try:
-            found = skill.answer(text)
+            found = skill.answer(text, (settings or BUILT_IN).get(skill.id) or BUILT_IN[skill.id])
         except (ValueError, OverflowError, KeyError, ZeroDivisionError):
             found = None
         if found:

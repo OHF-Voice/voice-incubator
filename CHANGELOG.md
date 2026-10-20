@@ -2,6 +2,22 @@
 
 ## 0.2.0
 
+- **Skills have settings**, on their pages. Unit conversions: its units
+  (change, take out or add one, each with its size, plural and other names;
+  imperial volumes are a few edits) and their precision. Spelling: words
+  spelled your way ("colour", a name, "my last name"). Dates: its holidays
+  (change, take out or add one: "December 25", "fourth Thursday of
+  November", "2 days before Easter", "June 20 2027"). Clock arithmetic: a
+  24-hour clock. Math: its precision. Stored as what differs from the
+  built-in (`settings.yaml` `skill_settings`).
+- **More holidays**: Easter, Good Friday, Thanksgiving, Mother's and
+  Father's Day, Memorial Day, Labor Day, Martin Luther King Jr. Day and
+  Presidents' Day, and "what day of the week is Christmas".
+- **Big numbers are said in full**: "how many centimeters in a mile" is
+  160,934, not 1.609e+05. Spelling says a space, hyphen or apostrophe ("O,
+  apostrophe, C, L, O, C, K"), and "how is X" is spelling only with
+  "spelled".
+
 - **The audio a speech-to-text entity hears** (Settings, and a satellite's
   Input): AGC, as before, or the echo-cancelled AEC capture -- as captured,
   or boosted to a normal level. The AEC stretch is cut to match the AGC

@@ -5,8 +5,30 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
+from functools import partial
+from typing import Any
 
-from .common import FRACTIONS, N, ORDINAL_POW, Skill, clean, fmt, parse_num, reply
+from . import common
+from .common import DIGITS, FRACTIONS, N, ORDINAL_POW, Skill, clean, options, parse_num, reply
+
+
+@dataclass(frozen=True)
+class Settings(common.Settings):
+    digits: int = DIGITS
+    """Significant digits in an answer that isn't whole: 14.29 (4), 14.3 (3)."""
+
+    @classmethod
+    def load(cls, stored: Any) -> Settings:
+        return cls(common.digits(options(stored, ("digits",)).get("digits")))
+
+    def to_json(self) -> dict[str, Any]:
+        return {"digits": self.digits}
+
+    @classmethod
+    def store(cls, edited: Any) -> Any:
+        settings = cls.load(edited)
+        return {"digits": settings.digits} if settings != cls() else None
 
 
 def asked(q):
@@ -19,8 +41,9 @@ def asked(q):
     return re.sub(r"\bthe (sum|total) of\b", "sum of", s).strip()
 
 
-def solve(q):
+def solve(q, places=DIGITS):
     s = asked(q)
+    fmt = partial(common.fmt, places=places)
 
     if m := re.fullmatch(rf"the square root of {N}", s) or re.fullmatch(rf"square root of {N}", s):
         v = parse_num(m.group(1))
@@ -71,13 +94,16 @@ def solve(q):
 MONEY = re.compile(r"\b(dollars?|euros?|pounds?|yen|cents?|bucks?)\b", re.I)
 
 
-def answer(text: str):
+DEFAULT = Settings()
+
+
+def answer(text: str, settings: Settings = DEFAULT):
     """With money in it ("15% of $80"), in that money: "It's 12 dollars."."""
     money = {m.lower().rstrip("s") for m in MONEY.findall(text)}
     if len(money) > 1:
         return None  # a conversion: not arithmetic
     plain = MONEY.sub(" ", text) if money else text
-    found = solve(plain)
+    found = solve(plain, settings.digits)
     if found is not None and money:
         unit = money.pop()
         found = f"{found} {unit}{'' if unit == 'yen' or found == '1' else 's'}"
@@ -92,4 +118,5 @@ SKILL = Skill(
     examples=("what's twelve times eight", "what is 15 percent of 80", "the square root of 144"),
     icon="mdi:calculator-variant-outline",
     answer=answer,
+    settings=Settings,
 )

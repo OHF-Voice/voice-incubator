@@ -1370,9 +1370,45 @@ point six").
 Every skill is on unless turned off, for the whole home (`settings.yaml`
 `skills: {spelling: false}`) or one satellite (`satellites.yaml`, the same;
 its own setting wins). A skill is a `Skill` (`skills/common.py`: id, name,
-description, examples, icon, `answer(text) -> sentence | None`) in a module
-named after its id, listed in `SKILLS` (`skills/__init__.py`) in the order
-they are asked.
+description, examples, icon, `answer(text, settings) -> Reply | None`,
+`settings`) in a module named after its id, listed in `SKILLS`
+(`skills/__init__.py`) in the order they are asked.
+
+Its settings are a `common.Settings` subclass in its module: `load` reads
+them as stored, `to_json` gives them to its page in full, and `store` turns
+what the page sends back into what is stored -- only what differs from the
+built-in, so built-in units and holidays left alone follow updates.
+`settings.yaml` `skill_settings`, by skill:
+
+```yaml
+skill_settings:
+  units:
+    units:                 # by name: a unit, or false for a built-in one taken out
+      pint: {measures: volume, size: 568.26125}          # imperial
+      nautical mile: {measures: length, size: 1852, also: [nmi]}
+      Rankine: {measures: temperature, freezes: 491.67, boils: 671.67}
+      stone: false
+    digits: 3              # significant digits (4)
+  spelling:
+    words: {color: colour, my last name: Hansen}
+  dates:
+    holidays:              # by name: when, {when, also}, or false
+      Thanksgiving: second Monday of October
+      My birthday: {when: June 3, also: [my bday]}
+      Juneteenth: false
+  clock: {hours: 24}
+  arithmetic: {digits: 6}
+```
+
+A unit's size is in its measure's base unit (`units.MEASURES`: meters,
+square meters, milliliters, grams, seconds, bytes); a temperature scale is
+two points instead, where water freezes and boils. A holiday's `when` is read
+by `dates.when`: a date, the nth or last weekday of a month, Easter or days
+or weeks before or after one of those, or a date with its year (once).
+Settings that can't be read -- edited by hand -- are logged and the built-in
+ones used (`skills.configure`); the skill's page says why. The engine gets
+them as `Engine.skill_settings` (`VoiceCallApp.configure_skills`, at start
+and when a page saves).
 
 From the benchmark (Q8_0, the "plain" prompt the app uses), on the 148
 knowledge questions its router hands to a model: Granite 4.0 350M 128 right,

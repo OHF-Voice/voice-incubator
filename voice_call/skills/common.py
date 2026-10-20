@@ -1,13 +1,16 @@
-"""What the skills share (not a skill itself): what a skill is, a question
-normalized and cleaned up for the grammars, spoken numbers, and an answer
-said as a sentence."""
+"""What the skills share (not a skill itself): what a skill is and its
+settings, a question normalized and cleaned up for the grammars, spoken
+numbers, and an answer said as a sentence."""
 
 from __future__ import annotations
 
 import calendar
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any
 
 
 LEVELS = ("brief", "specific", "verbose")
@@ -32,6 +35,61 @@ class Reply:
         return getattr(self, level) if level in LEVELS else self.specific
 
 
+class Settings:
+    """A skill's settings, as stored (``settings.yaml`` ``skill_settings``, by
+    skill: only what differs from the built-in, so what an update adds
+    reaches you) and as its page edits them (in full). None of its own: this."""
+
+    @classmethod
+    def load(cls, stored: Any) -> Settings:
+        """As stored (None: the built-in). Raises ValueError saying what is
+        wrong."""
+        options(stored, ())
+        return cls()
+
+    def to_json(self) -> dict[str, Any]:
+        """What its page edits."""
+        return {}
+
+    @classmethod
+    def store(cls, edited: Any) -> Any:
+        """What its page sent, as stored: what differs from the built-in, or
+        None. Raises ValueError saying what is wrong."""
+        cls.load(edited)
+        return None
+
+
+def options(stored: Any, known: tuple[str, ...]) -> dict[str, Any]:
+    """Stored settings as a mapping of ``known`` keys (None: empty)."""
+    if stored is None:
+        return {}
+    if not isinstance(stored, dict):
+        raise ValueError("expected a mapping")
+    unknown = sorted(str(key) for key in stored if key not in known)
+    if unknown:
+        raise ValueError(f"unknown {', '.join(unknown)}" + (f" (use {', '.join(known)})" if known else ""))
+    return stored
+
+
+DIGITS = 4
+"""Significant digits in an answer, unless set: 8.047, 0.3333, 14.29."""
+
+
+def digits(value: Any) -> int:
+    """A precision setting: 1 to 12 significant digits (None: ``DIGITS``)."""
+    if value is None:
+        return DIGITS
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError("precision: a whole number of digits from 1 to 12")
+    try:
+        number = float(value)
+    except ValueError as err:
+        raise ValueError("precision: a whole number of digits from 1 to 12") from err
+    if not number.is_integer() or not 1 <= number <= 12:
+        raise ValueError("precision: a whole number of digits from 1 to 12")
+    return int(number)
+
+
 @dataclass(frozen=True)
 class Skill:
     """A kind of question answered without an LLM. ``answer`` parses the whole
@@ -43,8 +101,11 @@ class Skill:
     description: str
     examples: tuple[str, ...]
     icon: str
-    answer: Callable[[str], Reply | None]
-    """The question, normalized (``normalize``) -> what is said, or None."""
+    answer: Callable[[str, Any], Reply | None]
+    """The question, normalized (``normalize``), and the skill's settings
+    (``settings``) -> what is said, or None."""
+    settings: type[Settings] = Settings
+    """What can be set (on its page)."""
     live_too: bool = False
     """Asked even when the question is about now or here (live.is_live)."""
 
@@ -163,11 +224,26 @@ def _spoken_year(s):
     return WORD_NUM[words[0]] * 100 + low
 
 
-def fmt(x):
-    if isinstance(x, float) and x.is_integer():
-        x = int(x)
+def rounded(x: float, places: int = DIGITS) -> float:
+    """``x`` to ``places`` significant digits -- a whole number past them is
+    kept whole (31536000, not 31540000)."""
+    if not math.isfinite(x) or x == 0:
+        return x
+    if abs(x) >= 10**places:
+        return float(round(x))
+    return float(f"{x:.{places}g}")
+
+
+def fmt(x, places: int = DIGITS):
+    """A number as said: a whole number in full ("1,609", "31,536,000"),
+    others to ``places`` significant digits ("8.047"); never in e-notation."""
+    if isinstance(x, float) and math.isfinite(x):
+        x = rounded(x, places)
+        if x.is_integer():
+            x = int(x)
     if isinstance(x, float):
-        return f"{x:.4g}" if abs(x) < 1e6 else f"{x:,.0f}"
+        text = format(Decimal(repr(x)), "f")
+        return text.rstrip("0").rstrip(".") if "." in text else text
     return f"{x:,}" if abs(x) >= 10000 else str(x)
 
 
