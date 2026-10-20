@@ -57,9 +57,9 @@ def _numbers(text: str) -> str:
             rest = words[index + 1:index + 3]
             if value >= 20 and rest[:1] == ["et"] and len(rest) > 1 and _SMALL.get(rest[1]) == 1:
                 value, index = value + 1, index + 2
-            elif value >= 20 and rest[:1] and 0 < _SMALL.get(rest[0], 0) < 10:
-                value, index = value + _SMALL[rest[0]], index + 1
-            elif value == 10 and rest[:1] and rest[0] in ("sept", "huit", "neuf"):
+            elif (value >= 20 and rest[:1] and 0 < _SMALL.get(rest[0], 0) < 10) or (
+                value == 10 and rest[:1] and rest[0] in ("sept", "huit", "neuf")
+            ):
                 value, index = value + _SMALL[rest[0]], index + 1
             out.append(str(value))
         else:

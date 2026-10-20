@@ -95,7 +95,7 @@ def answer(text: str, settings: Settings):
     plain = MONEY.sub(" ", text) if money else text
     found = solve(plain, settings.digits)
     if found is not None and money:
-        unit = sorted(money)[-1].rstrip("s")
+        unit = max(money).rstrip("s")
         found = f"{found} {unit}{'' if abs(float(found.replace(',', '.'))) < 2 else 's'}"
     expression = " ".join(asked(plain).split())
     return reply(found, text, f"{expression}, ça fait {found}" if expression else None, specific=f"Ça fait {found}." if found else None)
