@@ -677,7 +677,8 @@ async def _voices(tmp_path: Path) -> None:
         record = await app.try_text("please play kind of blue", MAC, speak=True)
         recognition = next(s for s in record.stages if s["stage"] == "recognition")
         assert recognition["command"] == "play_music", recognition["recognition"].get("transcript")
-        assert recognition["slots"]["query"] == "the album Kind of Blue"
+        # Its words, without a filler at either edge, as the TDT head's are.
+        assert recognition["slots"]["query"] == "album Kind of Blue"
         assert recognition["text_source"] == "stt.fake_whisper"
         assert recognition["stt"]["asked"] and hass.stt_requests[-1]["entity_id"] == "stt.fake_whisper"
 

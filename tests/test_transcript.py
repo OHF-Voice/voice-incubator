@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from adapt_ctc.text import spoken_words
-from voice_call.engine import Engine, Satellite, trimmed
+from voice_call.engine import Engine, Satellite, trimmed, within
 from voice_call.store import compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -189,3 +189,11 @@ def test_free_text_keeps_off_its_edges(engine):
     assert trimmed(["the", "pizza", "for"], {"the", "for"}) == ["pizza"]
     assert trimmed(["eggs", "and", "bacon", "to"], {"and", "to"}) == ["eggs", "and", "bacon"]
     assert trimmed(["for"], {"for"}) == ["for"]  # never nothing
+
+
+def test_a_last_word_running_into_silence_is_still_the_texts():
+    """The transducer gives the last word an end at the end of the audio:
+    its middle is taken half a second in, so "demie" stays in the time."""
+    words = [("à", 0.88, 0.96), ("sept", 0.96, 1.04), ("heures", 1.2, 1.28), ("et", 1.44, 1.52), ("demie.", 1.6, 2.72)]
+    assert within(words, 0.95, 2.0) == ["sept", "heures", "et", "demie"]
+    assert within(words, 0.95, 1.5) == ["sept", "heures", "et"]

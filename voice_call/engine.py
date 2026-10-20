@@ -63,6 +63,10 @@ WAKE_PHRASES = ("okay nabu", "okay naboo", "ok nabu", "ok naboo", "okay now")
 SPLIT_BOUND = 0.3
 """Seconds past Kaldi's wake word end that the wake phrase may still end."""
 
+WORD_SECONDS = 0.5
+"""How long a transducer's word is taken to be when it is placed in free
+text: its end may run on through the silence after it."""
+
 # Naming the closest command by meaning: only when it is this similar, and
 # this much closer than the runner-up (another command or an everyday
 # request). Hints only, so looser than adapt-ctc's acceptance margin.
@@ -734,6 +738,7 @@ class Engine:
             config = self.recognizer.config if self.recognizer is not None else None
             filler = list(config.filler) if config is not None else []
             text = without_place(text, places, filler, config.language if config is not None else None)
+            text = " ".join(trimmed(text.split(), self._edge_words(decision.intent.intent, wildcard))).strip()
         else:
             use = uses[0]
             start = use.hit.start * frame_seconds - frame_seconds
@@ -743,7 +748,7 @@ class Engine:
             # end a frame late -- and at the text's edge, a keyword, filler or
             # what says a place follows is no text, as the CTC matcher reads
             # it ("pizza for", "jazz in").
-            inside = [_strip(w) for w, s, e in words if start <= (s + e) / 2 <= end]
+            inside = within(words, start, end)
             text = " ".join(trimmed(inside, self._edge_words(decision.intent.intent, wildcard))).strip()
         if text and slot in decision.slots and text != str(decision.slots[slot]):
             # The transcript's words, and its case ("Kind of Blue").
@@ -895,6 +900,14 @@ def recognizer_has_meaning(engine: Engine) -> bool:
 
 def command_groups(command: Command) -> list:
     return list(command.intent.get("require") or [])
+
+
+def within(words: list[tuple[str, float, float]], start: float, end: float) -> list[str]:
+    """The timed words whose middle is between ``start`` and ``end``
+    (seconds), a word taken at most ``WORD_SECONDS`` long: the last word's
+    end may run on through the silence after it ("et demie." to the end of
+    the audio)."""
+    return [_strip(w) for w, s, e in words if start <= (s + min(e, s + WORD_SECONDS)) / 2 <= end]
 
 
 def trimmed(words: list[str], edges: set[str]) -> list[str]:
