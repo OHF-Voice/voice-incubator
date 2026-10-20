@@ -36,10 +36,13 @@ commands:
     require: [[pon, ponme, reproduce, reprodúceme, quiero escuchar, escuchar]]
     # Not "play": "qué está sonando", "pon la siguiente canción", "pon algo
     # parecido", "pon un temporizador", "pon la luz en rojo".
+    # Inside the text too (exclude_inside): the play verb also sets things.
     exclude: [siguiente, anterior, sonando, suena, parecida, parecido, parecidas, parecidos, similar, otra vez,
-              temporizador, alarma, volumen, por ciento, grados, lista de la compra, lista de tareas, cola]
+              temporizador, alarma, volumen, por ciento, grados, lista de la compra, lista de tareas, cola,
+              luz, luces, lámpara, lámparas]
     optional: [[en, al]]
-    wildcard: {slot: query, after: [pon, ponme, reproduce, reprodúceme, quiero escuchar, escuchar], to_end: true, max_words: 8}
+    wildcard: {slot: query, after: [pon, ponme, reproduce, reprodúceme, quiero escuchar, escuchar], to_end: true, max_words: 8,
+               exclude_inside: true}
     music: play
     verbosity: specific
     variants:

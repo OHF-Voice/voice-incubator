@@ -37,10 +37,12 @@ commands:
     require: [[metti, mettimi, riproduci, suona, fammi sentire, fammi ascoltare, voglio ascoltare]]
     # Not "play": "cosa sta suonando", "metti la prossima canzone", "metti
     # qualcosa di simile", "metti un timer", "metti la luce rossa".
+    # Inside the text too (exclude_inside): the play verb also sets things.
     exclude: [prossima, prossimo, successiva, successivo, precedente, sta suonando, simile, simili, genere,
-              timer, sveglia, volume, per cento, gradi, lista della spesa, cose da fare, coda, luce, luci]
+              timer, sveglia, volume, per cento, gradi, lista della spesa, cose da fare, coda, luce, luci, lampada, lampade]
     optional: [[in, su, nel, nella, sul, sulla]]
-    wildcard: {slot: query, after: [metti, mettimi, riproduci, suona, fammi sentire, fammi ascoltare, voglio ascoltare], to_end: true, max_words: 8}
+    wildcard: {slot: query, after: [metti, mettimi, riproduci, suona, fammi sentire, fammi ascoltare, voglio ascoltare], to_end: true, max_words: 8,
+               exclude_inside: true}
     music: play
     verbosity: specific
     variants:
