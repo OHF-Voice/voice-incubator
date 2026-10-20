@@ -2,7 +2,7 @@
 # Copy what the image needs but git does not carry into local/, for the
 # Dockerfile: the models (int8 Parakeet CTC and TDT, Piper, speaker ID, wake
 # words, the Kaldi verifier's model and tools, GLiNER for the command
-# fallback) and wyoming-wake-kaldi, which
+# fallback, German's when present) and wyoming-wake-kaldi, which
 # is not published. The Kaldi tools and its daemon are native binaries: stage
 # them on (or for) the architecture you build for.
 #
@@ -20,6 +20,14 @@ cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
 # sherpa-onnx release sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8, as is.
 if [[ -d models/parakeet-tdt-v3-int8 ]]; then
     cp -a models/parakeet-tdt-v3-int8 local/models/
+fi
+# German (`language: de`), when it has been put in models/: NVIDIA's
+# FastConformer hybrid as int8 CTC (166 MB) and transducer (185 MB), from
+# scripts/export_nemo_hybrid.py. Piper's Thorsten comes with models/piper.
+# Until other languages are downloaded, they ship in the image.
+if [[ -d models/speech-to-phrase/stt_de_fastconformer_hybrid_large_pc-int8 ]]; then
+    cp -a models/speech-to-phrase/stt_de_fastconformer_hybrid_large_pc-int8 local/models/speech-to-phrase/
+    cp -a models/stt_de_fastconformer_hybrid_large_pc-transducer-int8 local/models/
 fi
 # The command fallback's default model (78 MB), from scripts/export_gliner.py.
 if [[ -d models/gliner2.5-small-v1-onnx ]]; then
