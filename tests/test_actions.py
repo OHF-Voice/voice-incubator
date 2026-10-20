@@ -9,6 +9,7 @@ from voice_call import actions
 from voice_call.commands import parse_command
 from voice_call.engine import Decision, Satellite
 from voice_call.hass import HassError
+from voice_call.languages.en import speech as english
 
 from .fake_hass import FakeHass
 
@@ -96,12 +97,12 @@ def test_failed():
     assert outcome.error == "Action light.turn_on not found"
     assert hass.events[-1]["outcome"] == "failed"
     # Without a failed response: the built-in one.
-    assert run({"action": {"action": "light.turn_on"}, "response": "On."}, hass).speech == actions.FAILED
+    assert run({"action": {"action": "light.turn_on"}, "response": "On."}, hass).speech == english.FAILED
     # A timer service refused, and timers without the integration.
     outcome = run({**PAUSE, "response": {"failed": "Timers are broken."}}, hass, integration=StubTimers([{**TEA, "status": "active"}]))
     assert (outcome.name, outcome.speech) == ("failed", "Timers are broken.")
     outcome = run({"timer": "pause"}, StubHass())
-    assert (outcome.name, outcome.speech) == ("failed", actions.TIMERS_NEED_INTEGRATION)
+    assert (outcome.name, outcome.speech) == ("failed", english.TIMERS_NEED_INTEGRATION)
 
 
 def test_a_script_picks_its_outcome():
@@ -175,7 +176,7 @@ def test_a_beep_is_for_what_happens_here():
     # What went wrong is always said.
     hass = StubHass()
     hass.fail = True
-    assert say(LIGHTS, hass=hass).speech == actions.FAILED
+    assert say(LIGHTS, hass=hass).speech == english.FAILED
 
 
 def test_the_closest_written_level_is_said():
@@ -219,7 +220,7 @@ def test_where_it_acted():
     assert place({"floor": ["den_floor"]})["said"] == "in the Basement"
     assert place({"area": ["kitchen", "office"]})["said"] == "in the Kitchen and in the Office"
     assert actions.place({"area": ["office"]}, SATELLITE)["said"] == "in the Office"  # no catalog
-    assert actions._in_area("Sam's Room") == "in Sam's Room"  # pylint: disable=protected-access
+    assert english.place([("area", "Sam's Room")]) == "in Sam's Room"
 
 
 def test_timers_say_as_much_as_their_level():

@@ -12,7 +12,8 @@ slots and from the timers that are running on that satellite:
 * none of them -- the only running timer.
 
 Several timers left after all that is ambiguous for anything but a status
-question, and is answered with what is running.
+question, and is answered with what is running. What each says is the app's
+language's (its speech module's timer sentences).
 
 Every plan has an ``outcome`` saying how it went, so a command can say something
 else for each (``response: {done: ..., no_timers: ...}``):
@@ -32,6 +33,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from . import languages
 
 OPERATIONS = ("start", "alarm", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status")
 SERVICES = {
@@ -105,47 +108,38 @@ def plan(
     """Decide what ``operation`` does with these slots and running timers.
     ``now`` (local time) is for an alarm."""
     now = now or datetime.now()
+    say = languages.speech()
     if operation == "alarm":
         return _alarm(slots, now)
     duration = _seconds(slots.get("duration"))
     if operation == "start":
         if not duration:
-            return Plan("How long should the timer be?", "missing_duration")
+            return Plan(say.TIMER_HOW_LONG, "missing_duration")
         name = _clean_name(slots.get("timer"))
         data: dict[str, Any] = {"duration": duration}
         if name:
             data["name"] = name
         timer = {"name": name, "created_duration": duration}
-        specific = f"{_describe(timer, capital=True)} started."
         ends = now + timedelta(seconds=duration)
-        levels = _levels("Timer started.", specific, f"{specific[:-1]}, finishing at {_clock_text(ends.hour, ends.minute)}.")
-        return Plan(specific, "done", "create_timer", data, timer, levels=levels)
+        return _done("create_timer", data, timer, say.timer_started(timer, (ends.hour, ends.minute)))
 
     if not running:
-        return Plan("There are no timers.", "no_timers")
+        return Plan(say.NO_TIMERS, "no_timers")
 
     if operation == "cancel_all":
         calls = [("cancel_timer", {"timer_id": t["timer_id"]}) for t in running]
-        count = len(running)
-        specific = "Cancelled the timer." if count == 1 else f"Cancelled {count} timers."
-        verbose = f"Cancelled {_join([_describe(t) for t in running])}."
-        return Plan(
-            specific,
-            calls=calls,
-            timers=running,
-            levels=_levels("Cancelled the timers." if count > 1 else "Cancelled the timer.", specific, verbose),
-        )
+        levels = say.timers_cancelled(running)
+        return Plan(levels["specific"], calls=calls, timers=running, levels=levels)
 
     # Which timers were meant, whatever their state; then which of them the
     # operation applies to (pausing a paused timer is "already", not "no such timer").
     candidates, asked = _match(running, slots, duration if operation not in ("add", "subtract") else None)
     if not candidates:
-        return Plan(_not_found(asked, running), "not_found")
+        return Plan(say.timer_not_found(asked, running), "not_found")
 
     if operation == "status":
-        said = _join([_status(t) for t in candidates])
         return Plan(
-            said[0].upper() + said[1:] + ".",
+            say.timer_status(candidates),
             timers=candidates,
             timer=candidates[0] if len(candidates) == 1 else None,
         )
@@ -153,39 +147,28 @@ def plan(
     ready = [t for t in candidates if t.get("status") in APPLIES_TO[operation]]
     if not ready:
         return Plan(
-            _already(operation, candidates),
+            say.timer_already(operation, candidates),
             "already",
             timers=candidates,
             timer=candidates[0] if len(candidates) == 1 else None,
         )
     if len(ready) > 1:
-        listed = _join([_describe(t) for t in ready])
-        return Plan(f"Which timer? There's {listed}.", "ambiguous", timers=ready)
+        return Plan(say.which_timer(ready), "ambiguous", timers=ready)
 
     timer = ready[0]
     data = {"timer_id": timer["timer_id"]}
     if operation in ("add", "subtract"):
         if not duration:
-            return Plan("How much time?", "missing_duration", timer=timer)
+            return Plan(say.TIMER_HOW_MUCH, "missing_duration", timer=timer)
         data["duration"] = duration
-        verb = "Added" if operation == "add" else "Took"
-        prep = "to" if operation == "add" else "off"
-        specific = f"{verb} {_spoken_duration(duration)} {prep} {_describe(timer)}."
         left = float(timer.get("remaining") or 0) + (duration if operation == "add" else -duration)
-        verbose = f"{specific[:-1]}; {_spoken_duration(max(0.0, left))} left."
-        brief = "Added the time." if operation == "add" else "Took the time off."
-        return Plan(specific, "done", SERVICES[operation], data, timer, levels=_levels(brief, specific, verbose))
-    done = {"cancel": "cancelled", "pause": "paused", "resume": "resumed"}[operation]
-    specific = f"{_describe(timer, capital=True)} {done}."
-    left = _spoken_duration(float(timer.get("remaining") or 0))
-    verbose = f"{specific[:-1]}, with {left} left." if operation != "resume" else f"{specific[:-1]}; {left} left."
-    return Plan(
-        specific, "done", SERVICES[operation], data, timer, levels=_levels(f"Timer {done}.", specific, verbose)
-    )
+        return _done(SERVICES[operation], data, timer, say.timer_changed(operation, timer, duration, max(0.0, left)))
+    return _done(SERVICES[operation], data, timer, say.timer_done(operation, timer))
 
 
-def _levels(brief: str, specific: str, verbose: str) -> dict[str, str]:
-    return {"brief": brief, "specific": specific, "verbose": verbose}
+def _done(service: str, data: dict[str, Any], timer: dict[str, Any], levels: dict[str, str]) -> Plan:
+    """Done, saying the specific level by default."""
+    return Plan(levels["specific"], "done", service, data, timer, levels=levels)
 
 
 def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
@@ -193,7 +176,7 @@ def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
     six", "noon". Without am or pm, the next time it comes round."""
     clock = parse_clock(str(slots.get("time") or ""))
     if clock is None:
-        return Plan("What time should the alarm be for?", "missing_time")
+        return Plan(languages.speech().ALARM_WHEN, "missing_time")
     hour, minute, meridiem = clock
     candidates = [hour] if meridiem or hour >= 12 or hour == 0 else [hour, hour + 12]
     if meridiem == "pm" and hour < 12:
@@ -213,10 +196,7 @@ def _alarm(slots: dict[str, Any], now: datetime) -> Plan:
     name = _clean_name(slots.get("timer")) or "alarm"
     data: dict[str, Any] = {"duration": int(round(seconds)), "name": name}
     timer = {"name": name, "created_duration": data["duration"]}
-    said = _clock_text(hour24, minute)
-    specific = f"Alarm set for {said}."
-    verbose = f"{specific[:-1]}, {_spoken_duration(round(seconds / 60) * 60)} from now."
-    return Plan(specific, "done", "create_timer", data, timer, levels=_levels("Alarm set.", specific, verbose))
+    return _done("create_timer", data, timer, languages.speech().alarm_set((hour24, minute), round(seconds / 60) * 60))
 
 
 _SMALL = {
@@ -310,16 +290,6 @@ def _valid(hour: int, minute: int, meridiem: str | None) -> tuple[int, int, str 
     return hour, minute, meridiem
 
 
-def _clock_text(hour: int, minute: int) -> str:
-    """"7:30 AM", "noon"."""
-    if (hour, minute) == (12, 0):
-        return "noon"
-    if (hour, minute) == (0, 0):
-        return "midnight"
-    suffix = "AM" if hour < 12 else "PM"
-    return f"{hour % 12 or 12}:{minute:02d} {suffix}"
-
-
 # What each outcome says, from a few made-up timers: the defaults a command's
 # own responses replace (shown in the UI).
 _SAMPLE = [
@@ -367,11 +337,12 @@ def level_examples() -> dict[str, dict[str, str]]:
 
 def _match(
     pool: list[dict[str, Any]], slots: dict[str, Any], duration: float | None
-) -> tuple[list[dict[str, Any]], str | None]:
-    """Running timers that fit what was said, and how it was asked for."""
+) -> tuple[list[dict[str, Any]], str | float | None]:
+    """Running timers that fit what was said, and how it was asked for: by
+    name, or by length (seconds)."""
     exact = slots.get("timer_name")
     text = _clean_name(slots.get("timer"))
-    asked = None
+    asked: str | float | None = None
     candidates = pool
     if exact:
         asked = str(exact)
@@ -384,34 +355,12 @@ def _match(
     if duration:
         sized = [t for t in candidates if abs(float(t.get("created_duration") or 0) - duration) < 1]
         if asked is None:
-            asked = f"{_spoken_duration(duration, adjective=True)} timer"
+            asked = duration
             candidates = sized
         elif sized:
             # With a name, the length only tells apart timers of that name.
             candidates = sized
     return candidates, asked
-
-
-def _not_found(asked: str | None, running: list[dict[str, Any]]) -> str:
-    listed = _join([_describe(t) for t in running])
-    if not asked:
-        return f"There's {listed}."
-    name = asked if asked.endswith("timer") else f"{asked} timer"
-    return f"There's no {name}. There's {listed}."
-
-
-def _already(operation: str, timers: list[dict[str, Any]]) -> str:
-    state = "paused" if operation == "pause" else "running"
-    if len(timers) == 1:
-        return f"{_describe(timers[0], capital=True)} is already {state}."
-    return f"All the timers are already {state}."
-
-
-def _status(timer: dict[str, Any]) -> str:
-    left = _spoken_duration(float(timer.get("remaining") or 0))
-    if timer.get("status") == "paused":
-        return f"{_describe(timer)} is paused with {left} left"
-    return f"{left} left on {_describe(timer)}"
 
 
 def progress(running: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
@@ -445,37 +394,6 @@ def stops_ringing(operation: str | None, slots: dict[str, Any]) -> bool:
     return operation in ("cancel", "cancel_all") and not any(
         slots.get(k) for k in ("timer", "timer_name", "duration")
     )
-
-
-def _describe(timer: dict[str, Any], capital: bool = False) -> str:
-    """"the pizza timer", or "the 5 minute timer"."""
-    name = timer.get("name")
-    if name:
-        text = f"the {name} timer"
-    else:
-        text = f"the {_spoken_duration(float(timer.get('created_duration') or 0), adjective=True)} timer"
-    return text[0].upper() + text[1:] if capital else text
-
-
-def _spoken_duration(seconds: float, adjective: bool = False) -> str:
-    """"1 hour and 5 minutes"; as an adjective, "1 hour 5 minute"."""
-    total = int(round(seconds))
-    hours, rest = divmod(total, 3600)
-    minutes, secs = divmod(rest, 60)
-    parts = []
-    for value, unit in ((hours, "hour"), (minutes, "minute"), (secs, "second")):
-        if value or (unit == "second" and not parts):
-            plural = "" if adjective or value == 1 else "s"
-            parts.append(f"{value} {unit}{plural}")
-    if hours:
-        parts = parts[:2]  # an hour and some: seconds don't matter
-    if adjective:
-        return " ".join(parts)
-    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
-
-
-def _join(parts: list[str]) -> str:
-    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
 def _seconds(duration: Any) -> float | None:

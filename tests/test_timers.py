@@ -8,6 +8,7 @@ import pytest
 from adapt_ctc.config import parse_config
 from voice_call import timers
 from voice_call.engine import Engine
+from voice_call.languages.en import speech as english
 from voice_call.store import compile_store
 
 RUNNING = [
@@ -136,9 +137,9 @@ def test_stop_over_a_ringing_alarm():
 
 
 def test_spoken_durations():
-    assert timers._spoken_duration(3725) == "1 hour and 2 minutes"
-    assert timers._spoken_duration(1) == "1 second"
-    assert timers._spoken_duration(0) == "0 seconds"
+    assert english.duration(3725) == "1 hour and 2 minutes"
+    assert english.duration(1) == "1 second"
+    assert english.duration(0) == "0 seconds"
 
 
 COMMANDS = {

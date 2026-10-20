@@ -1684,7 +1684,7 @@ class VoiceCallApp:
                 call.record.stage("error", error=repr(err))
                 self.calls.finish(call.record, "error", repr(err), self._call_audio(call))
             with contextlib.suppress(Exception):
-                await self._say(session, "Sorry, something went wrong.")
+                await self._say(session, self.language.speech.WENT_WRONG)
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
 
@@ -1825,7 +1825,7 @@ class VoiceCallApp:
             said = await self._skill_says(answer, satellite, speaker, record)
             return said, "answered", f"{decision.transcript!r}: {answer.get('skill') or answer['kind']}'s answer"
         if decision.command is None:
-            message = decision.message or actions.SORRY
+            message = decision.message or self.language.speech.SORRY
             compiled = self.engine.compiled if self.engine is not None else None
             if compiled is not None and compiled.unknown and decision.refused is None:
                 # Nothing understood it: the Unknown command says what to say.
@@ -2187,8 +2187,7 @@ class VoiceCallApp:
             names = [t.get("name") for t in session.ringing_timers]
             record.stage("timer_ringing", timers=session.ringing_timers)
             await self._event(session, "timer_ringing", timers=len(names), name=names[-1] or "")
-            described = [timers._describe(t, capital=True) for t in session.ringing_timers]  # pylint: disable=protected-access
-            await self._say(session, " ".join(f"{d} is done." for d in described), paced=True)
+            await self._say(session, self.language.speech.timers_ringing(session.ringing_timers), paced=True)
             while time.monotonic() < deadline and session.writer is not None:
                 await self._play(session, self.speech.alarm, paced=True)
         except asyncio.CancelledError:
@@ -2197,7 +2196,7 @@ class VoiceCallApp:
         finally:
             record.stage("timer_stopped", by=stopped_by)
             self.calls.finish(record, "timer rang out" if stopped_by == "timeout" else "timer stopped", ", ".join(
-                str(t.get("name") or timers._spoken_duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers  # pylint: disable=protected-access
+                str(t.get("name") or self.language.speech.duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers
             ))
             session.ringing_timers = []
             self._spawn(self._after_ring(session))

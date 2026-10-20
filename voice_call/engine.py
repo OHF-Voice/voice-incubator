@@ -73,8 +73,6 @@ HINT_COVERAGE = 0.5
 (keywords, names, numbers) covers at least this share of the words that are
 not fillers: "set" alone does not make "set a timer" a temperature."""
 
-NAME_WORDS = {"entity": "which device", "area": "which room", "floor": "which floor"}
-NO_COMMANDS = "No voice commands are set up yet. Add some in the Voice Call app."
 
 @dataclass
 class Satellite:
@@ -481,7 +479,7 @@ class Engine:
             compiled, recognizer = self.compiled, self.recognizer
         if recognizer is None or compiled is None:
             decision = Decision(recognition={"transcript": self._greedy(log_probs)})
-            decision.message = NO_COMMANDS
+            decision.message = languages.speech().NO_COMMANDS
             decision.hint = {"source": None, "text": decision.message}
             return decision
 
@@ -521,14 +519,15 @@ class Engine:
         elif decision.command is None and decision.answer is None:
             decision.hint = self._hint(recognition, compiled, satellite, decision.skipped)
             picked = (decision.fallback or {}).get("llm") or {}
+            say = languages.speech()
             if picked.get("command") in compiled.commands:
                 # GLiNER knew what was meant but not all of it.
                 command = compiled.commands[picked["command"]]
-                why = "but that isn't set up here" if satellite.available(command) is None else "but I didn't understand all of it"
-                decision.hint = {"source": "gliner", "command": command.id, "text": f"It looks like you're trying to {command.description}, {why}."}
+                why = say.NOT_HERE if satellite.available(command) is None else say.PARTLY
+                decision.hint = {"source": "gliner", "command": command.id, "text": say.hint(command.description, why)}
             if not compiled.commands:
                 # Only the app's own commands are listened for.
-                decision.hint = {"source": None, "text": NO_COMMANDS}
+                decision.hint = {"source": None, "text": say.NO_COMMANDS}
             decision.message = decision.hint["text"]
 
         decision.recognition = to_json(recognition)
@@ -690,17 +689,9 @@ class Engine:
         device = item if isinstance(item, str) else item.get("name") or entities[0]
         area_item = ((compiled.data.get("names") or {}).get("areas") or {}).get(areas[0]) or {}
         room = area_item if isinstance(area_item, str) else area_item.get("name") or areas[0]
-        if all(where[c] is None for c in candidates):
-            why = f"but I don't know which room {device} is in"
-        else:
-            from .actions import _in_area  # pylint: disable=import-outside-toplevel
-
-            why = f"but there's no {device} {_in_area(room)}"
-        return {
-            "source": "place",
-            "command": decision.command.id,
-            "text": f"It looks like you're trying to {decision.command.description}, {why}.",
-        }
+        say = languages.speech()
+        why = say.no_room(device) if all(where[c] is None for c in candidates) else say.not_in(device, room)
+        return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
 
     def _greedy(self, log_probs: np.ndarray) -> str:
         ids, previous = [], None
@@ -767,6 +758,7 @@ class Engine:
         """What the command looks like it was trying to do, and why it did
         not happen."""
         commands = compiled.commands
+        say = languages.speech()
         with self._lock:
             recognizer = self.recognizer
         if skipped:
@@ -804,17 +796,15 @@ class Engine:
             candidates.append((rank, command, result))
         if candidates:
             _, command, result = min(candidates, key=lambda item: item[0])
-            available = satellite.available(command) is not None
-            why = (
-                "but that isn't set up here"
-                if not available
-                else _missing_text(command, result.missing)
-            )
+            if satellite.available(command) is None:
+                why = say.NOT_HERE
+            else:
+                why = say.missing(result.missing[0], command.duration, command.number_slot)
             return {
                 "source": "keywords",
                 "command": command.id,
                 "missing": result.missing,
-                "text": f"It looks like you're trying to {command.description}, {why}.",
+                "text": say.hint(command.description, why),
             }
 
         if recognizer_has_meaning(self):
@@ -833,16 +823,12 @@ class Engine:
                     and margin >= HINT_MARGIN
                 ):
                     hint["command"] = command.id
-                    why = (
-                        "but I didn't understand all of it"
-                        if satellite.available(command) is not None
-                        else "but that isn't set up here"
-                    )
-                    hint["text"] = f"It looks like you're trying to {command.description}, {why}."
+                    why = say.PARTLY if satellite.available(command) is not None else say.NOT_HERE
+                    hint["text"] = say.hint(command.description, why)
                     return hint
-                hint["text"] = "Sorry, I didn't understand that."
+                hint["text"] = say.SORRY
                 return hint
-        return {"source": None, "text": "Sorry, I didn't understand that."}
+        return {"source": None, "text": say.SORRY}
 
 
 def _coverage(recognition: Recognition, recognizer: Recognizer, intent_name: str) -> float:
@@ -891,36 +877,6 @@ def recognizer_has_meaning(engine: Engine) -> bool:
 
 def command_groups(command: Command) -> list:
     return list(command.intent.get("require") or [])
-
-
-def _missing_text(command: Command, missing: list[dict[str, Any]]) -> str:
-    first = missing[0]
-    kind = first.get("kind")
-    if kind == "require":
-        if first.get("slot"):
-            return f"but I didn't hear which {first['slot'].replace('_', ' ')}"
-        return f"but I didn't hear \"{first['phrases'][0]}\""
-    if kind == "name":
-        return f"but I didn't hear {NAME_WORDS.get(first['type'], 'which one')}"
-    if kind == "number":
-        if first.get("heard"):
-            return f"but {first['heard'][0]} is out of range"
-        if command.duration:
-            return "but I didn't hear how long"
-        what = command.number_slot.replace("_", " ")
-        return "but I didn't hear a number" if what == "number" else f"but I didn't hear the {what}"
-    if kind == "text":
-        return f"but I didn't hear the {first['slot'].replace('_', ' ')}"
-    if kind == "unexplained":
-        words = " ".join(first.get("words") or [])
-        return f"but I didn't understand \"{words}\"" if words else "but I didn't understand all of it"
-    if kind == "unknown_name":
-        return f"but I don't know \"{' '.join(first.get('words') or [])}\""
-    if kind == "place":
-        # A room, floor or device it can't be pointed at: "play music in the office".
-        what = {"floor": "floor", "entity": "device"}.get(str(first.get("type")), "room")
-        return f"but I can't pick a {what} for it"
-    return "but I wasn't sure"
 
 
 def _strip(word: str) -> str:

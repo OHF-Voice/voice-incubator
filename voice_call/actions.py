@@ -38,7 +38,7 @@ How it went is the outcome: ``done``, ``failed`` (Home Assistant refused), a
 timer operation's own (``no_timers``, ``not_found`` ...), or the ``outcome`` a
 script returned. The command's response for that outcome is spoken, or else
 the built-in sentence: what the timer operation says, the script's
-``speech``, FAILED.
+``speech``, or that it failed (the language's FAILED).
 
 How much is said when it is done is the command's verbosity
 (commands.VERBOSITY): nothing at all, a beep, or its response for that level
@@ -69,18 +69,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import languages, timers
 from . import music as music_ops
-from . import timers
 from .commands import QUIET, SPOKEN, Behavior, Command, closest_text
 from .engine import Decision, Satellite
 from .hass import HassError, HomeAssistant
 
-TIMERS_NEED_INTEGRATION = "Timers need the Voice Call integration in Home Assistant."
-
 _LOGGER = logging.getLogger(__name__)
 
 EVENT_TYPE = "voice_call_command"
-FAILED = "Sorry, that didn't work."
 BEEP_ELSEWHERE = "specific"
 """What a command that beeps says when it acted out of the satellite's area."""
 
@@ -158,9 +155,6 @@ def variables(
     }
 
 
-SORRY = "Sorry, I didn't understand that."
-
-
 def unknown_variables(
     decision: Decision,
     satellite: Satellite,
@@ -177,7 +171,7 @@ def unknown_variables(
         "heard": str(decision.recognition.get("transcript") or ""),
         "hint": str(hint.get("text") or "") if closest is not None else "",
         "closest": {"id": closest.id, "description": closest.description} if closest is not None else None,
-        "response": decision.message or SORRY,
+        "response": decision.message or languages.speech().SORRY,
         "slots": {},
         "satellite": satellite.as_dict(),
         "speaker": speaker or {"name": None, "score": None},
@@ -202,13 +196,20 @@ async def render_said(
 def place(slots: dict[str, Any], satellite: Satellite, catalog: Any = None) -> dict[str, Any]:
     """Where a command acts: the areas, floors and devices it names, or else
     the satellite's area. ``here`` when that is only the satellite's area --
-    a device in no known area is not here."""
+    a device in no known area is not here. ``said`` is where, as the
+    language says it ("in the Kitchen")."""
+    here, places, areas = _where(slots, satellite, catalog)
+    return {"here": here, "said": languages.speech().place(places), "areas": areas}
+
+
+def _where(slots: dict[str, Any], satellite: Satellite, catalog: Any) -> tuple[bool, list[tuple[str, str]], list[str]]:
+    """place(), with where it is said to be as ``("area" | "floor", name)``."""
     own = satellite.area_id
     named_areas = [str(a) for a in slots.get("area") or []]
     floors = [str(f) for f in slots.get("floor") or []]
     entities = [str(e) for e in slots.get("entity") or []]
     if not (named_areas or floors or entities):
-        return {"here": True, "said": _in_area(satellite.area_name) if satellite.area_name else "", "areas": [own] if own else []}
+        return True, [("area", satellite.area_name)] if satellite.area_name else [], [own] if own else []
     areas = list(named_areas)
     entity_areas: list[str] = []
     if catalog is not None:
@@ -230,30 +231,8 @@ def place(slots: dict[str, Any], satellite: Satellite, catalog: Any = None) -> d
 
     if floors:
         names = [catalog.floors[f].name if catalog is not None and f in catalog.floors else f.replace("_", " ") for f in floors]
-        said = " and ".join(_on_floor(name) for name in names)
-    else:
-        said = " and ".join(_in_area(area_name(a)) for a in (named_areas or list(dict.fromkeys(entity_areas))))
-    return {"here": here, "said": said, "areas": areas}
-
-
-def _in_area(name: str) -> str:
-    """"in the Kitchen", "in Sam's Room", "outside"."""
-    lower = name.lower()
-    if lower in ("upstairs", "downstairs", "outside", "outdoors", "inside", "indoors"):
-        return lower
-    if lower.startswith("the ") or "'s" in lower:
-        return f"in {name}"
-    return f"in the {name}"
-
-
-def _on_floor(name: str) -> str:
-    """"upstairs", "on the First Floor", "in the Basement"."""
-    lower = name.lower()
-    if lower in ("upstairs", "downstairs"):
-        return lower
-    if "floor" in lower or "level" in lower:
-        return f"on the {name}" if not lower.startswith("the ") else f"on {name}"
-    return _in_area(name)
+        return here, [("floor", name) for name in names], areas
+    return here, [("area", area_name(a)) for a in (named_areas or list(dict.fromkeys(entity_areas)))], areas
 
 
 async def run(
@@ -286,7 +265,7 @@ async def run(
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             outcome.error = str(err)
             _LOGGER.error("Command %s failed: %s", command.id, err)
-            return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
         finally:
             outcome.timings["execute"] = time.perf_counter() - started
 
@@ -316,13 +295,13 @@ async def _run_timer(
     it out (unless a dry run), and say how it went."""
     if integration is None or not integration.ready or not satellite.timer_list:
         outcome.error = "no timer list for this satellite"
-        return await _say(hass, behavior, values, outcome, "failed", TIMERS_NEED_INTEGRATION, {"error": outcome.error})
+        return await _say(hass, behavior, values, outcome, "failed", languages.speech().TIMERS_NEED_INTEGRATION, {"error": outcome.error})
     started = time.perf_counter()
     try:
         running = await integration.fresh_timers(satellite.key)
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         outcome.error = str(err)
-        return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+        return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     plan = timers.plan(behavior.timer, values["slots"], running)
     target = {"entity_id": satellite.timer_list}
     calls = ([(plan.service, plan.data)] if plan.service else []) + plan.calls
@@ -348,7 +327,7 @@ async def _run_timer(
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             outcome.error = str(err)
             _LOGGER.error("Timer command failed: %s", err)
-            return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     outcome.timings["timer"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, plan.outcome, plan.levels or plan.speech)
 
@@ -383,7 +362,7 @@ async def _run_music(
         )
     except (HassError, ConnectionError, OSError, TimeoutError, ValueError) as err:
         outcome.error = str(err)
-        return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+        return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     trace["players"] = {k: p.as_dict() for k, p in players.items()}
     if operation == "move":
         return await _move_music(hass, behavior, values, satellite, outcome, music, players, own, named, nearby, sent, started)
@@ -397,7 +376,7 @@ async def _run_music(
         "place": _players_place(chosen, satellite, getattr(hass, "catalog", None)) if chosen else values["place"],
     }
     if choice.outcome:
-        return await _say(hass, behavior, values, outcome, choice.outcome, music_ops.SAID[choice.outcome])
+        return await _say(hass, behavior, values, outcome, choice.outcome, languages.speech().MUSIC_SAID[choice.outcome])
 
     ids = [p.entity_id for p in chosen]
     calls: list[tuple[str, str, dict]] = []
@@ -408,14 +387,14 @@ async def _run_music(
                 here = music_ops.choose("status", players, own, None, nearby, []).players if named else chosen
                 item = await music.current(here[0].entity_id) if here else None
                 if item is None:
-                    return await _say(hass, behavior, values, outcome, "nothing_playing", music_ops.NOTHING_PLAYING)
+                    return await _say(hass, behavior, values, outcome, "nothing_playing", languages.speech().NOTHING_PLAYING)
             elif music_ops.generic(query):
-                return await _say(hass, behavior, values, outcome, "missing_query", music_ops.SAID["missing_query"])
+                return await _say(hass, behavior, values, outcome, "missing_query", languages.speech().MUSIC_SAID["missing_query"])
             else:
                 item = await music.find(str(query), slots.get("media_type"), ids[0])
                 trace["queries"] = [q.__dict__ for q in music_ops.queries(query, slots.get("media_type"))]
                 if item is None:
-                    return await _say(hass, behavior, values, outcome, "not_found", f"I couldn't find {music_ops.clean(query)}.")
+                    return await _say(hass, behavior, values, outcome, "not_found", languages.speech().not_found(music_ops.clean(query)))
             trace["found"] = {**item.as_dict(), "score": round(item.score, 3)}
             values = {**values, "media": item.as_dict()}
             data: dict[str, Any] = {"media_id": item.uri, "media_type": item.media_type}
@@ -437,11 +416,11 @@ async def _run_music(
             calls = [("media_player", service, data) for service, data in controls]
     except LookupError as err:
         outcome.error = str(err)
-        return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+        return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         outcome.error = str(err)
         _LOGGER.error("Music command failed: %s", err)
-        return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+        return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
 
     target = {"entity_id": ids}
     outcome.sequence = [{"action": f"{d}.{s}", "target": target, "data": data} for d, s, data in calls]
@@ -452,7 +431,7 @@ async def _run_music(
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             outcome.error = str(err)
             _LOGGER.error("Music command failed: %s", err)
-            return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
         if operation == "pause":
             music.remember_paused(satellite.key, ids)
         elif operation in ("resume", "play", "stop"):
@@ -489,16 +468,16 @@ async def _move_music(
         trace["source"] = choice.source.entity_id
         values = {**values, "source": choice.source.as_dict()}
     if choice.outcome:
-        return await _say(hass, behavior, values, outcome, choice.outcome, music_ops.MOVE_SAID[choice.outcome])
+        return await _say(hass, behavior, values, outcome, choice.outcome, languages.speech().MOVE_SAID[choice.outcome])
     source, target = choice.source, choice.players[0]
     assert source is not None
-    heard = values["place"]
-    to = "" if values["slots"].get("entity") else _to_place(heard.get("said") or "")
+    catalog = getattr(hass, "catalog", None)
+    to = "" if values["slots"].get("entity") else languages.speech().place(_where(values["slots"], satellite, catalog)[1], to=True)
     values = {
         **values,
         "player": target.as_dict(),
         "players": [target.as_dict()],
-        "place": _players_place([target], satellite, getattr(hass, "catalog", None)),
+        "place": _players_place([target], satellite, catalog),
     }
     data = {"source_player": source.entity_id, "auto_play": True}
     target_ids = {"entity_id": [target.entity_id]}
@@ -509,7 +488,7 @@ async def _move_music(
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             outcome.error = str(err)
             _LOGGER.error("Moving the music failed: %s", err)
-            return await _say(hass, behavior, values, outcome, "failed", FAILED, {"error": str(err)})
+            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
         music.forget_paused(satellite.key)
         if target.entity_id == own:
             music.forget_sent(satellite.key)
@@ -517,15 +496,6 @@ async def _move_music(
             music.remember_sent(satellite.key, [target.entity_id])
     outcome.timings["music"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, "done", music_ops.moved_said(source, target, to))
-
-
-def _to_place(said: str) -> str:
-    """Where, as heard, to move to: "in the Kitchen" -> "to the Kitchen";
-    "upstairs" stays."""
-    for word in ("in ", "on "):
-        if said.startswith(word):
-            return "to " + said[len(word):]
-    return said
 
 
 def _all_music_players(hass: HomeAssistant) -> list[str]:
@@ -618,7 +588,7 @@ async def _say(
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             outcome.error = outcome.error or f"response template: {err}"
             _LOGGER.error("Could not render the response: %s", err)
-            outcome.speech = FAILED
+            outcome.speech = languages.speech().FAILED
         finally:
             outcome.timings["render"] = time.perf_counter() - started
     else:

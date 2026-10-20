@@ -10,6 +10,7 @@ from voice_call import actions, music
 from voice_call.commands import parse_command
 from voice_call.engine import Decision, Satellite
 from voice_call.hass import HomeAssistant
+from voice_call.languages.en import speech as english
 from voice_call.music import Item, Player, Query
 
 from . import fake_hass
@@ -133,7 +134,7 @@ def test_the_closest_result_wins():
 
 def test_every_outcome_has_an_example():
     for operation, outcomes in music.OUTCOMES.items():
-        assert tuple(music.EXAMPLES[operation]) == outcomes
+        assert tuple(music.examples()[operation]) == outcomes
 
 
 # ------------------------------------------------- through Home Assistant
@@ -209,7 +210,7 @@ def test_without_a_player_of_its_own():
         try:
             lonely = Satellite("112233445566", "Elsewhere", "bedroom", "Bedroom")
             outcome = await _run(hass, {"music": "play"}, {"query": "miles davis"}, satellite=lonely)
-            assert (outcome.name, outcome.speech) == ("no_player", music.NO_PLAYER)
+            assert (outcome.name, outcome.speech) == ("no_player", english.NO_PLAYER)
             # In the kitchen, the kitchen's speaker is the one playing.
             fake.states[KITCHEN] = ("playing", {**fake.states[KITCHEN][1], "media_title": "So What"})
             kitchen = Satellite("112233445566", "Kitchen", "kitchen", "Kitchen")

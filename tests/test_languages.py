@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import replace
 from pathlib import Path
 
@@ -55,3 +56,35 @@ def test_the_transducer_choice():
     # "en", from before languages had packs, is the language's own.
     assert tdt_choice("en") == tdt_choice(None) == tdt_choice("own") == "own"
     assert tdt_choice("multilingual") == "multilingual" and tdt_choice("nope") == "own"
+
+
+def public(module) -> dict[str, object]:
+    """Its sentences and what makes them: not what it imports."""
+    return {
+        name: value
+        for name, value in vars(module).items()
+        if not name.startswith("_")
+        and (isinstance(value, (str, dict)) or getattr(value, "__module__", None) == module.__name__)
+    }
+
+
+@pytest.mark.parametrize("code", languages.codes())
+def test_every_language_says_what_english_does(code):
+    english, speech = public(languages.load("en").speech), public(languages.load(code).speech)
+    assert set(english) <= set(speech), f"{code} lacks {sorted(set(english) - set(speech))}"
+    for name, said in english.items():
+        if callable(said):
+            assert inspect.signature(speech[name]).parameters.keys() == inspect.signature(said).parameters.keys(), name
+        elif isinstance(said, dict):
+            assert set(speech[name]) == set(said), name
+        else:
+            assert isinstance(speech[name], str) and speech[name], name
+
+
+def test_what_is_said_is_the_apps_language(english, monkeypatch):
+    assert languages.speech() is english.speech
+    assert english.speech.place([("area", "Kitchen")], to=True) == "to the Kitchen"
+    assert english.speech.place([("floor", "First Floor"), ("floor", "upstairs")]) == "on the First Floor and upstairs"
+    monkeypatch.setattr(languages, "_current", replace(english, code="xx"))
+    with pytest.raises(ModuleNotFoundError):
+        languages.speech()

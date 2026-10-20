@@ -23,7 +23,8 @@ in what was heard pick a type: "the album …", "songs by …", "my … playlist
 "the … station", "… by …".
 
 Every operation has outcomes, like timers (see OUTCOMES), so a command can say
-something else for each. Controls say nothing when done: a short sound.
+something else for each. Controls say nothing when done: a short sound. What
+each says is the app's language's (its speech module's music sentences).
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import languages
 from .hass import HassError
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,37 +93,6 @@ OUTCOMES = {
     "move": ("done", "nothing_playing", "no_player", "already"),
 }
 
-NO_PLAYER = "There's no music player here."
-NOTHING_PLAYING = "Nothing is playing."
-SAID = {
-    "no_player": NO_PLAYER,
-    "nothing_playing": NOTHING_PLAYING,
-    "missing_query": "What should I play?",
-    "missing_volume": "What volume?",
-    "already": "It's already playing.",
-}
-
-# Moving: where it goes is what the command names.
-MOVE_SAID = {
-    "nothing_playing": "Nothing is playing to move.",
-    "no_player": "There's no music player there.",
-    "already": "The music is already playing there.",
-}
-
-# What each outcome says, for the UI: the defaults a command's responses replace.
-# A control that worked says nothing (a short sound).
-EXAMPLES: dict[str, dict[str, str]] = {
-    operation: {
-        outcome: SAID.get(outcome, "")
-        for outcome in outcomes
-    }
-    for operation, outcomes in OUTCOMES.items()
-}
-EXAMPLES["play"].update(done="Playing Kind of Blue by Miles Davis.", not_found="I couldn't find kind of blew.")
-EXAMPLES["add"].update(done="Added So What by Miles Davis to the queue.", not_found="I couldn't find so watt.")
-EXAMPLES["radio"].update(done="Playing music like So What by Miles Davis.", not_found="I couldn't find so watt.")
-EXAMPLES["status"].update(done="This is So What by Miles Davis.")
-EXAMPLES["move"].update(done="Moved the music to the Kitchen.", **MOVE_SAID)
 
 VOLUME_STEP = 0.1
 MATCH_AT_LEAST = 0.5
@@ -166,10 +137,10 @@ class Player:
 
     @property
     def media(self) -> str | None:
-        """"So What by Miles Davis"."""
+        """What is playing, said: "So What by Miles Davis"."""
         if not self.title:
             return None
-        return f"{self.title} by {self.artist}" if self.artist else self.title
+        return languages.speech().media(self.title, self.artist)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -208,11 +179,8 @@ class Item:
 
     @property
     def spoken(self) -> str:
-        if self.media_type == "playlist":
-            return self.name if "playlist" in self.name.lower() else f"the {self.name} playlist"
-        if self.artist and self.media_type in ("track", "album"):
-            return f"{self.name} by {self.artist}"
-        return self.name
+        """"the Jazz playlist", "Kind of Blue by Miles Davis"."""
+        return languages.speech().item(self.name, self.media_type, self.artist)
 
     def as_dict(self) -> dict[str, Any]:
         return {"name": self.name, "uri": self.uri, "media_type": self.media_type, "artist": self.artist}
@@ -363,7 +331,7 @@ def control(operation: str, slots: dict[str, Any], players: list[Player]) -> tup
     if operation == "volume_set":
         level = volume_level(slots)
         if level is None:
-            return [], SAID["missing_volume"], "missing_volume"
+            return [], languages.speech().MUSIC_SAID["missing_volume"], "missing_volume"
         return [("volume_set", {"volume_level": level})], "", "done"
     if operation in ("volume_up", "volume_down"):
         player = players[0]
@@ -374,78 +342,37 @@ def control(operation: str, slots: dict[str, Any], players: list[Player]) -> tup
         return [("volume_set", {"volume_level": level})], "", "done"
     if operation == "status":
         player = players[0]
+        say = languages.speech()
         if not player.media:
-            return [], "I don't know what's playing.", "done"
-        if player.state == "paused":
-            return [], f"{_capital(player.media)} is paused.", "done"
-        return [], f"This is {player.media}.", "done"
+            return [], say.NOT_KNOWN_PLAYING, "done"
+        return [], say.now_playing(player.media, paused=player.state == "paused"), "done"
     raise ValueError(f"not a control: {operation}")
-
-
-# What a control that worked says, brief (fixed, for the text-to-speech cache)
-# and specific; verbose adds the players. By default controls beep.
-CONTROL_SAID = {
-    "pause": "Paused.",
-    "resume": "Resumed.",
-    "stop": "Stopped.",
-    "next": "Next track.",
-    "previous": "Previous track.",
-    "volume_up": "Volume up.",
-    "volume_down": "Volume down.",
-    "volume_set": "Volume set.",
-    "mute": "Muted.",
-    "unmute": "Unmuted.",
-    "shuffle_on": "Shuffle on.",
-    "shuffle_off": "Shuffle off.",
-    "repeat_all": "Repeating everything.",
-    "repeat_one": "Repeating this track.",
-    "repeat_off": "Repeat off.",
-}
-FOUND_SAID = {"play": "Playing music.", "add": "Added it to the queue.", "radio": "Playing similar music."}
 
 
 def control_said(operation: str, slots: dict[str, Any], players: list[Player]) -> dict[str, str]:
     """A control that worked, by level of verbosity."""
-    brief = CONTROL_SAID.get(operation, "Done.")
-    specific = brief
     volume = volume_level(slots) if operation == "volume_set" else None
     if operation in ("volume_up", "volume_down") and players and players[0].volume is not None:
         step = VOLUME_STEP if operation == "volume_up" else -VOLUME_STEP
         volume = round(min(1.0, max(0.0, players[0].volume + step)), 2)
-    if volume is not None:
-        specific = f"Volume at {round(volume * 100)}%."
-    elif operation in ("pause", "resume", "stop") and players and players[0].media:
-        specific = f"{brief[:-1]} {players[0].media}."
-    return {"brief": brief, "specific": specific, "verbose": _on_players(specific, players)}
+    what = players[0].media if players else None
+    return languages.speech().control(operation, volume, what, _names(players))
 
 
 def found_said(operation: str, item: Item, players: list[Player]) -> dict[str, str]:
     """What playing (or queueing) a search result says, by level of
     verbosity."""
-    specific = {"add": f"Added {item.spoken} to the queue.", "radio": f"Playing music like {item.spoken}."}.get(
-        operation, f"Playing {item.spoken}."
-    )
-    return {"brief": FOUND_SAID.get(operation, "Playing."), "specific": specific, "verbose": _on_players(specific, players)}
+    return languages.speech().found(operation, item.spoken, _names(players))
 
 
 def moved_said(source: Player, target: Player, to: str) -> dict[str, str]:
     """A move, by level of verbosity; ``to`` is where, as heard: "to the
-    Kitchen", "upstairs", "to Kitchen Speaker"."""
-    what = source.media or "the music"
-    return {
-        "brief": "Moved the music.",
-        "specific": f"Moved the music {to}." if to else f"Moved the music to {target.name}.",
-        "verbose": f"Moved {what} from {source.name} to {target.name}.",
-    }
+    Kitchen", "upstairs" (``place(to=True)``), or none: the player."""
+    return languages.speech().moved(source.media, source.name, target.name, to)
 
 
-def _on_players(sentence: str, players: list[Player]) -> str:
-    """"Paused So What by Miles Davis on Kitchen Speaker."."""
-    names = [p.name or p.entity_id for p in players]
-    if not names:
-        return sentence
-    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-    return f"{sentence[:-1]} on {joined}."
+def _names(players: list[Player]) -> list[str]:
+    return [p.name or p.entity_id for p in players]
 
 
 def volume_level(slots: dict[str, Any]) -> float | None:
@@ -587,10 +514,6 @@ def _norm(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
 
-def _capital(text: str) -> str:
-    return text[:1].upper() + text[1:]
-
-
 # --------------------------------------------------------- Home Assistant side
 
 STATE_TEMPLATE = """[
@@ -723,6 +646,24 @@ class Music:
         self._sent.pop(satellite, None)
 
 
+def examples() -> dict[str, dict[str, str]]:
+    """operation -> outcome -> what is said, for the UI: the defaults a
+    command's responses replace. A control that worked says nothing (a
+    short sound)."""
+    say = languages.speech()
+    out = {
+        operation: {outcome: say.MUSIC_SAID.get(outcome, "") for outcome in outcomes}
+        for operation, outcomes in OUTCOMES.items()
+    }
+    album, track = Item("Kind of Blue", "", "album", "Miles Davis"), Item("So What", "", "track", "Miles Davis")
+    for operation, item, heard in (("play", album, "kind of blew"), ("add", track, "so watt"), ("radio", track, "so watt")):
+        out[operation].update(done=found_said(operation, item, [])["specific"], not_found=say.not_found(heard))
+    out["status"].update(done=say.now_playing(say.media("So What", "Miles Davis"), paused=False))
+    kitchen = say.place([("area", "Kitchen")], to=True)
+    out["move"].update(done=say.moved(None, "", "Kitchen", kitchen)["specific"], **say.MOVE_SAID)
+    return out
+
+
 def level_examples() -> dict[str, dict[str, str]]:
     """operation -> level -> what done says, for the UI (status answers;
     it has no levels)."""
@@ -733,7 +674,8 @@ def level_examples() -> dict[str, dict[str, str]]:
             continue
         if operation == "move":
             kitchen = Player("media_player.kitchen", "Kitchen Speaker")
-            out[operation] = moved_said(Player("media_player.living_room", "Living Room Speaker", "playing", "So What", "Miles Davis"), kitchen, "to the Kitchen")
+            to = languages.speech().place([("area", "Kitchen")], to=True)
+            out[operation] = moved_said(Player("media_player.living_room", "Living Room Speaker", "playing", "So What", "Miles Davis"), kitchen, to)
         elif operation in FIND:
             item = Item("Kind of Blue", "", "album", "Miles Davis") if operation == "play" else Item("So What", "", "track", "Miles Davis")
             out[operation] = found_said(operation, item, [player])

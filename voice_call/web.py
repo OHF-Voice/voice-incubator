@@ -25,7 +25,6 @@ from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
 from . import languages, music, timers
-from .actions import FAILED, TIMERS_NEED_INTEGRATION
 from .endpoint import parse as parse_end_of_speech
 from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
@@ -320,10 +319,10 @@ class Api:
                 "dynamic_lists": DYNAMIC_LISTS,
                 # What is said for each outcome when a command has no response for it.
                 "outcomes": {
-                    "failed": FAILED,
-                    "timer_failed": TIMERS_NEED_INTEGRATION,
+                    "failed": app.language.speech.FAILED,
+                    "timer_failed": app.language.speech.TIMERS_NEED_INTEGRATION,
                     "timer": timers.outcome_examples(),
-                    "music": music.EXAMPLES,
+                    "music": music.examples(),
                     # ... and when done, by level of verbosity.
                     "timer_levels": timers.level_examples(),
                     "music_levels": music.level_examples(),

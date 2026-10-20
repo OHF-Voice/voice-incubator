@@ -10,6 +10,8 @@ option, ``--language``). A language's pack (``languages/<code>``, its
 - the language Home Assistant's speech-to-text, text-to-speech and
   conversation agent are asked in;
 - the matcher's base config: filler words, name cues, compounds;
+- what the app says itself (``speech.py``: English's says what every
+  language's has);
 - its command library (``library/``);
 - which skills, and whether GLiNER (the fallback's model step), it has.
 
@@ -23,6 +25,7 @@ import importlib
 import pkgutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 DEFAULT = "en"
@@ -50,6 +53,11 @@ class Pack:
     gliner: bool = False
     """GLiNER, the fallback's model step, understands it."""
     directory: Path = Path(__file__).parent
+
+    @property
+    def speech(self) -> ModuleType:
+        """What it says: its ``speech`` module."""
+        return importlib.import_module(f"{__name__}.{self.code}.speech")
 
     @property
     def library(self) -> Path:
@@ -92,6 +100,13 @@ _current: Pack | None = None
 def current() -> Pack:
     """The app's language: the one it started in (``use``), else English."""
     return _current or load(DEFAULT)
+
+
+def speech() -> ModuleType:
+    """What the app's language says (``current().speech``): read when it is
+    said, not when a module is imported, which is before the app has its
+    language."""
+    return current().speech
 
 
 def use(code: str) -> Pack:
