@@ -738,13 +738,31 @@ class Engine:
             use = uses[0]
             start = use.hit.start * frame_seconds - frame_seconds
             end = (use.hit.end + 1) * frame_seconds + frame_seconds
-            inside = [w for w, s, e in words if s >= start and (s + e) / 2 <= end]
-            text = " ".join(_strip(w) for w in inside).strip()
+            # A word is the text's when its middle is: a transducer may give
+            # a word's start a frame early ("um halb sieben"), or a keyword's
+            # end a frame late -- and at the text's edge, a keyword, filler or
+            # what says a place follows is no text, as the CTC matcher reads
+            # it ("pizza for", "jazz in").
+            inside = [_strip(w) for w, s, e in words if start <= (s + e) / 2 <= end]
+            text = " ".join(trimmed(inside, self._edge_words(decision.intent.intent, wildcard))).strip()
         if text and slot in decision.slots and text != str(decision.slots[slot]):
             # The transcript's words, and its case ("Kind of Blue").
             if text.lower() != str(decision.slots[slot]).lower():
                 decision.text_from_tdt[slot] = str(decision.slots[slot])
             decision.slots[slot] = text
+
+    def _edge_words(self, intent: str, wildcard: dict[str, Any]) -> set[str]:
+        """Words free text does not start or end with: its intent's keywords
+        and the matcher's fillers and name cues, and the language's words
+        before a place ("in", "the")."""
+        words = {str(k).lower() for k in [*(wildcard.get("after") or []), *(wildcard.get("before") or [])]}
+        config = self.recognizer.config if self.recognizer is not None else None
+        if config is not None:
+            spec = config.intents.get(intent)
+            phrases = [p for group in (spec.require + spec.optional if spec else ()) for p in group]
+            words |= {part for phrase in [*phrases, *config.filler, *config.name_cues] for part in phrase.split()}
+        read = languages.reading()
+        return words | set(read.PLACE_BEFORE) | set(read.ARTICLES)
 
     # --------------------------------------------------------------- hints
 
@@ -877,6 +895,17 @@ def recognizer_has_meaning(engine: Engine) -> bool:
 
 def command_groups(command: Command) -> list:
     return list(command.intent.get("require") or [])
+
+
+def trimmed(words: list[str], edges: set[str]) -> list[str]:
+    """Free text's words without ``edges`` (lowercase) at either end; never
+    none of them."""
+    start, end = 0, len(words)
+    while end - start > 1 and words[start].lower() in edges:
+        start += 1
+    while end - start > 1 and words[end - 1].lower() in edges:
+        end -= 1
+    return words[start:end]
 
 
 def _strip(word: str) -> str:

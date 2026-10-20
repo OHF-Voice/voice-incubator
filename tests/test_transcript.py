@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from adapt_ctc.text import spoken_words
-from voice_call.engine import Engine, Satellite
+from voice_call.engine import Engine, Satellite, trimmed
 from voice_call.store import compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -177,3 +177,15 @@ def test_a_room_it_cant_take_is_why(engine):
         assert decision.command is None and decision.message == "Sorry, I didn't understand that."
     finally:
         engine.build(compile_store(STORE))
+
+
+def test_free_text_keeps_off_its_edges(engine):
+    """Free text from timed words leaves out, at either end, what the matcher
+    read as no text: the intent's keywords and the wildcard's, fillers, name
+    cues, and what says a place follows -- "pizza for", "jazz in", "um halb
+    sieben" with "um" a frame late."""
+    edges = engine._edge_words("unlock", {"after": ["named"], "before": ["timer"]})  # pylint: disable=protected-access
+    assert {"unlock", "named", "timer", "the", "my", "in", "on"} <= edges and "front" not in edges
+    assert trimmed(["the", "pizza", "for"], {"the", "for"}) == ["pizza"]
+    assert trimmed(["eggs", "and", "bacon", "to"], {"and", "to"}) == ["eggs", "and", "bacon"]
+    assert trimmed(["for"], {"for"}) == ["for"]  # never nothing
