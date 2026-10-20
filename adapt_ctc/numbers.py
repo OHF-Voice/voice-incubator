@@ -113,7 +113,7 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
         # Stunde, Minute, Sekunde: all feminine. "Eine Minute", "in einer
         # Stunde", "eineinhalb Minuten", "eine halbe Stunde".
         single, plural = unit_words(unit, language)
-        return [
+        forms = [
             (f"eine {single}", one),
             (f"einer {single}", one),
             (f"eineinhalb {plural}", one_and_a_half),
@@ -121,6 +121,11 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
             (f"eine halbe {single}", HALF),
             (f"einer halben {single}", HALF),
         ]
+        # "Zweieinhalb Minuten", "zwei und eine halbe Stunde".
+        for count in map(Decimal, HALVES):
+            said = spellout(count, language)
+            forms += [(f"{said}einhalb {plural}", count + HALF), (f"{said} und eine halbe {single}", count + HALF)]
+        return forms
     if _base(language) == "nl":
         # Uur is a het-word ("een half uur"), minuut and seconde de-words
         # ("een halve minuut"); a kwartier is a quarter of an hour.
@@ -130,6 +135,15 @@ def unit_forms(unit: str, language: str) -> list[tuple[str, Decimal]]:
                  (f"een {half} {single}", HALF)]
         if unit == "hour":
             forms += [("een kwartier", Decimal("0.25")), ("drie kwartier", Decimal("0.75"))]
+        # "Tweeënhalve minuut", "vierenhalf uur", "twee en een halve minuut";
+        # said quickly, its "en" all but gone and "halve" heard as "half":
+        # "vier half uur", "twee half minuut".
+        for count in map(Decimal, HALVES):
+            said = spellout(count, language)
+            joined = f"{said}{'ën' if said.endswith('e') else 'en'}{half}"
+            forms += [(f"{joined} {single}", count + HALF)]
+            forms += [(f"{said}{between}{word} {single}", count + HALF)
+                      for between in (" en een ", " een ", " ") for word in dict.fromkeys((half, "half"))]
         return forms
     if _base(language) == "fr":
         # All feminine: "une minute", "une heure et demie", "une demi heure";

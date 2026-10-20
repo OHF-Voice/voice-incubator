@@ -52,7 +52,9 @@
   156 do what was said; typed, all 39.
 - French and Dutch timers take quarter hours ("un quart d'heure", "een
   kwartier"), and a French duration after "de" is heard elided ("un minuteur
-  d'une heure").
+  d'une heure"). German and Dutch durations take a count and a half
+  ("zweieinhalb Minuten", "tweeënhalve minuut", "vierenhalf uur" -- also as
+  the model writes it said quickly, "vier half uur").
 - **The speech-to-text entity hears the command from where the wake word
   check ended the wake word**, asked or streamed: on 205 test calls, a
   transcript from there began with a likely first word on 141, from where the

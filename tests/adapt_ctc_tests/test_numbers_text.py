@@ -94,3 +94,9 @@ def test_a_count_and_a_half_after_its_unit():
     french = dict(unit_forms("hour", "fr"))
     assert french["deux heures et demie"] == Decimal("2.5") and french["vingt et une heures et demie"] == Decimal("21.5")
     assert french["d'une heure"] == 1 and french["d'un quart d'heure"] == Decimal("0.25")
+    german = dict(unit_forms("minute", "de"))
+    assert german["zweieinhalb minuten"] == Decimal("2.5") and german["zwei und eine halbe minute"] == Decimal("2.5")
+    dutch = dict(unit_forms("minute", "nl")) | dict(unit_forms("hour", "nl"))
+    assert dutch["tweeënhalve minuut"] == Decimal("2.5") and dutch["vierenhalf uur"] == Decimal("4.5")
+    # Said quickly, as the model writes it: "vier half uur", "twee half minuut".
+    assert dutch["vier half uur"] == Decimal("4.5") and dutch["twee half minuut"] == Decimal("2.5")

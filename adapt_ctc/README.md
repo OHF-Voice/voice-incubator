@@ -233,8 +233,9 @@ reported by name (`{minutes: 10}`), and said in the config's language: a
 German intent's keywords are `sekunde`, `minuten`, `stunden` ...
 (`numbers.UNIT_WORDS`). Some numbers are only said with their unit: "a
 minute and a half", "half an hour"; "eine Minute", "eineinhalb Stunden",
-"eine halbe Stunde"; "un quart d'heure", "deux minutes et demie"; "dos
-horas y media". Spanish and French numbers are also heard as said before a
+"eine halbe Stunde", "zweieinhalb Minuten"; "tweeënhalve minuut", "een
+kwartier"; "un quart d'heure", "deux minutes et demie"; "dos horas y
+media". Spanish and French numbers are also heard as said before a
 noun: "veintiún grados", "treinta y una horas", "vingt et une minutes".
 
 **Includes.** `include` files are merged in order, then the file's own keys on
