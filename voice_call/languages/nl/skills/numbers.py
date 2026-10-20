@@ -156,7 +156,8 @@ def clean(q):
     s = re.sub(r"\s*[?!]+\s+|\.\s+(?=\D)", " ", s)
     s = s.replace("×", " keer ").replace("÷", " gedeeld door ").replace("%", " procent")
     s = re.sub(r"(\d)\s*\*\s*(\d)", r"\1 keer \2", s)
-    s = re.sub(r"(\d)\s*/\s*(\d)", r"\1 gedeeld door \2", s)
+    # Not a date's slashes: "25/12/2026".
+    s = re.sub(r"(?<![\d/])(\d+)\s*/\s*(\d+)(?![\d/])", r"\1 gedeeld door \2", s)
     s = re.sub(r"(\d)\s*\+\s*(\d)", r"\1 plus \2", s)
     s = re.sub(r"(\d)\s+-\s+(\d)", r"\1 min \2", s)
     s = re.sub(r"(\d)\s*\^\s*(\d)", r"\1 tot de macht \2", s)

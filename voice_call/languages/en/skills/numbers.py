@@ -186,7 +186,8 @@ def clean(q):
     s = re.sub(r"\s*[?!]+\s+|\.\s+", " ", s)
     s = s.replace("×", " times ").replace("÷", " divided by ").replace("%", " percent")
     s = re.sub(r"(\d)\s*\*\s*(\d)", r"\1 times \2", s)
-    s = re.sub(r"(\d)\s*/\s*(\d)", r"\1 divided by \2", s)
+    # Not a date's slashes: "25/12/2026".
+    s = re.sub(r"(?<![\d/])(\d+)\s*/\s*(\d+)(?![\d/])", r"\1 divided by \2", s)
     s = re.sub(r"(\d)\s*\+\s*(\d)", r"\1 plus \2", s)
     s = re.sub(r"(\d)\s+-\s+(\d)", r"\1 minus \2", s)
     s = re.sub(r"(\d)\s*\^\s*(\d)", r"\1 to the power of \2", s)

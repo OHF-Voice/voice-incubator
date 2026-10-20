@@ -215,7 +215,8 @@ def clean(q):
     s = re.sub(r"\s*[?!¿¡]+\s*|\.\s+(?=\D)", " ", s)
     s = s.replace("×", " por ").replace("÷", " entre ").replace("%", " por ciento")
     s = re.sub(r"(\d)\s*\*\s*(\d)", r"\1 por \2", s)
-    s = re.sub(r"(\d)\s*/\s*(\d)", r"\1 entre \2", s)
+    # Not a date's slashes: "25/12/2026".
+    s = re.sub(r"(?<![\d/])(\d+)\s*/\s*(\d+)(?![\d/])", r"\1 entre \2", s)
     s = re.sub(r"(\d)\s*\+\s*(\d)", r"\1 más \2", s)
     s = re.sub(r"(\d)\s+-\s+(\d)", r"\1 menos \2", s)
     s = re.sub(r"(\d)\s*\^\s*(\d)", r"\1 elevado a \2", s)
