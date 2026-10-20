@@ -370,6 +370,10 @@ class Config:
     lists: dict[str, tuple[tuple[Any, tuple[str, ...]], ...]] = field(default_factory=dict)
     """Shared value lists, by name, that intents' ``lists`` may refer to."""
 
+    compounds: tuple[str, ...] = ()
+    """Keywords that may end a compound after an area or floor name, as one
+    word: "Küchenlicht" is the light in the kitchen (``compounds: [licht]``)."""
+
     name_endings: tuple[str, ...] = ()
     """Endings a word of a name may be heard with, added or in place of one
     it has (morphology.word_forms): the language's (morphology.ENDINGS)
@@ -437,7 +441,7 @@ def parse_config(data: Any) -> Config:
         data,
         {
             "language", "settings", "filler", "name_cues", "numbers", "names", "intents",
-            "wake", "lists", "name_endings",
+            "wake", "lists", "name_endings", "compounds",
         },
         "config",
     )
@@ -491,8 +495,24 @@ def parse_config(data: Any) -> Config:
         for name, spec in intents_data.items()
     }
     _check_examples(intents, language)
+    keywords = {
+        part
+        for intent in intents.values()
+        for phrase in {p for group in intent.require + intent.optional for p in group}
+        for part in phrase_parts(phrase)
+    }
+    compounds = tuple(
+        dict.fromkeys(_phrase(text, language, "compounds") for text in _list(data.get("compounds") or [], "compounds"))
+    )
+    for word in compounds:
+        if " " in word:
+            raise ConfigError(f"compounds: {word!r}: one word each")
+        if word not in keywords:
+            raise ConfigError(f"compounds: {word!r} is no intent's keyword")
     wake = _wake(data["wake"], language) if data.get("wake") else None
-    return Config(language, settings, filler, detect, names, intents, wake, name_cues, lists, name_endings)
+    return Config(
+        language, settings, filler, detect, names, intents, wake, name_cues, lists, compounds, name_endings
+    )
 
 
 def _wake(spec: Any, language: str) -> WakeConfig:

@@ -1,10 +1,12 @@
 """Names as other languages say them: with an ending ("des Wohnzimmers", "den
-kleinen Ventilator")."""
+kleinen Ventilator"), and joined to what follows ("Küchenlicht")."""
 
 import pytest
 
+from adapt_ctc.acoustic import SPM_SPACE, Vocabulary
 from adapt_ctc.config import ConfigError, parse_config
 from adapt_ctc.graph import Meaning, PhraseGraph
+from adapt_ctc.matcher import Recognizer
 from adapt_ctc.morphology import endings, word_forms
 from adapt_ctc.spotter import spot
 
@@ -53,3 +55,54 @@ def test_name_endings_in_the_config():
     assert parse_config(CONFIG).name_endings == ()
     with pytest.raises(ConfigError, match="name_endings"):
         parse_config({**data, "name_endings": ["-s"]})
+
+
+# A compound's tail is written by the model as part of the word before it:
+# "kitchenlights" is "▁kitchen" then "lights", no word marker.
+COMPOUND_VOCAB = [
+    "<unk>", *(SPM_SPACE + w for w in "turn on off the kitchen den upstairs lights".split()), "lights", "s", "<blk>"
+]
+COMPOUND_CONFIG = {
+    "names": {"areas": {"kitchen": "Kitchen", "den": "Den"}, "floors": {"upstairs": "Upstairs"}},
+    "intents": {
+        "LightsOn": {"require": [["turn on"], ["lights"]], "names": {"area": {"count": 1, "optional": True}}},
+        "LightsOff": {"require": [["turn off"], ["lights"]], "names": {"floor": {"count": 1, "optional": True}}},
+    },
+}
+
+
+def compound(script, **config):
+    vocab = Vocabulary(dict(enumerate(COMPOUND_VOCAB)))
+    recognizer = Recognizer(parse_config({**COMPOUND_CONFIG, **config}), vocab=vocab)
+    return recognizer.recognize_log_probs(utterance(vocab, script), 0.08)
+
+
+def test_a_compound_of_a_place_and_a_keyword():
+    # "turn on the kitchenlights": the lights, in the kitchen.
+    script = ["turn", "on", "the", "kitchen", "+lights"]
+    assert not compound(script).matches  # "lights" not heard: it starts no word
+    found = compound(script, compounds=["lights"]).best
+    assert (found.intent, found.slots, found.cost) == ("LightsOn", {"area": ["kitchen"]}, 0.0)
+    # A floor too; and with its ending ("kitchens" + lights).
+    found = compound(["turn", "off", "the", "upstairs", "+lights"], compounds=["lights"]).best
+    assert (found.intent, found.slots) == ("LightsOff", {"floor": ["upstairs"]})
+    found = compound(["turn", "on", "the", "kitchen", "+s", "+lights"], compounds=["lights"], name_endings=["s"]).best
+    assert found.slots == {"area": ["kitchen"]} and found.cost == 0.0
+    # Said as a word of its own, it is the keyword as ever.
+    found = compound(["turn", "on", "the", "kitchen", "lights"], compounds=["lights"]).best
+    assert (found.intent, found.slots, found.cost) == ("LightsOn", {"area": ["kitchen"]}, 0.0)
+
+
+def test_a_compound_needs_a_place_in_the_same_word():
+    # After a word that is no place ("thelights"), or with another word
+    # between it and the place ("kitchen thelights"), "lights" is no tail.
+    assert not compound(["turn", "on", "the", "+lights"], compounds=["lights"]).matches
+    assert not compound(["turn", "on", "kitchen", "the", "+lights"], compounds=["lights"]).matches
+
+
+def test_compounds_in_the_config():
+    with pytest.raises(ConfigError, match="no intent's keyword"):
+        parse_config({**COMPOUND_CONFIG, "compounds": ["lamp"]})
+    with pytest.raises(ConfigError, match="one word each"):
+        parse_config({**COMPOUND_CONFIG, "compounds": ["the lights"]})
+    assert parse_config({**COMPOUND_CONFIG, "compounds": ["Lights", "lights"]}).compounds == ("lights",)

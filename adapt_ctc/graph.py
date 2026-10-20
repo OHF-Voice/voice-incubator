@@ -13,6 +13,9 @@ it, in any letter case:
   anywhere, and only the name's first unit has to start a word, because where
   the model puts word breaks in a name is arbitrary: "EcoBee", "Eco-Bee",
   "Ecobee", "eco bee" and "e co bee" all match the same name.
+* a **tail** unit is a keyword that may end a compound after a place name
+  ("licht" of "Küchenlicht"): one word, which may start mid-word -- the
+  model writes the compound as one word -- or a word of its own.
 
 A unit may have several forms -- a word of a name with its language's
 endings, "wohnzimmer" and "wohnzimmers" (morphology.word_forms) -- spelled by
@@ -53,6 +56,10 @@ class Meaning:
     value: Decimal | None = None
     unit: str | None = None
     """For a number said with its unit ("a minute and a half"), the unit."""
+
+    compound: bool = False
+    """A keyword heard as the end of a compound: it counts only right after a
+    place name in the same word (Recognizer, ``_compounds``)."""
 
     @property
     def meaningful(self) -> bool:
@@ -146,15 +153,20 @@ class PhraseGraph:
         self.unspeakable: list[str] = []
         """Phrases dropped because no sequence of pieces spells them."""
 
-    def add(self, words: list[str | tuple[str, ...]], meaning: Meaning, flexible: bool = False) -> bool:
+    def add(
+        self, words: list[str | tuple[str, ...]], meaning: Meaning, flexible: bool = False, tail: bool = False
+    ) -> bool:
         """Listen for ``words`` and report hits on them as ``meaning``.
 
         Strict words are single words. Flexible words are the units of a name
         (see :func:`text.name_units`). A word may be a tuple of its forms, the
-        word as written first: any one of them is heard as it.
+        word as written first: any one of them is heard as it. A ``tail`` is
+        one word that may start mid-word, the end of a compound.
         """
         if flexible:
             units = [(word, "flex" if index else "flex-first") for index, word in enumerate(words)]
+        elif tail:
+            units = [(word, "tail") for word in words]
         else:
             units = [(word, "strict") for word in words]
         lattices = [self._lattice(unit) for unit in units]
@@ -302,9 +314,9 @@ class PhraseGraph:
         next_node = end + 1
         for node in range(len(children)):
             if node == 0:
-                starts, continues = True, mode == "flex"
+                starts, continues = True, mode in ("flex", "tail")
             else:
-                starts, continues = mode != "strict", True
+                starts, continues = mode not in ("strict", "tail"), True
             # A bare word marker followed by a continuation piece also starts
             # a word ("▁" "E" "co"); only where a unit begins, to keep names
             # from doubling in size for a rare way of spelling.

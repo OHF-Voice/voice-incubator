@@ -279,6 +279,13 @@ job, and it has to allow for spelling: Parakeet writes "lasagna" as
   own. One lattice spells every form of a word, and where the name and its
   longer form fit equally the longer is taken, so the ending isn't left
   unexplained.
+- A keyword in `compounds` may also end a compound after an area or floor
+  name, as one word: German's "Küchenlicht" is the light in the kitchen
+  (Küche, its linking "-n" an ending, then "licht"). The model writes the
+  compound as one word, so the keyword is also listened for mid-word, and
+  counts only where it starts in the word a place name ends in -- no word
+  starting between them, at most `COMPOUND_GAP` (3) frames on -- and not
+  where it was heard as a word of its own.
 
 **Numbers.**
 - Numbers come from `icu_rbnf`, since the vocabulary has no digits.
@@ -678,8 +685,8 @@ and x86 round the int8 maths differently.
   are not held out.
 - **No acoustic edit tolerance.** A name only matches spellings of its letters,
   so homophones need aliases.
-- **Name cues are English and positional.** "These" or a name glued to a
-  keyword ("deadlights") gets past them.
+- **Name cues are positional.** "These" or a name glued to a keyword
+  ("deadlights") gets past them -- unless the keyword is in `compounds`.
 - **One number per intent** (or one duration of up to three parts), **word order
   only within split phrases, no compound commands.** A compound command is
   rejected for its unused words, not split.
@@ -701,4 +708,5 @@ All are off unless a config uses them; upstream configs behave as before, and
 | `IntentResult.missing`, `heard_groups` | what a rejected intent lacked, as data (`require`, `name`, `number`, `text`, `unexplained`, `unknown_name`, `excluded`, `cost`), and how many required groups were heard |
 | `TdtTranscriber.transcribe_words()` | the TDT transcript with word times, to re-read free text over the frames it was found in |
 | `name_endings` | endings a word of a name may be heard with, added or in place of its own (`morphology`): the language's by default (German's; English has none) |
+| `compounds` | keywords that may end a compound after an area or floor name, written as one word ("Küchenlicht"); each must be some intent's keyword |
 

@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
-from collections.abc import Callable
 
 import numpy as np
 
@@ -173,6 +173,38 @@ _State = tuple[
     str,
 ]
 _INITIAL: _State = (0, tuple(() for _ in NAME_TYPES), None, 0, (), "")
+
+
+COMPOUND_GAP = 3
+"""Frames a compound's tail may start after its place name ends: its pieces
+follow on, with a blank or two between."""
+
+
+def _compounds(spotting: Spotting) -> list[Hit]:
+    """The hits, less compound tails that are not one. A tail ("licht") counts
+    only where it starts in the same word the model wrote a place name ending
+    in -- "Küchenlicht", with no word starting between them -- and not where
+    the keyword was also heard as a word of its own."""
+    places = [
+        hit
+        for hit in spotting.hits
+        if hit.heard and any(m.kind == "name" and m.name_type in ("area", "floor") for m in hit.meanings)
+    ]
+    plain = [hit for hit in spotting.hits if hit.heard and not any(m.compound for m in hit.meanings)]
+    kept = []
+    for hit in spotting.hits:
+        if not any(m.compound for m in hit.meanings):
+            kept.append(hit)
+            continue
+        if any(other.phrase == hit.phrase and other.overlap(hit) for other in plain):
+            continue
+        if any(
+            place.end < hit.start <= place.end + COMPOUND_GAP
+            and not any(place.end < word.start <= hit.start for word in spotting.words)
+            for place in places
+        ):
+            kept.append(hit)
+    return kept
 
 
 class Recognizer:
@@ -352,6 +384,8 @@ class Recognizer:
                     add_phrase(part, Meaning("keyword", part))
         for phrase in config.filler:
             add_phrase(phrase, Meaning("filler", phrase))
+        for word in config.compounds:
+            graph.add([word], Meaning("keyword", word, compound=True), tail=True)
 
         def add_names(entries, scope: str | None) -> None:
             for entry in entries:
@@ -594,6 +628,8 @@ class Recognizer:
             live=settings.search == "live",
         )
         spotted = time.perf_counter()
+        if self.config.compounds:
+            spotting.hits = _compounds(spotting)
 
         heard = [hit for hit in spotting.hits if hit.heard]
         word_costs, important, lead_in = self._word_costs(spotting, heard)
