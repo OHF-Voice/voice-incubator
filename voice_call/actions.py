@@ -262,6 +262,9 @@ async def run(
     if behavior.music:
         return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass))
 
+    if behavior.intent:
+        return await _run_intent(hass, behavior, values, satellite, outcome)
+
     if outcome.sequence and not dry_run:
         started = time.perf_counter()
         try:
@@ -285,6 +288,108 @@ async def run(
         speech if isinstance(speech, str) else "",
         returned,
     )
+
+
+async def _run_intent(
+    hass: HomeAssistant,
+    behavior: Behavior,
+    values: dict[str, Any],
+    satellite: Satellite,
+    outcome: Outcome,
+) -> Outcome:
+    """Run the command's intent on what was heard -- each device named (by
+    entity id), each area or floor named, else the satellite's area -- as
+    Assist would, and say how it went: done on what it found (but the
+    unavailable), or why it found nothing it could act on. Its response sees
+    ``result``: ``count``, ``names`` and ``ids`` of what it acted on, the
+    ``unavailable`` ones, and Home Assistant's own ``speech``."""
+    call = behavior.intent
+    assert call is not None
+    say = languages.speech()
+    slots = values["slots"]
+    named = bool(slots.get("entity"))
+    placed = bool(slots.get("area") or slots.get("floor"))
+    # A device by name is said as itself ("That isn't exposed"); else where.
+    where = "" if named else str(values["place"].get("said") or "")
+    if named:
+        targets = [{"name": str(e)} for e in slots["entity"]]
+    elif placed:
+        areas, floors = [str(a) for a in slots.get("area") or []], [str(f) for f in slots.get("floor") or []]
+        within = {"floor": floors[0]} if len(floors) == 1 else {}
+        targets = [{"area": a, **within} for a in areas] if areas else [{"floor": f} for f in floors]
+    elif call.home:
+        targets = [{}]
+    elif satellite.area_id:
+        targets = [{"area": satellite.area_id}]
+    elif call.anywhere:
+        targets = [{}]
+    else:
+        outcome.error = "the satellite has no area"
+        return await _say(hass, behavior, values, outcome, "no_area", say.NO_AREA, {"error": outcome.error})
+    preferred = {"preferred_area_id": satellite.area_id} if satellite.area_id else {}
+    calls = [{**call.slots, **target, **preferred} for target in targets]
+    outcome.sequence = [{"intent": call.name, "slots": c} for c in calls]
+    if outcome.dry_run:
+        return await _say(hass, behavior, values, outcome, "done", "")
+    started = time.perf_counter()
+    results: list[dict[str, Any]] = []
+    language = languages.current().code
+    try:
+        for slots_of in calls:
+            result = await hass.handle_intent(
+                call.name, slots_of, values, language, satellite.device_id, values["command"]["text"]
+            )
+            if (
+                call.anywhere and not (named or placed)
+                and (result.get("error") or {}).get("reason") == "area"
+            ):
+                # Nothing of the kind here: the whole home's.
+                anywhere = {k: v for k, v in slots_of.items() if k != "area"}
+                outcome.sequence.append({"intent": call.name, "slots": anywhere})
+                result = await hass.handle_intent(
+                    call.name, anywhere, values, language, satellite.device_id, values["command"]["text"]
+                )
+            results.append(result)
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        outcome.error = str(err)
+        _LOGGER.error("Intent %s failed: %s", call.name, err)
+        return await _say(hass, behavior, values, outcome, "failed", say.FAILED, {"error": str(err)})
+    finally:
+        outcome.timings["intent"] = time.perf_counter() - started
+    outcome.response = {"intents": results}
+    acted: list[dict[str, Any]] = []
+    unavailable: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    speech = ""
+    for result in results:
+        if result.get("error"):
+            errors.append(result["error"])
+            continue
+        response = result.get("response") or {}
+        gone = {t.get("id") for t in result.get("unavailable") or []}
+        for target in (response.get("data") or {}).get("success") or []:
+            if target.get("type") == "entity":
+                (unavailable if target.get("id") in gone else acted).append(target)
+        speech = speech or str(((response.get("speech") or {}).get("plain") or {}).get("speech") or "")
+    found = {
+        "count": len(acted), "names": [t.get("name") or t.get("id") for t in acted], "ids": [t.get("id") for t in acted],
+        "unavailable": [t.get("name") or t.get("id") for t in unavailable], "speech": speech,
+    }
+    if acted:
+        return await _say(hass, behavior, values, outcome, "done", speech, found)
+    if unavailable:
+        return await _say(hass, behavior, values, outcome, "unavailable", say.unavailable(where), found)
+    reasons = {e.get("reason") for e in errors if e.get("code") == "no_match"}
+    outcome.error = "; ".join(str(e.get("message") or e.get("reason") or e.get("code")) for e in errors) or None
+    if "assistant" in reasons:
+        return await _say(hass, behavior, values, outcome, "not_exposed", say.not_exposed(where), found)
+    if reasons:
+        return await _say(hass, behavior, values, outcome, "no_devices", say.nothing_there(where), found)
+    if not errors and not outcome.error:
+        # Done, on nothing that is an entity (a scene's area, say): as it says.
+        return await _say(hass, behavior, values, outcome, "done", speech, found)
+    _LOGGER.error("Intent %s failed: %s", call.name, outcome.error)
+    return await _say(hass, behavior, values, outcome, "failed", say.FAILED, {**found, "error": outcome.error})
 
 
 async def _run_timer(

@@ -61,10 +61,11 @@ def test_a_command_comes_in_versions():
     assert "names" not in entries["play_music_here"]["spec"]
     assert entries["play_music_device"]["spec"]["combinations"] == [["entity", "query"]]
     assert entries["play_music_place"]["spec"]["combinations"] == [["area", "query"], ["floor", "query"]]
-    # A version's own keys replace the family's: a device's action and
+    # A version's own keys replace the family's: a device's intent and
     # response, with none of the by-type list.
     device = entries["open_covers_device"]["spec"]
-    assert device["action"] == {"action": "cover.open_cover", "target": "{{ target }}"} and "lists" not in device
+    assert device["intent"] == "HassTurnOn" and "lists" not in device
+    assert entries["open_covers_here"]["spec"]["intent"]["anywhere"] is True
     # By type, from the language's own list (Pack.lists).
     assert entries["open_covers_place"]["spec"]["lists"]["device_class"] == {"list": "cover_classes"}
     assert "shutter" in languages.current().lists["cover_classes"]
@@ -152,7 +153,7 @@ def test_every_response_template_renders(language):
         "satellite": {"area_id": "kitchen", "area_name": "Kitchen"},
         "place": {"here": False, "said": "in the Kitchen", "areas": ["kitchen"]},
         "command": {"id": "c", "description": "do it", "text": "do it"},
-        "result": {"outcome": "done", "speech": "", "count": 2},
+        "result": {"outcome": "done", "speech": "", "count": 2, "names": ["Ceiling", "Lamp"]},
     }
     lights = None
     for entry in load_library():
@@ -164,7 +165,8 @@ def test_every_response_template_renders(language):
                 said = env.from_string(template).render(**variables)
                 if entry["id"] == "turn_on_here" and level == "verbose":
                     lights = said
-    assert lights is not None and lights.count("Ceiling") == 2, lights
+    # What the intent acted on, by name.
+    assert lights is not None and "Ceiling" in lights and "Lamp" in lights, lights
 
 
 ROUTES = [

@@ -68,6 +68,8 @@ SENDSPIN_PLAYERS = {"aabbccddeeff": "media_player.fake_vpe"}
 """Satellite -> its Sendspin player, as the Voice Call integration finds it."""
 # The fake satellite's ESPHome device and its media player (where TTS speaks).
 ESPHOME_DEVICE = {"id": "esphome-fake-vpe", "mac": "aa:bb:cc:dd:ee:ff", "media_player": "media_player.fake_vpe_media_player"}
+INTENT_DOMAINS = {"HassLightSet": ["light"], "HassClimateSetTemperature": ["climate"]}
+"""The domain an intent needs, when its slots don't say."""
 STT_ENGINES = [{"engine_id": "stt.fake_whisper", "supported_languages": ["en-US", "en-GB", "de-DE", "fr-FR"]}]
 TTS_ENGINES = [{"engine_id": "tts.fake_cloud", "supported_languages": ["en-US", "de-DE"]}]
 
@@ -137,6 +139,12 @@ class FakeHass:
         self.calendar_events: dict[str, list[dict[str, Any]]] = {}
         """calendar entity -> its events, as calendar/event/subscribe sends them."""
         self._calendar_subscribers: dict[str, list] = {}
+        self.unexposed: set[str] = set()
+        """Entities not exposed to Assist: intents leave them out."""
+        self.intents: list[dict[str, Any]] = []
+        """The intents run: name and slots (rendered), and how."""
+        self.intent_command = True
+        """Whether the Voice Call integration has voice_call/intent/handle (else REST)."""
         self.calendar_push_uids = False
         """Whether calendar/event/subscribe sends uids (the developer docs
         say it sends only start, end, summary, description and location)."""
@@ -185,6 +193,12 @@ class FakeHass:
                 for subscribers in self._calendar_subscribers.values():
                     subscribers[:] = [s for s in subscribers if s[1] != message.get("subscription")]
             await result()
+        elif kind == "voice_call/intent/handle":
+            if not (self.integration and self.intent_command):
+                await result(success=False, error="unknown_command: Unknown command.")
+                return
+            await result(self.handle_intent(message["intent"], message.get("slots") or {}, message.get("variables") or {},
+                                            how="websocket", device_id=message.get("device_id")))
         elif kind == "get_config":
             await result({"time_zone": self.time_zone, "version": "fake"})
         elif kind == "calendar/event/subscribe":
@@ -380,6 +394,49 @@ class FakeHass:
                 await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
             except websockets.ConnectionClosed:
                 self._timer_subscribers[entity_id].remove((socket, msg_id))
+
+    def handle_intent(self, name: str, slots: dict[str, Any], variables: dict[str, Any], how: str = "websocket",
+                      device_id: str | None = None) -> dict[str, Any]:
+        """Home Assistant's intent matching, in short, as the Voice Call
+        integration answers it: domain, name (or entity id), area, floor,
+        then what is exposed; the unavailable told apart."""
+        rendered = {}
+        for key, value in slots.items():
+            if isinstance(value, str) and "{{" in value:
+                value = self.render(value, variables)
+            rendered[key] = value
+        self.intents.append({"intent": name, "slots": rendered, "how": how, "device_id": device_id})
+        if name not in ("HassTurnOn", "HassTurnOff", "HassLightSet", "HassClimateSetTemperature"):
+            return {"error": {"code": "unknown_intent", "message": f"Unknown intent {name}"}}
+        domains = rendered.get("domain") or INTENT_DOMAINS.get(name)
+        domains = [domains] if isinstance(domains, str) else domains
+        floors = {a["area_id"]: a["floor_id"] for a in AREAS}
+        found = [(e, n, a) for e, n, a, _ in ENTITIES if not domains or e.split(".")[0] in domains]
+
+        def failed(reason: str) -> dict[str, Any]:
+            return {"error": {"code": "no_match", "reason": reason, "name": None}}
+
+        if not found:
+            return failed("domain")
+        if rendered.get("name"):
+            found = [f for f in found if rendered["name"] in (f[0], f[1])]
+            if not found:
+                return failed("name")
+        if rendered.get("floor"):
+            found = [f for f in found if floors.get(f[2]) == rendered["floor"]]
+            if not found:
+                return failed("floor")
+        if rendered.get("area"):
+            found = [f for f in found if f[2] == rendered["area"]]
+            if not found:
+                return failed("area")
+        found = [f for f in found if f[0] not in self.unexposed]
+        if not found:
+            return failed("assistant")
+        success = [{"type": "entity", "id": e, "name": n} for e, n, _ in found]
+        unavailable = [t for t in success if self.states.get(t["id"], ("",))[0] == "unavailable"]
+        return {"response": {"response_type": "action_done", "speech": {}, "data": {"success": success, "failed": []}},
+                "unavailable": unavailable}
 
     @staticmethod
     def calendar_entity(name: str) -> str:
@@ -607,8 +664,26 @@ async def serve_rest(fake: FakeHass, host: str = "127.0.0.1", port: int = 0):
             if start <= datetime.datetime.fromisoformat(e["start"]) < end
         ])
 
+    async def intent(request: web.Request) -> web.Response:
+        """Home Assistant's REST intent API: an error is only its message."""
+        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return web.Response(status=401)
+        body = await request.json()
+        if body.get("assistant") != "conversation":
+            return web.json_response({"message": "expected the assistant"}, status=400)
+        handled = fake.handle_intent(body["name"], body.get("data") or {}, {}, how="rest", device_id=body.get("device_id"))
+        error = handled.get("error")
+        if error is None:
+            return web.json_response(handled["response"])
+        messages = {"assistant": "No matching entities are exposed to the assistant", "area": "No entities were in the area",
+                    "name": "No entities matched the name", "domain": "No entities matched the domain"}
+        said = messages.get(error.get("reason"), error.get("message") or "failed")
+        return web.json_response({"response_type": "error", "speech": {"plain": {"speech": said}},
+                                  "data": {"code": "failed_to_handle"}})
+
     application = web.Application()
     application.add_routes([
+        web.post("/api/intent/handle", intent),
         web.get("/api/calendars/{entity_id}", calendar),
         web.post("/api/stt/{entity_id}", stt),
         web.post("/api/config/config_entries/flow", start_flow),

@@ -101,21 +101,16 @@ commands:
     require: [[światło, światła, świateł, lampę, lampy, lampki, oświetlenie], [włącz, włączyć, zapal, zapał, zapalić, zaświeć, zaświecić]]
     optional: [[wszystkie, całe]]
     exclude: [wyłącz, wyłączyć, zgaś, zgasić, kolor, koloru, jasność]
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Włączono światło.
         specific: Włączono światło {{ place.said }}.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- set word = 'światło' if n == 1 else ('światła' if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'świateł') -%}
           {%- if n == 0 or n > 4 -%}
@@ -135,9 +130,7 @@ commands:
         icon: mdi:toggle-switch-outline
         description: włączyć urządzenie
         require: [[włącz, włączyć, zapal, zapalić, uruchom, uruchomić]]
-        action:
-          action: homeassistant.turn_on
-          target: "{{ target }}"
+        intent: HassTurnOn
         response:
           done:
             brief: Włączono.
@@ -166,21 +159,16 @@ commands:
     require: [[światło, światła, świateł, lampę, lampy, lampki, oświetlenie], [wyłącz, wyłączyć, zgaś, zgasić]]
     optional: [[wszystkie, całe], [w całym domu, wszędzie]]
     exclude: [włącz, włączyć, zapal, zapał, zapalić]
-    action:
-      action: light.turn_off
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Wyłączono światło.
         specific: Wyłączono światło {{ place.said }}.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- set word = 'światło' if n == 1 else ('światła' if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'świateł') -%}
           {%- if n == 0 or n > 4 -%}
@@ -200,9 +188,7 @@ commands:
         icon: mdi:toggle-switch-off-outline
         description: wyłączyć urządzenie
         require: [[wyłącz, wyłączyć, zgaś, zgasić]]
-        action:
-          action: homeassistant.turn_off
-          target: "{{ target }}"
+        intent: HassTurnOff
         response:
           done:
             brief: Wyłączono.
@@ -308,11 +294,9 @@ commands:
     # A question: "ile to jest 15 procent z 80"; the volume: "ustaw głośność na 30 procent".
     exclude: [ile, jaki, jaka, jakie, oblicz, policz, wynosi, jest, głośność, głośności, muzykę, muzyki]
     number: percentage
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        brightness_pct: "{{ slots.percentage }}"
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
     verbosity: beep
     response:
       done:
@@ -346,11 +330,9 @@ commands:
     optional: [[kolor, koloru], [na]]
     lists:
       color: {list: colors}
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        color_name: "{{ slots.color }}"
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
     verbosity: beep
     response:
       done:
@@ -389,11 +371,9 @@ commands:
     # 20 stopni Celsjusza", "jaka jest temperatura w salonie".
     exclude: [ile, jaka, jaki, jakie, przelicz, zamień, to, jest, wynosi, fahrenheita, celsjusza, kelwina, kelwinów]
     number: temperature
-    action:
-      action: climate.set_temperature
-      target: "{{ target }}"
-      data:
-        temperature: "{{ slots.temperature }}"
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
     # Not seen at once, and a misheard number matters: said.
     verbosity: specific
     response:

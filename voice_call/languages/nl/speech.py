@@ -18,6 +18,25 @@ WENT_WRONG = "Sorry, er ging iets mis."
 NO_COMMANDS = "Er zijn nog geen spraakopdrachten ingesteld. Voeg ze toe in de Voice Call app."
 TIMERS_NEED_INTEGRATION = "Voor timers is de Voice Call integratie in Home Assistant nodig."
 
+NO_AREA = 'Ik weet niet in welke ruimte ik ben. Geef deze satelliet een ruimte.'
+"""A command for the satellite's area, on a satellite in none."""
+
+
+def nothing_there(place: str) -> str:
+    """An intent found nothing of the kind ``place`` ("in the Kitchen"; "" for a device by name)."""
+    return f"Ik heb {place} niets van dat soort gevonden." if place else "Dat heb ik niet gevonden."
+
+
+def not_exposed(place: str) -> str:
+    """What it found there isn't exposed to Assist."""
+    return f"Niets daarvan {place} is zichtbaar voor Assist." if place else "Dat is niet zichtbaar voor Assist."
+
+
+def unavailable(place: str) -> str:
+    """What it found there is all unavailable."""
+    return f"Alles daarvan {place} is nu niet beschikbaar." if place else "Dat is nu niet beschikbaar."
+
+
 EXAMPLE_NAMES = {
     "room": "Keuken",
     "player": "Keukenspeaker",

@@ -6,8 +6,9 @@
 # where. When nothing of that type is in the satellite's area, every one in
 # the home is meant ("open the garage door" from the kitchen).
 #
-# The by-type actions return an outcome (stop with response_variable), so they
-# say "There aren't any shades in the Bedroom" instead of nothing happening.
+# They run Home Assistant's intents, as Assist would: only on covers and locks
+# exposed to Assist. Nothing of the type there is their no_devices outcome
+# ("There aren't any shades in the Bedroom"), not nothing happening.
 #
 # Opening, closing and asking about covers come in versions (variants; see
 # basic.yaml): by type in the satellite's area, a cover by name, by type in an
@@ -47,38 +48,10 @@ commands:
     exclude: [is, are]
     lists:
       device_class: {list: cover_classes}
-    action:
-      - variables:
-          covers: >-
-            {%- set named = slots.area or slots.floor -%}
-            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
-            {%- for f in slots.floor or [] -%}
-            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
-            {%- endfor -%}
-            {%- if not named and satellite.area_id -%}
-            {%- set ns.areas = [satellite.area_id] -%}
-            {%- endif -%}
-            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
-              | selectattr('attributes.device_class', 'eq', slots.device_class)
-              | map(attribute='entity_id') | list -%}
-            {%- for e in every if area_id(e) in ns.areas -%}
-            {%- set ns.picked = ns.picked + [e] -%}
-            {%- endfor -%}
-            {{ ns.picked if ns.picked or named else every }}
-      - if: "{{ covers | count == 0 }}"
-        then:
-          - variables:
-              result: {outcome: not_found}
-          - stop: Nothing to open
-            response_variable: result
-      - action: cover.open_cover
-        target:
-          entity_id: "{{ covers }}"
-      - variables:
-          result:
-            count: "{{ covers | count }}"
-      - stop: Opening
-        response_variable: result
+    intent:
+      name: HassTurnOn
+      slots: {domain: cover, device_class: "{{ slots.device_class }}"}
+      anywhere: true
     verbosity: specific
     response:
       done: >-
@@ -90,7 +63,7 @@ commands:
         {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
           else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
         Opening the {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
-      not_found: >-
+      no_devices: >-
         {%- set kinds = {'awning': 'awnings', 'blind': 'blinds', 'curtain': 'curtains',
           'door': 'doors', 'garage': 'garage doors', 'gate': 'gates', 'shade': 'shades',
           'shutter': 'shutters', 'window': 'windows'} -%}
@@ -108,9 +81,7 @@ commands:
         icon: mdi:window-shutter-open
         description: open a cover
         lists: null
-        action:
-          action: cover.open_cover
-          target: "{{ target }}"
+        intent: HassTurnOn
         # Out of sight, or what keeps people out: said.
         verbosity: specific
         response:
@@ -133,38 +104,10 @@ commands:
     exclude: [is, are]
     lists:
       device_class: {list: cover_classes}
-    action:
-      - variables:
-          covers: >-
-            {%- set named = slots.area or slots.floor -%}
-            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
-            {%- for f in slots.floor or [] -%}
-            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
-            {%- endfor -%}
-            {%- if not named and satellite.area_id -%}
-            {%- set ns.areas = [satellite.area_id] -%}
-            {%- endif -%}
-            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
-              | selectattr('attributes.device_class', 'eq', slots.device_class)
-              | map(attribute='entity_id') | list -%}
-            {%- for e in every if area_id(e) in ns.areas -%}
-            {%- set ns.picked = ns.picked + [e] -%}
-            {%- endfor -%}
-            {{ ns.picked if ns.picked or named else every }}
-      - if: "{{ covers | count == 0 }}"
-        then:
-          - variables:
-              result: {outcome: not_found}
-          - stop: Nothing to close
-            response_variable: result
-      - action: cover.close_cover
-        target:
-          entity_id: "{{ covers }}"
-      - variables:
-          result:
-            count: "{{ covers | count }}"
-      - stop: Closing
-        response_variable: result
+    intent:
+      name: HassTurnOff
+      slots: {domain: cover, device_class: "{{ slots.device_class }}"}
+      anywhere: true
     verbosity: specific
     response:
       done: >-
@@ -176,7 +119,7 @@ commands:
         {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
           else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
         Closing the {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
-      not_found: >-
+      no_devices: >-
         {%- set kinds = {'awning': 'awnings', 'blind': 'blinds', 'curtain': 'curtains',
           'door': 'doors', 'garage': 'garage doors', 'gate': 'gates', 'shade': 'shades',
           'shutter': 'shutters', 'window': 'windows'} -%}
@@ -194,9 +137,7 @@ commands:
         icon: mdi:window-shutter
         description: close a cover
         lists: null
-        action:
-          action: cover.close_cover
-          target: "{{ target }}"
+        intent: HassTurnOff
         # Out of sight, or what keeps people out: said.
         verbosity: specific
         response:
@@ -222,9 +163,7 @@ commands:
       area: {count: 1}
     # A room with the device picks it out: the one of that name there.
     combinations: [[entity], [entity, area]]
-    action:
-      action: lock.lock
-      target: "{{ target }}"
+    intent: HassTurnOn
     # Out of sight, or what keeps people out: said.
     verbosity: specific
     response:
@@ -246,9 +185,7 @@ commands:
       area: {count: 1}
     # A room with the device picks it out: the one of that name there.
     combinations: [[entity], [entity, area]]
-    action:
-      action: lock.unlock
-      target: "{{ target }}"
+    intent: HassTurnOff
     # Out of sight, or what keeps people out: said.
     verbosity: specific
     response:
@@ -268,10 +205,10 @@ commands:
     require: [[lock], [all, everything, up]]
     optional: [[doors, locks]]
     exclude: [unlock, is, are]
-    action:
-      action: lock.lock
-      target:
-        entity_id: all
+    intent:
+      name: HassTurnOn
+      slots: {domain: lock}
+      home: true
     verbosity: specific
     response: Locking all the doors.
 

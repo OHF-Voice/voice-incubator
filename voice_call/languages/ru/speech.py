@@ -31,6 +31,25 @@ WENT_WRONG = "Извините, что-то пошло не так."
 NO_COMMANDS = "Голосовые команды ещё не настроены. Добавьте их в приложении Voice Call."
 TIMERS_NEED_INTEGRATION = "Для таймеров нужна интеграция Voice Call в Home Assistant."
 
+NO_AREA = 'Я не знаю, в какой я зоне. Назначьте этому сателлиту зону.'
+"""A command for the satellite's area, on a satellite in none."""
+
+
+def nothing_there(place: str) -> str:
+    """An intent found nothing of the kind ``place`` ("in the Kitchen"; "" for a device by name)."""
+    return f"Я ничего такого не нашёл {place}." if place else "Я этого не нашёл."
+
+
+def not_exposed(place: str) -> str:
+    """What it found there isn't exposed to Assist."""
+    return f"Ничего такого {place} не открыто для Assist." if place else "Это не открыто для Assist."
+
+
+def unavailable(place: str) -> str:
+    """What it found there is all unavailable."""
+    return f"Всё это {place} сейчас недоступно." if place else "Это сейчас недоступно."
+
+
 EXAMPLE_NAMES = {
     "room": "Кухня",
     "player": "Колонка на кухне",

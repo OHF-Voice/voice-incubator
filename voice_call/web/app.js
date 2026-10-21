@@ -692,18 +692,19 @@ async function pageCommand(id, prefill, query) {
   // What happens: respond / script / scene / action YAML, and a response.
   function behaviorEditor(target, yamlBox) {
     const wrap = h("div");
-    const current = () => (target.script ? "script" : target.scene ? "scene" : target.timer ? "timer" : target.music ? "music"
+    const current = () => (target.script ? "script" : target.scene ? "scene" : target.intent ? "intent" : target.timer ? "timer" : target.music ? "music"
       : (yamlBox.value || "").trim() ? "action" : respondsWhenDone(target.response) ? "respond" : "nothing");
     let mode = current();
     function render() {
-      const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["timer", "A timer"], ["music", "Music"], ["nothing", "Nothing"]];
+      const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["intent", "Run an intent"], ["timer", "A timer"], ["music", "Music"], ["nothing", "Nothing"]];
       const radios = h("div", { class: "row" }, ...choices.map(([value, label]) => h("label", {},
         h("input", { type: "radio", name: `do-${Math.random()}`, checked: mode === value, onchange: () => {
           // Responses for outcomes only the old kind had go (a script's own stay with an action).
           const scripted = (m) => m === "script" || m === "action";
-          if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "nothing" ? [] : value === "respond" ? ["done"] : ["done", "failed"]);
+          if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "nothing" ? [] : value === "respond" ? ["done"] : value === "intent" ? INTENT_OUTCOMES : ["done", "failed"]);
           mode = value;
-          delete target.script; delete target.scene; delete target.timer; delete target.music;
+          delete target.script; delete target.scene; delete target.timer; delete target.music; delete target.intent;
+          if (value === "intent") target.intent = { name: "HassTurnOn", slots: { domain: "light" } };
           if (value === "timer") target.timer = "start";
           if (value === "music") target.music = "play";
           if (value !== "action") yamlBox.value = "";
@@ -727,11 +728,28 @@ async function pageCommand(id, prefill, query) {
         control = field("Music", h("select", { onchange: (e) => { target.music = e.target.value; keepOutcomes([...Object.keys(musicOutcomes()), "failed"]); render(); } },
           ...Object.entries(ops).map(([op, label]) => h("option", { value: op, selected: target.music === op }, label))),
           "On a Music Assistant player: one the command names (Target, or slots.area), else the satellite's own (its Sendspin player), or, to pause, skip or ask what's playing, whichever plays in the satellite's area. Playing searches Music Assistant for slots.query (free text: “play …”); slots.media_type (artist, album, track, playlist, radio) narrows it. Set the volume takes a percentage.");
+      } else if (mode === "intent") {
+        const intent = typeof target.intent === "string" ? { name: target.intent } : { ...(target.intent || {}) };
+        const save = () => { target.intent = { name: intent.name, ...(intent.slots && Object.keys(intent.slots).length ? { slots: intent.slots } : {}), ...(intent.anywhere ? { anywhere: true } : {}), ...(intent.home ? { home: true } : {}) }; };
+        const name = h("input", { type: "text", list: "intent-names", value: intent.name || "", placeholder: "HassTurnOn", oninput: (e) => { intent.name = e.target.value.trim(); save(); } });
+        const known = h("datalist", { id: "intent-names" }, ...INTENTS.map((n) => h("option", { value: n })));
+        const lines = h("textarea", { class: "code short", placeholder: "domain: light\nbrightness: {{ slots.percentage }}",
+          oninput: (e) => { intent.slots = intentSlots(e.target.value); save(); } });
+        lines.value = Object.entries(intent.slots || {}).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("\n");
+        const where = h("select", { "aria-label": "With nothing named", onchange: (e) => { intent.anywhere = e.target.value === "anywhere"; intent.home = e.target.value === "home"; save(); } },
+          h("option", { value: "", selected: !intent.anywhere && !intent.home }, "The satellite's area"),
+          h("option", { value: "anywhere", selected: !!intent.anywhere }, "The satellite's area, else the whole home"),
+          h("option", { value: "home", selected: !!intent.home }, "The whole home"));
+        const anywhere = field("With nothing named", where);
+        control = h("div", {},
+          field("Intent", h("div", {}, name, known), "Run as Assist would: only on what is exposed to Assist."),
+          field("Slots", lines, "One per line; a template sees what was heard. It acts on what was named (device, area or floor), else the satellite's area: those slots are filled in."),
+          anywhere);
       } else if (mode === "action") {
         const area = h("textarea", { class: "code", oninput: (e) => { yamlBox.value = e.target.value; } });
         area.value = yamlBox.value;
         control = field("Action", area,
-          "Home Assistant script syntax: one action or a list. Templates see slots, satellite, speaker, target and command. target: \"{{ target }}\" is what was named, or else the satellite's area.");
+          "Home Assistant script syntax: one action or a list. Templates see slots, satellite, speaker, target and command. target: \"{{ target }}\" is what was named, or else the satellite's area -- every device there, exposed to Assist or not (Run an intent acts only on exposed ones).");
       }
       fill(wrap, radios, control, verbosityField(), responsesEditor());
     }
@@ -828,6 +846,18 @@ async function pageCommand(id, prefill, query) {
         return doneEditor("It's {{ now().strftime('%H:%M') }}", null, true, vars);
       }
       const rows = [];
+      if (mode === "intent") {
+        const said = outcomeInfo().intent || {};
+        const labels = { no_devices: "Nothing of the kind there", not_exposed: "None of it exposed to Assist", unavailable: "All of it unavailable", no_area: "This satellite has no area" };
+        for (const key of INTENT_OUTCOMES) {
+          if (key !== "done" && key !== "failed") rows.push(field(labels[key], box(key, said[key] || "", false)));
+        }
+        rows.push(field("If it fails", box("failed", info.failed, false), "Home Assistant refused. result.error says why."));
+        return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "Responses"),
+            hint(`Each outcome says its own sentence (shown) unless you give one here. Templates also see result.count, result.names and result.ids (what it acted on), result.unavailable, and result.speech (Home Assistant's own). ${vars}`)),
+          doneEditor("Turned on the lights {{ place.said }}", null, false),
+          h("div", { class: "grid2" }, ...rows));
+      }
       if (mode === "music") {
         const said = musicOutcomes();
         const levels = (info.music_levels || {})[target.music];
@@ -2624,6 +2654,28 @@ function sessionGlance(record) {
     speech ? h("div", { class: "glance-line" }, icon("mdi:volume-high", "", "Said"),
       h("span", {}, speech.text ? quoted(speech.text) : h("span", { class: "muted" }, speech.silent ? "Nothing: it's silent" : "A short sound"))) : null,
     errors.map((e) => h("div", { class: "notice bad" }, e)));
+}
+
+// How an intent command can turn out (commands.INTENT_OUTCOMES), and the
+// intents offered by name.
+const INTENT_OUTCOMES = ["done", "no_devices", "not_exposed", "unavailable", "no_area", "failed"];
+const INTENTS = ["HassTurnOn", "HassTurnOff", "HassToggle", "HassLightSet", "HassClimateSetTemperature", "HassSetPosition",
+  "HassMediaPause", "HassMediaUnpause", "HassMediaNext", "HassMediaPrevious", "HassSetVolume", "HassFanSetSpeed",
+  "HassVacuumStart", "HassVacuumReturnToBase", "HassListAddItem", "HassGetState"];
+
+// An intent's slots as written in the editor: "key: value" a line; a comma
+// list is a list.
+function intentSlots(text) {
+  const slots = {};
+  for (const line of String(text || "").split("\n")) {
+    const at = line.indexOf(":");
+    if (at < 1) continue;
+    const key = line.slice(0, at).trim();
+    const value = line.slice(at + 1).trim();
+    if (!key || !value) continue;
+    slots[key] = !value.includes("{") && value.includes(",") ? value.split(",").map((v) => v.trim()).filter(Boolean) : value;
+  }
+  return slots;
 }
 
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT

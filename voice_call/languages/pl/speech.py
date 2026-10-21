@@ -31,6 +31,25 @@ WENT_WRONG = "Przepraszam, coś poszło nie tak."
 NO_COMMANDS = "Nie ma jeszcze żadnych poleceń głosowych. Dodaj je w aplikacji Voice Call."
 TIMERS_NEED_INTEGRATION = "Minutniki wymagają integracji Voice Call w Home Assistant."
 
+NO_AREA = 'Nie wiem, w jakim obszarze jestem. Przypisz temu satelicie obszar.'
+"""A command for the satellite's area, on a satellite in none."""
+
+
+def nothing_there(place: str) -> str:
+    """An intent found nothing of the kind ``place`` ("in the Kitchen"; "" for a device by name)."""
+    return f"Nie znalazłem niczego takiego {place}." if place else "Nie znalazłem tego."
+
+
+def not_exposed(place: str) -> str:
+    """What it found there isn't exposed to Assist."""
+    return f"Nic takiego {place} nie jest udostępnione dla Assist." if place else "To nie jest udostępnione dla Assist."
+
+
+def unavailable(place: str) -> str:
+    """What it found there is all unavailable."""
+    return f"Wszystko to {place} jest teraz niedostępne." if place else "To jest teraz niedostępne."
+
+
 EXAMPLE_NAMES = {
     "room": "Kuchnia",
     "player": "Głośnik w kuchni",

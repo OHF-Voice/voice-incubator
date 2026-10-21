@@ -44,6 +44,11 @@ class StubHass:
     async def fire_event(self, event_type, data):
         self.events.append(data)
 
+    async def handle_intent(self, name, slots, variables, language, device_id=None, text=None):
+        if self.fail:
+            raise HassError("Connection lost")
+        return self.fake.handle_intent(name, slots, variables, device_id=device_id)
+
 
 class StubTimers:
     ready = True
@@ -239,3 +244,101 @@ def test_timers_say_as_much_as_their_level():
     # A question: a status answers at any level.
     status = {"timer": "status", "verbosity": "beep"}
     assert say(status, {}, integration=StubTimers([TEA])).speech == "The tea timer is paused with 1 minute and 30 seconds left."
+
+
+LIGHTS_ON = {"intent": {"name": "HassTurnOn", "slots": {"domain": ["light"]}}, "response": {"done": {
+    "specific": "Turned on the lights {{ place.said }}.", "verbose": "Turned on {{ result.names | join(', ') }}."}}}
+
+
+def test_an_intent_acts_on_what_is_exposed_here():
+    hass = StubHass()
+    done = run(LIGHTS_ON, hass)
+    assert (done.name, done.speech) == ("done", "Turned on the lights in the Kitchen.")
+    # The satellite's area, as Assist's: by id, and preferred for names.
+    assert hass.fake.intents[-1]["slots"] == {"domain": ["light"], "area": "kitchen", "preferred_area_id": "kitchen"}
+    assert done.to_json()["sequence"] == [{"intent": "HassTurnOn", "slots": hass.fake.intents[-1]["slots"]}]
+    verbose = run({**LIGHTS_ON, "verbosity": "verbose"}, hass)
+    assert verbose.speech == "Turned on Kitchen Ceiling."
+
+    # Why not, said for where.
+    hass.fake.unexposed.add("light.kitchen_ceiling")
+    hidden = run(LIGHTS_ON, hass)
+    assert (hidden.name, hidden.speech) == ("not_exposed", "Nothing like that in the Kitchen is exposed to Assist.")
+    hass.fake.unexposed.clear()
+    hass.fake.states["light.kitchen_ceiling"] = ("unavailable", {})
+    gone = run(LIGHTS_ON, hass)
+    assert (gone.name, gone.speech) == ("unavailable", "Everything like that in the Kitchen is unavailable right now.")
+    nothing = run(LIGHTS_ON, hass, {"area": ["living_room"]})
+    assert (nothing.name, nothing.speech) == ("no_devices", "There's nothing like that in the Living Room.")
+
+
+def test_an_intent_for_each_thing_named():
+    hass = StubHass()
+    # Each device by entity id, said as itself when it can't be.
+    hass.fake.unexposed.add("light.desk_lamp")
+    named = run({"intent": "HassTurnOn"}, hass, {"entity": ["light.desk_lamp"]})
+    assert (named.name, named.speech) == ("not_exposed", "That isn't exposed to Assist.")
+    assert hass.fake.intents[-1]["slots"]["name"] == "light.desk_lamp"
+    hass.fake.unexposed.clear()
+    # A floor: everything of the kind on it.
+    upstairs = run(LIGHTS_ON, hass, {"floor": ["first"]})
+    assert upstairs.name == "done" and hass.fake.intents[-1]["slots"]["floor"] == "first"
+    # A slot from what was heard, rendered in Home Assistant.
+    run({"intent": {"name": "HassLightSet", "slots": {"brightness": "{{ slots.percentage }}"}}}, hass, {"percentage": 40})
+    assert hass.fake.intents[-1]["slots"]["brightness"] == "40"
+
+
+def test_an_intent_with_no_area_here():
+    hass = StubHass()
+    nowhere = Satellite("s", "Nowhere")
+    command = parse_command("c", {"description": "do it", "examples": ["do it"], **LIGHTS_ON})
+    decision = Decision({"transcript": "do it"}, command, command.behavior, "command")
+    outcome = asyncio.run(actions.run(hass, decision, nowhere, None, False))
+    assert (outcome.name, outcome.speech) == ("no_area", english.NO_AREA) and not hass.fake.intents
+    # The garage door from the kitchen: nothing there, so the whole home's.
+    garage = run({"intent": {"name": "HassTurnOn", "slots": {"domain": ["cover"]}, "anywhere": True}}, hass)
+    assert garage.name == "done" and [i["slots"].get("area") for i in hass.fake.intents] == ["kitchen", None]
+
+
+def test_an_intent_dry_run_and_failure():
+    hass = StubHass()
+    dry = run(LIGHTS_ON, hass, dry_run=True)
+    assert dry.name == "done" and dry.sequence and not hass.fake.intents
+    hass.fail = True
+    failed = run(LIGHTS_ON, hass)
+    assert (failed.name, failed.speech) == ("failed", english.FAILED)
+    hass.fail = False
+    unknown = run({"intent": "HassNoSuchThing"}, hass)
+    assert unknown.name == "failed" and "Unknown intent" in unknown.error
+
+
+def test_intents_through_the_integration_or_rest():
+    """The client: the Voice Call integration's command, else the REST API
+    (why it matched nothing read from its message)."""
+    from voice_call.hass import HomeAssistant  # pylint: disable=import-outside-toplevel
+
+    from . import fake_hass  # pylint: disable=import-outside-toplevel
+
+    async def go() -> None:
+        fake, server = await fake_hass.serve()
+        rest, rest_port = await fake_hass.serve_rest(fake)
+        port = server.sockets[0].getsockname()[1]
+        client = HomeAssistant(f"http://127.0.0.1:{rest_port}", fake_hass.TOKEN, f"ws://127.0.0.1:{port}/api/websocket")
+        await client.start()
+        try:
+            assert await client.wait_connected(10)
+            slots = {"domain": ["light"], "area": "kitchen"}
+            done = await client.handle_intent("HassTurnOn", slots, {}, "en", device_id="device-x")
+            assert [t["id"] for t in done["response"]["data"]["success"]] == ["light.kitchen_ceiling"]
+            assert fake.intents[-1]["how"] == "websocket" and fake.intents[-1]["device_id"] == "device-x"
+            fake.intent_command = False
+            fake.unexposed.add("light.kitchen_ceiling")
+            hidden = await client.handle_intent("HassTurnOn", slots, {}, "en")
+            assert fake.intents[-1]["how"] == "rest"
+            assert hidden["error"]["code"] == "no_match" and hidden["error"]["reason"] == "assistant"
+        finally:
+            await client.stop()
+            await rest.cleanup()
+            server.close()
+
+    asyncio.run(go())

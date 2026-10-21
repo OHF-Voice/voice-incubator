@@ -202,7 +202,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
 | `voice_call/commands.py` | the command schema: combinations, presets, where it is, what happens |
 | `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
-| `voice_call/actions.py` | variables, `execute_script`, the response, the `voice_call_command` event |
+| `voice_call/actions.py` | variables, `execute_script`, intents (on what was heard, as Assist would: exposed devices only), the response, the `voice_call_command` event |
 | `voice_call/calls.py` | per-call traces, saved audio, debug sessions |
 | `voice_call/web.py`, `voice_call/web/` | the web UI and its API |
 | `voice_call/languages/` | language packs, one per language (`en/`, `de/`, `nl/`, `fr/`, `es/`, `it/`, `pl/`, `ru/`, `uk/`): speech models, the matcher's base config, skills; `speech.py`, every sentence the app makes itself, and `reading.py`, what it reads past the matcher (an alarm's time, music cues, a place after free text) -- English's names are what every language's has; and `library/`, the example commands offered in the UI, most in versions (`variants`: here, device, place) |

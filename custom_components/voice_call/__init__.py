@@ -13,6 +13,9 @@ MAC in Music Assistant's own player data -- comes back with it.
 ``voice_timer_list`` is the timer_list entity platform (not yet merged into
 Home Assistant), renamed so it cannot clash with it, and provided by this
 integration.
+
+The app runs Home Assistant's intents through it (``voice_call/intent/handle``)
+as Assist does: only on entities exposed to Assist, on behalf of a satellite.
 """
 
 from __future__ import annotations
@@ -22,8 +25,10 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import TemplateError
+from homeassistant.helpers import config_validation as cv, intent, template
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.typing import ConfigType
 
@@ -40,6 +45,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await async_setup_timer_lists(hass, config)
     websocket_api.async_register_command(hass, websocket_sync_satellites)
     websocket_api.async_register_command(hass, websocket_list_satellites)
+    websocket_api.async_register_command(hass, websocket_handle_intent)
     return True
 
 
@@ -108,3 +114,84 @@ def websocket_list_satellites(
     connection.send_result(
         msg["id"], {"satellites": [satellites.describe(s) for s in satellites.all()]}
     )
+
+
+ASSISTANT = "conversation"
+"""What intents run as: Assist, so only what is exposed to it is acted on."""
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "voice_call/intent/handle",
+        vol.Required("intent"): cv.string,
+        vol.Optional("slots", default={}): {cv.string: object},
+        vol.Optional("variables", default={}): dict,
+        vol.Optional("language"): cv.string,
+        vol.Optional("device_id"): cv.string,
+        vol.Optional("text"): cv.string,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_handle_intent(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Run an intent as Assist would: only on entities exposed to it, for the
+    satellite whose device is ``device_id``. Slot values may be templates,
+    rendered with ``variables`` (the command's). Why nothing matched comes
+    back as ``error`` (``no_match`` and its reason: ``assistant`` when
+    nothing that fits is exposed); the entities it matched that are
+    unavailable -- which their services skip -- as ``unavailable``."""
+    slots: dict[str, Any] = {}
+    try:
+        for key, value in msg["slots"].items():
+            if isinstance(value, str) and template.is_template_string(value):
+                value = template.Template(value, hass).async_render(msg["variables"], parse_result=True)
+            if value not in (None, "", []):
+                slots[key] = {"value": value}
+    except TemplateError as err:
+        connection.send_result(msg["id"], {"error": {"code": "template", "message": str(err)}})
+        return
+    try:
+        response = await intent.async_handle(
+            hass,
+            DOMAIN,
+            msg["intent"],
+            slots,
+            msg.get("text"),
+            connection.context(msg),
+            language=msg.get("language"),
+            assistant=ASSISTANT,
+            device_id=msg.get("device_id"),
+        )
+    except intent.MatchFailedError as err:
+        reason = err.result.no_match_reason
+        connection.send_result(
+            msg["id"],
+            {
+                "error": {
+                    "code": "no_match",
+                    "reason": reason.name.lower() if reason is not None else None,
+                    "name": err.result.no_match_name,
+                }
+            },
+        )
+        return
+    except intent.UnknownIntent as err:
+        connection.send_result(msg["id"], {"error": {"code": "unknown_intent", "message": str(err)}})
+        return
+    except intent.InvalidSlotInfo as err:
+        connection.send_result(msg["id"], {"error": {"code": "invalid_slots", "message": str(err)}})
+        return
+    except intent.IntentHandleError as err:
+        connection.send_result(msg["id"], {"error": {"code": "failed", "message": str(err)}})
+        return
+    result = response.as_dict()
+    unavailable = [
+        target
+        for target in result.get("data", {}).get("success", [])
+        if target.get("type") == "entity"
+        and (state := hass.states.get(target["id"])) is not None
+        and state.state == STATE_UNAVAILABLE
+    ]
+    connection.send_result(msg["id"], {"response": result, "unavailable": unavailable})

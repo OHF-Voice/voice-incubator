@@ -173,6 +173,19 @@ def library_files() -> list[tuple[Path, dict[str, Any]]]:
     return [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in sorted(library_dir().glob("*.yaml"))]
 
 
+def intent_examples() -> dict[str, str]:
+    """What an intent command says for each way it can turn out, unless it
+    says its own: in the example room."""
+    say = languages.speech()
+    room = say.place([("area", say.EXAMPLE_NAMES["room"])])
+    return {
+        "no_devices": say.nothing_there(room),
+        "not_exposed": say.not_exposed(room),
+        "unavailable": say.unavailable(room),
+        "no_area": say.NO_AREA,
+    }
+
+
 def library_versions(family_id: str, spec: dict[str, Any]) -> list[tuple[str, str | None, dict[str, Any]]]:
     """A library command's versions, ``[(id, variant, spec)]``.
 
@@ -338,6 +351,7 @@ class Api:
                     "timer_failed": app.language.speech.TIMERS_NEED_INTEGRATION,
                     "timer": timers.outcome_examples(),
                     "music": music.examples(),
+                    "intent": intent_examples(),
                     # ... and when done, by level of verbosity.
                     "timer_levels": timers.level_examples(),
                     "music_levels": music.level_examples(),

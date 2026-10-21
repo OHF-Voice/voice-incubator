@@ -15,6 +15,9 @@
 #
 # Keywords follow adapt-ctc's core intents (adapt_ctc/examples/intents/core.yaml),
 # which were tuned on the office-multicap corpus.
+#
+# What acts on devices runs Home Assistant's intents (intent:), as Assist
+# would: only on what is exposed to Assist, and the unavailable said.
 title: Basics
 icon: mdi:home-outline
 
@@ -72,21 +75,16 @@ commands:
     description: turn on the lights
     require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
     optional: [[all], [in, on], [the]]
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Turned on the lights.
         specific: Turned on the lights {{ place.said }}.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           Turned on {{ n if n else 'the' }} lights {{ place.said }}.
@@ -106,9 +104,7 @@ commands:
         icon: mdi:toggle-switch-outline
         description: turn on a device
         require: [[turn on, switch on, turn ... on, switch ... on]]
-        action:
-          action: homeassistant.turn_on
-          target: "{{ target }}"
+        intent: HassTurnOn
         response:
           done:
             brief: Turned it on.
@@ -126,21 +122,16 @@ commands:
     description: turn off the lights
     require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
     optional: [[all], [in, on], [the], [house, everywhere]]
-    action:
-      action: light.turn_off
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Turned off the lights.
         specific: Turned off the lights {{ place.said }}.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           Turned off {{ n if n else 'the' }} lights {{ place.said }}.
@@ -161,9 +152,7 @@ commands:
         description: turn off a device
         require: [[turn off, switch off, turn ... off, switch ... off]]
         optional: [[in, on], [the]]
-        action:
-          action: homeassistant.turn_off
-          target: "{{ target }}"
+        intent: HassTurnOff
         response:
           done:
             brief: Turned it off.
@@ -248,11 +237,9 @@ commands:
     require: [[brightness, percent]]
     optional: [[set, change, make], [light, lights], [to], [in, on], [the], [brightness], [percent]]
     number: percentage
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        brightness_pct: "{{ slots.percentage }}"
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
     verbosity: beep
     response:
       done:
@@ -285,11 +272,9 @@ commands:
     optional: [[color], [to], [in, on], [the]]
     lists:
       color: {list: colors}
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        color_name: "{{ slots.color }}"
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
     verbosity: beep
     response:
       done:
@@ -325,11 +310,9 @@ commands:
     # Fahrenheit" (the units skill).
     exclude: [what, "what's", how, convert]
     number: temperature
-    action:
-      action: climate.set_temperature
-      target: "{{ target }}"
-      data:
-        temperature: "{{ slots.temperature }}"
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
     # Not seen at once, and a misheard number matters: said.
     verbosity: specific
     response:

@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **Intents**: a command can run a Home Assistant intent instead of an
+  action, as Assist would -- only on devices exposed to Assist, the
+  unavailable said, on the device, area or floor named (by id) or the
+  satellite's area -- with outcomes for why it acted on nothing (nothing
+  there, not exposed, unavailable, no area). The library's lights,
+  thermostat, covers and locks use them, in every language. The Voice Call
+  integration (0.2.0) runs them (`voice_call/intent/handle`); without it,
+  Home Assistant's REST API does.
 - **Train a wake word** on the Wake words page (English): type the phrase,
   and Piper says it 2,000 ways (LibriTTS-R's 2,306 speakers, in synthetic
   rooms and noise) for a microWakeWord model warm-started from the base

@@ -69,21 +69,16 @@ commands:
     description: das Licht einschalten
     require: [[licht, lichter, lampe, lampen, beleuchtung], [ein, an, einschalten, anschalten, anmachen]]
     optional: [[schalte, schalt, mach, mache], [alle]]
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Licht eingeschaltet.
         specific: Licht {{ place.said }} eingeschaltet.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           {{ (n ~ ' Lichter') if n else 'Licht' }} {{ place.said }} eingeschaltet.
@@ -102,9 +97,7 @@ commands:
         icon: mdi:toggle-switch-outline
         description: ein Gerät einschalten
         require: [[ein, an, einschalten, anschalten, anmachen]]
-        action:
-          action: homeassistant.turn_on
-          target: "{{ target }}"
+        intent: HassTurnOn
         response:
           done:
             brief: Eingeschaltet.
@@ -122,21 +115,16 @@ commands:
     description: das Licht ausschalten
     require: [[licht, lichter, lampe, lampen, beleuchtung], [aus, ausschalten, ausmachen, abschalten]]
     optional: [[schalte, schalt, mach, mache], [alle], [überall]]
-    action:
-      action: light.turn_off
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Licht ausgeschaltet.
         specific: Licht {{ place.said }} ausgeschaltet.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           {{ (n ~ ' Lichter') if n else 'Licht' }} {{ place.said }} ausgeschaltet.
@@ -156,9 +144,7 @@ commands:
         description: ein Gerät ausschalten
         require: [[aus, ausschalten, ausmachen, abschalten]]
         optional: [[schalte, schalt, mach, mache]]
-        action:
-          action: homeassistant.turn_off
-          target: "{{ target }}"
+        intent: HassTurnOff
         response:
           done:
             brief: Ausgeschaltet.
@@ -241,11 +227,9 @@ commands:
     require: [[helligkeit, prozent]]
     optional: [[stelle, stell, setze, setz, mach, mache, dimme, dimm], [licht, lichter, lampe, lampen], [auf], [helligkeit], [prozent]]
     number: percentage
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        brightness_pct: "{{ slots.percentage }}"
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
     verbosity: beep
     response:
       done:
@@ -278,11 +262,9 @@ commands:
     optional: [[farbe], [auf, in]]
     lists:
       color: {list: colors}
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        color_name: "{{ slots.color }}"
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
     verbosity: beep
     response:
       done:
@@ -320,11 +302,9 @@ commands:
     # Fahrenheit".
     exclude: [was, wie, wieviel, umrechnen, sind]
     number: temperature
-    action:
-      action: climate.set_temperature
-      target: "{{ target }}"
-      data:
-        temperature: "{{ slots.temperature }}"
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
     # Not seen at once, and a misheard number matters: said.
     verbosity: specific
     response:

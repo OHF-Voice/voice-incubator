@@ -21,8 +21,12 @@ satellite:
   own from then on.
 - a **timer list** (`voice_timer_list.<satellite>_timers`) holding its timers.
 
+It also runs the commands' **intents** for the app, as Assist does (see
+**Intents** below).
+
 Without the integration the app still works, but satellites have no timers and
-their areas are kept by the app.
+their areas are kept by the app; intents still run, through Home Assistant's
+REST API, but can't tell an unavailable device apart.
 
 ## The Home and its satellites
 
@@ -275,8 +279,8 @@ added again. A command has:
     lights in the bedroom" is the area combination, never the satellite's
     own area.
 - **What happens**: only respond, run a script, activate a scene, run an
-  action (Home Assistant script syntax), a timer operation or a music
-  operation (below), plus an
+  action (Home Assistant script syntax), run an **intent** (below), a timer
+  operation or a music operation (below), plus an
   optional **response** template that is spoken. Nothing to say plays a short
   sound. Or **nothing** at all: the library's **Never mind** ("never mind",
   "cancel", "forget it") only ends the conversation, silently.
@@ -318,6 +322,42 @@ added again. A command has:
 A command another satellite has, or the Home's on a satellite that doesn't
 take them, is not run there: it says "It looks like you're trying to …, but
 that isn't set up here."
+
+### Intents
+
+A command can run one of Home Assistant's intents -- HassTurnOn, HassLightSet,
+HassClimateSetTemperature … -- instead of an action, and the library's
+commands for lights, the thermostat, covers and locks do. An intent runs as
+Assist would: **only on devices exposed to Assist** (Settings → Voice
+assistants → Expose), and an unavailable one is said, not counted as done.
+It acts on what was heard: each device named (by its entity id), each area
+or floor named, else the satellite's area. Its other slots are the command's
+(`domain: light`, `brightness: "{{ slots.percentage }}"`: a template sees
+the same variables as a response). `anywhere: true` means the whole home
+when nothing of the kind is in the satellite's area ("open the garage door"
+from the kitchen); `home: true`, the whole home whenever nothing is named
+("lock up").
+
+```yaml
+intent:
+  name: HassLightSet
+  slots: {brightness: "{{ slots.percentage }}"}
+```
+
+Besides done and failed, an intent's outcomes say why it acted on nothing:
+
+| outcome | when | says |
+|---|---|---|
+| `no_devices` | nothing of the kind there | "There's nothing like that in the Kitchen." |
+| `not_exposed` | some, none exposed to Assist | "Nothing like that in the Kitchen is exposed to Assist." |
+| `unavailable` | exposed, all unavailable | "Everything like that in the Kitchen is unavailable right now." |
+| `no_area` | nothing named, and the satellite has no area | "I don't know which area I'm in. Give this satellite an area." |
+
+When it acted on some, it is done on those: its response sees `result.count`,
+`result.names` and `result.ids` (what it acted on), `result.unavailable`
+(what it skipped) and `result.speech` (Home Assistant's own sentence, if
+any). An **action** with `target: "{{ target }}"` reaches every device in the
+area, exposed or not.
 
 ### What Home Assistant gets
 

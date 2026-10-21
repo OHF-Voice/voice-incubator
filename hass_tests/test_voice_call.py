@@ -233,3 +233,68 @@ async def test_satellite_comes_with_its_music_assistant_player(
     [satellite, manual] = await _sync(client, [{"id": MAC, "name": "voice-call-vpe"}, {"id": "manual", "name": "Desk"}])
     assert satellite["media_player"] == "media_player.voice_mike"
     assert manual["media_player"] is None
+
+
+async def _intent(client, **message) -> dict:
+    await client.send_json_auto_id({"type": "voice_call/intent/handle", **message})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    return msg["result"]
+
+
+async def test_intents_act_on_what_is_exposed(hass: HomeAssistant, hass_ws_client: WebSocketGenerator) -> None:
+    """An intent runs as Assist's: only on exposed entities; one exposed but
+    unavailable is said apart; and why nothing matched comes back."""
+    from homeassistant.components.homeassistant.exposed_entities import (  # pylint: disable=import-outside-toplevel
+        async_expose_entity,
+    )
+    from homeassistant.helpers import area_registry as ar  # pylint: disable=import-outside-toplevel
+
+    from tests.common import async_mock_service  # pylint: disable=import-outside-toplevel
+
+    assert await async_setup_component(hass, "homeassistant", {})
+    await _setup(hass)
+    areas = ar.async_get(hass)
+    kitchen = areas.async_create("Kitchen")
+    office = areas.async_create("Office")
+    hall = areas.async_create("Hall")
+    entities = er.async_get(hass)
+    for name, area, state, exposed in (
+        ("ceiling", kitchen, "off", True),
+        ("lamp", kitchen, "off", False),
+        ("strip", kitchen, "unavailable", True),
+        ("desk", office, "off", False),
+    ):
+        entry = entities.async_get_or_create("light", "test", name, suggested_object_id=name)
+        entities.async_update_entity(entry.entity_id, area_id=area.id)
+        hass.states.async_set(entry.entity_id, state, {"friendly_name": name.title()})
+        async_expose_entity(hass, "conversation", entry.entity_id, exposed)
+    turned_on = async_mock_service(hass, "light", "turn_on")
+    from homeassistant.components.light import intent as light_intent  # pylint: disable=import-outside-toplevel
+
+    await light_intent.async_setup_intents(hass)
+    client = await hass_ws_client(hass)
+
+    # Exposed ones only, by area id; the unavailable one said apart.
+    result = await _intent(client, intent="HassTurnOn", slots={"domain": ["light"], "area": kitchen.id})
+    acted = sorted(t["id"] for t in result["response"]["data"]["success"] if t["type"] == "entity")
+    assert acted == ["light.ceiling", "light.strip"]
+    assert [t["id"] for t in result["unavailable"]] == ["light.strip"]
+    called = {e for c in turned_on for e in ([c.data["entity_id"]] if isinstance(c.data["entity_id"], str) else c.data["entity_id"])}
+    assert "light.lamp" not in called and "light.ceiling" in called
+
+    # A slot as a template of the command's variables.
+    turned_on.clear()
+    result = await _intent(
+        client, intent="HassLightSet", slots={"brightness": "{{ slots.percentage }}", "name": "light.ceiling"},
+        variables={"slots": {"percentage": 40}},
+    )
+    assert "error" not in result and turned_on[-1].data["brightness_pct"] == 40
+
+    # Why not: nothing exposed there; nothing of that kind there; no such intent.
+    result = await _intent(client, intent="HassTurnOn", slots={"domain": ["light"], "area": office.id})
+    assert result["error"] == {"code": "no_match", "reason": "assistant", "name": None}
+    result = await _intent(client, intent="HassTurnOn", slots={"domain": ["light"], "area": hall.id})
+    assert result["error"]["code"] == "no_match" and result["error"]["reason"] == "area"
+    result = await _intent(client, intent="HassNoSuchThing")
+    assert result["error"]["code"] == "unknown_intent"

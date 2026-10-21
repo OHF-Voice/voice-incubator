@@ -42,38 +42,10 @@ commands:
               температуру]
     lists:
       device_class: {list: cover_classes}
-    action:
-      - variables:
-          covers: >-
-            {%- set named = slots.area or slots.floor -%}
-            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
-            {%- for f in slots.floor or [] -%}
-            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
-            {%- endfor -%}
-            {%- if not named and satellite.area_id -%}
-            {%- set ns.areas = [satellite.area_id] -%}
-            {%- endif -%}
-            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
-              | selectattr('attributes.device_class', 'eq', slots.device_class)
-              | map(attribute='entity_id') | list -%}
-            {%- for e in every if area_id(e) in ns.areas -%}
-            {%- set ns.picked = ns.picked + [e] -%}
-            {%- endfor -%}
-            {{ ns.picked if ns.picked or named else every }}
-      - if: "{{ covers | count == 0 }}"
-        then:
-          - variables:
-              result: {outcome: not_found}
-          - stop: Nothing to open
-            response_variable: result
-      - action: cover.open_cover
-        target:
-          entity_id: "{{ covers }}"
-      - variables:
-          result:
-            count: "{{ covers | count }}"
-      - stop: Opening
-        response_variable: result
+    intent:
+      name: HassTurnOn
+      slots: {domain: cover, device_class: "{{ slots.device_class }}"}
+      anywhere: true
     verbosity: specific
     response:
       done: >-
@@ -83,7 +55,7 @@ commands:
           'window': ['вікно', 'вікна']} -%}
         {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
         Відкриваю {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
-      not_found: >-
+      no_devices: >-
         {%- set kinds = {'awning': 'маркіз', 'blind': 'жалюзі', 'curtain': 'штор', 'door': 'дверей',
           'garage': 'гаражних воріт', 'gate': 'воріт', 'shade': 'рулонних штор', 'shutter': 'ролет',
           'window': 'вікон'} -%}
@@ -99,9 +71,7 @@ commands:
         icon: mdi:window-shutter-open
         description: відкрити щось
         lists: null
-        action:
-          action: cover.open_cover
-          target: "{{ target }}"
+        intent: HassTurnOn
         # Out of sight, or what keeps people out: said.
         verbosity: specific
         response:
@@ -126,38 +96,10 @@ commands:
               температуру]
     lists:
       device_class: {list: cover_classes}
-    action:
-      - variables:
-          covers: >-
-            {%- set named = slots.area or slots.floor -%}
-            {%- set ns = namespace(areas=slots.area or [], picked=[]) -%}
-            {%- for f in slots.floor or [] -%}
-            {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
-            {%- endfor -%}
-            {%- if not named and satellite.area_id -%}
-            {%- set ns.areas = [satellite.area_id] -%}
-            {%- endif -%}
-            {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
-              | selectattr('attributes.device_class', 'eq', slots.device_class)
-              | map(attribute='entity_id') | list -%}
-            {%- for e in every if area_id(e) in ns.areas -%}
-            {%- set ns.picked = ns.picked + [e] -%}
-            {%- endfor -%}
-            {{ ns.picked if ns.picked or named else every }}
-      - if: "{{ covers | count == 0 }}"
-        then:
-          - variables:
-              result: {outcome: not_found}
-          - stop: Nothing to close
-            response_variable: result
-      - action: cover.close_cover
-        target:
-          entity_id: "{{ covers }}"
-      - variables:
-          result:
-            count: "{{ covers | count }}"
-      - stop: Closing
-        response_variable: result
+    intent:
+      name: HassTurnOff
+      slots: {domain: cover, device_class: "{{ slots.device_class }}"}
+      anywhere: true
     verbosity: specific
     response:
       done: >-
@@ -167,7 +109,7 @@ commands:
           'window': ['вікно', 'вікна']} -%}
         {%- set where = (' ' ~ place.said) if (slots.area or slots.floor) else '' -%}
         Закриваю {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }}.
-      not_found: >-
+      no_devices: >-
         {%- set kinds = {'awning': 'маркіз', 'blind': 'жалюзі', 'curtain': 'штор', 'door': 'дверей',
           'garage': 'гаражних воріт', 'gate': 'воріт', 'shade': 'рулонних штор', 'shutter': 'ролет',
           'window': 'вікон'} -%}
@@ -183,9 +125,7 @@ commands:
         icon: mdi:window-shutter
         description: закрити щось
         lists: null
-        action:
-          action: cover.close_cover
-          target: "{{ target }}"
+        intent: HassTurnOff
         # Out of sight, or what keeps people out: said.
         verbosity: specific
         response:
@@ -211,9 +151,7 @@ commands:
       area: {count: 1}
     # A room with the device picks it out: the one of that name there.
     combinations: [[entity], [entity, area]]
-    action:
-      action: lock.lock
-      target: "{{ target }}"
+    intent: HassTurnOn
     # Out of sight, or what keeps people out: said.
     verbosity: specific
     response:
@@ -234,9 +172,7 @@ commands:
       area: {count: 1}
     # A room with the device picks it out: the one of that name there.
     combinations: [[entity], [entity, area]]
-    action:
-      action: lock.unlock
-      target: "{{ target }}"
+    intent: HassTurnOff
     # Out of sight, or what keeps people out: said.
     verbosity: specific
     response:
@@ -256,10 +192,10 @@ commands:
     require: [[замкни, замкніть, заблокуй, на ключ, на замок], [всі, усі, все, усе]]
     optional: [[двері, замки]]
     exclude: [відімкни, розблокуй, чи]
-    action:
-      action: lock.lock
-      target:
-        entity_id: all
+    intent:
+      name: HassTurnOn
+      slots: {domain: lock}
+      home: true
     verbosity: specific
     response: Замикаю всі двері.
 

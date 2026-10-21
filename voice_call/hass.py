@@ -38,6 +38,23 @@ _LOGGER = logging.getLogger(__name__)
 
 # Entities a voice command may target from the UI. Commands written in YAML
 # may name anything.
+INTENT_FAILURES = (
+    # Why an intent matched nothing, as Home Assistant's REST API says it (its
+    # MatchFailedError's message), and the reason the integration gives.
+    ("No matching entities are exposed", "assistant"),
+    ("No entities matched the name", "name"),
+    ("No entities were in the area", "area"),
+    ("No entities were on the floor", "floor"),
+    ("No entities matched the domain", "domain"),
+    ("No entities matched the device class", "device_class"),
+    ("No entities supported the required features", "feature"),
+    ("No entities were in the required state", "state"),
+    ("The area does not exist", "invalid_area"),
+    ("The floor does not exist", "invalid_floor"),
+    ("Multiple entities share the name", "duplicate_name"),
+    ("Multiple entities matched", "multiple_targets"),
+)
+
 VOICE_DOMAINS = (
     "light",
     "switch",
@@ -480,6 +497,58 @@ class HomeAssistant:
                 raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
 
         return await asyncio.to_thread(get)
+
+    async def handle_intent(
+        self, name: str, slots: dict[str, Any], variables: dict[str, Any], language: str,
+        device_id: str | None = None, text: str | None = None,
+    ) -> dict[str, Any]:
+        """Run an intent as Assist would -- only on what is exposed to it, for
+        the satellite whose device is ``device_id`` -- through the Voice Call
+        integration (``voice_call/intent/handle``: its slots may be templates
+        of ``variables``). ``{"response": <the intent response>,
+        "unavailable": [targets]}``, or ``{"error": {code, reason, ...}}``.
+
+        Without the integration (or before it had the command), Home
+        Assistant's REST API: its templates rendered here, why nothing matched
+        read from its message, and unavailable entities not told apart."""
+        message: dict[str, Any] = {
+            "type": "voice_call/intent/handle", "intent": name, "slots": slots, "variables": variables,
+            "language": language,
+            **({"device_id": device_id} if device_id else {}),
+            **({"text": text} if text else {}),
+        }
+        try:
+            return await self.call(message)
+        except HassError as err:
+            if "unknown_command" not in str(err) and "Unknown command" not in str(err):
+                raise
+        rendered: dict[str, Any] = {}
+        for key, value in slots.items():
+            if isinstance(value, str) and ("{{" in value or "{%" in value):
+                value = await self.render_template(value, variables)
+            if value not in (None, "", []):
+                rendered[key] = value
+        body = {
+            "name": name, "data": rendered, "language": language, "assistant": "conversation",
+            **({"device_id": device_id} if device_id else {}),
+        }
+        response = await asyncio.to_thread(self._post, "/api/intent/handle", body)
+        if response.get("response_type") != "error":
+            return {"response": response, "unavailable": []}
+        said = str(((response.get("speech") or {}).get("plain") or {}).get("speech") or "")
+        reason = next((r for prefix, r in INTENT_FAILURES if said.startswith(prefix)), None)
+        return {"error": {"code": "no_match" if reason else "failed", "reason": reason, "message": said}}
+
+    def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        request = urllib.request.Request(
+            f"{self.url}{path}", data=json.dumps(body).encode(),
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as err:
+            raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
 
     async def fire_event(self, event_type: str, data: dict) -> None:
         await self.call({"type": "fire_event", "event_type": event_type, "event_data": data})

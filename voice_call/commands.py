@@ -108,11 +108,16 @@ LISTEN_KEYS = (
     "lists",
     "wildcard",
 )
-DO_KEYS = ("script", "scene", "action", "timer", "music")
+DO_KEYS = ("script", "scene", "action", "intent", "timer", "music")
 OUTCOME_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 # Every command is done or failed; a timer command also has its operation's
 # outcomes (timers.OUTCOMES), and a script or action whatever it returns.
 BASE_OUTCOMES = ("done", "failed")
+INTENT_OUTCOMES = ("done", "no_devices", "not_exposed", "unavailable", "no_area", "failed")
+"""How an intent can turn out: done (on what it found, all but the
+unavailable), nothing of the kind there, none of it exposed to Assist, all of
+it unavailable, a satellite with no area for "here", or failed."""
+INTENT_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 # How much a command says when it is done. Silent is nothing at all, not even
 # a sound ("never mind"); a beep is the acknowledgement sound (a question still
 # answers either way); brief is a fixed sentence ("Turned on the lights.",
@@ -208,6 +213,29 @@ NUMBER_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
+@dataclass(frozen=True)
+class IntentCall:
+    """A Home Assistant intent a command runs, as Assist would: on what is
+    exposed to Assist. Its target comes from what was heard -- the devices
+    named (``name``, by entity id), the areas or floors named, else the
+    satellite's area -- one intent for each."""
+
+    name: str
+    """The intent: HassTurnOn, HassLightSet ..."""
+    slots: dict[str, Any] = field(default_factory=dict)
+    """Its other slots: values, or templates of the command's variables
+    (``brightness: "{{ slots.percentage }}"``), rendered in Home Assistant."""
+    anywhere: bool = False
+    """With nothing named and nothing of the kind in the satellite's area,
+    the whole home ("open the garage door" from the kitchen)."""
+    home: bool = False
+    """With nothing named, the whole home, not the satellite's area ("lock up")."""
+
+    def to_json(self) -> dict[str, Any]:
+        flags = {k: True for k in ("anywhere", "home") if getattr(self, k)}
+        return {"name": self.name, "slots": dict(self.slots), **flags}
+
+
 @dataclass
 class Behavior:
     """What happens when a command matches."""
@@ -216,6 +244,8 @@ class Behavior:
     script: str | None = None
     scene: str | None = None
     action: list[dict] | None = None
+    intent: IntentCall | None = None
+    """A Home Assistant intent, run by the app (voice_call/actions.py)."""
     timer: str | None = None
     """A timer operation, done by the app on the satellite's timer list."""
 
@@ -283,6 +313,8 @@ class Behavior:
             return (*MUSIC_OUTCOMES[self.music], "failed")
         if self.script or self.action:
             return None
+        if self.intent:
+            return INTENT_OUTCOMES
         if self.does == "nothing":
             return ("done",)
         return BASE_OUTCOMES
@@ -295,6 +327,8 @@ class Behavior:
             return "scene"
         if self.action:
             return "action"
+        if self.intent:
+            return "intent"
         if self.timer:
             return "timer"
         if self.music:
@@ -319,8 +353,8 @@ class Behavior:
             ]
         if self.scene:
             return [{"action": "scene.turn_on", "target": {"entity_id": self.scene}}]
-        if self.timer or self.music:
-            return []  # the app does these itself (voice_call/timers.py, music.py)
+        if self.timer or self.music or self.intent:
+            return []  # the app does these itself (voice_call/timers.py, music.py, actions.py)
         return copy.deepcopy(self.action or [])
 
 
@@ -621,16 +655,46 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
             raise ConfigError(f"{where}.music: one of {', '.join(MUSIC_OPERATIONS)}")
     response = _response(spec.get("response"), f"{where}.response")
     verbosity = _verbosity(spec.get("verbosity"), f"{where}.verbosity")
+    intent = _intent(spec["intent"], f"{where}.intent") if spec.get("intent") else None
     return Behavior(
         slots=_fixed_slots(spec.get("slots"), f"{where}.slots"),
         script=script,
         scene=scene,
         action=_actions(spec["action"], f"{where}.action") if spec.get("action") else None,
+        intent=intent,
         timer=timer,
         music=music,
         response=response or None,
         verbosity=verbosity,
     )
+
+
+# What the app fills in from what was heard: they are not the command's to give.
+INTENT_TARGET_SLOTS = ("name", "area", "floor", "preferred_area_id", "preferred_floor_id")
+
+
+def _intent(value: Any, where: str) -> IntentCall:
+    """``HassTurnOn``, or ``{name, slots, anywhere, home}``."""
+    if isinstance(value, str):
+        value = {"name": value}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{where}: an intent's name (HassTurnOn), or {{name, slots}}")
+    unknown = sorted(set(value) - {"name", "slots", "anywhere", "home"})
+    if unknown:
+        raise ConfigError(f"{where}: unknown key(s) {unknown}")
+    name = str(value.get("name") or "")
+    if not INTENT_NAME.match(name):
+        raise ConfigError(f"{where}.name: an intent's name, as Home Assistant has it (HassTurnOn)")
+    slots = value.get("slots") or {}
+    if not isinstance(slots, dict) or not all(isinstance(k, str) for k in slots):
+        raise ConfigError(f"{where}.slots: a mapping of slot names to values or templates")
+    given = sorted(set(slots) & set(INTENT_TARGET_SLOTS))
+    if given:
+        raise ConfigError(
+            f"{where}.slots: {', '.join(given)} come from what was heard (the device, area or floor named, "
+            "else the satellite's area)"
+        )
+    return IntentCall(name, copy.deepcopy(slots), bool(value.get("anywhere")), bool(value.get("home")))
 
 
 def _verbosity(value: Any, where: str) -> str | None:

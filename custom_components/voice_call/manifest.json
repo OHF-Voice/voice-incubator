@@ -3,12 +3,12 @@
   "name": "Voice Call",
   "codeowners": ["@synesthesiam"],
   "config_flow": true,
-  "dependencies": ["websocket_api"],
+  "dependencies": ["intent", "websocket_api"],
   "documentation": "https://github.com/OHF-Voice/apps-experimental/tree/master/voice_call",
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/OHF-Voice/apps-experimental/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

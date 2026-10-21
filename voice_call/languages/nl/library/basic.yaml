@@ -67,21 +67,16 @@ commands:
     require: [[licht, lichten, lamp, lampen, verlichting], [aan, aandoen, aanzetten, inschakelen, schakel ... in]]
     optional: [[zet, doe, maak], [alle]]
     exclude: [uit, uitdoen, uitzetten, uitschakelen]
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Licht aan.
         specific: Licht {{ place.said }} aan.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           {{ (n ~ ' lampen') if n else 'Licht' }} {{ place.said }} aan.
@@ -100,9 +95,7 @@ commands:
         icon: mdi:toggle-switch-outline
         description: een apparaat aanzetten
         require: [[aan, aandoen, aanzetten, inschakelen, schakel ... in]]
-        action:
-          action: homeassistant.turn_on
-          target: "{{ target }}"
+        intent: HassTurnOn
         response:
           done:
             brief: Aangezet.
@@ -121,21 +114,16 @@ commands:
     require: [[licht, lichten, lamp, lampen, verlichting], [uit, uitdoen, uitzetten, uitschakelen]]
     optional: [[zet, doe, maak, schakel], [alle], [overal]]
     exclude: [aan, aandoen, aanzetten, inschakelen]
-    action:
-      action: light.turn_off
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Licht uit.
         specific: Licht {{ place.said }} uit.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           {{ (n ~ ' lampen') if n else 'Licht' }} {{ place.said }} uit.
@@ -155,9 +143,7 @@ commands:
         description: een apparaat uitzetten
         require: [[uit, uitdoen, uitzetten, uitschakelen]]
         optional: [[zet, doe, maak, schakel]]
-        action:
-          action: homeassistant.turn_off
-          target: "{{ target }}"
+        intent: HassTurnOff
         response:
           done:
             brief: Uitgezet.
@@ -240,11 +226,9 @@ commands:
     require: [[helderheid, procent]]
     optional: [[zet, maak, dim, dimmen, verander], [licht, lichten, lamp, lampen], [op], [helderheid], [procent]]
     number: percentage
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        brightness_pct: "{{ slots.percentage }}"
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
     verbosity: beep
     response:
       done:
@@ -277,11 +261,9 @@ commands:
     optional: [[op], [kleur]]
     lists:
       color: {list: colors}
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        color_name: "{{ slots.color }}"
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
     verbosity: beep
     response:
       done:
@@ -319,11 +301,9 @@ commands:
     # Fahrenheit".
     exclude: [wat, hoeveel, hoe, omrekenen, is, zijn]
     number: temperature
-    action:
-      action: climate.set_temperature
-      target: "{{ target }}"
-      data:
-        temperature: "{{ slots.temperature }}"
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
     # Not seen at once, and a misheard number matters: said.
     verbosity: specific
     response:

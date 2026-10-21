@@ -26,6 +26,25 @@ NO_COMMANDS = "No voice commands are set up yet. Add some in the Voice Call app.
 
 TIMERS_NEED_INTEGRATION = "Timers need the Voice Call integration in Home Assistant."
 
+NO_AREA = "I don't know which area I'm in. Give this satellite an area."
+"""A command for the satellite's area, on a satellite in none."""
+
+
+def nothing_there(place: str) -> str:
+    """An intent found nothing of the kind ``place`` ("in the Kitchen"; "" for a device by name)."""
+    return f"There's nothing like that {place}." if place else "I couldn't find that."
+
+
+def not_exposed(place: str) -> str:
+    """What it found there isn't exposed to Assist."""
+    return f"Nothing like that {place} is exposed to Assist." if place else "That isn't exposed to Assist."
+
+
+def unavailable(place: str) -> str:
+    """What it found there is all unavailable."""
+    return f"Everything like that {place} is unavailable right now." if place else "That's unavailable right now."
+
+
 
 EXAMPLE_NAMES = {
     "room": "Kitchen",

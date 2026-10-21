@@ -78,21 +78,16 @@ commands:
     require: [[luz, luces, lámpara, lámparas, iluminación], [enciende, encienda, enciendas, encender, prende, prender, prendas, activa, activar, pon]]
     optional: [[todas, toda]]
     exclude: [apaga, apague, apagar, desactiva]
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Luces encendidas.
         specific: Luces encendidas {{ place.said }}.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           {{ (n ~ ' luces encendidas') if n else 'Luces encendidas' }} {{ place.said }}.
@@ -112,9 +107,7 @@ commands:
         description: encender un dispositivo
         # "Pon la tele", "pon el ventilador".
         require: [[enciende, encienda, enciendas, encender, prende, prender, prendas, activa, activar, pon]]
-        action:
-          action: homeassistant.turn_on
-          target: "{{ target }}"
+        intent: HassTurnOn
         response:
           done:
             brief: Encendido.
@@ -133,21 +126,16 @@ commands:
     require: [[luz, luces, lámpara, lámparas, iluminación], [apaga, apague, apagues, apagar, desactiva, desactivar]]
     optional: [[todas, toda], [casa, toda la casa, en todas partes]]
     exclude: [enciende, encienda, encender, prende, activa]
-    action:
-      action: light.turn_off
-      target: "{{ target }}"
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
     verbosity: beep
     response:
       done:
         brief: Luces apagadas.
         specific: Luces apagadas {{ place.said }}.
         verbose: >-
-          {%- set ns = namespace(names=[]) -%}
-          {%- for a in place.areas -%}
-          {%- for e in area_entities(a) | select('match', 'light\\.') -%}
-          {%- set ns.names = ns.names + [state_attr(e, 'friendly_name') or e] -%}
-          {%- endfor -%}
-          {%- endfor -%}
+          {%- set ns = namespace(names=result.names or []) -%}
           {%- set n = ns.names | count -%}
           {%- if n == 0 or n > 4 -%}
           {{ (n ~ ' luces apagadas') if n else 'Luces apagadas' }} {{ place.said }}.
@@ -166,9 +154,7 @@ commands:
         icon: mdi:toggle-switch-off-outline
         description: apagar un dispositivo
         require: [[apaga, apague, apagues, apagar, desactiva, desactivar]]
-        action:
-          action: homeassistant.turn_off
-          target: "{{ target }}"
+        intent: HassTurnOff
         response:
           done:
             brief: Apagado.
@@ -253,11 +239,9 @@ commands:
     # A question: "cuánto es el 15 por ciento de 80".
     exclude: [cuánto, cuánta, qué, cuál, es, son, calcula]
     number: percentage
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        brightness_pct: "{{ slots.percentage }}"
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
     verbosity: beep
     response:
       done:
@@ -291,11 +275,9 @@ commands:
     optional: [[color], [en]]
     lists:
       color: {list: colors}
-    action:
-      action: light.turn_on
-      target: "{{ target }}"
-      data:
-        color_name: "{{ slots.color }}"
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
     verbosity: beep
     response:
       done:
@@ -333,11 +315,9 @@ commands:
     # son 20 grados Celsius", "a qué temperatura está el salón".
     exclude: [qué, cuánto, cuántos, cuántas, cómo, convierte, pasa, es, son, está, equivale, equivalen]
     number: temperature
-    action:
-      action: climate.set_temperature
-      target: "{{ target }}"
-      data:
-        temperature: "{{ slots.temperature }}"
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
     # Not seen at once, and a misheard number matters: said.
     verbosity: specific
     response:
