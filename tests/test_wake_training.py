@@ -98,11 +98,11 @@ FAKE_TRAINER = """\
 # Stands in for a Python with TensorFlow: answers the module check, and
 # "trains" by copying a model.
 import json, shutil, sys, time
+mode = {mode!r}
 if sys.argv[1] == "-c":
-    print("")
+    print("tensorflow,microwakeword" if mode == "bare" else "")
     sys.exit(0)
 job = json.load(open(sys.argv[2]))
-mode = {mode!r}
 print(json.dumps({{"stage": "training", "done": 5, "total": 10}}), flush=True)
 if mode == "fail":
     print(json.dumps({{"error": "boom"}}), flush=True)
@@ -202,11 +202,9 @@ def test_what_keeps_it_from_training(tmp_path):
         training.kit_dirs = [tmp_path / "nowhere"]
         assert "No training kit" in (await training.status())["unavailable"]
         training.kit_dirs = [tmp_path / "kit"]
-        training.trainer_python = sys.executable  # this one has no TensorFlow
+        training.trainer_python = str(make_trainer(tmp_path, "bare"))  # a Python without TensorFlow
         training._trainer_checked = None  # pylint: disable=protected-access
-        missing = (await training.status())["unavailable"]
-        if "tensorflow" not in sys.modules:
-            assert missing and "tensorflow" in missing
+        assert (await training.status())["unavailable"] == "The trainer's Python lacks tensorflow, microwakeword."
         training.exists = lambda word: word == "okay_nabu"
         with pytest.raises(TrainingError):
             await training.start("okay nabu")
@@ -220,3 +218,32 @@ def test_an_interrupted_job_says_so(tmp_path):
     (work / "job.json").write_text(json.dumps(Job("abc", "hey tester", "hey_tester").to_json()))
     job = WakeTraining(work, None, [], None, "en").job
     assert job is not None and job.state == "interrupted" and "stopped" in job.error
+
+
+KIT = ROOT / "models/wake-training"
+
+
+@pytest.mark.skipif(not (KIT / "kit.yaml").exists(), reason="no training kit")
+@pytest.mark.skipif(not VOICE.exists(), reason="no Piper voice")
+def test_a_real_model(tmp_path):
+    """The real trainer, briefly: warm-started from the kit's backbone (all but
+    the head load), 100 steps, temperature-scaled, exported -- and the model
+    lowers for the satellite."""
+    pytest.importorskip("pymicro_features")
+    for module in ("tensorflow", "microwakeword", "mmap_ninja"):
+        pytest.importorskip(module)
+
+    async def run() -> None:
+        custom = tmp_path / "wake_words"
+        training = WakeTraining(
+            tmp_path / "data", custom, [KIT], VOICE, "en",
+            check_model=lambda word: None if load_wake_model(custom / f"{word}.tflite", custom / f"{word}.json") else "?",
+        )
+        training.positive_clips = 20
+        training.training_steps = [20] * 5
+        job = await training.start("hey tester")
+        await asyncio.wait_for(training._task, 600)  # pylint: disable=protected-access
+        assert job.state == "done", training.log()[-2000:]
+        assert "initialised 33 of 35 tensors" in training.log()
+
+    asyncio.run(run())

@@ -44,6 +44,11 @@ Commands, names, satellites and debugging are described for users in
 .venv/bin/python -m voice_call --save-dir /tmp/calls    # web UI on http://127.0.0.1:8099/
 ```
 
+Training wake words in the app needs `requirements-training.txt` too, and
+microWakeWord's training (`pip install --no-deps -e ~/opt/micro-wake-word`,
+its working tree), in the same Python -- 3.13 at the latest: TensorFlow 2.21
+has no wheels for 3.14 -- or in another named by `--wake-trainer-python`.
+
 Commands, satellites, settings and saved calls live in `var/` (`--data-dir`;
 `/data` as an app). The web UI listens on localhost unless `--http-host` says
 otherwise: it can run actions in Home Assistant with an admin token. As an app
