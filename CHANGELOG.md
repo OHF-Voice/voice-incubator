@@ -23,7 +23,9 @@
   or wake word second opinion in German yet. Timer names and music titles
   are compared with their accented letters ("Beyoncé"), not without.
   `commands.yaml` says what its commands are in (`language:`, new files the
-  app's), and the Home page says when that is not the app's language. The
+  app's), and a command made in another language says its own: only the
+  app's language's commands are heard and shown, the others kept, hidden,
+  for when the app is in theirs again (the Home page counts them). The
   built-in speech model's "English" is now "the language's own" (`own`;
   `en` still read).
 - **Dutch** (`nl`): NVIDIA's FastConformer hybrid and Piper's Ronnie, the

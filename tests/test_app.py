@@ -15,6 +15,7 @@ import aiohttp
 import pytest
 
 from voice_call.server import Options, VoiceCallApp
+from voice_call.store import styled
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -468,6 +469,20 @@ async def _scenario(tmp_path: Path) -> None:
             assert spec["combinations"] == [["entity", "query"]] and spec["names"] == {"entity": {"count": 1, "domains": ["media_player"]}}
             assert not {"needs", "variants", "formerly"} & set(spec)
             assert (await http.delete("/api/commands/play_music_device")).status == 200
+
+            # A command in another language: kept, not shown, its id its own.
+            def german(document):
+                document["commands"]["play_music_device"] = styled(
+                    {"description": "Musik abspielen", "examples": ["spiel musik"], "language": "de"})
+
+            await app.apply(app.store.update(german))
+            listed = await (await http.get("/api/store")).json()
+            assert "play_music_device" not in listed["commands"] and "play_music_device" not in listed["details"]
+            assert listed["hidden"] == [{"code": "de", "name": "German", "count": 1}]
+            added = await (await http.post("/api/library/add", json={"file": "music", "id": "play_music_device"})).json()
+            assert added == {"ok": True, "id": "play_music_device_en"}
+            for gone in ("play_music_device_en", "play_music_device"):
+                assert (await http.delete(f"/api/commands/{gone}")).status == 200
 
             # A Home Assistant conversation agent gets what nothing here
             # understood, in a conversation kept on each satellite.

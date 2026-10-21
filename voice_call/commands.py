@@ -126,6 +126,7 @@ QUIET = VERBOSITY[:2]
 SPOKEN = VERBOSITY[2:]
 """The levels with something to say, which a done response can be written for."""
 COMMAND_KEYS = {
+    "language",  # what it is said in, when not the file's (store.command_language)
     "description",
     "slots",
     "response",

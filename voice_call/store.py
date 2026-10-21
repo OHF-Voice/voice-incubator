@@ -37,7 +37,9 @@ NEW_FILE = """\
 # Voice commands for voice_call. The web UI writes this file, and you can edit
 # it too: comments survive, and changes are picked up without a restart.
 #
-#   language:  what the commands are said in (no key: English)
+#   language:  what the commands are said in (no key: English); a command
+#              made in another language says its own (language: de). Only
+#              the app's language's are heard and shown.
 #   names:     what things are called, each pointing at one Home Assistant id
 #   lists:     value lists for slots ("red" -> red), shared by commands
 #   commands:  what is listened for, and what happens
@@ -110,8 +112,34 @@ class Compiled:
     """The response template when nothing understood a sentence; None: the
     built-in hint."""
     language: str = languages.DEFAULT
-    """What the commands are said in (``language:``; none: English). Commands
-    in another language than the app's are not heard: the UI says so."""
+    """What the commands are said in (``language:``; none: English), unless
+    a command says its own."""
+    hidden: dict[str, str] = field(default_factory=dict)
+    """Commands in another language than the app's, by id: their language.
+    Not heard, not shown; kept for when the app is in theirs again."""
+
+
+LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
+
+
+def file_language(data: dict[str, Any]) -> str:
+    """What a store's commands are said in when they don't say (``language:``)."""
+    return str(data.get("language") or languages.DEFAULT)
+
+
+def language_name(code: str) -> str:
+    """"English" for en; the code itself for a language without a pack."""
+    try:
+        return languages.load(code).name
+    except ValueError:
+        return code
+
+
+def command_language(spec: Any, default: str) -> str:
+    """What a command is said in: its own ``language:``, else ``default``
+    (the file's)."""
+    own = spec.get("language") if isinstance(spec, dict) else None
+    return str(own or default)
 
 
 def compile_store(data: dict[str, Any]) -> Compiled:
@@ -121,19 +149,29 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     unknown = set(data) - STORE_KEYS
     if unknown:
         raise ConfigError(f"unknown top-level key(s) {sorted(unknown)} (use {sorted(STORE_KEYS)})")
-    language = str(data.get("language") or languages.DEFAULT)
-    if not re.fullmatch(r"[a-z]{2,3}", language):
+    language = file_language(data)
+    if not LANGUAGE_CODE.fullmatch(language):
         raise ConfigError(f"language: a language code, like en or de (not {language!r})")
+    # Only the app's language's commands: the others are kept, not heard.
+    here = languages.current().code
+    every = data.get("commands") or {}
+    hidden = {}
+    for command_id, spec in every.items():
+        said = command_language(spec, language)
+        if not LANGUAGE_CODE.fullmatch(said):
+            raise ConfigError(f"{command_id}.language: a language code, like en or de (not {said!r})")
+        if said != here:
+            hidden[str(command_id)] = said
     names = data.get("names") or {}
     unknown = set(names) - set(NAME_KINDS)
     if unknown:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
-    commands = parse_commands(data.get("commands") or {})
+    commands = parse_commands({k: v for k, v in every.items() if str(k) not in hidden})
     unknown_response = parse_unknown(data.get("unknown"))
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, shared_examples(commands)[1], unknown_response, language)
+    return Compiled(data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden)
 
 
 @dataclass
@@ -217,9 +255,19 @@ class Store:
         return compiled
 
     def put_command(self, command_id: str, spec: dict[str, Any], old_id: str | None = None) -> Compiled:
+        """Save a command. A new one is in the app's language: it says so
+        (``language:``) when that is not the file's."""
+
         def edit(document: CommentedMap) -> None:
             commands = document["commands"]
-            node = styled(spec)
+            here, default = languages.current().code, file_language(document)
+            taken = commands.get(command_id)
+            if taken is not None and command_language(taken, default) != here:
+                raise ConfigError(f"“{command_id}” is taken by a command in {language_name(command_language(taken, default))}; pick another id")
+            said = {**spec}
+            if "language" not in said and here != default:
+                said["language"] = here
+            node = styled(said)
             if old_id and old_id != command_id and old_id in commands:
                 # Renamed: keep its place in the file.
                 index = list(commands).index(old_id)
@@ -268,9 +316,10 @@ class Store:
                 unknown = sorted(set(members) - set(commands))
                 if unknown:
                     raise ConfigError(f"No command {unknown[0]!r}")
+            here, default = languages.current().code, file_language(document)
             for command_id, command in commands.items():
-                if not isinstance(command, dict):
-                    continue
+                if not isinstance(command, dict) or command_language(command, default) != here:
+                    continue  # another language's: as it was
                 current = command.get("fallback") or []
                 current = [str(current)] if isinstance(current, str) else [str(c) for c in current]
                 keep = [

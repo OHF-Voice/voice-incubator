@@ -32,7 +32,7 @@ from .hass import VOICE_DOMAINS, HassError
 from .skills import LEVELS, SKILLS, available, home_skills, own_skills
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
-from .store import NAME_KINDS, compile_store, dump, plain
+from .store import NAME_KINDS, command_language, compile_store, dump, file_language, language_name, plain
 from .protocol import SAMPLE_RATE
 from .voices import language_code
 from .pronounce import guess, model_phones
@@ -306,7 +306,6 @@ class Api:
                 "tdt_models": app.tdt_models(),
                 "tdt_choice": app.tdt_choice(),
                 "language": app.language.to_json(),
-                "commands_language": engine.compiled.language if engine and engine.compiled else None,
                 "fallback": app.fallback_status(),
                 "agent": app.agent_status(),
                 "tdt_status": app.tdt_status,
@@ -340,7 +339,15 @@ class Api:
             data = plain(self.app.store._parse(text))  # pylint: disable=protected-access
         except Exception as err:  # noqa: BLE001 - shown in the UI
             error = str(err)
-        commands = data.get("commands") or {}
+        # The app's language's commands; the others are kept, not shown.
+        here, default = languages.current().code, file_language(data)
+        every = data.get("commands") or {}
+        commands = {k: v for k, v in every.items() if command_language(v, default) == here}
+        hidden: dict[str, int] = {}
+        for spec in every.values():
+            said = command_language(spec, default)
+            if said != here:
+                hidden[said] = hidden.get(said, 0) + 1
         details = {}
         for command_id, spec in commands.items():
             try:
@@ -373,6 +380,8 @@ class Api:
                 "lists": data.get("lists") or {},
                 # What is said when nothing understood a sentence.
                 "unknown": data.get("unknown") or {},
+                # Commands in other languages, by language: how many.
+                "hidden": [{"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden.items())],
                 "error": error,
             }
         )
@@ -667,8 +676,12 @@ class Api:
         for name, values in entry["lists"].items():
             if name not in have:
                 self.app.store.put_list(name, copy.deepcopy(values))
-        existing = self.app.store.load().commands
+        # Every command's id, in any language: another's keeps its own.
+        compiled = self.app.store.load()
+        existing = {*compiled.commands, *compiled.hidden}
         base = SAFE_ID.sub("_", str(body.get("new_id") or entry["id"]).lower()).strip("_") or "command"
+        if base in compiled.hidden:
+            base = f"{base}_{languages.current().code}"  # turn_on_here_de, beside English's turn_on_here
         command_id, n = base, 2
         while command_id in existing:
             command_id, n = f"{base}_{n}", n + 1

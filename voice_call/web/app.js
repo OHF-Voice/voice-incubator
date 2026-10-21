@@ -1467,13 +1467,16 @@ function satelliteTile(s, wake) {
     s.ringing ? h("span", { class: "badge warn" }, "timer ringing") : null);
 }
 
-// Commands in another language than the app's are not heard.
-function commandsLanguageNotice() {
-  const status = state.status || {};
-  const app = status.language || {};
-  if (!status.commands_language || !app.code || status.commands_language === app.code) return null;
-  return h("div", { class: "notice warn" }, `Your commands are in “${status.commands_language}”, and the app is in ${app.name}: they won't be heard.`,
-    hint("The app hears and speaks one language, its Language option. commands.yaml says what its commands are in (language:). Change one to match the other."));
+// Commands in other languages than the app's: kept, but not heard or shown.
+function hiddenCommandsNotice(store) {
+  const hidden = store.hidden || [];
+  if (!hidden.length) return null;
+  const total = hidden.reduce((n, l) => n + l.count, 0);
+  const text = hidden.length === 1
+    ? `${total} ${total === 1 ? "command" : "commands"} in ${hidden[0].name} ${total === 1 ? "is" : "are"} hidden.`
+    : `${total} commands in other languages are hidden: ${hidden.map((l) => `${l.count} ${l.name}`).join(", ")}.`;
+  return h("div", { class: "muted small" }, text,
+    hint("A command is in the language it was made in. It comes back when the app's Language option is that language again."));
 }
 
 async function pageHome() {
@@ -1491,7 +1494,7 @@ async function pageHome() {
   fill($main,
     h("h1", {}, "Home"),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
-    commandsLanguageNotice(),
+    hiddenCommandsNotice(store),
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
     h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),

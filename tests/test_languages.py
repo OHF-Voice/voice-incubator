@@ -14,7 +14,7 @@ from adapt_ctc.config import ConfigError
 from voice_call import languages, skills
 from voice_call.commands import base_config
 from voice_call.server import tdt_choice
-from voice_call.store import NEW_FILE, compile_store
+from voice_call.store import NEW_FILE, Store, compile_store
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -55,6 +55,44 @@ def test_the_commands_language(english):
     with pytest.raises(ConfigError, match="language"):
         compile_store({"language": "German"})
     assert "language: en\n" in NEW_FILE.format(language="en")
+
+
+MIXED = {
+    "language": "en",
+    "commands": {
+        "never_mind": {"description": "do nothing", "examples": ["never mind"]},
+        "vergiss_es": {"description": "nichts tun", "examples": ["vergiss es"], "language": "de"},
+    },
+}
+
+
+def test_only_the_apps_languages_commands(english):
+    # Each command is in the file's language unless it says its own; only
+    # the app's are compiled, the others kept (hidden) for when it is theirs.
+    compiled = compile_store(MIXED)
+    assert list(compiled.commands) == ["never_mind"] and compiled.hidden == {"vergiss_es": "de"}
+    languages.use("de")
+    compiled = compile_store(MIXED)
+    assert list(compiled.commands) == ["vergiss_es"] and compiled.hidden == {"never_mind": "en"}
+    with pytest.raises(ConfigError, match="vergiss_es.language"):
+        compile_store({"commands": {"vergiss_es": {"examples": ["vergiss es"], "language": "Deutsch"}}})
+
+
+def test_a_command_is_made_in_the_apps_language(english, tmp_path):
+    store = Store(tmp_path)
+    store.save_text(NEW_FILE.format(language="en"))
+    store.put_command("never_mind", {"description": "do nothing", "examples": ["never mind"], "fallback": ["meaning"]})
+    languages.use("de")
+    compiled = store.put_command("vergiss_es", {"description": "nichts tun", "examples": ["vergiss es"]})
+    assert store.load().data["commands"]["vergiss_es"]["language"] == "de"  # not the file's: said
+    assert list(compiled.commands) == ["vergiss_es"] and compiled.hidden == {"never_mind": "en"}
+    # Another language's command keeps its id, and is left as it was.
+    with pytest.raises(ConfigError, match="taken by a command in English"):
+        store.put_command("never_mind", {"description": "nichts tun", "examples": ["egal"]})
+    store.put_fallback({"meaning": []})
+    assert store.load().data["commands"]["never_mind"]["fallback"] == ["meaning"]
+    languages.use("en")
+    assert list(store.load().commands) == ["never_mind"]
 
 
 def test_the_transducer_choice():

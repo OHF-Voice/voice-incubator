@@ -646,6 +646,7 @@ Everything the UI edits is in `/data/commands.yaml` (Settings page, "Advanced"),
 and you may edit it directly; comments survive saves from the UI.
 
 ```yaml
+language: en  # what the commands are said in, unless one says its own
 names:
   entities:
     climate.ecobee: {name: EcoBee, aliases: [Echo Bee, Thermostat]}
@@ -686,6 +687,11 @@ commands:
       done: Paused.
       no_timers: There's nothing to pause.
       already: "{{ result.speech }} Say resume to start it again."
+  gute_nacht:
+    language: de  # made in German: heard and shown only while the app is
+    description: gute Nacht sagen
+    examples: [gute nacht]
+    script: script.good_night
 ```
 
 ## Options
@@ -693,15 +699,16 @@ commands:
 - `language`: what the app hears and says -- its speech models, Piper voice,
   command library and skills (default: `en`, English; or `de`, German, `nl`,
   Dutch, `fr`, French, `es`, Spanish, `it`, Italian, `pl`, Polish, `ru`,
-  Russian, or `uk`, Ukrainian). One at a time: commands are in one language
-  (`commands.yaml` `language:`), and the Home page says when they are not the
-  app's. The web UI is in English. In another language than English, skills
-  are asked and answered in it, with its units (a German Pfund, a Dutch pond
-  and a French livre are 500 g; metric spoons and cup), its country's holidays
-  (Russian and Ukrainian Easter is the Orthodox one) and a 24-hour clock;
-  there is no GLiNER step in the fallback, and no second opinion on the wake
-  word (Kaldi alone decides). Its models come with the app: NVIDIA's
-  FastConformer hybrid for the language
+  Russian, or `uk`, Ukrainian). One at a time: a command is in the language it
+  was made in (`commands.yaml` `language:`, or the command's own), and only
+  the app's are heard and shown -- the others stay in the file, hidden, until
+  the app is in theirs again. The web UI is in English. In another language
+  than English, skills are asked and answered in it, with its units (a German
+  Pfund, a Dutch pond and a French livre are 500 g; metric spoons and cup),
+  its country's holidays (Russian and Ukrainian Easter is the Orthodox one)
+  and a 24-hour clock; there is no GLiNER step in the fallback, and no second
+  opinion on the wake word (Kaldi alone decides). Its models come with the
+  app: NVIDIA's FastConformer hybrid for the language
   (`stt_<language>_fastconformer_hybrid_large_pc`, CC-BY-4.0, about 350 MB)
   and a Piper voice (Thorsten, Ronnie, Siwis, Davefx, Serena, Gosia, Denis,
   and for Ukrainian Tetiana, a slower "high" voice: the medium one drops
