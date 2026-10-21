@@ -404,23 +404,3 @@ commands:
       {{ 'Sì' if asked == 'unlocked' else 'No' }},
       {{ (ns.open[:-1] | join(', ') ~ ' e ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
       {%- endif -%}
-
-# Shared by the commands above (added with them).
-lists:
-  cover_classes:
-    awning: [tenda da sole, tende da sole]
-    blind: [veneziana, veneziane]
-    curtain: [tenda, tende, tendaggio, tendaggi]
-    door: [porta, porte]
-    garage: [porta del garage, porte del garage, basculante]
-    gate: [cancello, cancelli]
-    shade: [tenda a rullo, tende a rullo, tendina, tendine]
-    # "paparelle": tapparelle as a speech-to-text often writes it.
-    shutter: [tapparella, tapparelle, paparella, paparelle, persiana, persiane, avvolgibile, avvolgibili, scuro, scuri]
-    window: [finestra, finestre]
-  open_closed:
-    open: [aperto, aperta, aperti, aperte]
-    closed: [chiuso, chiusa, chiusi, chiuse]
-  locked_unlocked:
-    locked: [chiuso a chiave, chiusa a chiave, chiusi a chiave, chiuse a chiave, bloccato, bloccata]
-    unlocked: [sbloccato, sbloccata, sbloccati, sbloccate]

@@ -319,16 +319,7 @@ commands:
               [свет, лампу, лампы, лампочку, люстру, светильник, подсветку]]
     optional: [[цвет]]
     lists:
-      color:
-        values:
-          red: [красный, красным, красного, красную, красное]
-          orange: [оранжевый, оранжевым, оранжевого, оранжевую, оранжевое]
-          yellow: [желтый, желтым, желтого, желтую, желтое]
-          green: [зеленый, зеленым, зеленого, зеленую, зеленое]
-          blue: [синий, синим, синего, синюю, синее, голубой, голубым, голубую]
-          purple: [фиолетовый, фиолетовым, фиолетового, фиолетовую, сиреневый]
-          pink: [розовый, розовым, розового, розовую, розовое]
-          white: [белый, белым, белого, белую, белое]
+      color: {list: colors}
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -340,7 +331,7 @@ commands:
         brief: Цвет изменён.
         specific: >-
           {%- set colors = {'red': 'красный', 'orange': 'оранжевый', 'yellow': 'жёлтый', 'green': 'зелёный',
-            'blue': 'синий', 'purple': 'фиолетовый', 'pink': 'розовый', 'white': 'белый'} -%}
+            'blue': 'синий', 'purple': 'фиолетовый', 'pink': 'розовый', 'white': 'белый', 'turquoise': 'бирюзовый', 'magenta': 'пурпурный'} -%}
           {%- set c = colors.get(slots.color, slots.color) -%}
           {%- if slots.entity -%}
           {{ state_attr(slots.entity[0], 'friendly_name') }}: {{ c }} цвет.
@@ -565,9 +556,3 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
-
-# Shared by the commands above (added with them).
-lists:
-  on_off:
-    "on": [включен, включена, включено, включены]
-    "off": [выключен, выключена, выключено, выключены]

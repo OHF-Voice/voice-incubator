@@ -1,0 +1,42 @@
+# The value lists every home has in Dutch (Pack.lists): a command's value
+# slot uses one by name ({list: colors}). A home's own list by the same name,
+# in Dutch, takes its place (the Names page). Values are what Home Assistant
+# gets: CSS color names, cover device classes, HVAC modes.
+colors:
+  red: [rood]
+  orange: [oranje]
+  yellow: [geel]
+  green: [groen]
+  blue: [blauw]
+  purple: [paars]
+  pink: [roze]
+  white: [wit]
+  turquoise: [turquoise, turkoois]
+  magenta: [magenta]
+on_off:
+  "on": [aan, ingeschakeld]
+  "off": [uit, uitgeschakeld]
+cover_classes:
+  awning: [luifel, luifels, zonnescherm, zonneschermen]
+  blind: [jaloezie, jaloezieën, luxaflex]
+  curtain: [gordijn, gordijnen, vitrage]
+  door: [deur, deuren]
+  garage: [garagedeur, garagedeuren, garage]
+  gate: [hek, hekken, poort, poorten]
+  shade: [rolgordijn, rolgordijnen, screen, screens]
+  shutter: [rolluik, rolluiken]
+  window: [raam, ramen]
+open_closed:
+  open: [open, geopend]
+  closed: [dicht, gesloten]
+locked_unlocked:
+  locked: [op slot, vergrendeld]
+  unlocked: [van het slot, ontgrendeld]
+hvac_modes:
+  "off": [uit]
+  heat: [verwarmen, verwarming]
+  cool: [koelen, koeling]
+  heat_cool: [verwarmen en koelen]
+  auto: [automatisch, auto]
+  dry: [ontvochtigen, drogen]
+  fan_only: [ventileren, alleen ventilator]

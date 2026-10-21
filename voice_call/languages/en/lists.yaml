@@ -1,0 +1,42 @@
+# The value lists every home has in English (Pack.lists): a command's value
+# slot uses one by name ({list: colors}). A home's own list by the same name,
+# in English, takes its place (the Names page). Values are what Home Assistant
+# gets: CSS color names, cover device classes, HVAC modes.
+colors:
+  red: [red]
+  orange: [orange]
+  yellow: [yellow]
+  green: [green]
+  blue: [blue]
+  purple: [purple]
+  pink: [pink]
+  white: [white]
+  turquoise: [turquoise]
+  magenta: [magenta]
+on_off:
+  "on": ["on"]
+  "off": ["off"]
+cover_classes:
+  awning: [awning, awnings]
+  blind: [blind, blinds]
+  curtain: [curtain, curtains, drapes]
+  door: [door, doors]
+  garage: [garage door, garage doors, garage]
+  gate: [gate, gates]
+  shade: [shade, shades]
+  shutter: [shutter, shutters]
+  window: [window, windows]
+open_closed:
+  open: [open]
+  closed: [closed, shut]
+locked_unlocked:
+  locked: [locked]
+  unlocked: [unlocked]
+hvac_modes:
+  "off": ["off"]
+  heat: [heat, heating]
+  cool: [cool, cooling, air conditioning]
+  heat_cool: [heat and cool, heat cool]
+  auto: [auto, automatic]
+  dry: [dry, dehumidify]
+  fan_only: [fan, fan only]

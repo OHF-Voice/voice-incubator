@@ -952,7 +952,7 @@ async function pageCommand(id, prefill, query) {
   function listsEditor() {
     const wrap = h("div");
     const dynamicLists = (state.status && state.status.dynamic_lists) || {};
-    const sharedLists = [...Object.keys(state.store.lists || {}), ...Object.keys(dynamicLists)];
+    const sharedLists = [...new Set([...Object.keys(state.store.lists || {}), ...Object.keys(state.store.builtin_lists || {})]), ...Object.keys(dynamicLists)];
     function render() {
       const lists = spec.lists || {};
       fill(wrap, 
@@ -2007,11 +2007,19 @@ async function pageNames() {
     hiddenNotice(store.hidden_names, "name", "names",
       "A name is in the language it was given in. Name a thing here for this language too; its other names come back when the app's Language option is theirs again."),
     ...sections,
-    h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets."),
-      Object.keys(store.lists).length ? h("div", { class: "list" }, ...Object.entries(store.lists).map(([name, values]) => h("div", { class: "item" },
-        h("div", { class: "grow" }, h("b", {}, name), h("div", { class: "muted small" }, valuesToText(values).split("\n").join(" · "))),
-        h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
-        h("button", { class: "link", onclick: async () => { try { await api("DELETE", `lists/${encodeURIComponent(name)}`); pageNames(); } catch (err) { toast(err.message); } } }, "remove")))) : h("p", { class: "muted" }, "None yet."),
+    h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets. The built-in ones come with the language; editing one makes it yours, and removing yours brings the built-in back."),
+      hiddenNotice(store.hidden_lists, "list", "lists",
+        "A list's phrases are in the language they were given in. They come back when the app's Language option is theirs again."),
+      h("div", { class: "list" }, ...[...new Set([...Object.keys(store.lists), ...Object.keys(store.builtin_lists || {})])].sort().map((name) => {
+        const own = store.lists[name];
+        const builtin = (store.builtin_lists || {})[name];
+        const values = own || builtin;
+        return h("div", { class: "item" },
+          h("div", { class: "grow" }, h("b", {}, name), " ", builtin ? h("span", { class: "badge" }, own ? "yours" : "built-in") : null,
+            h("div", { class: "muted small" }, valuesToText(values).split("\n").join(" · "))),
+          h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
+          own ? h("button", { class: "link", onclick: async () => { try { await api("DELETE", `lists/${encodeURIComponent(name)}`); pageNames(); } catch (err) { toast(err.message); } } }, builtin ? "use built-in" : "remove") : null);
+      })),
       h("button", { onclick: () => editList("", null) }, "Add a list"), listForm),
   );
 }

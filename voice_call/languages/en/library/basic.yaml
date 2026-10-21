@@ -284,8 +284,7 @@ commands:
     require: [[set, make, turn], [light, lights]]
     optional: [[color], [to], [in, on], [the]]
     lists:
-      color:
-        values: [red, orange, yellow, green, blue, purple, pink, white]
+      color: {list: colors}
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -492,9 +491,3 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
-
-# Shared by the commands above (added with them).
-lists:
-  on_off:
-    "on": ["on"]
-    "off": ["off"]

@@ -1,0 +1,43 @@
+# The value lists every home has in Italian (Pack.lists): a command's value
+# slot uses one by name ({list: colors}). A home's own list by the same name,
+# in Italian, takes its place (the Names page). Values are what Home Assistant
+# gets: CSS color names, cover device classes, HVAC modes.
+colors:
+  red: [rosso, rossa, rossi, rosse]
+  orange: [arancione, arancioni]
+  yellow: [giallo, gialla, gialli, gialle]
+  green: [verde, verdi]
+  blue: [blu, azzurro, azzurra]
+  purple: [viola]
+  pink: [rosa]
+  white: [bianco, bianca, bianchi, bianche]
+  turquoise: [turchese]
+  magenta: [magenta]
+on_off:
+  "on": [acceso, accesa, accesi, accese]
+  "off": [spento, spenta, spenti, spente]
+cover_classes:
+  awning: [tenda da sole, tende da sole]
+  blind: [veneziana, veneziane]
+  curtain: [tenda, tende, tendaggio, tendaggi]
+  door: [porta, porte]
+  garage: [porta del garage, porte del garage, basculante]
+  gate: [cancello, cancelli]
+  shade: [tenda a rullo, tende a rullo, tendina, tendine]
+  # "paparelle": tapparelle as a speech-to-text often writes it.
+  shutter: [tapparella, tapparelle, paparella, paparelle, persiana, persiane, avvolgibile, avvolgibili, scuro, scuri]
+  window: [finestra, finestre]
+open_closed:
+  open: [aperto, aperta, aperti, aperte]
+  closed: [chiuso, chiusa, chiusi, chiuse]
+locked_unlocked:
+  locked: [chiuso a chiave, chiusa a chiave, chiusi a chiave, chiuse a chiave, bloccato, bloccata]
+  unlocked: [sbloccato, sbloccata, sbloccati, sbloccate]
+hvac_modes:
+  "off": [spento]
+  heat: [riscaldamento, caldo, riscaldare]
+  cool: [raffreddamento, freddo, aria condizionata]
+  heat_cool: [caldo e freddo]
+  auto: [automatico, auto]
+  dry: [deumidificazione, deumidificare]
+  fan_only: [ventilazione, solo ventilatore]

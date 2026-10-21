@@ -65,7 +65,9 @@ def test_a_command_comes_in_versions():
     # response, with none of the by-type list.
     device = entries["open_covers_device"]["spec"]
     assert device["action"] == {"action": "cover.open_cover", "target": "{{ target }}"} and "lists" not in device
-    assert entries["open_covers_place"]["lists"] == entries["open_covers_here"]["lists"] != {}
+    # By type, from the language's own list (Pack.lists).
+    assert entries["open_covers_place"]["spec"]["lists"]["device_class"] == {"list": "cover_classes"}
+    assert "shutter" in languages.current().lists["cover_classes"]
     # Example sentences name nothing, so they are the version that names
     # nothing's: never one that needs a device, area or floor.
     for entry in entries.values():

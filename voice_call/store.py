@@ -43,7 +43,10 @@ NEW_FILE = """\
 #   names:     what things are called, each pointing at one Home Assistant id;
 #              in another language than the file's under its code
 #              (kitchen: {{name: Kitchen, de: {{name: Küche}}}})
-#   lists:     value lists for slots ("red" -> red), shared by commands
+#   lists:     value lists for slots ("red" -> red), shared by commands;
+#              besides the language's own (colors, on_off ...). A value's
+#              phrases in another language than the file's go under its
+#              code (red: {{en: [red], de: [rot]}})
 #   commands:  what is listened for, and what happens
 #   unknown:   what is said when nothing understood a sentence
 language: {language}
@@ -122,6 +125,10 @@ class Compiled:
     hidden_names: dict[str, int] = field(default_factory=dict)
     """Things named in other languages but not the app's: how many, by
     language. ``data``'s names are the app's language's alone."""
+    hidden_lists: dict[str, int] = field(default_factory=dict)
+    """Lists with phrases in other languages but none in the app's: how
+    many, by language. ``data``'s lists are the language's built-in ones
+    (``Pack.lists``) with the home's own in it on top."""
 
 
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
@@ -189,6 +196,55 @@ def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
     return out, hidden
 
 
+def list_in(values: Any, here: str, default: str) -> Any:
+    """A list's values with their phrases in ``here`` -- a value's phrases
+    when ``here`` is the file's language (``default``), else its phrases
+    under ``here``'s code -- as adapt-ctc reads a list; None without any."""
+    if isinstance(values, list):
+        return values if here == default and values else None
+    if not isinstance(values, dict):
+        return None
+    out = {}
+    for value, said in values.items():
+        phrases = (said.get(here) if isinstance(said, dict) else said if here == default else None)
+        if phrases:
+            out[value] = phrases
+    return out or None
+
+
+def lists_in(lists: dict[str, Any], here: str, default: str) -> tuple[dict[str, Any], dict[str, int]]:
+    """A store's value lists as said in ``here``, and how many have phrases
+    in other languages but none in ``here``, by language."""
+    out, hidden = {}, {}
+    for name, values in (lists or {}).items():
+        if isinstance(values, dict):
+            for value, said in values.items():
+                if isinstance(said, dict):
+                    for key in said:
+                        if not LANGUAGE_CODE.fullmatch(str(key)):
+                            raise ConfigError(f"lists.{name}.{value}: {key!r} is no language code")
+        said = list_in(values, here, default)
+        if said is not None:
+            out[str(name)] = said
+            continue
+        for language in sorted(list_languages(values, default)):
+            hidden[language] = hidden.get(language, 0) + 1
+    return out, hidden
+
+
+def list_languages(values: Any, default: str) -> set[str]:
+    """Every language a list has phrases in."""
+    if isinstance(values, list):
+        return {default} if values else set()
+    out: set[str] = set()
+    for said in (values or {}).values() if isinstance(values, dict) else ():
+        if isinstance(said, dict):
+            out |= {str(code) for code, phrases in said.items() if phrases}
+        elif said:
+            out.add(default)
+    return out
+
+
 def command_language(spec: Any, default: str) -> str:
     """What a command is said in: its own ``language:``, else ``default``
     (the file's)."""
@@ -222,14 +278,16 @@ def compile_store(data: dict[str, Any]) -> Compiled:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
     # What things are called in the app's language: everything reads these.
     said, hidden_names = names_in(names, here, language)
-    data = {**data, "names": said}
+    own_lists, hidden_lists = lists_in(data.get("lists") or {}, here, language)
+    data = {**data, "names": said, "lists": {**languages.current().lists, **own_lists}}
     commands = parse_commands({k: v for k, v in every.items() if str(k) not in hidden})
     unknown_response = parse_unknown(data.get("unknown"))
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
     return Compiled(
-        data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names
+        data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names,
+        hidden_lists,
     )
 
 
@@ -440,11 +498,32 @@ class Store:
         return self.update(edit)
 
     def put_list(self, name: str, values: dict[str, Any] | None) -> Compiled:
+        """A list's values and phrases in the app's language (None: none);
+        its phrases in other languages stay."""
+
         def edit(document: CommentedMap) -> None:
-            if values is None:
-                document["lists"].pop(name, None)
+            lists = document["lists"]
+            here, default = languages.current().code, file_language(document)
+            old = plain(lists.get(name))
+            # Each value's phrases, by language.
+            if isinstance(old, list):
+                current = {str(v): {default: v} for v in old}
+            elif isinstance(old, dict):
+                current = {v: (dict(s) if isinstance(s, dict) else {default: s}) for v, s in old.items()}
             else:
-                document["lists"][name] = styled(values)
+                current = {}
+            new = values or {}
+            for value in [*current, *(v for v in new if v not in current)]:
+                said = current.setdefault(value, {})
+                if value in new:
+                    said[here] = new[value]
+                else:
+                    said.pop(here, None)
+            kept = {v: (s[default] if set(s) == {default} else s) for v, s in current.items() if s}
+            if kept:
+                lists[name] = styled(kept)
+            else:
+                lists.pop(name, None)  # no phrases in any language any more
 
         return self.update(edit)
 

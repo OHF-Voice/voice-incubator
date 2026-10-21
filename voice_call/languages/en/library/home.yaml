@@ -414,22 +414,3 @@ commands:
       {{ 'Yes' if asked == 'unlocked' else 'No' }},
       {{ (ns.open[:-1] | join(', ') ~ ' and ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
       {%- endif -%}
-
-# Shared by the commands above (added with them).
-lists:
-  cover_classes:
-    awning: [awning, awnings]
-    blind: [blind, blinds]
-    curtain: [curtain, curtains, drapes]
-    door: [door, doors]
-    garage: [garage door, garage doors, garage]
-    gate: [gate, gates]
-    shade: [shade, shades]
-    shutter: [shutter, shutters]
-    window: [window, windows]
-  open_closed:
-    open: [open]
-    closed: [closed, shut]
-  locked_unlocked:
-    locked: [locked]
-    unlocked: [unlocked]

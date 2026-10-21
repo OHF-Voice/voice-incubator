@@ -290,16 +290,7 @@ commands:
     require: [[pon, con, cambia, color], [luz, luces, lámpara, lámparas]]
     optional: [[color], [en]]
     lists:
-      color:
-        values:
-          red: [rojo, roja, rojas]
-          orange: [naranja]
-          yellow: [amarillo, amarilla, amarillas]
-          green: [verde, verdes]
-          blue: [azul, azules]
-          purple: [morado, morada, moradas, lila, violeta]
-          pink: [rosa, rosado, rosada]
-          white: [blanco, blanca, blancas]
+      color: {list: colors}
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -311,7 +302,7 @@ commands:
         brief: Color cambiado.
         specific: >-
           {%- set colores = {'red': 'rojo', 'orange': 'naranja', 'yellow': 'amarillo', 'green': 'verde',
-            'blue': 'azul', 'purple': 'morado', 'pink': 'rosa', 'white': 'blanco'} -%}
+            'blue': 'azul', 'purple': 'morado', 'pink': 'rosa', 'white': 'blanco', 'turquoise': 'turquesa', 'magenta': 'magenta'} -%}
           {{ state_attr(slots.entity[0], 'friendly_name') ~ ' está' if slots.entity
           else 'Las luces ' ~ place.said ~ ' están' }} ahora en {{ colores.get(slots.color, slots.color) }}.
     variants:
@@ -517,9 +508,3 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
-
-# Shared by the commands above (added with them).
-lists:
-  on_off:
-    "on": [encendido, encendida, prendido, prendida, activado, activada]
-    "off": [apagado, apagada, desactivado, desactivada]

@@ -189,8 +189,8 @@ library's commands come in **versions**, for what they act on; open one
 Each version is a command of its own (`play_music_here`,
 `play_music_device`, `play_music_place`): add the ones you want, and a
 sentence goes to the one that takes what was said in it. Adding one from the
-library copies it into your commands, with any shared value list it uses
-that you don't have yet; one you already have is marked **added**, by its
+library copies it into your commands (the value lists it uses are the
+language's own: see Value lists); one you already have is marked **added**, by its
 id, so a command you renamed counts as your own and the library's can be
 added again. A command has:
 
@@ -225,6 +225,13 @@ added again. A command has:
     `total_seconds` and `text` (`HH:MM:SS`).
   - **Value lists**: "set the lights to red" gives `slots.color: red`. A
     value may be said several ways (`red: red, crimson`); lists can be shared.
+    Every home has its language's own -- `colors` (red, orange, yellow, green,
+    blue, purple, pink, white, turquoise, magenta), `on_off`, `open_closed`,
+    `locked_unlocked`, `cover_classes` and `hvac_modes` (heat, cool,
+    heat_cool, auto, dry, fan_only, off) -- and editing one on the Names
+    page makes it yours, in the app's language. A value's phrases in another
+    language than `commands.yaml`'s go under the language's code
+    (`red: {en: [red], de: [rot]}`); only the app's language's are heard.
   - **Free text**, kept bounded so it can be heard reliably: between two
     keywords ("add … to the shopping list"), from a keyword to the end
     ("remind me to …"), or right before or after a keyword ("the … timer").
@@ -663,7 +670,7 @@ names:
   areas:
     kitchen: {name: Kitchen}
 lists:
-  colors: {red: [red, crimson], blue: blue}
+  colors: {red: [red, crimson], blue: blue}  # yours: in place of the built-in colors
 commands:
   ecobee_warmer:
     description: warm up the house

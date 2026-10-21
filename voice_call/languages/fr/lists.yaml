@@ -1,0 +1,42 @@
+# The value lists every home has in French (Pack.lists): a command's value
+# slot uses one by name ({list: colors}). A home's own list by the same name,
+# in French, takes its place (the Names page). Values are what Home Assistant
+# gets: CSS color names, cover device classes, HVAC modes.
+colors:
+  red: [rouge]
+  orange: [orange]
+  yellow: [jaune]
+  green: [vert, verte]
+  blue: [bleu, bleue]
+  purple: [violet, violette]
+  pink: [rose]
+  white: [blanc, blanche]
+  turquoise: [turquoise]
+  magenta: [magenta]
+on_off:
+  "on": [allumé, allumée, allumés, allumées]
+  "off": [éteint, éteinte, éteints, éteintes]
+cover_classes:
+  awning: [store banne, stores bannes, auvent, auvents, marquise]
+  blind: [store, stores, jalousie, jalousies]
+  curtain: [rideau, rideaux, voilage, voilages]
+  door: [porte, portes]
+  garage: [porte de garage, portes de garage, garage]
+  gate: [portail, portails, barrière]
+  shade: [store enrouleur, stores enrouleurs, toile, toiles]
+  shutter: [volet, volets, volet roulant, volets roulants]
+  window: [fenêtre, fenêtres]
+open_closed:
+  open: [ouvert, ouverte, ouverts, ouvertes]
+  closed: [fermé, fermée, fermés, fermées]
+locked_unlocked:
+  locked: [verrouillé, verrouillée, verrouillés, verrouillées, fermé à clé, fermée à clé]
+  unlocked: [déverrouillé, déverrouillée, déverrouillés, déverrouillées]
+hvac_modes:
+  "off": [arrêt, éteint]
+  heat: [chauffage, chauffer]
+  cool: [climatisation, refroidir, clim]
+  heat_cool: [chauffage et climatisation]
+  auto: [automatique, auto]
+  dry: [déshumidification, déshumidifier]
+  fan_only: [ventilation, ventilateur seul]

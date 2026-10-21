@@ -1,0 +1,42 @@
+# The value lists every home has in Polish (Pack.lists): a command's value
+# slot uses one by name ({list: colors}). A home's own list by the same name,
+# in Polish, takes its place (the Names page). Values are what Home Assistant
+# gets: CSS color names, cover device classes, HVAC modes.
+colors:
+  red: [czerwony, czerwona, czerwone, czerwono, czerwień]
+  orange: [pomarańczowy, pomarańczowa, pomarańczowe, pomarańczowo]
+  yellow: [żółty, żółta, żółte, żółto]
+  green: [zielony, zielona, zielone, zielono]
+  blue: [niebieski, niebieska, niebieskie, niebiesko]
+  purple: [fioletowy, fioletowa, fioletowe, fioletowo, fiolet]
+  pink: [różowy, różowa, różowe, różowo, róż]
+  white: [biały, biała, białe, biało]
+  turquoise: [turkusowy, turkusowa, turkusowe, turkusowo, turkus]
+  magenta: [purpurowy, purpurowa, purpurowe, purpurowo, magenta]
+on_off:
+  "on": [włączony, włączona, włączone, zapalony, zapalona, zapalone]
+  "off": [wyłączony, wyłączona, wyłączone, zgaszony, zgaszona, zgaszone]
+cover_classes:
+  awning: [markiza, markizę, markizy]
+  blind: [żaluzja, żaluzję, żaluzje, żaluzji]
+  curtain: [zasłona, zasłonę, zasłony, firanka, firankę, firanki]
+  door: [drzwi]
+  garage: [brama garażowa, bramę garażową, bramy garażowe, drzwi garażowe, garaż]
+  gate: [brama, bramę, bramy, furtka, furtkę, furtki]
+  shade: [osłona, osłonę, osłony, roleta materiałowa, roletę materiałową, rolety materiałowe]
+  shutter: [roleta, roletę, rolety, roletach]
+  window: [okno, okna]
+open_closed:
+  open: [otwarte, otwarta, otwarty, odsłonięte, odsłonięta, podniesione, podniesiona]
+  closed: [zamknięte, zamknięta, zamknięty, zasłonięte, zasłonięta, opuszczone, opuszczona, zasunięte, zasunięta]
+locked_unlocked:
+  locked: [zablokowane, zablokowana, zablokowany, zamknięte na klucz, zamknięta na klucz, zamknięty na klucz, na klucz, zaryglowane, zaryglowana, zaryglowany]
+  unlocked: [odblokowane, odblokowana, odblokowany, niezablokowane, niezablokowana, niezablokowany, odryglowane]
+hvac_modes:
+  "off": [wyłączone, wyłączony]
+  heat: [grzanie, ogrzewanie, grzania]
+  cool: [chłodzenie, chłodzenia, klimatyzacja]
+  heat_cool: [grzanie i chłodzenie]
+  auto: [automatyczny, auto, automat]
+  dry: [osuszanie, osuszania]
+  fan_only: [wentylator, wentylacja]

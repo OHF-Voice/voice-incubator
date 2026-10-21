@@ -28,7 +28,14 @@
   for when the app is in theirs again (the Home page counts them). Names
   too: a thing named in another language than the file's has that name
   under the language's code (`kitchen: {name: Kitchen, de: {name: Küche}}`),
-  and the Names page names things in the app's language. The
+  and the Names page names things in the app's language. And value lists:
+  every home has its language's own -- `colors` (with turquoise and
+  magenta), `on_off`, `open_closed`, `locked_unlocked`, `cover_classes`,
+  and `hvac_modes` for a climate mode command -- in place of the library's,
+  which a home kept in the language it was added in; a list of yours by the
+  same name, in the app's language, takes its place, and a value's phrases
+  in another language go under its code (`red: {en: [red], de: [rot]}`).
+  The
   built-in speech model's "English" is now "the language's own" (`own`;
   `en` still read).
 - **Dutch** (`nl`): NVIDIA's FastConformer hybrid and Piper's Ronnie, the

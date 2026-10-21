@@ -27,6 +27,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -81,6 +82,13 @@ class Pack:
         """Its command library: one YAML file per section."""
         return self.directory / "library"
 
+    @property
+    def lists(self) -> dict[str, Any]:
+        """The value lists every home has in it, by name (``lists.yaml``):
+        colors, on_off, cover_classes ... One of a home's own by the same
+        name, in this language, takes a list's place."""
+        return _lists(self.directory / "lists.yaml")
+
     def ctc_dir(self, root: Path) -> Path:
         """The CTC model's directory, its int8 build when there is one."""
         quantized = root / "models" / f"{self.ctc}-int8"
@@ -120,6 +128,16 @@ def load(code: str) -> Pack:
     if code not in codes():
         raise ValueError(f"no language {code!r} (one of {', '.join(codes())})")
     return importlib.import_module(f"{__name__}.{code}").PACK
+
+
+@cache
+def _lists(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    from ruamel.yaml import YAML  # pylint: disable=import-outside-toplevel
+
+    data = YAML(typ="safe").load(path.read_text("utf-8")) or {}  # YAML 1.2: "on" and "off" stay words
+    return {str(name): values for name, values in data.items()}
 
 
 _current: Pack | None = None

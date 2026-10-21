@@ -345,16 +345,7 @@ commands:
     require: [[ustaw, zmień, zrób, kolor, koloru, przełącz, daj], [światło, światła, lampę, lampy, lampki, oświetlenie]]
     optional: [[kolor, koloru], [na]]
     lists:
-      color:
-        values:
-          red: [czerwony, czerwona, czerwone, czerwono, czerwień]
-          orange: [pomarańczowy, pomarańczowa, pomarańczowe, pomarańczowo]
-          yellow: [żółty, żółta, żółte, żółto]
-          green: [zielony, zielona, zielone, zielono]
-          blue: [niebieski, niebieska, niebieskie, niebiesko]
-          purple: [fioletowy, fioletowa, fioletowe, fioletowo, fiolet]
-          pink: [różowy, różowa, różowe, różowo, róż]
-          white: [biały, biała, białe, biało]
+      color: {list: colors}
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -366,7 +357,7 @@ commands:
         brief: Zmieniono kolor.
         specific: >-
           {%- set kolory = {'red': 'czerwony', 'orange': 'pomarańczowy', 'yellow': 'żółty', 'green': 'zielony',
-            'blue': 'niebieski', 'purple': 'fioletowy', 'pink': 'różowy', 'white': 'biały'} -%}
+            'blue': 'niebieski', 'purple': 'fioletowy', 'pink': 'różowy', 'white': 'biały', 'turquoise': 'turkusowy', 'magenta': 'purpurowy'} -%}
           {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
           else 'Światło ' ~ place.said }} ma teraz kolor {{ kolory.get(slots.color, slots.color) }}.
     variants:
@@ -580,9 +571,3 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
-
-# Shared by the commands above (added with them).
-lists:
-  on_off:
-    "on": [włączony, włączona, włączone, zapalony, zapalona, zapalone]
-    "off": [wyłączony, wyłączona, wyłączone, zgaszony, zgaszona, zgaszone]

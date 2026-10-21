@@ -432,23 +432,3 @@ commands:
       {%- else -%}
       {{ 'Tak' if asked == 'unlocked' else 'Nie' }}, niezablokowane: {{ (ns.open[:-1] | join(', ') ~ ' i ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
       {%- endif -%}
-
-# Shared by the commands above (added with them).
-lists:
-  cover_classes:
-    awning: [markiza, markizę, markizy]
-    blind: [żaluzja, żaluzję, żaluzje, żaluzji]
-    curtain: [zasłona, zasłonę, zasłony, firanka, firankę, firanki]
-    door: [drzwi]
-    garage: [brama garażowa, bramę garażową, bramy garażowe, drzwi garażowe, garaż]
-    gate: [brama, bramę, bramy, furtka, furtkę, furtki]
-    shade: [osłona, osłonę, osłony, roleta materiałowa, roletę materiałową, rolety materiałowe]
-    shutter: [roleta, roletę, rolety, roletach]
-    window: [okno, okna]
-  open_closed:
-    open: [otwarte, otwarta, otwarty, odsłonięte, odsłonięta, podniesione, podniesiona]
-    closed: [zamknięte, zamknięta, zamknięty, zasłonięte, zasłonięta, opuszczone, opuszczona, zasunięte, zasunięta]
-  locked_unlocked:
-    locked: [zablokowane, zablokowana, zablokowany, zamknięte na klucz, zamknięta na klucz, zamknięty na klucz, na klucz,
-             zaryglowane, zaryglowana, zaryglowany]
-    unlocked: [odblokowane, odblokowana, odblokowany, niezablokowane, niezablokowana, niezablokowany, odryglowane]

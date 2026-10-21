@@ -402,22 +402,3 @@ commands:
       {{ 'Ja' if asked == 'unlocked' else 'Nee' }},
       {{ (ns.open[:-1] | join(', ') ~ ' en ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
       {%- endif -%}
-
-# Shared by the commands above (added with them).
-lists:
-  cover_classes:
-    awning: [luifel, luifels, zonnescherm, zonneschermen]
-    blind: [jaloezie, jaloezieën, luxaflex]
-    curtain: [gordijn, gordijnen, vitrage]
-    door: [deur, deuren]
-    garage: [garagedeur, garagedeuren, garage]
-    gate: [hek, hekken, poort, poorten]
-    shade: [rolgordijn, rolgordijnen, screen, screens]
-    shutter: [rolluik, rolluiken]
-    window: [raam, ramen]
-  open_closed:
-    open: [open, geopend]
-    closed: [dicht, gesloten]
-  locked_unlocked:
-    locked: [op slot, vergrendeld]
-    unlocked: [van het slot, ontgrendeld]

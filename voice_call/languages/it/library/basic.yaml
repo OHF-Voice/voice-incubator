@@ -282,16 +282,7 @@ commands:
     require: [[metti, imposta, cambia, colora, fai], [luce, luci, lampada, lampade]]
     optional: [[colore]]
     lists:
-      color:
-        values:
-          red: [rosso, rossa, rossi, rosse]
-          orange: [arancione, arancioni]
-          yellow: [giallo, gialla, gialli, gialle]
-          green: [verde, verdi]
-          blue: [blu, azzurro, azzurra]
-          purple: [viola]
-          pink: [rosa]
-          white: [bianco, bianca, bianchi, bianche]
+      color: {list: colors}
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -303,7 +294,7 @@ commands:
         brief: Colore cambiato.
         specific: >-
           {%- set colori = {'red': 'rosso', 'orange': 'arancione', 'yellow': 'giallo', 'green': 'verde',
-            'blue': 'blu', 'purple': 'viola', 'pink': 'rosa', 'white': 'bianco'} -%}
+            'blue': 'blu', 'purple': 'viola', 'pink': 'rosa', 'white': 'bianco', 'turquoise': 'turchese', 'magenta': 'magenta'} -%}
           {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
           else 'Luce ' ~ place.said }}: {{ colori.get(slots.color, slots.color) }}.
     variants:
@@ -510,9 +501,3 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
-
-# Shared by the commands above (added with them).
-lists:
-  on_off:
-    "on": [acceso, accesa, accesi, accese]
-    "off": [spento, spenta, spenti, spente]

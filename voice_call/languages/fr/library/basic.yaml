@@ -278,16 +278,7 @@ commands:
     require: [[mets, mais, règle, change, colore], [lumière, lumières, lampe, lampes]]
     optional: [[en], [couleur]]
     lists:
-      color:
-        values:
-          red: [rouge]
-          orange: [orange]
-          yellow: [jaune]
-          green: [vert, verte]
-          blue: [bleu, bleue]
-          purple: [violet, violette]
-          pink: [rose]
-          white: [blanc, blanche]
+      color: {list: colors}
     action:
       action: light.turn_on
       target: "{{ target }}"
@@ -299,7 +290,7 @@ commands:
         brief: Couleur changée.
         specific: >-
           {%- set couleurs = {'red': 'rouge', 'orange': 'orange', 'yellow': 'jaune', 'green': 'vert',
-            'blue': 'bleu', 'purple': 'violet', 'pink': 'rose', 'white': 'blanc'} -%}
+            'blue': 'bleu', 'purple': 'violet', 'pink': 'rose', 'white': 'blanc', 'turquoise': 'turquoise', 'magenta': 'magenta'} -%}
           {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
           else 'Lumière ' ~ place.said }} en {{ couleurs.get(slots.color, slots.color) }}.
     variants:
@@ -505,9 +496,3 @@ commands:
     needs:
       - Pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.
-
-# Shared by the commands above (added with them).
-lists:
-  on_off:
-    "on": [allumé, allumée, allumés, allumées]
-    "off": [éteint, éteinte, éteints, éteintes]

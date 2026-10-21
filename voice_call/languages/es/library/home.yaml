@@ -408,22 +408,3 @@ commands:
       {{ 'Sí' if asked == 'unlocked' else 'No' }},
       {{ (ns.open[:-1] | join(', ') ~ ' y ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
       {%- endif -%}
-
-# Shared by the commands above (added with them).
-lists:
-  cover_classes:
-    awning: [toldo, toldos]
-    blind: [veneciana, venecianas, persiana veneciana, persianas venecianas]
-    curtain: [cortina, cortinas]
-    door: [puerta, puertas]
-    garage: [puerta del garaje, puertas del garaje, puerta de garaje, puertas de garaje]
-    gate: [verja, verjas, portón, portones, cancela]
-    shade: [estor, estores]
-    shutter: [persiana, persianas]
-    window: [ventana, ventanas]
-  open_closed:
-    open: [abierta, abiertas, abierto, abiertos]
-    closed: [cerrada, cerradas, cerrado, cerrados]
-  locked_unlocked:
-    locked: [bloqueada, bloqueado, cerrada con llave, cerrado con llave, con llave]
-    unlocked: [desbloqueada, desbloqueado, sin llave]

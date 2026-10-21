@@ -130,6 +130,38 @@ def test_names_are_in_their_language(english, tmp_path):
     assert "kitchen" not in plain_names(store)
 
 
+def test_lists_are_in_their_language(english, tmp_path):
+    # Every home has its language's lists; one of its own by that name, in
+    # that language, takes its place. A value's phrases in another language
+    # than the file's go under its code.
+    assert compile_store({}).data["lists"]["colors"]["turquoise"] == ["turquoise"]
+    data = {"language": "en", "lists": {"colors": {"red": ["red", "crimson"], "blue": {"en": "blue", "de": "blau"}}}}
+    assert compile_store(data).data["lists"]["colors"] == {"red": ["red", "crimson"], "blue": "blue"}
+    languages.use("de")
+    compiled = compile_store(data)
+    assert compiled.data["lists"]["colors"] == {"blue": "blau"} and compiled.hidden_lists == {}
+    assert compile_store({"language": "en", "lists": {"modes": ["eco"]}}).data["lists"]["colors"]["red"] == ["rot"]
+    assert compile_store({"language": "en", "lists": {"modes": ["eco"]}}).hidden_lists == {"en": 1}
+
+    store = Store(tmp_path)
+    store.save_text(NEW_FILE.format(language="en"))
+    languages.use("en")
+    store.put_list("colors", {"red": ["red", "crimson"], "blue": "blue"})
+    languages.use("de")
+    store.put_list("colors", {"red": ["rot"], "green": ["grün"]})
+    assert plain_lists(store)["colors"] == {"red": {"en": ["red", "crimson"], "de": ["rot"]}, "blue": "blue",
+                                            "green": {"de": ["grün"]}}
+    store.put_list("colors", None)  # German's gone: the built-in again, English's stays
+    assert plain_lists(store)["colors"] == {"red": ["red", "crimson"], "blue": "blue"}
+    assert store.load().data["lists"]["colors"]["green"] == ["grün"]
+
+
+def plain_lists(store):
+    from voice_call.store import plain  # pylint: disable=import-outside-toplevel
+
+    return plain(store._parse(store.read_text()))["lists"] or {}  # pylint: disable=protected-access
+
+
 def plain_names(store):
     """The areas' names as the file has them, every language."""
     from voice_call.store import plain  # pylint: disable=import-outside-toplevel

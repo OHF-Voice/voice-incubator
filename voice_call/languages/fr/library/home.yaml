@@ -406,22 +406,3 @@ commands:
       {{ 'Oui' if asked == 'unlocked' else 'Non' }},
       {{ (ns.open[:-1] | join(', ') ~ ' et ' ~ ns.open[-1]) if count > 1 else ns.open[0] }}.
       {%- endif -%}
-
-# Shared by the commands above (added with them).
-lists:
-  cover_classes:
-    awning: [store banne, stores bannes, auvent, auvents, marquise]
-    blind: [store, stores, jalousie, jalousies]
-    curtain: [rideau, rideaux, voilage, voilages]
-    door: [porte, portes]
-    garage: [porte de garage, portes de garage, garage]
-    gate: [portail, portails, barrière]
-    shade: [store enrouleur, stores enrouleurs, toile, toiles]
-    shutter: [volet, volets, volet roulant, volets roulants]
-    window: [fenêtre, fenêtres]
-  open_closed:
-    open: [ouvert, ouverte, ouverts, ouvertes]
-    closed: [fermé, fermée, fermés, fermées]
-  locked_unlocked:
-    locked: [verrouillé, verrouillée, verrouillés, verrouillées, fermé à clé, fermée à clé]
-    unlocked: [déverrouillé, déverrouillée, déverrouillés, déverrouillées]

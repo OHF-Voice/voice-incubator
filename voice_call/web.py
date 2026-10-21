@@ -32,7 +32,17 @@ from .hass import VOICE_DOMAINS, HassError
 from .skills import LEVELS, SKILLS, available, home_skills, own_skills
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
-from .store import NAME_KINDS, command_language, compile_store, dump, file_language, language_name, names_in, plain
+from .store import (
+    NAME_KINDS,
+    command_language,
+    compile_store,
+    dump,
+    file_language,
+    language_name,
+    lists_in,
+    names_in,
+    plain,
+)
 from .protocol import SAMPLE_RATE
 from .voices import language_code
 from .pronounce import guess, model_phones
@@ -350,8 +360,9 @@ class Api:
                 hidden[said] = hidden.get(said, 0) + 1
         try:
             names, hidden_names = names_in(data.get("names") or {}, here, default)
+            lists, hidden_lists = lists_in(data.get("lists") or {}, here, default)
         except ConfigError as err:
-            names, hidden_names, error = {}, {}, error or str(err)
+            names, hidden_names, lists, hidden_lists, error = {}, {}, {}, {}, error or str(err)
         details = {}
         for command_id, spec in commands.items():
             try:
@@ -385,7 +396,12 @@ class Api:
                 "hidden_names": [
                     {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_names.items())
                 ],
-                "lists": data.get("lists") or {},
+                # Yours in the app's language, and the language's own (yours by a name take its place).
+                "lists": lists,
+                "builtin_lists": languages.current().lists,
+                "hidden_lists": [
+                    {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_lists.items())
+                ],
                 # What is said when nothing understood a sentence.
                 "unknown": data.get("unknown") or {},
                 # Commands in other languages, by language: how many.
