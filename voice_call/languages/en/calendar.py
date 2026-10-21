@@ -24,7 +24,7 @@ _DAY = rf"(?:{'|'.join(DAYS)})"
 _NUMBER_WORDS = {
     "a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
     "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
-    "forty", "fifty", "oh", "half", "quarter",
+    "forty", "fifty", "oh", "zero", "hundred", "half", "quarter",
 }
 _WHEN_WORDS = {
     "at", "on", "in", "for", "this", "next", "every", "each", "the", "and", "by", "of",
@@ -35,6 +35,8 @@ _WHEN_WORDS = {
 }
 _EDGE = {"at", "on", "in", "for", "this", "next", "the", "and", "by", "of", "a", "an"}
 """Words a time is said with, but which alone are no time."""
+_STARTS = {"at", "on", "by", "this", "next", "every", "each", "today", "tonight", "tomorrow", *DAYS}
+"""Words a time said at the end of a reminder may start with."""
 
 
 @dataclass
@@ -82,17 +84,39 @@ def _run(words: list[str], from_end: bool) -> tuple[int, int]:
     return begin, end
 
 
+def _joined(text: str) -> str:
+    """The day words speech-to-text splits: "to morrow" (or "morrow", its
+    "to" taken for the reminder's), and "to night" or "to day" before a time
+    or at the end."""
+    text = re.sub(r"(?:\bto\s+|^\s*)morrow\b", "tomorrow", text, flags=re.IGNORECASE)
+    return re.sub(
+        r"\bto\s+(night|day)\b(?=\s*(?:$|[,.!?]|at\b|by\b|\d|" + "|".join(sorted(_NUMBER_WORDS)) + r"\b))",
+        r"to\1", text, flags=re.IGNORECASE,
+    )
+
+
 def when(text: str, now: datetime, alarm: bool = False) -> When | None:
     """When ``text`` says: a time (and a day, or how it repeats), or a time
     from now; None when it says none. ``now`` is aware local time; an
     ``alarm`` said for another day without am or pm is in the morning."""
-    words = text.split()
+    words = _joined(text).split()
     best: tuple[When, int] | None = None
     for from_end in (False, True):
         begin, end = _run(words, from_end)
-        if begin >= end:
-            continue
-        found = _read(" ".join(words[begin:end]), now, alarm)
+        found = None
+        while begin < end:
+            found = _read(" ".join(words[begin:end]), now, alarm)
+            if found is not None:
+                break
+            # Not all of it is the time ("to rest for 10 minutes at 5 pm"):
+            # less of it, from where it meets the rest, to a word a time
+            # starts or ends with.
+            if from_end:
+                begin += 1
+                while begin < end and words[begin].lower().strip(",.!?") not in _STARTS:
+                    begin += 1
+            else:
+                end -= 1
         if found is not None and (best is None or end - begin > best[1]):
             found.rest = " ".join(words[:begin] + words[end:]).strip(" ,")
             best = (found, end - begin)
@@ -105,8 +129,9 @@ def _read(said: str, now: datetime, alarm: bool) -> When | None:
     s = " " + said.lower().replace(".", "").replace(",", " ") + " "
     s = re.sub(r"(\d)(am|pm)\b", r"\1 \2", s)
 
-    # From now: "in 20 minutes", "in an hour", "in half an hour".
-    found = re.search(r" in (half an?|an?|\S+(?: \S+)?) (minutes?|hours?) ", s)
+    # From now: "in 20 minutes", "in an hour", "in half an hour" -- or a
+    # length alone: speech-to-text, or the free text's edge, can drop the "in".
+    found = re.search(r" (?:in )?(half an?|an?|\S+(?: \S+)?) (minutes?|hours?) ", s)
     if found:
         said_amount = found.group(1)
         amount = 0.5 if said_amount.startswith("half") else 1.0 if said_amount in ("a", "an") else parse_num(said_amount)

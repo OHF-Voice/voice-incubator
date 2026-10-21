@@ -23,8 +23,10 @@ import json
 import re
 import sys
 import wave
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import yaml
@@ -39,6 +41,10 @@ DEFAULT_CACHE = Path.home() / ".cache/voice_call/bench"
 
 TTS_LOCALES = {"en": "en-US", "uk": "uk-UA"}
 """A pack's Home Assistant TTS language where it isn't ``<code>-<CODE>``."""
+
+BENCH_NOW = datetime(2026, 10, 21, 14, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+"""When an alarm or a reminder is read from, to compare one heard with the
+one that should be: a Wednesday afternoon."""
 
 LEAD_SECONDS = 0.3
 """Silence before each sentence, as a call's command has after the wake word:
@@ -100,12 +106,34 @@ def scored(decision, want_command: str, want_slots: dict[str, Any]) -> tuple[boo
             value = _text(value)
         slots[key] = value
     want = {k: _text(v) if isinstance(v, str) and k not in ("color", "device_class", "asked") else v for k, v in want_slots.items()}
-    if "time" in want and isinstance(slots.get("time"), str):
+    calendar = languages.current().calendar
+    for key in ("time", "reminder"):
+        # On the calendar: right when it is for the same time (and a reminder
+        # of the same thing), however it was written.
+        if (
+            calendar is not None
+            and isinstance(slots.get(key), str)
+            and isinstance(want.get(key), str)
+            and _same_when(calendar, slots[key], want[key], alarm=key == "time")
+        ):
+            slots[key] = want[key]
+    if calendar is None and "time" in want and isinstance(slots.get("time"), str):
         # A clock time is right when it reads as the same time: "halfzeven".
         clock = languages.reading().clock
         if clock(slots["time"]) is not None and clock(slots["time"]) == clock(want["time"]):
             slots["time"] = want["time"]
     return got == want_command and slots == want, got or decision.message or "", slots
+
+
+def _same_when(calendar, got: str, want: str, alarm: bool) -> bool:
+    """Whether two alarm times (or reminders) read as the same at BENCH_NOW;
+    without a time in both, the text decides."""
+    heard, meant = calendar.when(got, BENCH_NOW, alarm=alarm), calendar.when(want, BENCH_NOW, alarm=alarm)
+    if heard is None or meant is None:
+        return False
+    if (heard.start, heard.rrule) != (meant.start, meant.rrule):
+        return False
+    return alarm or _text(calendar.what(heard.rest)) == _text(calendar.what(meant.rest))
 
 
 def write_wav(path: Path, samples: np.ndarray, rate: int) -> None:

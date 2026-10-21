@@ -105,6 +105,9 @@ def clock(text: str) -> tuple[int, int, str | None] | None:
         return 0, 0, "am"
     tokens = _number_words(words)
     numbers = [t for t in tokens if isinstance(t, int)]
+    if len(numbers) > 1 and numbers[0] == 0 and tokens[0] == 0:
+        # "oh seven hundred", "zero seven thirty": the hour's leading zero.
+        tokens, numbers = tokens[1:], numbers[1:]
     if not numbers:
         return None
     joined = " ".join(str(t) for t in tokens)

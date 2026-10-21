@@ -48,6 +48,37 @@ def test_when(said, alarm, start, rrule, rest):
     assert found.rrule == rrule and found.rest.strip() == rest
 
 
+@pytest.mark.parametrize(
+    ("said", "alarm", "start", "rest"),
+    [
+        # A length alone is from now: speech-to-text, or the free text's edge, drops the "in".
+        ("8 hours", True, "2026-10-21 22:00", ""),
+        ("10 minutes to check the oven", False, "2026-10-21 14:10", "to check the oven"),
+        # "tomorrow" split by speech-to-text, its "to" taken for the reminder's.
+        ("seven pm to morrow", True, "2026-10-22 19:00", ""),
+        ("morrow at nine to call the dentist", False, "2026-10-22 09:00", "to call the dentist"),
+        ("to night at 10", True, "2026-10-21 22:00", ""),
+        # ... but not "to night" that is no day.
+        ("to go to night school at 7", False, "2026-10-21 19:00", "to go to night school"),
+        # Speech-to-text's "seven hundred thirty".
+        ("for seven hundred thirty", True, "2026-10-21 19:30", ""),
+        # A length that is the reminder's, before its time.
+        ("to rest for 10 minutes at 5 pm", False, "2026-10-21 17:00", "to rest for 10 minutes"),
+    ],
+)
+def test_what_speech_to_text_makes_of_it(said, alarm, start, rest):
+    found = calendar().when(said, NOW, alarm=alarm)
+    assert found is not None
+    assert found.start == datetime.fromisoformat(start).replace(tzinfo=TZ) and found.rest == rest
+
+
+def test_an_hours_leading_zero():
+    reading = languages.current().reading
+    assert reading.clock("oh seven hundred") == (7, 0, None)
+    assert reading.clock("zero seven thirty") == (7, 30, None)
+    assert reading.clock("seven oh five") == (7, 5, None)
+
+
 def test_no_time_is_none():
     assert calendar().when("to call mom", NOW) is None
     assert calendar().when("", NOW, alarm=True) is None

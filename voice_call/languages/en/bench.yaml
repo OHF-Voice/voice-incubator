@@ -1,0 +1,34 @@
+# English sentences and what each must become with the English library, for
+# scripts/bench_language.py (spoken) and tests/test_languages.py (typed). For
+# now: alarms and reminders, the phrasings their free text must read (an
+# alarm's or reminder's time is compared by when the calendar reads it, on a
+# Wednesday afternoon). Numbers are written as said, for text-to-speech.
+names:
+  areas:
+    office: Office
+satellite: office
+
+# [text, command, slots, what it shows]
+sentences:
+  - ["Set an alarm for 7 pm tomorrow.", set_alarm, {time: 7 pm tomorrow}, "time, then the day"]
+  - ["Set an alarm for seven thirty.", set_alarm, {time: "7:30"}, "next 7:30 to come"]
+  - ["Wake me up at six fifteen tomorrow morning.", set_alarm, {time: 6:15 tomorrow morning}, "wake me up"]
+  - ["Set an alarm for half past six tomorrow.", set_alarm, {time: half past six tomorrow}, "half past"]
+  - ["Set an alarm for quarter to seven tomorrow.", set_alarm, {time: quarter to seven tomorrow}, "quarter to"]
+  - ["Set an alarm for 6:45 every weekday.", set_alarm, {time: 6:45 every weekday}, "repeating"]
+  - ["Wake me up at 7 on Saturday.", set_alarm, {time: 7 on saturday}, "a weekday, the morning"]
+  - ["Set an alarm for noon.", set_alarm, {time: noon}, "noon"]
+  - ["Set an alarm for 10 tonight.", set_alarm, {time: 10 tonight}, "tonight"]
+  - ["Set an alarm tomorrow at 8 am.", set_alarm, {time: tomorrow at 8 am}, "the day first, no for"]
+  - ["Set an alarm in 20 minutes.", set_alarm, {time: in 20 minutes}, "from now, no for"]
+  - ["Wake me up in 8 hours.", set_alarm, {time: in 8 hours}, "from now"]
+  - ["Cancel my alarm for tomorrow.", cancel_alarm, {time: tomorrow}, "a day alone"]
+  - ["Cancel the 7 o'clock alarm.", cancel_alarm, {time: "7"}, "a time before alarm"]
+  - ["What alarms do I have?", alarm_status, {}, "an example sentence"]
+  - ["What are my reminders?", reminder_status, {}, "an example sentence"]
+  - ["Remind me at 5 pm to call mom.", remind_me, {entity: [todo.reminders], reminder: at 5 pm to call mom}, "time first"]
+  - ["Remind me to take out the bins every Tuesday at 7 pm.", remind_me, {entity: [todo.reminders], reminder: to take out the bins every tuesday at 7 pm}, "repeating, time last"]
+  - ["Remind me in 10 minutes to check the oven.", remind_me, {entity: [todo.reminders], reminder: in 10 minutes to check the oven}, "from now"]
+  - ["Remind me tomorrow at 9 to call the dentist.", remind_me, {entity: [todo.reminders], reminder: tomorrow at 9 to call the dentist}, "a day and a time first"]
+  - ["Remind me to rest for ten minutes at 5 pm.", remind_me, {entity: [todo.reminders], reminder: to rest for ten minutes at 5 pm}, "a length that is the reminder's"]
+  - ["Remind me to buy milk.", remind_me, {entity: [todo.reminders], reminder: buy milk}, "no time: the to-do list"]

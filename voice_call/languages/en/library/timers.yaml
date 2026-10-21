@@ -40,11 +40,12 @@ commands:
     description: set an alarm
     # On the Voice Call calendar in Home Assistant: "set an alarm for seven
     # thirty", "wake me up at 6 am", "an alarm for half past six tomorrow
-    # morning", "an alarm for every weekday at 6:45". Without am or pm it is
-    # the next time that comes round; on another day, the morning.
+    # morning", "an alarm for every weekday at 6:45", "an alarm tomorrow at 8",
+    # "an alarm in 20 minutes". Without am or pm it is the next time that
+    # comes round; on another day, the morning.
     require: [[alarm, wake me up, wake me]]
-    optional: [[set, make, create, an, a], [for, at]]
-    wildcard: {slot: time, after: [for, at, wake me up, wake me], to_end: true, max_words: 9}
+    optional: [[set, make, create, an, a], [for, at, in]]
+    wildcard: {slot: time, after: [alarm, for, at, in, wake me up, wake me], to_end: true, max_words: 9}
     exclude: [what, when, which, cancel, delete, remove, disable]
     timer: alarm
     verbosity: specific

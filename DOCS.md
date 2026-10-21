@@ -391,8 +391,9 @@ changed -- in Home Assistant's calendar. Add **Set an alarm**, **Cancel an
 alarm** and **Say the alarms** from the **Timers** group, and **Remind me**
 and **Say the reminders**:
 
-- "set an alarm for 7 am tomorrow", "wake me up at half past six", "an alarm
-  for every weekday at 6:45";
+- "set an alarm for 7 pm tomorrow", "wake me up at half past six", "an alarm
+  for every weekday at 6:45", "set an alarm tomorrow at 8", "an alarm in 20
+  minutes";
 - "cancel my alarm", "delete the 7 o'clock alarm" (without am or pm, either);
 - "remind me at 5 pm to call my mom", "remind me in 10 minutes to check the
   oven", "remind me to take the bins out every tuesday at 7 pm";
