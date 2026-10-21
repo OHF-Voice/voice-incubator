@@ -25,7 +25,10 @@
   `commands.yaml` says what its commands are in (`language:`, new files the
   app's), and a command made in another language says its own: only the
   app's language's commands are heard and shown, the others kept, hidden,
-  for when the app is in theirs again (the Home page counts them). The
+  for when the app is in theirs again (the Home page counts them). Names
+  too: a thing named in another language than the file's has that name
+  under the language's code (`kitchen: {name: Kitchen, de: {name: Küche}}`),
+  and the Names page names things in the app's language. The
   built-in speech model's "English" is now "the language's own" (`own`;
   `en` still read).
 - **Dutch** (`nl`): NVIDIA's FastConformer hybrid and Piper's Ronnie, the

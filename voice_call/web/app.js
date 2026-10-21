@@ -1467,16 +1467,15 @@ function satelliteTile(s, wake) {
     s.ringing ? h("span", { class: "badge warn" }, "timer ringing") : null);
 }
 
-// Commands in other languages than the app's: kept, but not heard or shown.
-function hiddenCommandsNotice(store) {
-  const hidden = store.hidden || [];
-  if (!hidden.length) return null;
+// Commands or names in other languages than the app's: kept, but not heard
+// or shown. ``hidden``: [{name, count}] by language.
+function hiddenNotice(hidden, one, many, why) {
+  if (!hidden || !hidden.length) return null;
   const total = hidden.reduce((n, l) => n + l.count, 0);
   const text = hidden.length === 1
-    ? `${total} ${total === 1 ? "command" : "commands"} in ${hidden[0].name} ${total === 1 ? "is" : "are"} hidden.`
-    : `${total} commands in other languages are hidden: ${hidden.map((l) => `${l.count} ${l.name}`).join(", ")}.`;
-  return h("div", { class: "muted small" }, text,
-    hint("A command is in the language it was made in. It comes back when the app's Language option is that language again."));
+    ? `${total} ${total === 1 ? one : many} in ${hidden[0].name} ${total === 1 ? "is" : "are"} hidden.`
+    : `${total} ${many} in other languages are hidden: ${hidden.map((l) => `${l.count} ${l.name}`).join(", ")}.`;
+  return h("div", { class: "muted small" }, text, hint(why));
 }
 
 async function pageHome() {
@@ -1494,7 +1493,8 @@ async function pageHome() {
   fill($main,
     h("h1", {}, "Home"),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
-    hiddenCommandsNotice(store),
+    hiddenNotice(store.hidden, "command", "commands",
+      "A command is in the language it was made in. It comes back when the app's Language option is that language again."),
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
     h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
@@ -2004,6 +2004,8 @@ async function pageNames() {
 
   fill($main, 
     heading("h1", "Names", "What things are called when spoken. Each name points at one Home Assistant id. Nothing is taken from Home Assistant automatically: its names and aliases are offered as suggestions."),
+    hiddenNotice(store.hidden_names, "name", "names",
+      "A name is in the language it was given in. Name a thing here for this language too; its other names come back when the app's Language option is theirs again."),
     ...sections,
     h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets."),
       Object.keys(store.lists).length ? h("div", { class: "list" }, ...Object.entries(store.lists).map(([name, values]) => h("div", { class: "item" },

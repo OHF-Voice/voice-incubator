@@ -32,7 +32,7 @@ from .hass import VOICE_DOMAINS, HassError
 from .skills import LEVELS, SKILLS, available, home_skills, own_skills
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
-from .store import NAME_KINDS, command_language, compile_store, dump, file_language, language_name, plain
+from .store import NAME_KINDS, command_language, compile_store, dump, file_language, language_name, names_in, plain
 from .protocol import SAMPLE_RATE
 from .voices import language_code
 from .pronounce import guess, model_phones
@@ -348,6 +348,10 @@ class Api:
             said = command_language(spec, default)
             if said != here:
                 hidden[said] = hidden.get(said, 0) + 1
+        try:
+            names, hidden_names = names_in(data.get("names") or {}, here, default)
+        except ConfigError as err:
+            names, hidden_names, error = {}, {}, error or str(err)
         details = {}
         for command_id, spec in commands.items():
             try:
@@ -376,7 +380,11 @@ class Api:
                 "details": details,
                 # Where the Home and satellite pages list them: the library's sections.
                 "sections": library_sections()[0],
-                "names": {kind: (data.get("names") or {}).get(kind) or {} for kind in NAME_KINDS},
+                # What things are called in the app's language; other languages' are hidden.
+                "names": {kind: names.get(kind) or {} for kind in NAME_KINDS},
+                "hidden_names": [
+                    {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_names.items())
+                ],
                 "lists": data.get("lists") or {},
                 # What is said when nothing understood a sentence.
                 "unknown": data.get("unknown") or {},

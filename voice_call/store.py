@@ -40,7 +40,9 @@ NEW_FILE = """\
 #   language:  what the commands are said in (no key: English); a command
 #              made in another language says its own (language: de). Only
 #              the app's language's are heard and shown.
-#   names:     what things are called, each pointing at one Home Assistant id
+#   names:     what things are called, each pointing at one Home Assistant id;
+#              in another language than the file's under its code
+#              (kitchen: {{name: Kitchen, de: {{name: Küche}}}})
 #   lists:     value lists for slots ("red" -> red), shared by commands
 #   commands:  what is listened for, and what happens
 #   unknown:   what is said when nothing understood a sentence
@@ -117,6 +119,9 @@ class Compiled:
     hidden: dict[str, str] = field(default_factory=dict)
     """Commands in another language than the app's, by id: their language.
     Not heard, not shown; kept for when the app is in theirs again."""
+    hidden_names: dict[str, int] = field(default_factory=dict)
+    """Things named in other languages but not the app's: how many, by
+    language. ``data``'s names are the app's language's alone."""
 
 
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
@@ -133,6 +138,55 @@ def language_name(code: str) -> str:
         return languages.load(code).name
     except ValueError:
         return code
+
+
+NAME_FIELDS = ("name", "aliases")
+
+
+def name_in(entry: Any, here: str, default: str) -> Any:
+    """What a thing is called in ``here`` -- its ``name``/``aliases`` when
+    ``here`` is the file's language (``default``), else its part under
+    ``here``'s code -- as adapt-ctc reads a name; None when it isn't named in
+    ``here``."""
+    if isinstance(entry, str):
+        return entry if here == default else None
+    if not isinstance(entry, dict):
+        return None
+    if here != default:
+        return entry.get(here) or None
+    own = {k: v for k, v in entry.items() if k in NAME_FIELDS and v}
+    return own or None
+
+
+def named_languages(entry: Any, default: str) -> list[str]:
+    """Every language a thing is named in."""
+    if isinstance(entry, str):
+        return [default]
+    if not isinstance(entry, dict):
+        return []
+    own = [default] if any(entry.get(k) for k in NAME_FIELDS) else []
+    return own + [k for k, v in entry.items() if k not in NAME_FIELDS and v]
+
+
+def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    """A store's names as said in ``here``, by kind, and how many things are
+    named in other languages but not in ``here``, by language."""
+    out: dict[str, dict[str, Any]] = {}
+    hidden: dict[str, int] = {}
+    for kind, items in (names or {}).items():
+        out[kind] = {}
+        for item_id, entry in (items or {}).items():
+            if isinstance(entry, dict):
+                for key in entry:
+                    if key not in NAME_FIELDS and not LANGUAGE_CODE.fullmatch(str(key)):
+                        raise ConfigError(f"names.{kind}.{item_id}: {key!r} is neither name, aliases nor a language code")
+            said = name_in(entry, here, default)
+            if said is not None:
+                out[kind][str(item_id)] = said
+                continue
+            for language in named_languages(entry, default):
+                hidden[language] = hidden.get(language, 0) + 1
+    return out, hidden
 
 
 def command_language(spec: Any, default: str) -> str:
@@ -166,12 +220,17 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     unknown = set(names) - set(NAME_KINDS)
     if unknown:
         raise ConfigError(f"names: unknown kind(s) {sorted(unknown)} (use {list(NAME_KINDS)})")
+    # What things are called in the app's language: everything reads these.
+    said, hidden_names = names_in(names, here, language)
+    data = {**data, "names": said}
     commands = parse_commands({k: v for k, v in every.items() if str(k) not in hidden})
     unknown_response = parse_unknown(data.get("unknown"))
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    return Compiled(data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden)
+    return Compiled(
+        data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names
+    )
 
 
 @dataclass
@@ -356,10 +415,27 @@ class Store:
             names = document["names"]
             if names.get(kind) is None:
                 names[kind] = CommentedMap()
-            if spec is None:
-                names[kind].pop(item_id, None)
+            items = names[kind]
+            here, default = languages.current().code, file_language(document)
+            entry = plain(items.get(item_id))
+            # What it is called in other languages than the app's stays.
+            others = (
+                {k: v for k, v in entry.items() if k != here and k not in NAME_FIELDS}
+                if isinstance(entry, dict)
+                else {}
+            )
+            if here != default:
+                if isinstance(entry, str) or (isinstance(entry, dict) and any(entry.get(k) for k in NAME_FIELDS)):
+                    base = {"name": entry} if isinstance(entry, str) else {k: entry[k] for k in NAME_FIELDS if k in entry}
+                else:
+                    base = {}
+                kept = {**base, **others, **({here: spec} if spec is not None else {})}
             else:
-                names[kind][item_id] = styled(spec)
+                kept = {**(spec or {}), **others}
+            if kept:
+                items[item_id] = styled(kept)
+            else:
+                items.pop(item_id, None)  # named in no language any more
 
         return self.update(edit)
 

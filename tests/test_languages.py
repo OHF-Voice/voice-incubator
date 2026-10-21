@@ -95,6 +95,48 @@ def test_a_command_is_made_in_the_apps_language(english, tmp_path):
     assert list(store.load().commands) == ["never_mind"]
 
 
+def test_names_are_in_their_language(english, tmp_path):
+    # A thing's name and aliases are in the file's language; another
+    # language's are under its code. Only the app's are heard and shown.
+    data = {
+        "language": "en",
+        "names": {"areas": {"kitchen": {"name": "Kitchen", "de": {"name": "Küche", "aliases": ["Kochecke"]}},
+                            "office": "Office", "keller": {"de": "Keller"}}},
+    }
+    compiled = compile_store(data)
+    assert compiled.data["names"]["areas"] == {"kitchen": {"name": "Kitchen"}, "office": "Office"}
+    assert compiled.hidden_names == {"de": 1}
+    languages.use("de")
+    compiled = compile_store(data)
+    assert compiled.data["names"]["areas"] == {"kitchen": {"name": "Küche", "aliases": ["Kochecke"]}, "keller": "Keller"}
+    assert compiled.hidden_names == {"en": 1}
+    with pytest.raises(ConfigError, match="neither name, aliases nor a language code"):
+        compile_store({"names": {"areas": {"kitchen": {"name": "Küche", "German": "Küche"}}}})
+
+    # Naming it in the app's language keeps its other names, and so does
+    # taking that name away.
+    store = Store(tmp_path)
+    store.save_text(NEW_FILE.format(language="en"))
+    languages.use("en")
+    store.put_name("areas", "kitchen", {"name": "Kitchen"})
+    languages.use("de")
+    store.put_name("areas", "kitchen", {"name": "Küche", "aliases": ["Kochecke"]})
+    entry = plain_names(store)["kitchen"]
+    assert entry == {"name": "Kitchen", "de": {"name": "Küche", "aliases": ["Kochecke"]}}
+    store.put_name("areas", "kitchen", None)
+    assert plain_names(store)["kitchen"] == {"name": "Kitchen"}
+    languages.use("en")
+    store.put_name("areas", "kitchen", None)
+    assert "kitchen" not in plain_names(store)
+
+
+def plain_names(store):
+    """The areas' names as the file has them, every language."""
+    from voice_call.store import plain  # pylint: disable=import-outside-toplevel
+
+    return plain(store._parse(store.read_text()))["names"]["areas"] or {}  # pylint: disable=protected-access
+
+
 def test_the_transducer_choice():
     # "en", from before languages had packs, is the language's own.
     assert tdt_choice("en") == tdt_choice(None) == tdt_choice("own") == "own"

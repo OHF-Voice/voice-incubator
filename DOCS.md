@@ -600,6 +600,16 @@ ecobee). Devices are limited to lights, switches, fans, covers, locks,
 climate, media players, scenes, scripts, input booleans, valves and vacuums;
 `commands.yaml` may name anything.
 
+A name is in the language it was given in. In another language than
+`commands.yaml`'s, a thing's name and aliases go under the language's code,
+beside its others; only the app's language's are heard and shown:
+
+```yaml
+names:
+  areas:
+    kitchen: {name: Kitchen, de: {name: Küche, aliases: [Kochecke]}}
+```
+
 ## Testing, sessions and debugging
 
 - **Test it**, on a satellite's page, recognizes a sentence as if said there
@@ -699,16 +709,16 @@ commands:
 - `language`: what the app hears and says -- its speech models, Piper voice,
   command library and skills (default: `en`, English; or `de`, German, `nl`,
   Dutch, `fr`, French, `es`, Spanish, `it`, Italian, `pl`, Polish, `ru`,
-  Russian, or `uk`, Ukrainian). One at a time: a command is in the language it
-  was made in (`commands.yaml` `language:`, or the command's own), and only
-  the app's are heard and shown -- the others stay in the file, hidden, until
-  the app is in theirs again. The web UI is in English. In another language
-  than English, skills are asked and answered in it, with its units (a German
-  Pfund, a Dutch pond and a French livre are 500 g; metric spoons and cup),
-  its country's holidays (Russian and Ukrainian Easter is the Orthodox one)
-  and a 24-hour clock; there is no GLiNER step in the fallback, and no second
-  opinion on the wake word (Kaldi alone decides). Its models come with the
-  app: NVIDIA's FastConformer hybrid for the language
+  Russian, or `uk`, Ukrainian). One at a time: a command or a name is in the
+  language it was made in (`commands.yaml` `language:`, or its own: see
+  Names), and only the app's are heard and shown -- the others stay in the
+  file, hidden, until the app is in theirs again. The web UI is in English. In
+  another language than English, skills are asked and answered in it, with its
+  units (a German Pfund, a Dutch pond and a French livre are 500 g; metric
+  spoons and cup), its country's holidays (Russian and Ukrainian Easter is the
+  Orthodox one) and a 24-hour clock; there is no GLiNER step in the fallback,
+  and no second opinion on the wake word (Kaldi alone decides). Its models
+  come with the app: NVIDIA's FastConformer hybrid for the language
   (`stt_<language>_fastconformer_hybrid_large_pc`, CC-BY-4.0, about 350 MB)
   and a Piper voice (Thorsten, Ronnie, Siwis, Davefx, Serena, Gosia, Denis,
   and for Ukrainian Tetiana, a slower "high" voice: the medium one drops
