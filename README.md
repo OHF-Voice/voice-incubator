@@ -191,6 +191,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
 | `voice_call/wake.py` | Kaldi wake verification and split point |
 | `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
+| `voice_call/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
 | `voice_call/endpoint.py` | endpointing: Silero VAD or microVAD, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
@@ -230,6 +231,7 @@ so do meaning and the model step among a command's versions and copies
 | `scripts/synth_wake_words.py` | wake words and near misses spoken by every Piper English voice, in rooms and noise |
 | `scripts/bench_wake_words.py` | a wake word through both stages on labeled clips, at several cutoffs; sweeps thresholds afterwards |
 | `scripts/check_wake_words.py` | whether custom wake words lower for the device, match TFLite and hear their own phrase |
+| `scripts/make_wake_training_kit.py` | the kit wake words are trained with: the base backbone and 5,000 random spectrograms of each negative set |
 | `tests/alignments/` | wake word spans and word boundaries, one JSONL per session |
 | `tests/corpus_corrections.csv` | what was actually said, where it differs from the prompt list |
 | `corpus/positives/` | 32 VPE captures of in-vocabulary commands, for threshold work |

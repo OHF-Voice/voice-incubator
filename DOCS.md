@@ -68,6 +68,21 @@ where each wake word is tuned.
   model the satellite cannot run is refused when uploaded, and marked "can't
   run" when copied.
 
+**Train** one of your own on the Wake words page (in English): type the
+phrase ("hey computer") and the app makes the model. Piper says it 2,000
+ways, in many voices, rooms and noise, and a model learns it against
+speech, music and noise, starting from the base model the built-in words
+come from. It takes about 20 minutes on a Raspberry Pi 5, every core of it
+and about 2 GB of memory (a Pi without a fan slows down by a third or more);
+the app goes on answering meanwhile, more slowly. The new word is added as a
+custom one, at a cutoff of 0.8 and not checked a second time. How well it
+does can't be told before it is tried: try it from where people stand, tune
+its cutoff, give it confusables, and train it again if it disappoints (two
+trainings of the same phrase can differ). Training needs the **training
+kit** -- the base model and the speech, music and noise it trains against,
+about 3 GB -- in `wake_training/` in the app's configuration folder; the page
+says when it is missing.
+
 Open a wake word on the Wake words page to change:
 
 - **Its cutoff** on the satellite: how sure the satellite's own model must be

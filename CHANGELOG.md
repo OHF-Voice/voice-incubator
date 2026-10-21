@@ -2,6 +2,15 @@
 
 ## 0.2.0
 
+- **Train a wake word** on the Wake words page (English): type the phrase,
+  and Piper says it 2,000 ways (LibriTTS-R's 2,306 speakers, in synthetic
+  rooms and noise) for a microWakeWord model warm-started from the base
+  backbone, trained 10,000 steps against the training kit's negatives,
+  temperature-scaled (T = 3, so its cutoff can be placed) and saved as a
+  custom wake word at 0.8. About 20 minutes on a Raspberry Pi 5. The kit
+  (`scripts/make_wake_training_kit.py`, about 3 GB) goes in
+  `wake_training/` in the app's configuration folder; TensorFlow and
+  microWakeWord's training (without its audio stack) are in the image.
 - **Alarms and reminders on a calendar** (English): an alarm, or a reminder
   with a time, is an event on a Local Calendar named "Voice Call" that the
   app creates in Home Assistant. It outlives restarts, may be for another day

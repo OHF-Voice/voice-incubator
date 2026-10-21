@@ -60,6 +60,9 @@ class Pack:
     wake_ratio: bool = False
     """The wake word's second opinion (voice_call/wake_ratio.py) is
     calibrated for its CTC model; without, Kaldi alone decides."""
+    wake_voice: str | None = None
+    """The Piper voice new wake words are trained with, under models/piper/:
+    one with many speakers. None: none can be trained in this language yet."""
     directory: Path = Path(__file__).parent
 
     @property

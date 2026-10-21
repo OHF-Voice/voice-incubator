@@ -20,5 +20,7 @@ PACK = Pack(
     skills=("spelling", "dates", "clock", "units", "arithmetic"),
     gliner=True,
     wake_ratio=True,
+    # LibriTTS-R: 2,306 speakers, for the positives of a wake word trained here.
+    wake_voice="en_US-libritts_r-medium.onnx",
     directory=Path(__file__).parent,
 )

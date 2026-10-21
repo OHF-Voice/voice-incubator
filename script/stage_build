@@ -2,8 +2,9 @@
 # Copy what the image needs but git does not carry into local/, for the
 # Dockerfile: the models (int8 Parakeet CTC and TDT, Piper, speaker ID, wake
 # words, the Kaldi verifier's model and tools, GLiNER for the command
-# fallback, other languages' when present) and wyoming-wake-kaldi, which
-# is not published. The Kaldi tools and its daemon are native binaries: stage
+# fallback, other languages' when present, the wake word training kit when
+# made), wyoming-wake-kaldi, which is not published, and microWakeWord's
+# working tree. The Kaldi tools and its daemon are native binaries: stage
 # them on (or for) the architecture you build for.
 #
 #   script/stage_build [--embedding]      # --embedding: also EmbeddingGemma 2 (hints by meaning)
@@ -42,6 +43,19 @@ fi
 
 mkdir -p local/wyoming-wake-kaldi
 cp -a "$KALDI_SRC/pyproject.toml" "$KALDI_SRC/wyoming_wake_kaldi" local/wyoming-wake-kaldi/
+# microWakeWord, to train wake words in the app (installed without its
+# dependencies: requirements-training.txt has what training needs). From its
+# working tree, which keeps its audio stack, TensorBoard and evaluation out of
+# a training run (micro-wake-word's notebooks/ON_DEVICE_WARM_START.md).
+MWW_SRC="${MICRO_WAKE_WORD:-$HOME/opt/micro-wake-word}"
+mkdir -p local/micro-wake-word
+cp -a "$MWW_SRC/setup.py" "$MWW_SRC/README.md" "$MWW_SRC/microwakeword" local/micro-wake-word/
+# The wake word training kit (scripts/make_wake_training_kit.py, about 3 GB),
+# when it has been made at models/wake-training; else it goes in the app's
+# configuration folder as wake_training/.
+if [[ -d models/wake-training ]]; then
+    cp -a models/wake-training local/models/
+fi
 find local -name __pycache__ -prune -exec rm -rf {} +
 
 if [[ "${1:-}" == "--embedding" ]]; then
@@ -50,4 +64,4 @@ if [[ "${1:-}" == "--embedding" ]]; then
     cp -L "$snapshot/tokenizer.json" local/models/embeddinggemma-2/
     cp -L "$snapshot"/onnx/model_q4.onnx* local/models/embeddinggemma-2/onnx/
 fi
-du -sh local/models local/wyoming-wake-kaldi
+du -sh local/models local/wyoming-wake-kaldi local/micro-wake-word

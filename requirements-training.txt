@@ -1,0 +1,9 @@
+# Training a wake word in the app (voice_call/wake_trainer.py): TensorFlow and
+# what microWakeWord's training needs -- not its audio stack, which the
+# positives don't use (voice_call/wake_positives.py makes them with Piper and
+# pymicro-features). microWakeWord itself is staged by script/stage_build and
+# installed without its dependencies. TensorFlow 2.20 and 2.21 have aarch64
+# wheels for Python 3.13.
+tensorflow>=2.20,<2.22
+absl-py>=2
+mmap_ninja>=0.9

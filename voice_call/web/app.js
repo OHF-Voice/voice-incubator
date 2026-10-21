@@ -2251,12 +2251,59 @@ function wakeWordEditor(word, wake, reload) {
       } }, "Delete") : null));
 }
 
+// Training a wake word from a phrase: the form, or the job running (followed
+// until it ends), and how the last one went.
+function wakeTraining(first, reload) {
+  const box = h("div");
+  const phrase = h("input", { type: "text", placeholder: "hey computer", style: "max-width:260px", "aria-label": "Wake phrase" });
+  const stages = { positives: "Saying it", preparing: "Preparing", training: "Training", converting: "Saving" };
+  let followed = false;
+  async function poll() {
+    if (!document.body.contains(box)) return;
+    try { show(await api("GET", "wake_training")); } catch (err) { toast(err.message); }
+  }
+  async function start() {
+    try { await api("POST", "wake_training", { phrase: phrase.value }); poll(); }
+    catch (err) { toast(err.message); }
+  }
+  function show(status) {
+    const job = status.job;
+    if (job && job.state === "running") {
+      followed = true;
+      const left = job.seconds_left != null ? ` · about ${Math.max(1, Math.round(job.seconds_left / 60))} min left` : "";
+      fill(box, h("div", { class: "row" },
+        h("div", { class: "grow" },
+          h("div", {}, `${quoted(job.phrase)}: ${stages[job.stage] || job.stage}${left}`),
+          h("progress", { max: 1, value: job.progress, style: "width:100%" })),
+        h("button", { onclick: async () => { try { await api("DELETE", "wake_training"); poll(); } catch (err) { toast(err.message); } } }, "Cancel")));
+      setTimeout(poll, 2000);
+      return;
+    }
+    if (followed && job && job.state === "done") return reload(job.word);
+    const last = !job ? null
+      : job.state === "done" ? h("div", { class: "notice ok" }, `Trained ${quoted(job.phrase)}. `, h("a", { href: `#/wake?word=${encodeURIComponent(job.word)}` }, "Tune it"))
+      : job.state === "cancelled" ? null
+      : h("div", { class: "notice bad" }, `${quoted(job.phrase)}: ${job.error || job.state} `, h("a", { href: "api/wake_training/log", target: "_blank" }, "Log"));
+    fill(box, last,
+      status.unavailable ? h("div", { class: "muted" }, status.unavailable)
+        : h("div", { class: "row" }, phrase, h("button", { class: "primary", onclick: start }, "Train")));
+  }
+  show(first);
+  return h("div", { class: "panel" },
+    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. It is added unverified, at its own cutoff; try it before relying on it.`),
+    box);
+}
+
 async function pageWakeWords(query) {
   const params = new URLSearchParams(query || "");
-  const [wake, sats] = await Promise.all([api("GET", "wake_words"), loadSatellites()]);
+  const [wake, sats, training] = await Promise.all([api("GET", "wake_words"), loadSatellites(), api("GET", "wake_training")]);
   const runs = wake.wake_words.filter((w) => w.runs);
   const option = (w, selected) => h("option", { value: w.id, selected: selected || null }, w.name);
-  const reload = () => pageWakeWords(location.hash.split("?")[1]);
+  const reload = (word) => {
+    const target = word ? `#/wake?word=${encodeURIComponent(word)}` : location.hash;
+    if (location.hash === target) pageWakeWords(location.hash.split("?")[1]);
+    else location.hash = target;
+  };
 
   const preferred = h("select", { style: "max-width:320px", "aria-label": "Preferred wake word" }, runs.map((w) => option(w, w.id === wake.preferred)));
   const satRows = sats.map((s) => {
@@ -2340,6 +2387,7 @@ async function pageWakeWords(query) {
     h("div", { class: "panel" },
       heading("h2", "Tuning", "Built-in wake words are verified. Custom ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — run at the cutoff they were trained for, unverified until given confusables."),
       filter, list),
+    wakeTraining(training, reload),
     h("div", { class: "panel" },
       h("h2", {}, "Upload"),
       h("div", { class: "row" },

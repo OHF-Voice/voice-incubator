@@ -84,6 +84,25 @@ async def main() -> None:
         "(.tflite) (default wake_words/, or /config/wake_words as an app)",
     )
     parser.add_argument(
+        "--wake-training-kit",
+        action="append",
+        metavar="DIR",
+        help="where the wake word training kit may be (scripts/make_wake_training_kit.py; "
+        "repeatable; default models/wake-training, and /config/wake_training as an app)",
+    )
+    parser.add_argument(
+        "--wake-trainer-python",
+        metavar="PYTHON",
+        help="a Python with TensorFlow and microWakeWord to train wake words with (default: this one)",
+    )
+    parser.add_argument(
+        "--micro-wake-word",
+        metavar="DIR",
+        help="microWakeWord's source, when the trainer's Python doesn't have it installed",
+    )
+    parser.add_argument("--wake-training-clips", type=int, metavar="N", help=argparse.SUPPRESS)
+    parser.add_argument("--wake-training-steps", type=int, metavar="N", help=argparse.SUPPRESS)
+    parser.add_argument(
         "--wake-cutoff",
         type=float,
         metavar="P",
@@ -200,6 +219,13 @@ async def main() -> None:
                 if args.wake_words_dir
                 else (Path("/config/wake_words") if supervisor_token else None)
             ),
+            wake_training_dirs=tuple(
+                Path(d) for d in (args.wake_training_kit or (["/config/wake_training"] if supervisor_token else []))
+            ),
+            wake_trainer_python=args.wake_trainer_python,
+            micro_wake_word=Path(args.micro_wake_word) if args.micro_wake_word else None,
+            wake_training_clips=args.wake_training_clips,
+            wake_training_steps=args.wake_training_steps,
             **({} if args.wake_cutoff is None else {"wake_probability_cutoff": args.wake_cutoff}),
             wake_ratio=args.wake_ratio,
             **({} if args.wake_tail is None else {"wake_tail": args.wake_tail}),

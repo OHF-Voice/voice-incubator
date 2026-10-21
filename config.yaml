@@ -12,7 +12,8 @@ homeassistant_api: true
 # mDNS discovery of satellites, and connecting to them.
 host_network: true
 ingress: true
-# /config: custom wake words (wake_words/), reachable from the Samba and file
+# /config: custom wake words (wake_words/) and the wake word training kit
+# (wake_training/), reachable from the Samba and file
 # editor apps as addon_configs/<slug>_voice_call.
 map:
   - addon_config:rw

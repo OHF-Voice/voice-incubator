@@ -25,6 +25,12 @@ RUN \
 # Staged by script/stage_build: the Kaldi wake verifier and the models.
 COPY local/wyoming-wake-kaldi /usr/src/wyoming-wake-kaldi
 RUN pip3 install --no-cache-dir /usr/src/wyoming-wake-kaldi
+# Training wake words in the app: TensorFlow, and microWakeWord (staged by
+# script/stage_build) without its audio stack.
+COPY requirements-training.txt ./
+COPY local/micro-wake-word /usr/src/micro-wake-word
+RUN pip3 install --no-cache-dir -r requirements-training.txt \
+    && pip3 install --no-cache-dir --no-deps /usr/src/micro-wake-word
 COPY local/models ./models
 
 COPY setup.py wake.yaml ./

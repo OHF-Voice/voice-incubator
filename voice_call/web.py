@@ -48,6 +48,7 @@ from .voices import language_code
 from .pronounce import guess, model_phones
 from .wake import THRESHOLDS
 from .wake import ConfigError as WakeConfigError
+from .wake_training import TrainingError
 from .wake_words import MAX_CUTOFF, MAX_WAKE_WORDS, SPECIAL
 
 if TYPE_CHECKING:
@@ -128,6 +129,10 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.put("/api/wake_words/{id}", api.put_wake_word),
             web.post("/api/wake_words/{id}/check", api.check_wake_word),
             web.delete("/api/wake_words/{id}", api.delete_wake_word),
+            web.get("/api/wake_training", api.wake_training),
+            web.post("/api/wake_training", api.train_wake_word),
+            web.delete("/api/wake_training", api.cancel_wake_training),
+            web.get("/api/wake_training/log", api.wake_training_log),
             web.get("/api/voices", api.voices),
             web.get("/api/agents", api.agents),
             web.get("/api/voices/{entity_id}", api.tts_voices),
@@ -1380,6 +1385,26 @@ class Api:
         # back to the preferred wake word.
         await self.app.tune_wake_word(word.id, None)
         return web.json_response({"ok": True})
+
+    async def wake_training(self, request: web.Request) -> web.Response:
+        """Whether a wake word can be trained here, and the job running or the last."""
+        return web.json_response(await self.app.wake_training.status())
+
+    async def train_wake_word(self, request: web.Request) -> web.Response:
+        """Train a wake word for ``{phrase}``: it runs on, the page follows it."""
+        body = await request.json()
+        try:
+            job = await self.app.wake_training.start(body.get("phrase"))
+        except TrainingError as err:
+            raise ConfigError(str(err)) from err
+        return web.json_response({"ok": True, "job": job.to_json()})
+
+    async def cancel_wake_training(self, request: web.Request) -> web.Response:
+        await self.app.wake_training.cancel()
+        return web.json_response({"ok": True})
+
+    async def wake_training_log(self, request: web.Request) -> web.Response:
+        return web.Response(text=self.app.wake_training.log(), content_type="text/plain")
 
     # ---------------------------------------------------------------- calls
 

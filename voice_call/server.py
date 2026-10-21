@@ -59,6 +59,7 @@ from .tts import Speech
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
+from .wake_training import WakeTraining
 from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, VAD, WakeWords
 
 _LOGGER = logging.getLogger(__name__)
@@ -257,6 +258,19 @@ class Options:
     wake_words_dir: Path | None = None
     """Custom wake words: microWakeWord manifests and models (default:
     wake_words/ beside models/)."""
+    wake_training_dirs: tuple[Path, ...] = ()
+    """Where the wake word training kit may be (scripts/make_wake_training_kit.py),
+    before models/wake-training."""
+    wake_trainer_python: str | None = None
+    """A Python with TensorFlow and microWakeWord, to train wake words with
+    (default: the app's own)."""
+    micro_wake_word: Path | None = None
+    """microWakeWord's source, when the trainer's Python doesn't have it installed."""
+    wake_training_clips: int | None = None
+    """Piper clips of a wake word being trained (default POSITIVE_CLIPS): fewer
+    to try the training quickly."""
+    wake_training_steps: int | None = None
+    """Its training steps (default 10,000), down the same ladder."""
     wake_tail: float = DEFAULT_WAKE_TAIL
     """Seconds of audio from after the detection to add before verifying again,
     when the first attempt put the end of the wake phrase at the end of the
@@ -413,6 +427,25 @@ class VoiceCallApp:
         )
         self.wake_error: str | None = None
         """Why the Wake words page's changes could not be used at start."""
+        piper_dir = root / "models/piper"
+        self.wake_training = WakeTraining(
+            self.store.data_dir / "wake_training",
+            self.wake_words.custom_dir,
+            [*options.wake_training_dirs, root / "models/wake-training"],
+            piper_dir / self.language.wake_voice if self.language.wake_voice else None,
+            self.language.code,
+            trainer_python=options.wake_trainer_python,
+            micro_wake_word=options.micro_wake_word,
+            check_model=self._trained_model_error,
+            on_installed=lambda _word: self.wake_words.forget(),
+            exists=lambda word: self.wake_words.get(word) is not None or word in SPECIAL,
+        )
+        """Training a new wake word from a phrase (the Wake words page)."""
+        if options.wake_training_clips:
+            self.wake_training.positive_clips = options.wake_training_clips
+        if options.wake_training_steps:
+            rungs = len(self.wake_training.training_steps)
+            self.wake_training.training_steps = [max(1, options.wake_training_steps // rungs)] * rungs
         self._wake_lock = asyncio.Lock()
         """One wake word change at a time: each may rebuild a verifier."""
         # The fp32 encoder is 862 MB resident, which is most of a 2 GB Pi.
@@ -518,6 +551,7 @@ class VoiceCallApp:
         self._web = await start_web(self)
 
     async def stop(self) -> None:
+        await self.wake_training.stop()
         for task in (self._store_watcher,):
             if task is not None:
                 task.cancel()
@@ -2129,6 +2163,13 @@ class VoiceCallApp:
         if self.speakers is None:
             return []
         return [_profile_json(name, p) for name, p in sorted(self.speakers.profiles.speakers.items())]
+
+    def _trained_model_error(self, word: str) -> str | None:
+        """Why a wake word just trained can't run on the satellites, if so."""
+        self.wake_words.forget()
+        if self.wake_words.model(word) is not None:
+            return None
+        return self.wake_words.errors.get(word) or "it wasn't found after saving"
 
     # ---------------------------------------------------------------- timers
 
