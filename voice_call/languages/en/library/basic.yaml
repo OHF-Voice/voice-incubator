@@ -44,7 +44,7 @@ commands:
     optional: [[is it, it is], [right now, now], [tell me]]
     # Other times: "what time does the store close", "what time is ninety
     # minutes after two" (that one is answered as a question).
-    exclude: [does, do, close, open, after, before, until, from]
+    exclude: [does, do, close, open, after, before, until, from, alarm, alarms]
     response: "It's {{ now().strftime('%-I:%M %p') }}."
 
   what_date:
@@ -444,29 +444,35 @@ commands:
       - Point it at your to-do list (todo.to_do here).
 
   remind_me:
-    title: Remember something
-    icon: mdi:note-edit-outline
+    title: Remind me
+    icon: mdi:calendar-clock
     description: add a reminder
+    # With a time, an event on the Voice Call calendar that is said on this
+    # satellite then: "remind me at 5 pm to call mom", "remind me to take the
+    # bins out every tuesday at 7 pm", "remind me in 10 minutes to check the
+    # oven". Without one, it goes on the to-do list.
     require: [[remind me]]
-    optional: [[to]]
     wildcard:
       slot: reminder
-      after: [to]
+      after: [remind me]
       to_end: true
-      max_words: 10
-    action:
-      action: todo.add_item
-      target:
-        entity_id: todo.reminders
-      data:
-        item: "{{ slots.reminder }}"
+      max_words: 16
+    slots:
+      entity: [todo.reminders]
+    timer: reminder
     verbosity: specific
-    response:
-      done:
-        brief: I'll remind you.
-        specific: "I'll remind you to {{ slots.reminder }}."
     needs:
-      - Point it at a to-do list (todo.reminders here).
+      - Point it at a to-do list (todo.reminders here) for reminders without a time.
+
+  reminder_status:
+    title: Say the reminders
+    icon: mdi:calendar-clock
+    description: say which reminders are coming up
+    examples: [what are my reminders, do i have any reminders]
+    require: [[reminders, reminder]]
+    optional: [[what, which], [are, is], [do i have, have i got, are there], [my, any]]
+    exclude: [remind me, add, set]
+    timer: reminder_status
 
   scene:
     title: Activate a scene

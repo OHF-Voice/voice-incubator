@@ -34,9 +34,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from . import languages
+from . import alarms, languages
 
-OPERATIONS = ("start", "alarm", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status")
+OPERATIONS = (
+    "start", "alarm", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status",
+    # On the calendar (voice_call/alarms.py), in a language that keeps them there.
+    "reminder", "cancel_alarm", "alarm_status", "reminder_status",
+)
 SERVICES = {
     "cancel": "cancel_timer",
     "pause": "pause_timer",
@@ -64,6 +68,7 @@ OUTCOMES = {
     "add": ("done", "no_timers", "not_found", "ambiguous", "missing_duration"),
     "subtract": ("done", "no_timers", "not_found", "ambiguous", "missing_duration"),
     "status": ("done", "no_timers", "not_found"),
+    **{op: outcomes for op, outcomes in alarms.OUTCOMES.items() if op != "alarm"},
 }
 NAME_MATCH = 0.6
 """Least similarity between free text and a timer's name to take it as that
@@ -223,7 +228,11 @@ def _scenarios() -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
 def outcome_examples() -> dict[str, dict[str, str]]:
     """operation -> outcome -> what is said, for every outcome OUTCOMES lists."""
     out: dict[str, dict[str, str]] = {}
+    calendar = alarms.outcome_examples()
     for operation, outcomes in OUTCOMES.items():
+        if operation in alarms.OPERATIONS and (operation != "alarm" or alarms.words() is not None):
+            out[operation] = calendar[operation]
+            continue
         said: dict[str, str] = {}
         for slots, running in _scenarios():
             result = plan(operation, slots, running)
@@ -236,8 +245,10 @@ def level_examples() -> dict[str, dict[str, str]]:
     """operation -> level -> what done says, for the UI (status answers; it
     has no levels)."""
     evening = datetime(2026, 1, 1, 21, 55)  # noqa: DTZ001 - local time, as plan takes it
-    out: dict[str, dict[str, str]] = {}
+    out: dict[str, dict[str, str]] = dict(alarms.level_examples())
     for operation in OPERATIONS:
+        if operation in out or operation in alarms.OPERATIONS:
+            continue
         for slots, running in _scenarios():
             result = plan(operation, slots, running, evening)
             if result.outcome == "done" and result.levels:
@@ -301,9 +312,9 @@ def progress(running: list[dict[str, Any]], now: datetime | None = None) -> dict
 
 def stops_ringing(operation: str | None, slots: dict[str, Any]) -> bool:
     """Whether a command said over a ringing alarm is only "stop that": a
-    cancel that names no timer."""
-    return operation in ("cancel", "cancel_all") and not any(
-        slots.get(k) for k in ("timer", "timer_name", "duration")
+    cancel that names no timer (or alarm)."""
+    return operation in ("cancel", "cancel_all", "cancel_alarm") and not any(
+        slots.get(k) for k in ("timer", "timer_name", "duration", "time")
     )
 
 

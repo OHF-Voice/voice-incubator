@@ -206,6 +206,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/server.py` | the call state machine |
 | `voice_call/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_call.speaker` |
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
+| `voice_call/alarms.py` | alarms and timed reminders on the "Voice Call" Local Calendar in Home Assistant: made if missing, followed, rung on the satellite that set them (in a language with a `calendar.py`, English for now) |
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_call/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_call/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_call/gliner.py`) -- each only for the commands chosen for it |

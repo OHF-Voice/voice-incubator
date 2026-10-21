@@ -321,6 +321,7 @@ class Api:
                 "tdt_status": app.tdt_status,
                 "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
+                "calendar": app.alarms.status if app.alarms is not None else None,
                 "settings": app.store.settings,
                 "debug_sessions": {k: s.to_json() for k, s in app.calls.sessions.items()},
                 "voice_domains": list(VOICE_DOMAINS),

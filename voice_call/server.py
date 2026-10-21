@@ -19,7 +19,7 @@ import numpy as np
 
 from adapt_ctc.config import ConfigError
 
-from . import actions, languages, skills, timers
+from . import actions, alarms, languages, skills, timers
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
@@ -447,6 +447,10 @@ class VoiceCallApp:
             _LOGGER.warning("Speaker model %s not found; speaker ID disabled", speaker_model)
         self.calls = CallLog(self.store.calls_dir, self.store.settings)
         self.integration = Integration(self.hass, self._timer_finished, self._timers_changed)
+        self.alarms = (
+            alarms.AlarmCalendar(self.hass, self._calendar_due) if languages.current().calendar is not None else None
+        )
+        """Alarms and reminders on a Local Calendar, in a language that reads them."""
         self.music = Music(self.hass)
         self.agent = Agent(self.hass)
         """What nothing here understood goes to, when one is chosen."""
@@ -1858,7 +1862,8 @@ class VoiceCallApp:
         )
         started = time.perf_counter()
         outcome = await actions.run(
-            self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere()
+            self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
+            calendar=self.alarms,
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
@@ -2178,6 +2183,23 @@ class VoiceCallApp:
         if session.ringing is None or session.ringing.done():
             session.ringing = asyncio.ensure_future(self._ring(session))
 
+    def _calendar_due(self, event: alarms.Event) -> None:
+        """An alarm or a reminder on the calendar starts: ring the satellite
+        that set it -- every one, for a reminder added in Home Assistant."""
+        say = alarms.words()
+        if say is None:
+            return
+        alarm = event.kind == "alarm"
+        entry = {
+            "name": event.summary,
+            "announce": say.alarm_due(event.summary, event.start) if alarm else say.reminder_due(event.summary),
+            # A reminder is said once; an alarm rings until stopped.
+            "once": not alarm,
+        }
+        keys = [event.satellite] if event.satellite else [k for k, s in self.sessions.items() if s.writer is not None]
+        for key in keys:
+            self._timer_finished(key, dict(entry))
+
     async def _ring(self, session: Session) -> None:
         """Say which timer finished, then sound the alarm until someone says
         "stop" (or wakes the satellite), or it times out."""
@@ -2192,18 +2214,32 @@ class VoiceCallApp:
             stop = self.wake_words.model(STOP)
             if stop is not None:
                 await self._push_models(session, [stop], first_slot=len(session.wake_words) + 1)
-            names = [t.get("name") for t in session.ringing_timers]
-            record.stage("timer_ringing", timers=session.ringing_timers)
+            ringing = list(session.ringing_timers)
+            names = [t.get("name") for t in ringing]
+            record.stage("timer_ringing", timers=ringing)
             await self._event(session, "timer_ringing", timers=len(names), name=names[-1] or "")
-            await self._say(session, self.language.speech.timers_ringing(session.ringing_timers), paced=True)
-            while time.monotonic() < deadline and session.writer is not None:
+            # Timers by their names; the calendar's alarms and reminders by their own sentences.
+            plain = [t for t in ringing if not t.get("announce")]
+            said = [self.language.speech.timers_ringing(plain)] if plain else []
+            said += [t["announce"] for t in ringing if t.get("announce")]
+            if all(t.get("once") for t in ringing):
                 await self._play(session, self.speech.alarm, paced=True)
+            await self._say(session, " ".join(said), paced=True)
+            while (
+                time.monotonic() < deadline
+                and session.writer is not None
+                and not all(t.get("once") for t in session.ringing_timers)
+            ):
+                await self._play(session, self.speech.alarm, paced=True)
+            if all(t.get("once") for t in session.ringing_timers):
+                stopped_by = "said"
         except asyncio.CancelledError:
             stopped_by = session.ring_stopped_by or "stop"
             raise
         finally:
             record.stage("timer_stopped", by=stopped_by)
-            self.calls.finish(record, "timer rang out" if stopped_by == "timeout" else "timer stopped", ", ".join(
+            ending = {"timeout": "timer rang out", "said": "reminder said"}.get(stopped_by, "timer stopped")
+            self.calls.finish(record, ending, ", ".join(
                 str(t.get("name") or self.language.speech.duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers
             ))
             session.ringing_timers = []

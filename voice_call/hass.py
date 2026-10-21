@@ -24,9 +24,11 @@ import itertools
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import websockets
@@ -441,6 +443,43 @@ class HomeAssistant:
                 raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
 
         return await asyncio.to_thread(post)
+
+    async def config_flow_step(self, flow_id: str, data: dict) -> dict:
+        """Answer a config flow's form (REST, as ``start_config_flow``)."""
+
+        def post() -> dict:
+            request = urllib.request.Request(
+                f"{self.url}/api/config/config_entries/flow/{flow_id}",
+                data=json.dumps(data).encode(),
+                headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as err:
+                raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
+
+        return await asyncio.to_thread(post)
+
+    async def calendar_events(self, entity_id: str, start: datetime, end: datetime) -> list[dict]:
+        """A calendar's events from ``start`` to ``end``, each time a repeating
+        one comes, with their ``uid``, ``rrule`` and ``recurrence_id`` (REST:
+        the frontend's way; the ``get_events`` action leaves those out)."""
+        query = urllib.parse.urlencode({"start": start.isoformat(), "end": end.isoformat()})
+
+        def get() -> list[dict]:
+            request = urllib.request.Request(
+                f"{self.url}/api/calendars/{entity_id}?{query}",
+                headers={"Authorization": f"Bearer {self.token}"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as err:
+                raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
+
+        return await asyncio.to_thread(get)
 
     async def fire_event(self, event_type: str, data: dict) -> None:
         await self.call({"type": "fire_event", "event_type": event_type, "event_data": data})

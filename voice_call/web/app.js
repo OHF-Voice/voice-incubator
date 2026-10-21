@@ -330,6 +330,7 @@ async function refreshStatus() {
   const notes = [];
   if (s.store_error) notes.push(h("div", { class: "notice bad" }, "commands.yaml has an error, so the previous commands are still in use: ", s.store_error));
   if (s.integration && s.integration !== "ready" && s.integration !== "connecting") notes.push(h("div", { class: "notice warn" }, s.integration));
+  if (s.calendar && s.calendar !== "ready" && s.calendar !== "connecting") notes.push(h("div", { class: "notice warn" }, "Alarms and reminders won't work: ", s.calendar));
   if (s.unspeakable && s.unspeakable.length) notes.push(h("div", { class: "notice warn" }, "These phrases can't be spelled in the speech model's pieces and will never be heard: ", s.unspeakable.join(", ")));
   fill(banner, ...notes.map((n) => h("div", {}, n)));
 }
@@ -717,10 +718,10 @@ async function pageCommand(id, prefill, query) {
           hassPicker("entity", (item) => { target[domain] = item.id; render(); }, { domain })),
           mode === "script" ? "The script gets slots, satellite, speaker, target and command as variables; what it returns (stop with response_variable) is the response's result." : null);
       } else if (mode === "timer") {
-        const ops = { start: "Start a timer", cancel: "Cancel a timer", cancel_all: "Cancel every timer", pause: "Pause a timer", resume: "Resume a timer", add: "Add time", subtract: "Take time off", status: "Say how long is left" };
+        const ops = { start: "Start a timer", cancel: "Cancel a timer", cancel_all: "Cancel every timer", pause: "Pause a timer", resume: "Resume a timer", add: "Add time", subtract: "Take time off", status: "Say how long is left", alarm: "Set an alarm", cancel_alarm: "Cancel an alarm", alarm_status: "Say the alarms", reminder: "Remind at a time", reminder_status: "Say the reminders" };
         control = field("Timer", h("select", { onchange: (e) => { target.timer = e.target.value; keepOutcomes([...Object.keys(timerOutcomes()), "failed"]); render(); } },
           ...Object.entries(ops).map(([op, label]) => h("option", { value: op, selected: target.timer === op }, label))),
-          "On the satellite's own timers (its voice_timer_list in Home Assistant). Which timer: slots.timer_name (a running timer's name, from the running_timers list), slots.timer (free text, matched loosely), slots.duration, or the only one.");
+          "On the satellite's own timers (its voice_timer_list in Home Assistant). Which timer: slots.timer_name (a running timer's name, from the running_timers list), slots.timer (free text, matched loosely), slots.duration, or the only one. Alarms and reminders are on the Voice Call calendar in Home Assistant (English): slots.time says when, slots.reminder what; a reminder without a time goes on the to-do list among the entities.");
       } else if (mode === "music") {
         const ops = { play: "Play what was asked for", add: "Add it to the queue", radio: "Play music like it (or like what's playing)", pause: "Pause", resume: "Resume", stop: "Stop", next: "Next track", previous: "Previous track", volume_up: "Volume up", volume_down: "Volume down", volume_set: "Set the volume", mute: "Mute", unmute: "Unmute", shuffle_on: "Shuffle on", shuffle_off: "Shuffle off", repeat_all: "Repeat all", repeat_one: "Repeat this track", repeat_off: "Repeat off", status: "Say what's playing", move: "Move it to the player named (area, floor or speaker)" };
         control = field("Music", h("select", { onchange: (e) => { target.music = e.target.value; keepOutcomes([...Object.keys(musicOutcomes()), "failed"]); render(); } },

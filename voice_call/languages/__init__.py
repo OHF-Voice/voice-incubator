@@ -83,6 +83,15 @@ class Pack:
         return self.directory / "library"
 
     @property
+    def calendar(self) -> ModuleType | None:
+        """Its ``calendar`` module -- when alarms and reminders are, and what
+        is said about them -- if it keeps them on the calendar
+        (voice_call/alarms.py); None if its alarms are timers."""
+        if not (self.directory / "calendar.py").is_file():
+            return None
+        return importlib.import_module(f"{__name__}.{self.code}.calendar")
+
+    @property
     def lists(self) -> dict[str, Any]:
         """The value lists every home has in it, by name (``lists.yaml``):
         colors, on_off, cover_classes ... One of a home's own by the same

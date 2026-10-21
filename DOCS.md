@@ -336,10 +336,11 @@ timers". A timer is picked out by:
 - its **length** when it was set: "the 5 minute timer";
 - or it is the **only one**.
 
-An **alarm** is a timer that rings at a clock time: "set an alarm for seven
-thirty", "wake me up at 6 am", "an alarm for half past six" (without am or pm,
-the next time it comes round). It is named "alarm" and can be cancelled like
-any timer.
+An **alarm** rings at a clock time: "set an alarm for seven thirty", "wake me
+up at 6 am", "an alarm for half past six" (without am or pm, the next time it
+comes round). In English it is an event on the app's calendar (see **Alarms
+and reminders** below); in the other languages it is a timer named "alarm",
+cancelled like any timer.
 
 When several timers fit, the satellite asks which ("There's the pizza timer and
 the 5 minute timer"). Timer commands say how it went, and each outcome can have
@@ -364,6 +365,50 @@ it was ("The pizza timer is done.") and then **rings** until someone says
 ringing -- or "Okay Nabu" anything, or presses the center button, or five
 minutes pass. Timers are held in
 memory by Home Assistant, so a restart loses them.
+
+### Alarms and reminders
+
+In English, alarms and reminders with a time are events on a **Local
+Calendar** in Home Assistant named **Voice Call**, which the app creates when
+it connects (Home Assistant's Local Calendar integration, built in). They
+outlive restarts, can be for another day or repeat, and show -- and can be
+changed -- in Home Assistant's calendar. Add **Set an alarm**, **Cancel an
+alarm** and **Say the alarms** from the **Timers** group, and **Remind me**
+and **Say the reminders**:
+
+- "set an alarm for 7 am tomorrow", "wake me up at half past six", "an alarm
+  for every weekday at 6:45";
+- "cancel my alarm", "delete the 7 o'clock alarm" (without am or pm, either);
+- "remind me at 5 pm to call my mom", "remind me in 10 minutes to check the
+  oven", "remind me to take the bins out every tuesday at 7 pm";
+- "what alarms do I have", "what are my reminders".
+
+Without am or pm, a time today is the next one to come round; on another day
+an alarm is in the morning, and a reminder in the morning from 7 to 11, else
+the afternoon. A reminder without a time ("remind me to buy milk") goes on the
+to-do list among its entities (`todo.reminders` in the library's command),
+calendar or not.
+
+When one starts, the satellite that set it rings: an alarm says the time and
+rings like a timer, until "stop"; a reminder sounds the alarm once and is said
+("Reminder: call your mom."). An event added in Home Assistant is a reminder
+said on every satellite. The description of each event the app adds marks it
+as an alarm or a reminder and names the satellite
+(`[voice_call:alarm:<satellite>]`); keep that when editing one. One missed by
+up to five minutes (the app was down) still goes off. The calendar is
+followed live where Home Assistant can send its changes, else read every five
+minutes. If the calendar can't be made, the Home page says why, alarms
+are timers again, and a reminder with a time says so.
+
+| outcome | when |
+|---|---|
+| `done` | set, cancelled, or (for the status commands) said |
+| `listed` | a reminder without a time went on the to-do list |
+| `missing_time` | an alarm without a time, or a reminder with a day but no time (or no to-do list) |
+| `missing_reminder` | a reminder with a time but nothing to remind of |
+| `no_alarms` / `no_reminders` | none set on this satellite |
+| `not_found` | no alarm at the time asked for |
+| `ambiguous` | several alarms fit; it says them |
 
 Automations can follow timers with the `voice_call.timer_created`,
 `timer_finished`, `timer_paused`, `timer_unpaused`, `timer_time_changed` and

@@ -789,3 +789,126 @@ async def _voices(tmp_path: Path) -> None:
         await rest.cleanup()
         satellite_server.close()
         hass_server.close()
+
+
+def _library_commands(*wanted: tuple[str, str]) -> str:
+    """Commands from the English library, as they are added from it."""
+    from ruamel.yaml import YAML  # pylint: disable=import-outside-toplevel
+
+    library = ROOT / "voice_call/languages/en/library"
+    out = {}
+    for file, command in wanted:
+        spec = YAML(typ="safe").load((library / f"{file}.yaml").read_text())["commands"][command]
+        out[command] = {k: v for k, v in spec.items() if k != "needs"}
+    return json.dumps({"commands": out})
+
+
+def test_alarms_and_reminders_on_the_calendar(tmp_path):
+    asyncio.run(_calendar(tmp_path))
+
+
+async def _calendar(tmp_path: Path) -> None:
+    """The app makes its Local Calendar; an alarm or a reminder with a time is
+    an event on it, marked as the satellite's, which rings that satellite
+    when it starts (an alarm until "stop", a reminder said once); one without
+    a time goes on the to-do list."""
+    from datetime import datetime, timedelta  # pylint: disable=import-outside-toplevel
+    from zoneinfo import ZoneInfo  # pylint: disable=import-outside-toplevel
+
+    hass, hass_server = await fake_hass.serve()
+    rest, rest_port = await fake_hass.serve_rest(hass)
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite_server = await serve(satellite)
+    satellite_port = satellite_server.sockets[0].getsockname()[1]
+    (tmp_path / "commands.yaml").write_text(_library_commands(
+        ("timers", "set_alarm"), ("timers", "cancel_alarm"), ("timers", "alarm_status"),
+        ("basic", "reminder_status"), ("basic", "remind_me"),
+    ))
+    app = VoiceCallApp(
+        Options(
+            host="127.0.0.1",
+            port=satellite_port,
+            hass_url=f"http://127.0.0.1:{rest_port}",
+            hass_websocket_url=f"ws://127.0.0.1:{hass_port}/api/websocket",
+            hass_token=fake_hass.TOKEN,
+            data_dir=tmp_path,
+            http_port=free_port(),
+            threads=4,
+        )
+    )
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+
+    async def said(text: str) -> str:
+        record = await app.try_text(text, MAC, run_actions=True)
+        return next(s for s in record.stages if s["stage"] == "speech")["text"]
+
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        assert app.alarms is not None
+        await wait_for(lambda: app.alarms.ready)
+        calendar = "calendar.voice_call"
+        assert hass.local_calendars == ["Voice Call"] and app.alarms.entity_id == calendar
+        assert str(app.alarms.tz) == "Europe/Berlin"
+
+        # An alarm: an event in Home Assistant's time zone, marked as this satellite's.
+        assert await said("set an alarm for 7 am tomorrow") == "Alarm set for 7:00 AM tomorrow."
+        [event] = hass.calendar_events[calendar]
+        assert event["summary"] == "Alarm" and f"[voice_call:alarm:{MAC}]" in event["description"]
+        start = datetime.fromisoformat(event["start"])
+        assert start.hour == 7 and start.utcoffset() == start.astimezone(ZoneInfo("Europe/Berlin")).utcoffset()
+        await wait_for(lambda: len(app.alarms.upcoming("alarm", MAC)) == 1)
+        assert await said("what alarms do i have") == "You have an alarm at 7:00 AM tomorrow."
+
+        # A reminder with a time, on the calendar too.
+        assert (await said("remind me every tuesday at 7 pm to take out the bins")).startswith("I'll remind you to take out the bins")
+        bins = hass.calendar_events[calendar][-1]
+        assert bins["summary"] == "Take out the bins" and bins["rrule"] == "FREQ=WEEKLY;BYDAY=TU"
+        # Without a time, on the to-do list.
+        assert await said("remind me to buy milk") == "Added buy milk to your reminders."
+        assert hass.services[-1]["service_data"] == {"item": "buy milk"}
+        assert hass.services[-1]["target"] == {"entity_id": "todo.reminders"}
+
+        # One added in Home Assistant is said on every satellite when it starts.
+        soon = datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(seconds=1)
+        later = (soon + timedelta(minutes=5)).isoformat()
+        await hass.add_calendar_event(calendar, summary="Water the plants", start=soon.isoformat(), end=later)
+        await wait_for(lambda: app.calls.recent and app.calls.recent[-1].outcome == "reminder said")
+        ringing = next(s for s in app.calls.recent[-1].stages if s["stage"] == "timer_ringing")
+        assert [t["announce"] for t in ringing["timers"]] == ["Reminder: Water the plants."]
+
+        # An alarm rings its satellite until "stop".
+        soon = datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(seconds=1)
+        played = satellite.played
+        await hass.add_calendar_event(
+            calendar, summary="Alarm", start=soon.isoformat(), end=later,
+            description=f"Set by voice on Kitchen. [voice_call:alarm:{MAC}]",
+        )
+        session = app.sessions[MAC]
+        await wait_for(lambda: session.ringing is not None and "stop" in satellite.models and satellite.played > played + 32000)
+        assert await satellite.detect("Stop") == "timer_stopped"
+        await wait_for(lambda: session.ringing.done() and satellite.models == ["vad", "okay_nabu"])
+        rang = next(s for r in reversed(app.calls.recent) for s in r.stages if s["stage"] == "timer_ringing")
+        assert rang["timers"][0]["announce"].startswith("It's ")
+
+        # Without uids, what the subscription sends is read again over REST
+        # (an alarm can't be cancelled without its uid); with them, it is used.
+        assert hass.calendar_reads and all(e.uid.startswith("event-") for e in app.alarms.events)
+        reads = hass.calendar_reads
+        hass.calendar_push_uids = True
+        await hass._push_calendar(calendar)
+        await asyncio.sleep(0.2)
+        assert hass.calendar_reads == reads
+
+        # Cancelled: off the calendar (the one that rang has gone by).
+        assert await said("cancel my alarm") == "Cancelled the alarm at 7:00 AM tomorrow."
+        assert event["uid"] not in [e["uid"] for e in hass.calendar_events[calendar]]
+        await wait_for(lambda: not app.alarms.upcoming("alarm", MAC))
+        assert await said("cancel my alarm") == "No alarms are set."
+    finally:
+        runner.cancel()
+        await app.stop()
+        await rest.cleanup()
+        satellite_server.close()
+        hass_server.close()

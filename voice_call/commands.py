@@ -254,7 +254,7 @@ class Behavior:
     def question(self) -> bool:
         """Whether it only answers (a response, or a timer's or music's
         status): it never just beeps."""
-        return self.does == "respond" or self.timer == "status" or self.music == "status"
+        return self.does == "respond" or self.timer in ("status", "alarm_status", "reminder_status") or self.music == "status"
 
     @property
     def default_verbosity(self) -> str:

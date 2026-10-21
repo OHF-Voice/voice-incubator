@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **Alarms and reminders on a calendar** (English): an alarm, or a reminder
+  with a time, is an event on a Local Calendar named "Voice Call" that the
+  app creates in Home Assistant. It outlives restarts, may be for another day
+  or repeat ("every weekday at 6:45"), shows in Home Assistant's calendar, and
+  rings the satellite that set it: an alarm until "stop", a reminder said
+  once ("remind me at 5 pm to call my mom"). New commands: Cancel an alarm,
+  Say the alarms, Say the reminders. A reminder without a time still goes on
+  the to-do list. Other languages keep alarms as timers.
 - **Language packs**: what the app hears and says is one language's pack
   (`voice_call/languages/<code>`): its speech models, Piper voice, the
   matcher's filler words and name cues, the command library, and which

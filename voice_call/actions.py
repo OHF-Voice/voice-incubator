@@ -69,7 +69,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import languages, timers
+from . import alarms, languages, timers
 from . import music as music_ops
 from .commands import QUIET, SPOKEN, Behavior, Command, closest_text
 from .engine import Decision, Satellite
@@ -244,15 +244,19 @@ async def run(
     integration=None,
     music: music_ops.Music | None = None,
     elsewhere: str = BEEP_ELSEWHERE,
+    calendar: alarms.AlarmCalendar | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
-    of the satellite's area."""
+    of the satellite's area. ``calendar``: where alarms and reminders are, in
+    a language that keeps them there."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     catalog = getattr(hass, "catalog", None)
     values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog)
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
+    if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
+        return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     if behavior.timer:
         return await _run_timer(hass, behavior, values, satellite, outcome, integration)
     if behavior.music:
@@ -329,6 +333,68 @@ async def _run_timer(
             _LOGGER.error("Timer command failed: %s", err)
             return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     outcome.timings["timer"] = time.perf_counter() - started
+    return await _say(hass, behavior, values, outcome, plan.outcome, plan.levels or plan.speech)
+
+
+def _calendar_ready(calendar: alarms.AlarmCalendar | None) -> bool:
+    """Alarms go on the calendar: the language keeps them there, and it is
+    set up (else they are timers, as before)."""
+    return alarms.words() is not None and calendar is not None and calendar.ready
+
+
+async def _run_calendar(
+    hass: HomeAssistant,
+    behavior: Behavior,
+    values: dict[str, Any],
+    satellite: Satellite,
+    outcome: Outcome,
+    calendar: alarms.AlarmCalendar | None,
+) -> Outcome:
+    """Plan an alarm or reminder operation against the satellite's alarms and
+    reminders to come, carry it out (unless a dry run), and say how it went."""
+    say = alarms.words()
+    ready = calendar is not None and calendar.ready
+
+    async def unready() -> Outcome:
+        outcome.error = calendar.status if calendar is not None else "no calendar"
+        text = say.CALENDAR_NEEDED if say is not None else languages.speech().FAILED
+        return await _say(hass, behavior, values, outcome, "failed", text, {"error": outcome.error})
+
+    # Without the calendar, a reminder without a time still goes on the to-do list.
+    if say is None or calendar is None or not ready and behavior.timer != "reminder":
+        return await unready()
+    started = time.perf_counter()
+    slots = values["slots"]
+    # A reminder without a time goes on the to-do list among the fixed slots.
+    todo = next((e for e in slots.get("entity") or [] if str(e).startswith("todo.")), None)
+    plan = alarms.plan(
+        str(behavior.timer), slots, calendar.now(),
+        calendar.upcoming("alarm", satellite.key), calendar.upcoming("reminder", satellite.key), todo=todo is not None,
+    )
+    if plan.create and not ready:
+        return await unready()
+    outcome.timer = plan.to_json()
+    outcome.sequence = [
+        *([{"action": "calendar.create_event", "target": {"entity_id": calendar.entity_id}, "data": outcome.timer["create"]}]
+          if plan.create else []),
+        *({"action": "calendar.delete_event", "target": {"entity_id": calendar.entity_id}, "data": {"uid": e.uid}}
+          for e in plan.delete),
+        *([{"action": "todo.add_item", "target": {"entity_id": todo}, "data": {"item": plan.todo}}] if plan.todo else []),
+    ]
+    if not outcome.dry_run:
+        try:
+            if plan.create:
+                await calendar.create(plan.create["kind"], plan.create["summary"], plan.create["start"],
+                                      plan.create["rrule"], satellite.key, satellite.name)
+            for event in plan.delete:
+                await calendar.delete(event)
+            if plan.todo:
+                await hass.call_service("todo", "add_item", {"item": plan.todo}, {"entity_id": todo})
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            outcome.error = str(err)
+            _LOGGER.error("Calendar command failed: %s", err)
+            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
+    outcome.timings["calendar"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, plan.outcome, plan.levels or plan.speech)
 
 

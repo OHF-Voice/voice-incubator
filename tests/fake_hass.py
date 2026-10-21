@@ -131,6 +131,18 @@ class FakeHass:
         "<agent> heard <text>", understands nothing with "nonsense" in it,
         and keeps a conversation id given."""
         self._conversation_ids = itertools.count(1)
+        self.time_zone = "Europe/Berlin"
+        self.local_calendars: list[str] = []
+        """Local Calendars made (their names); each is ``calendar.<slug>``."""
+        self.calendar_events: dict[str, list[dict[str, Any]]] = {}
+        """calendar entity -> its events, as calendar/event/subscribe sends them."""
+        self._calendar_subscribers: dict[str, list] = {}
+        self.calendar_push_uids = False
+        """Whether calendar/event/subscribe sends uids (the developer docs
+        say it sends only start, end, summary, description and location)."""
+        self.calendar_reads = 0
+        """Reads of a calendar over REST."""
+        self._event_ids = itertools.count(1)
         self._env = jinja2.Environment(undefined=jinja2.ChainableUndefined)
         self._env.globals.update(
             now=datetime.datetime.now,
@@ -169,7 +181,35 @@ class FakeHass:
             await socket.send(json.dumps(out))
 
         if kind in ("subscribe_events", "unsubscribe_events"):
+            if kind == "unsubscribe_events":
+                for subscribers in self._calendar_subscribers.values():
+                    subscribers[:] = [s for s in subscribers if s[1] != message.get("subscription")]
             await result()
+        elif kind == "get_config":
+            await result({"time_zone": self.time_zone, "version": "fake"})
+        elif kind == "calendar/event/subscribe":
+            entity_id = message["entity_id"]
+            if entity_id not in self.calendar_events:
+                await result(success=False, error=f"no calendar {entity_id}")
+                return
+            self._calendar_subscribers.setdefault(entity_id, []).append((socket, msg_id))
+            await result()
+            await self._push_calendar(entity_id)
+        elif kind == "calendar/event/create":
+            entity_id = message["entity_id"]
+            event = dict(message["event"])
+            self.calendar_events[entity_id].append({
+                "uid": f"event-{next(self._event_ids)}", "summary": event["summary"],
+                "start": event["dtstart"], "end": event["dtend"], "description": event.get("description"),
+                "rrule": event.get("rrule"), "recurrence_id": None, "location": None,
+            })
+            await result()
+            await self._push_calendar(entity_id)
+        elif kind == "calendar/event/delete":
+            entity_id = message["entity_id"]
+            self.calendar_events[entity_id] = [e for e in self.calendar_events[entity_id] if e["uid"] != message["uid"]]
+            await result()
+            await self._push_calendar(entity_id)
         elif kind == "config/floor_registry/list":
             await result(FLOORS)
         elif kind == "config/area_registry/list":
@@ -199,6 +239,12 @@ class FakeHass:
                 + [
                     {"entity_id": e, "name": None, "original_name": n, "area_id": a, "device_id": f"device-{e}", "platform": "music_assistant", "unique_id": u}
                     for e, (u, n, a, _) in MUSIC_PLAYERS.items()
+                ]
+                + [
+                    {"entity_id": self.calendar_entity(name), "name": None, "original_name": None, "area_id": None,
+                     "device_id": None, "platform": "local_calendar", "unique_id": f"lc-{name}",
+                     "config_entry_id": f"lc-{name}"}
+                    for name in self.local_calendars
                 ]
                 + [
                     {
@@ -269,6 +315,10 @@ class FakeHass:
             entries = {
                 "voice_call": [{"entry_id": "vc", "domain": "voice_call", "state": "loaded"}] if self.integration else [],
                 "music_assistant": [{"entry_id": "ma", "domain": "music_assistant", "state": "loaded"}],
+                "local_calendar": [
+                    {"entry_id": f"lc-{name}", "domain": "local_calendar", "title": name, "state": "loaded"}
+                    for name in self.local_calendars
+                ],
             }
             await result(entries.get(message.get("domain"), []))
         elif kind == "voice_call/satellites/sync":
@@ -330,6 +380,36 @@ class FakeHass:
                 await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
             except websockets.ConnectionClosed:
                 self._timer_subscribers[entity_id].remove((socket, msg_id))
+
+    @staticmethod
+    def calendar_entity(name: str) -> str:
+        return "calendar." + "_".join(name.lower().split())
+
+    def make_calendar(self, name: str) -> str:
+        """What the Local Calendar's config flow does."""
+        self.local_calendars.append(name)
+        entity_id = self.calendar_entity(name)
+        self.calendar_events.setdefault(entity_id, [])
+        return entity_id
+
+    async def add_calendar_event(self, entity_id: str, **event: Any) -> None:
+        """An event added in Home Assistant (or by a test)."""
+        self.calendar_events[entity_id].append(
+            {"uid": f"event-{next(self._event_ids)}", "recurrence_id": None, "rrule": None, "description": None, **event}
+        )
+        await self._push_calendar(entity_id)
+
+    async def _push_calendar(self, entity_id: str) -> None:
+        fields = None if self.calendar_push_uids else ("start", "end", "summary", "description", "location")
+        events = [
+            {k: v for k, v in e.items() if v is not None and (fields is None or k in fields)}
+            for e in sorted(self.calendar_events.get(entity_id, []), key=lambda e: e["start"])
+        ]
+        for socket, msg_id in list(self._calendar_subscribers.get(entity_id, [])):
+            try:
+                await socket.send(json.dumps({"id": msg_id, "type": "event", "event": {"events": events}}))
+            except websockets.ConnectionClosed:
+                self._calendar_subscribers[entity_id].remove((socket, msg_id))
 
     async def _call_service(self, message: dict[str, Any]) -> Any:
         if message["domain"] == "tts" and message["service"] == "speak":
@@ -490,8 +570,50 @@ async def serve_rest(fake: FakeHass, host: str = "127.0.0.1", port: int = 0):
         )
         return web.json_response({"text": fake.stt_text, "result": "success"})
 
+    flows: dict[str, str] = {}
+
+    async def start_flow(request: web.Request) -> web.Response:
+        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return web.Response(status=401)
+        handler = (await request.json())["handler"]
+        if handler != "local_calendar":
+            return web.json_response({"message": "Invalid handler specified"}, status=404)
+        flow_id = f"flow-{len(flows) + 1}"
+        flows[flow_id] = handler
+        return web.json_response({"type": "form", "flow_id": flow_id, "handler": handler, "step_id": "user"})
+
+    async def flow_step(request: web.Request) -> web.Response:
+        flow_id = request.match_info["flow_id"]
+        if flows.pop(flow_id, None) is None:
+            return web.json_response({"message": "Flow not found"}, status=404)
+        name = (await request.json())["calendar_name"]
+        fake.make_calendar(name)
+        return web.json_response({"type": "create_entry", "flow_id": flow_id, "title": name})
+
+    async def calendar(request: web.Request) -> web.Response:
+        """A calendar's events, as the REST API has them: times as
+        ``{"dateTime": ...}``, uids and all."""
+        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return web.Response(status=401)
+        events = fake.calendar_events.get(request.match_info["entity_id"])
+        if events is None:
+            return web.json_response({"message": "Entity not found"}, status=400)
+        fake.calendar_reads += 1
+        start = datetime.datetime.fromisoformat(request.query["start"])
+        end = datetime.datetime.fromisoformat(request.query["end"])
+        return web.json_response([
+            {**e, "start": {"dateTime": e["start"]}, "end": {"dateTime": e["end"]}}
+            for e in sorted(events, key=lambda e: e["start"])
+            if start <= datetime.datetime.fromisoformat(e["start"]) < end
+        ])
+
     application = web.Application()
-    application.add_routes([web.post("/api/stt/{entity_id}", stt)])
+    application.add_routes([
+        web.get("/api/calendars/{entity_id}", calendar),
+        web.post("/api/stt/{entity_id}", stt),
+        web.post("/api/config/config_entries/flow", start_flow),
+        web.post("/api/config/config_entries/flow/{flow_id}", flow_step),
+    ])
     runner = web.AppRunner(application)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
