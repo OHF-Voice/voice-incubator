@@ -39,7 +39,7 @@ from . import alarms, languages
 OPERATIONS = (
     "start", "alarm", "cancel", "cancel_all", "pause", "resume", "add", "subtract", "status",
     # On the calendar (voice_call/alarms.py), in a language that keeps them there.
-    "reminder", "cancel_alarm", "alarm_status", "reminder_status",
+    "reminder", "cancel_alarm", "cancel_reminder", "alarm_status", "reminder_status",
 )
 SERVICES = {
     "cancel": "cancel_timer",
@@ -313,8 +313,8 @@ def progress(running: list[dict[str, Any]], now: datetime | None = None) -> dict
 def stops_ringing(operation: str | None, slots: dict[str, Any]) -> bool:
     """Whether a command said over a ringing alarm is only "stop that": a
     cancel that names no timer (or alarm)."""
-    return operation in ("cancel", "cancel_all", "cancel_alarm") and not any(
-        slots.get(k) for k in ("timer", "timer_name", "duration", "time")
+    return operation in ("cancel", "cancel_all", "cancel_alarm", "cancel_reminder") and not any(
+        slots.get(k) for k in ("timer", "timer_name", "duration", "time", "reminder")
     )
 
 

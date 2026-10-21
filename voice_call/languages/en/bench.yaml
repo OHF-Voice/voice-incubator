@@ -32,3 +32,8 @@ sentences:
   - ["Remind me tomorrow at 9 to call the dentist.", remind_me, {entity: [todo.reminders], reminder: tomorrow at 9 to call the dentist}, "a day and a time first"]
   - ["Remind me to rest for ten minutes at 5 pm.", remind_me, {entity: [todo.reminders], reminder: to rest for ten minutes at 5 pm}, "a length that is the reminder's"]
   - ["Remind me to buy milk.", remind_me, {entity: [todo.reminders], reminder: buy milk}, "no time: the to-do list"]
+  - ["Cancel my reminder to call mom.", cancel_reminder, {reminder: call mom}, "what it is about"]
+  - ["Remove the reminder about the dentist.", cancel_reminder, {reminder: about the dentist}, "about"]
+  - ["Delete the reminder for tomorrow.", cancel_reminder, {reminder: for tomorrow}, "its day"]
+  - ["Cancel the reminder at 5 pm.", cancel_reminder, {reminder: 5 pm}, "its time"]
+  - ["Cancel my reminder.", cancel_reminder, {}, "the only one, or which"]

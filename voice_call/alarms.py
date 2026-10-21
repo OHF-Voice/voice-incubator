@@ -22,6 +22,7 @@ A reminder without a time goes on a to-do list instead, as it did.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import logging
 import re
 from collections.abc import Callable
@@ -52,7 +53,7 @@ POLL = 300.0
 """Seconds between reads of the calendar where it can't be followed (a Home
 Assistant without ``calendar/event/subscribe``)."""
 
-OPERATIONS = ("alarm", "reminder", "cancel_alarm", "alarm_status", "reminder_status")
+OPERATIONS = ("alarm", "reminder", "cancel_alarm", "cancel_reminder", "alarm_status", "reminder_status")
 """The timer operations done on the calendar (``alarm`` there only in a
 language with a calendar module)."""
 
@@ -393,27 +394,69 @@ def plan(operation: str, slots: dict[str, Any], now: datetime, alarms: list[Even
         if not alarms:
             return Plan(say.NO_ALARMS, "no_alarms")
         text = str(slots.get("time") or "")
-        asked = say.when(text, now, alarm=True) if text else None
-        picked = alarms
-        if asked is not None:
-            # The time said, am or pm when it doesn't say ("cancel the 7
-            # o'clock alarm"); the day too, if it says one.
-            clock = languages.reading().clock(text)
-            hour, minute, meridiem = clock if clock else (asked.start.hour, asked.start.minute, "am")
-            picked = [
-                a for a in alarms
-                if a.start.minute == minute
-                and (a.start.hour == asked.start.hour if meridiem or hour > 12 else a.start.hour % 12 == hour % 12)
-            ]
-            if say.wants_time(text) and not asked.rrule:
-                picked = [a for a in picked if a.rrule or a.start.date() == asked.start.date()] or picked
-            if not picked:
-                return Plan(say.alarm_not_found(say.said_when(asked.start, asked.rrule, now), _said(alarms), now),
-                            "not_found")
+        picked, asked = _at(alarms, text, now, say, alarm=True)
+        if not picked:
+            when_said = say.said_when(asked.start, asked.rrule, now) if asked is not None else text
+            return Plan(say.alarm_not_found(when_said, _said(alarms), now), "not_found")
         if len(picked) > 1:
             return Plan(say.which_alarm(_said(picked), now), "ambiguous")
         return _done(say.alarm_cancelled(_said(picked), now), delete=picked)
+    if operation == "cancel_reminder":
+        if not reminders:
+            return Plan(say.NO_REMINDERS, "no_reminders")
+        text = str(slots.get("reminder") or "")
+        picked, asked = _at(reminders, text, now, say, alarm=False)
+        picked = _about(picked, say.about(asked.rest if asked is not None else text), say)
+        if not picked:
+            return Plan(say.reminder_not_found(_said(reminders), now), "not_found")
+        if len(picked) > 1:
+            return Plan(say.which_reminder(_said(picked), now), "ambiguous")
+        return _done(say.reminder_cancelled(_said(picked), now), delete=picked)
     raise ValueError(f"not a calendar operation: {operation}")
+
+
+ABOUT_MATCH = 0.6
+"""Least likeness of what was said to a reminder's text to take it as that
+reminder: the share of its words in the text, or the texts' difflib ratio."""
+
+
+def _at(events: list[Event], text: str, now: datetime, say: ModuleType, alarm: bool) -> tuple[list[Event], Any]:
+    """The events at the time ``text`` says -- am or pm when it doesn't say
+    ("cancel the 7 o'clock alarm") -- on the day it says, if it says one;
+    and the time read (None without one)."""
+    asked = say.when(text, now, alarm=alarm) if text else None
+    if asked is None:
+        on = say.day(text, now) if text else None
+        return ([e for e in events if e.rrule or e.start.date() == on] if on is not None else list(events)), None
+    clock = languages.reading().clock(asked.said)
+    hour, minute, meridiem = clock if clock else (asked.start.hour, asked.start.minute, "am")
+    picked = [
+        e for e in events
+        if e.start.minute == minute
+        and (e.start.hour == asked.start.hour if meridiem or hour > 12 else e.start.hour % 12 == hour % 12)
+    ]
+    if say.wants_time(asked.said) and not asked.rrule:
+        picked = [e for e in picked if e.rrule or e.start.date() == asked.start.date()]
+    return picked, asked
+
+
+def _about(events: list[Event], words: list[str], say: ModuleType) -> list[Event]:
+    """The reminders most like what was said they are about; all of them when
+    nothing was."""
+    if not words or not events:
+        return events
+    said = " ".join(words)
+
+    def likeness(event: Event) -> float:
+        theirs = say.about(event.summary)
+        shared = sum(1 for w in words if w in theirs) / len(words)
+        return max(shared, difflib.SequenceMatcher(None, said, " ".join(theirs)).ratio())
+
+    scored = [(likeness(e), e) for e in events]
+    best = max(score for score, _ in scored)
+    if best < ABOUT_MATCH:
+        return []
+    return [e for score, e in scored if score >= best - 0.05]
 
 
 def _said(events: list[Event]) -> list[dict[str, Any]]:
@@ -424,6 +467,7 @@ OUTCOMES = {
     "alarm": ("done", "missing_time"),
     "reminder": ("done", "listed", "missing_time", "missing_reminder"),
     "cancel_alarm": ("done", "no_alarms", "not_found", "ambiguous"),
+    "cancel_reminder": ("done", "no_reminders", "not_found", "ambiguous"),
     "alarm_status": ("done", "no_alarms"),
     "reminder_status": ("done", "no_reminders"),
 }
@@ -435,14 +479,18 @@ def _examples() -> list[tuple[dict[str, Any], list[Event], list[Event]]]:
     weekday = Event("2", now.replace(hour=6, minute=30) + timedelta(days=1), "Alarm", "alarm",
                     rrule="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR")
     call = Event("3", now.replace(hour=17, minute=0), "Call mom", "reminder")
+    bins = Event("4", now.replace(hour=19, minute=0) + timedelta(days=6), "Take out the bins", "reminder")
     return [
         ({"time": "7:30 tomorrow", "reminder": "to call mom at 5 pm"}, [seven], [call]),
+        ({"reminder": "to call mom"}, [], [call, bins]),
+        ({"reminder": "to feed the cat"}, [], [call, bins]),
         ({"time": "", "reminder": "to call mom tomorrow"}, [seven, weekday], [call]),
         ({"time": "8", "reminder": "to"}, [seven, weekday], []),
         ({"reminder": "to call mom"}, [], []),
         ({}, [], []),
         ({"time": "7"}, [seven, weekday], [call]),
         ({}, [seven], []),
+        ({}, [], [call, bins]),
     ]
 
 

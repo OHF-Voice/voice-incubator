@@ -49,6 +49,8 @@ class When:
     rest: str = ""
     relative: bool = False
     """Said from now ("in 20 minutes")."""
+    said: str = ""
+    """The words that said when."""
 
 
 def _is_when_word(word: str) -> bool:
@@ -119,6 +121,7 @@ def when(text: str, now: datetime, alarm: bool = False) -> When | None:
                 end -= 1
         if found is not None and (best is None or end - begin > best[1]):
             found.rest = " ".join(words[:begin] + words[end:]).strip(" ,")
+            found.said = " ".join(words[begin:end])
             best = (found, end - begin)
     return best[0] if best else None
 
@@ -152,19 +155,7 @@ def _read(said: str, now: datetime, alarm: bool) -> When | None:
         if repeated:
             rule, days = "FREQ=WEEKLY;BYDAY=" + ",".join(CODES[i] for i in repeated), repeated
 
-    date = None
-    if " tomorrow " in s:
-        date = (now + timedelta(days=1)).date()
-    elif re.search(r" (today|tonight) ", s):
-        date = now.date()
-    elif rule is None:
-        found = re.search(rf" (?:on |this |next )?({_DAY}) ", s)
-        if found:
-            ahead = (DAYS.index(found.group(1)) - now.weekday()) % 7
-            date = (now + timedelta(days=ahead or (7 if f" next {found.group(1)} " in s else 0))).date()
-        found = re.search(r" in (\S+) days? ", s)
-        if found and parse_num(found.group(1)):
-            date = (now + timedelta(days=int(parse_num(found.group(1))))).date()
+    date = _date(s, now) if rule is None else None
 
     numbers = sorted(_NUMBER_WORDS - {"a", "an", "half", "quarter"})
     if not re.search(r"\d|noon|midday|midnight| (?:" + "|".join(numbers) + ") ", s):
@@ -206,6 +197,42 @@ def _read(said: str, now: datetime, alarm: bool) -> When | None:
     if start <= now and date == now.date() and not re.search(r" (today|tonight) ", s):
         start += timedelta(days=7)  # "on Monday" on a Monday, the time gone: next week's
     return When(start) if start > now else None
+
+
+def _date(s: str, now: datetime) -> Any:
+    """The day ``s`` (lowercase, spaced at its ends) names, if it names one."""
+    if " tomorrow " in s:
+        return (now + timedelta(days=1)).date()
+    if re.search(r" (today|tonight) ", s):
+        return now.date()
+    date = None
+    found = re.search(rf" (?:on |this |next )?({_DAY}) ", s)
+    if found:
+        ahead = (DAYS.index(found.group(1)) - now.weekday()) % 7
+        date = (now + timedelta(days=ahead or (7 if f" next {found.group(1)} " in s else 0))).date()
+    found = re.search(r" in (\S+) days? ", s)
+    if found and parse_num(found.group(1)):
+        date = (now + timedelta(days=int(parse_num(found.group(1))))).date()
+    return date
+
+
+def day(text: str, now: datetime) -> Any:
+    """The day ``text`` names without a time ("tomorrow's", "on Friday"), or None."""
+    s = " " + re.sub(r"'s\b", "", _joined(text).lower().replace(".", "").replace(",", " ")) + " "
+    return _date(s, now)
+
+
+_NOT_ABOUT = {
+    "the", "a", "an", "my", "your", "to", "for", "about", "of", "that", "and", "me", "you", "reminder", "reminders",
+    "one", "s",
+}
+
+
+def about(text: str) -> list[str]:
+    """What a reminder is about, as words to compare: "my reminder to call
+    mom tomorrow" -> ["call", "mom"]."""
+    words = [w.removesuffix("'s") for w in re.findall(r"[\w']+", _joined(text).lower())]
+    return [w for w in words if w not in _NOT_ABOUT and not _is_when_word(w)]
 
 
 def wants_time(text: str) -> bool:
@@ -325,3 +352,22 @@ def which_alarm(alarms: list[dict[str, Any]], now: datetime) -> str:
 
 def alarm_not_found(asked: str, alarms: list[dict[str, Any]], now: datetime) -> str:
     return f"There's no alarm at {asked}. {alarms_listed(alarms, now)}" if alarms else NO_ALARMS
+
+
+def reminder_cancelled(reminders: list[dict[str, Any]], now: datetime) -> dict[str, str]:
+    said = [f"{r['text']} at {when}" for r, when in zip(reminders, _listed(reminders, now), strict=True)]
+    if len(said) == 1:
+        specific = f"Cancelled the reminder at {_listed(reminders, now)[0]}: {reminders[0]['text']}."
+    else:
+        specific = f"Cancelled {len(said)} reminders."
+    return {"brief": "Reminder cancelled." if len(said) == 1 else "Reminders cancelled.", "specific": specific,
+            "verbose": f"Cancelled the reminders: {join(said)}." if len(said) > 1 else specific}
+
+
+def which_reminder(reminders: list[dict[str, Any]], now: datetime) -> str:
+    said = [f"{r['text']} at {when}" for r, when in zip(reminders, _listed(reminders, now), strict=True)]
+    return f"Which reminder? You have {join(said)}."
+
+
+def reminder_not_found(reminders: list[dict[str, Any]], now: datetime) -> str:
+    return f"There's no reminder like that. {reminders_listed(reminders, now)}" if reminders else NO_REMINDERS

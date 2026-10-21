@@ -388,13 +388,18 @@ Calendar** in Home Assistant named **Voice Call**, which the app creates when
 it connects (Home Assistant's Local Calendar integration, built in). They
 outlive restarts, can be for another day or repeat, and show -- and can be
 changed -- in Home Assistant's calendar. Add **Set an alarm**, **Cancel an
-alarm** and **Say the alarms** from the **Timers** group, and **Remind me**
-and **Say the reminders**:
+alarm** and **Say the alarms** from the **Timers** group, and **Remind me**,
+**Cancel a reminder** and **Say the reminders**:
 
 - "set an alarm for 7 pm tomorrow", "wake me up at half past six", "an alarm
   for every weekday at 6:45", "set an alarm tomorrow at 8", "an alarm in 20
   minutes";
-- "cancel my alarm", "delete the 7 o'clock alarm" (without am or pm, either);
+- "cancel my alarm", "delete the 7 o'clock alarm" (without am or pm, either),
+  "cancel my alarm for tomorrow";
+- "cancel my reminder to call mom", "delete the reminder for tomorrow",
+  "cancel the reminder at 5 pm": by what it is about (loosely: "call my
+  mom" is "Call your mom"), its time or its day -- what is said after
+  "reminder"; with one reminder, the only one;
 - "remind me at 5 pm to call my mom", "remind me in 10 minutes to check the
   oven", "remind me to take the bins out every tuesday at 7 pm";
 - "what alarms do I have", "what are my reminders".
@@ -423,8 +428,8 @@ are timers again, and a reminder with a time says so.
 | `missing_time` | an alarm without a time, or a reminder with a day but no time (or no to-do list) |
 | `missing_reminder` | a reminder with a time but nothing to remind of |
 | `no_alarms` / `no_reminders` | none set on this satellite |
-| `not_found` | no alarm at the time asked for |
-| `ambiguous` | several alarms fit; it says them |
+| `not_found` | no alarm or reminder like the one asked for |
+| `ambiguous` | several fit; it says them |
 
 Automations can follow timers with the `voice_call.timer_created`,
 `timer_finished`, `timer_paused`, `timer_unpaused`, `timer_time_changed` and

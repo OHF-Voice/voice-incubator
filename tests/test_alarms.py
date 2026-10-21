@@ -128,6 +128,41 @@ def test_cancel_picks_the_alarm():
     assert alarms.plan("cancel_alarm", {}, NOW, [], []).outcome == "no_alarms"
 
 
+def test_cancel_picks_the_reminder():
+    call = _event("1", 17, days=0, kind="reminder", summary="Call your mom")
+    dentist = _event("2", 9, days=1, kind="reminder", summary="Call the dentist")
+    garbage = _event("3", 8, days=6, kind="reminder", summary="Take out the garbage")
+    every = [call, dentist, garbage]
+
+    def cancel(text, reminders=every):
+        return alarms.plan("cancel_reminder", {"reminder": text} if text is not None else {}, NOW, [], reminders)
+
+    # By what it is about, as said ("my" for "your"), or close to it.
+    assert cancel("to call my mom").delete == [call]
+    assert cancel("about the dentist").delete == [dentist]
+    assert cancel("take out the garbage on Tuesday").delete == [garbage]
+    assert cancel("to take out the garbich").delete == [garbage]
+    # By when: a time (am or pm when it doesn't say), a day.
+    assert cancel("at 5").delete == [call]
+    assert cancel("for tomorrow").delete == [dentist]
+    # Both "call"s fit "to call": it asks which.
+    assert cancel("to call").outcome == "ambiguous"
+    assert cancel(None).outcome == "ambiguous"
+    assert cancel(None, [call]).delete == [call]
+    missing = cancel("to feed the cat")
+    assert missing.outcome == "not_found" and missing.speech.startswith("There's no reminder like that.")
+    assert cancel("at 7 pm").outcome == "not_found"
+    assert cancel("to call mom", []).outcome == "no_reminders"
+    done = cancel("to call mom")
+    assert done.speech == "Cancelled the reminder at 5:00 PM: Call your mom."
+
+
+def test_cancel_alarm_by_its_day():
+    seven, monday = _event("1", 7), _event("2", 7, days=5)
+    assert alarms.plan("cancel_alarm", {"time": "tomorrow"}, NOW, [seven, monday], []).delete == [seven]
+    assert alarms.plan("cancel_alarm", {"time": "7"}, NOW, [seven, monday], []).outcome == "ambiguous"
+
+
 def test_status():
     plan = alarms.plan("alarm_status", {}, NOW, [_event("1", 7)], [])
     assert plan.speech == "You have an alarm at 7:00 AM tomorrow."

@@ -17,7 +17,8 @@
   or repeat ("every weekday at 6:45"), shows in Home Assistant's calendar, and
   rings the satellite that set it: an alarm until "stop", a reminder said
   once ("remind me at 5 pm to call my mom"). New commands: Cancel an alarm,
-  Say the alarms, Say the reminders. A reminder without a time still goes on
+  Cancel a reminder (by what it is about, its time or its day), Say the
+  alarms, Say the reminders. A reminder without a time still goes on
   the to-do list. Other languages keep alarms as timers.
 - **Language packs**: what the app hears and says is one language's pack
   (`voice_call/languages/<code>`): its speech models, Piper voice, the

@@ -464,6 +464,20 @@ commands:
     needs:
       - Point it at a to-do list (todo.reminders here) for reminders without a time.
 
+  cancel_reminder:
+    title: Cancel a reminder
+    icon: mdi:calendar-remove
+    description: cancel a reminder
+    # On the Voice Call calendar, by what it is about, when it is, or both:
+    # "cancel my reminder to call mom", "delete tomorrow's reminder", "cancel
+    # the 5 pm reminder"; with one, the only one.
+    require: [[cancel, delete, remove, forget], [reminder, reminders]]
+    optional: [[my, the]]
+    wildcard: {slot: reminder, after: [reminder, reminders], to_end: true, max_words: 12}
+    combinations: [[], [reminder]]
+    timer: cancel_reminder
+    verbosity: specific
+
   reminder_status:
     title: Say the reminders
     icon: mdi:calendar-clock
