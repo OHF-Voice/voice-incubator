@@ -118,7 +118,7 @@ class Outcome:
             "timer": self.timer,
             "music": self.music,
             "dry_run": self.dry_run,
-            "variables": self.variables,
+            "variables": {k: v for k, v in self.variables.items() if k not in PRIVATE},
             "sequence": self.sequence,
             "response": self.response,
             "speech": self.speech,
@@ -145,6 +145,7 @@ def variables(
             target[key] = list(slots[slot])
     if not target and satellite.area_id:
         target = {"area_id": [satellite.area_id]}
+    exposed = getattr(catalog, "exposed", None)
     return {
         "slots": slots,
         "satellite": satellite.as_dict(),
@@ -152,7 +153,15 @@ def variables(
         "target": target,
         "command": {"id": command.id, "description": command.description, "text": text},
         "place": place(slots, satellite, catalog),
+        # What a question about a place counts: what is exposed to Assist
+        # (not known: every entity the app knows of).
+        "exposed": sorted(exposed if exposed is not None else getattr(catalog, "entities", None) or []),
     }
+
+
+PRIVATE = ("exposed",)
+"""Variables left out of the command event and the call's record: long, and
+the same every time."""
 
 
 def unknown_variables(
@@ -177,6 +186,7 @@ def unknown_variables(
         "speaker": speaker or {"name": None, "score": None},
         "target": {"area_id": [satellite.area_id]} if satellite.area_id else {},
         "place": place({}, satellite, catalog),
+        "exposed": sorted(getattr(catalog, "exposed", None) or getattr(catalog, "entities", None) or []),
     }
 
 
@@ -298,8 +308,9 @@ async def _run_intent(
     outcome: Outcome,
 ) -> Outcome:
     """Run the command's intent on what was heard -- each device named (by
-    entity id), each area or floor named, else the satellite's area -- as
-    Assist would, and say how it went: done on what it found (but the
+    entity id, exposed to Assist or not: a name is the Names page's), each
+    area or floor named, else the satellite's area (what is exposed to
+    Assist there) -- and say how it went: done on what it found (but the
     unavailable), or why it found nothing it could act on. Its response sees
     ``result``: ``count``, ``names`` and ``ids`` of what it acted on, the
     ``unavailable`` ones, and Home Assistant's own ``speech``."""
@@ -334,10 +345,12 @@ async def _run_intent(
     started = time.perf_counter()
     results: list[dict[str, Any]] = []
     language = languages.current().code
+    seen = {k: v for k, v in values.items() if k not in PRIVATE}
     try:
         for slots_of in calls:
             result = await hass.handle_intent(
-                call.name, slots_of, values, language, satellite.device_id, values["command"]["text"]
+                call.name, slots_of, seen, language, satellite.device_id, values["command"]["text"],
+                exposed_only=not named,
             )
             if (
                 call.anywhere and not (named or placed)
@@ -347,7 +360,8 @@ async def _run_intent(
                 anywhere = {k: v for k, v in slots_of.items() if k != "area"}
                 outcome.sequence.append({"intent": call.name, "slots": anywhere})
                 result = await hass.handle_intent(
-                    call.name, anywhere, values, language, satellite.device_id, values["command"]["text"]
+                    call.name, anywhere, seen, language, satellite.device_id, values["command"]["text"],
+                    exposed_only=not named,
                 )
             results.append(result)
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
@@ -766,7 +780,8 @@ async def _say(
         outcome.speech = default
     if not outcome.dry_run:
         try:
-            await hass.fire_event(EVENT_TYPE, {**values, "outcome": name, "response": outcome.speech})
+            event = {k: v for k, v in values.items() if k not in PRIVATE}
+            await hass.fire_event(EVENT_TYPE, {**event, "outcome": name, "response": outcome.speech})
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             _LOGGER.warning("Could not fire %s: %s", EVENT_TYPE, err)
     return outcome

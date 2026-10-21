@@ -1880,7 +1880,8 @@ class VoiceCallApp:
                 said, error = await actions.render_said(self.hass, compiled.unknown, values)
                 if record is not None:
                     record.stage(
-                        "unknown", said=said, error=error, variables=values, seconds=_seconds(time.perf_counter() - started)
+                        "unknown", said=said, error=error, seconds=_seconds(time.perf_counter() - started),
+                        variables={k: v for k, v in values.items() if k not in actions.PRIVATE},
                     )
                 if said:
                     message = said

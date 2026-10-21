@@ -134,6 +134,8 @@ class Catalog:
     """Device id -> (manufacturer, model)."""
     device_macs: dict[str, list[str]] = field(default_factory=dict)
     """MAC (aa:bb:..) -> the devices with it (an ESPHome device, ...)."""
+    exposed: set[str] | None = None
+    """The entities exposed to Assist (every domain's); None: not known."""
 
     def device_media_player(self, mac: str) -> str | None:
         """The ESPHome media player of the device with this MAC: where Home
@@ -500,10 +502,11 @@ class HomeAssistant:
 
     async def handle_intent(
         self, name: str, slots: dict[str, Any], variables: dict[str, Any], language: str,
-        device_id: str | None = None, text: str | None = None,
+        device_id: str | None = None, text: str | None = None, exposed_only: bool = True,
     ) -> dict[str, Any]:
-        """Run an intent as Assist would -- only on what is exposed to it, for
-        the satellite whose device is ``device_id`` -- through the Voice Call
+        """Run an intent as Assist would -- only on what is exposed to it
+        (unless not ``exposed_only``: a device named), for the satellite
+        whose device is ``device_id`` -- through the Voice Call
         integration (``voice_call/intent/handle``: its slots may be templates
         of ``variables``). ``{"response": <the intent response>,
         "unavailable": [targets]}``, or ``{"error": {code, reason, ...}}``.
@@ -516,6 +519,7 @@ class HomeAssistant:
             "language": language,
             **({"device_id": device_id} if device_id else {}),
             **({"text": text} if text else {}),
+            "assistant": "conversation" if exposed_only else None,
         }
         try:
             return await self.call(message)
@@ -529,7 +533,8 @@ class HomeAssistant:
             if value not in (None, "", []):
                 rendered[key] = value
         body = {
-            "name": name, "data": rendered, "language": language, "assistant": "conversation",
+            "name": name, "data": rendered, "language": language,
+            **({"assistant": "conversation"} if exposed_only else {}),
             **({"device_id": device_id} if device_id else {}),
         }
         response = await asyncio.to_thread(self._post, "/api/intent/handle", body)
@@ -549,6 +554,22 @@ class HomeAssistant:
                 return json.load(response)
         except urllib.error.HTTPError as err:
             raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
+
+    async def exposed_entities(self) -> set[str] | None:
+        """The entities exposed to Assist: as the Voice Call integration reads
+        them (Assist's own decision), else from Home Assistant's exposure
+        settings; None when neither says."""
+        try:
+            return set((await self.call({"type": "voice_call/exposed"}) or {}).get("entities") or [])
+        except HassError as err:
+            if "unknown_command" not in str(err) and "Unknown command" not in str(err):
+                _LOGGER.warning("Could not read what is exposed to Assist: %s", err)
+        try:
+            listed = await self.call({"type": "homeassistant/expose_entity/list"}) or {}
+        except HassError as err:
+            _LOGGER.warning("Could not read what is exposed to Assist: %s", err)
+            return None
+        return {e for e, assistants in (listed.get("exposed_entities") or {}).items() if (assistants or {}).get("conversation")}
 
     async def fire_event(self, event_type: str, data: dict) -> None:
         await self.call({"type": "fire_event", "event_type": event_type, "event_data": data})
@@ -687,12 +708,14 @@ class HomeAssistant:
             if entity_id.split(".", 1)[0] in VOICE_DOMAINS and entity_id not in catalog.entities:
                 if not any(e["entity_id"] == entity_id for e in registry or []):
                     catalog.entities[entity_id] = Entity(entity_id, name)
+        catalog.exposed = await self.exposed_entities()
         self.catalog = catalog
         _LOGGER.info(
-            "Home Assistant: %d floor(s), %d area(s), %d voice entities",
+            "Home Assistant: %d floor(s), %d area(s), %d voice entities, %s exposed to Assist",
             len(catalog.floors),
             len(catalog.areas),
             len(catalog.entities),
+            len(catalog.exposed) if catalog.exposed is not None else "? (unknown)",
         )
         for listener in self._catalog_listeners:
             result = listener()

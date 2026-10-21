@@ -198,7 +198,15 @@ class FakeHass:
                 await result(success=False, error="unknown_command: Unknown command.")
                 return
             await result(self.handle_intent(message["intent"], message.get("slots") or {}, message.get("variables") or {},
-                                            how="websocket", device_id=message.get("device_id")))
+                                            how="websocket", device_id=message.get("device_id"),
+                                            exposed_only=message.get("assistant") == "conversation"))
+        elif kind == "voice_call/exposed":
+            if not (self.integration and self.intent_command):
+                await result(success=False, error="unknown_command: Unknown command.")
+                return
+            await result({"entities": sorted(self.exposed())})
+        elif kind == "homeassistant/expose_entity/list":
+            await result({"exposed_entities": {e: {"conversation": e in self.exposed()} for e in self.known()}})
         elif kind == "get_config":
             await result({"time_zone": self.time_zone, "version": "fake"})
         elif kind == "calendar/event/subscribe":
@@ -395,8 +403,14 @@ class FakeHass:
             except websockets.ConnectionClosed:
                 self._timer_subscribers[entity_id].remove((socket, msg_id))
 
+    def known(self) -> list[str]:
+        return [e for e, *_ in ENTITIES]
+
+    def exposed(self) -> set[str]:
+        return set(self.known()) - self.unexposed
+
     def handle_intent(self, name: str, slots: dict[str, Any], variables: dict[str, Any], how: str = "websocket",
-                      device_id: str | None = None) -> dict[str, Any]:
+                      device_id: str | None = None, exposed_only: bool = True) -> dict[str, Any]:
         """Home Assistant's intent matching, in short, as the Voice Call
         integration answers it: domain, name (or entity id), area, floor,
         then what is exposed; the unavailable told apart."""
@@ -405,7 +419,8 @@ class FakeHass:
             if isinstance(value, str) and "{{" in value:
                 value = self.render(value, variables)
             rendered[key] = value
-        self.intents.append({"intent": name, "slots": rendered, "how": how, "device_id": device_id})
+        self.intents.append({"intent": name, "slots": rendered, "how": how, "device_id": device_id,
+                             "exposed_only": exposed_only})
         if name not in ("HassTurnOn", "HassTurnOff", "HassLightSet", "HassClimateSetTemperature"):
             return {"error": {"code": "unknown_intent", "message": f"Unknown intent {name}"}}
         domains = rendered.get("domain") or INTENT_DOMAINS.get(name)
@@ -430,9 +445,10 @@ class FakeHass:
             found = [f for f in found if f[2] == rendered["area"]]
             if not found:
                 return failed("area")
-        found = [f for f in found if f[0] not in self.unexposed]
-        if not found:
-            return failed("assistant")
+        if exposed_only:
+            found = [f for f in found if f[0] not in self.unexposed]
+            if not found:
+                return failed("assistant")
         success = [{"type": "entity", "id": e, "name": n} for e, n, _ in found]
         unavailable = [t for t in success if self.states.get(t["id"], ("",))[0] == "unavailable"]
         return {"response": {"response_type": "action_done", "speech": {}, "data": {"success": success, "failed": []}},
@@ -669,9 +685,8 @@ async def serve_rest(fake: FakeHass, host: str = "127.0.0.1", port: int = 0):
         if request.headers.get("Authorization") != f"Bearer {TOKEN}":
             return web.Response(status=401)
         body = await request.json()
-        if body.get("assistant") != "conversation":
-            return web.json_response({"message": "expected the assistant"}, status=400)
-        handled = fake.handle_intent(body["name"], body.get("data") or {}, {}, how="rest", device_id=body.get("device_id"))
+        handled = fake.handle_intent(body["name"], body.get("data") or {}, {}, how="rest", device_id=body.get("device_id"),
+                                     exposed_only=body.get("assistant") == "conversation")
         error = handled.get("error")
         if error is None:
             return web.json_response(handled["response"])

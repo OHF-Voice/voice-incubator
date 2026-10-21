@@ -44,10 +44,10 @@ class StubHass:
     async def fire_event(self, event_type, data):
         self.events.append(data)
 
-    async def handle_intent(self, name, slots, variables, language, device_id=None, text=None):
+    async def handle_intent(self, name, slots, variables, language, device_id=None, text=None, exposed_only=True):
         if self.fail:
             raise HassError("Connection lost")
-        return self.fake.handle_intent(name, slots, variables, device_id=device_id)
+        return self.fake.handle_intent(name, slots, variables, device_id=device_id, exposed_only=exposed_only)
 
 
 class StubTimers:
@@ -274,11 +274,16 @@ def test_an_intent_acts_on_what_is_exposed_here():
 
 def test_an_intent_for_each_thing_named():
     hass = StubHass()
-    # Each device by entity id, said as itself when it can't be.
+    # Each device by entity id -- a name is the Names page's: exposed to
+    # Assist or not -- said as itself when it can't be.
     hass.fake.unexposed.add("light.desk_lamp")
     named = run({"intent": "HassTurnOn"}, hass, {"entity": ["light.desk_lamp"]})
-    assert (named.name, named.speech) == ("not_exposed", "That isn't exposed to Assist.")
+    assert named.name == "done" and hass.fake.intents[-1]["exposed_only"] is False
     assert hass.fake.intents[-1]["slots"]["name"] == "light.desk_lamp"
+    hass.fake.states["light.desk_lamp"] = ("unavailable", {})
+    gone = run({"intent": "HassTurnOn"}, hass, {"entity": ["light.desk_lamp"]})
+    assert (gone.name, gone.speech) == ("unavailable", "That's unavailable right now.")
+    del hass.fake.states["light.desk_lamp"]
     hass.fake.unexposed.clear()
     # A floor: everything of the kind on it.
     upstairs = run(LIGHTS_ON, hass, {"floor": ["first"]})
@@ -331,14 +336,34 @@ def test_intents_through_the_integration_or_rest():
             done = await client.handle_intent("HassTurnOn", slots, {}, "en", device_id="device-x")
             assert [t["id"] for t in done["response"]["data"]["success"]] == ["light.kitchen_ceiling"]
             assert fake.intents[-1]["how"] == "websocket" and fake.intents[-1]["device_id"] == "device-x"
-            fake.intent_command = False
+            # What is exposed to Assist, for the questions; with the catalog.
+            assert "light.kitchen_ceiling" in client.catalog.exposed
             fake.unexposed.add("light.kitchen_ceiling")
+            assert "light.kitchen_ceiling" not in await client.exposed_entities()
+            fake.intent_command = False
             hidden = await client.handle_intent("HassTurnOn", slots, {}, "en")
             assert fake.intents[-1]["how"] == "rest"
             assert hidden["error"]["code"] == "no_match" and hidden["error"]["reason"] == "assistant"
+            # A device named: exposed or not.
+            named = await client.handle_intent("HassTurnOn", {"name": "light.kitchen_ceiling"}, {}, "en", exposed_only=False)
+            assert "error" not in named and fake.intents[-1]["exposed_only"] is False
+            # Without the integration, from the exposure settings.
+            assert await client.exposed_entities() == fake.exposed()
         finally:
             await client.stop()
             await rest.cleanup()
             server.close()
 
     asyncio.run(go())
+
+
+def test_the_questions_count_what_is_exposed():
+    """The questions the library answers itself (are any lights on, is
+    everything locked) see what is exposed to Assist; the command's event
+    and record leave it out."""
+    hass = StubHass()
+    hass.catalog = type("Catalog", (), {"exposed": {"light.kitchen_ceiling"}, "entities": {}, "areas": {}, "floors": {}})()
+    spec = {"response": "{{ exposed | join(',') }}"}
+    said = run(spec, hass)
+    assert said.speech == "light.kitchen_ceiling"
+    assert "exposed" not in said.to_json()["variables"] and "exposed" not in hass.events[-1]

@@ -154,6 +154,7 @@ def test_every_response_template_renders(language):
         "place": {"here": False, "said": "in the Kitchen", "areas": ["kitchen"]},
         "command": {"id": "c", "description": "do it", "text": "do it"},
         "result": {"outcome": "done", "speech": "", "count": 2, "names": ["Ceiling", "Lamp"]},
+        "exposed": ["light.ceiling", "light.lamp"],
     }
     lights = None
     for entry in load_library():

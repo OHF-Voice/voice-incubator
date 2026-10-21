@@ -328,10 +328,11 @@ that isn't set up here."
 A command can run one of Home Assistant's intents -- HassTurnOn, HassLightSet,
 HassClimateSetTemperature … -- instead of an action, and the library's
 commands for lights, the thermostat, covers and locks do. An intent runs as
-Assist would: **only on devices exposed to Assist** (Settings → Voice
-assistants → Expose), and an unavailable one is said, not counted as done.
-It acts on what was heard: each device named (by its entity id), each area
-or floor named, else the satellite's area. Its other slots are the command's
+Assist would, on what was heard: each area or floor named, else the
+satellite's area -- there, **only devices exposed to Assist** (Settings →
+Voice assistants → Expose) -- or each device named (by its entity id), which
+is yours on the Names page, exposed or not. An unavailable device is said,
+not counted as done. Its other slots are the command's
 (`domain: light`, `brightness: "{{ slots.percentage }}"`: a template sees
 the same variables as a response). `anywhere: true` means the whole home
 when nothing of the kind is in the satellite's area ("open the garage door"
@@ -349,7 +350,7 @@ Besides done and failed, an intent's outcomes say why it acted on nothing:
 | outcome | when | says |
 |---|---|---|
 | `no_devices` | nothing of the kind there | "There's nothing like that in the Kitchen." |
-| `not_exposed` | some, none exposed to Assist | "Nothing like that in the Kitchen is exposed to Assist." |
+| `not_exposed` | some there, none exposed to Assist | "Nothing like that in the Kitchen is exposed to Assist." |
 | `unavailable` | exposed, all unavailable | "Everything like that in the Kitchen is unavailable right now." |
 | `no_area` | nothing named, and the satellite has no area | "I don't know which area I'm in. Give this satellite an area." |
 
@@ -358,6 +359,11 @@ When it acted on some, it is done on those: its response sees `result.count`,
 (what it skipped) and `result.speech` (Home Assistant's own sentence, if
 any). An **action** with `target: "{{ target }}"` reaches every device in the
 area, exposed or not.
+
+The library's questions answer the same way: "are any lights on in the
+kitchen", "are the blinds open", "is everything locked" count only what is
+exposed to Assist (their templates filter by `exposed`), while "is the desk
+lamp on" asks about the device named.
 
 ### What Home Assistant gets
 
@@ -371,6 +377,7 @@ The action, the script and the response template all see:
 | `target` | `entity_id` from the slots (a room said with a device only picks it out), else `area_id`/`floor_id`, else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
 | `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
+| `exposed` | the entity ids exposed to Assist (not in the `voice_call_command` event) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 
 A script is called with these as its data, so its fields see them. If it

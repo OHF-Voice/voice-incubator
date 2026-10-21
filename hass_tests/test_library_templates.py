@@ -37,6 +37,7 @@ def command(file: str, command_id: str, variant: str | None = None) -> dict[str,
 
 
 async def _home(hass: HomeAssistant) -> SimpleNamespace:
+    EXPOSED.clear()
     upstairs = fr.async_get(hass).async_create("First Floor")
     areas = ar.async_get(hass)
     bedroom = areas.async_create("Bedroom", floor_id=upstairs.floor_id)
@@ -59,6 +60,7 @@ async def _home(hass: HomeAssistant) -> SimpleNamespace:
             registry.async_update_entity(entry.entity_id, area_id=area.id)
         hass.states.async_set(entry.entity_id, state, attributes)
         async_expose_entity(hass, "conversation", entry.entity_id, True)
+        EXPOSED.add(entry.entity_id)
 
     add("cover.bedroom_blinds", bedroom, "open", device_class="blind", friendly_name="Bedroom Blinds")
     add("cover.office_blinds", office, "closed", device_class="blind", friendly_name="Office Blinds")
@@ -75,6 +77,10 @@ async def _home(hass: HomeAssistant) -> SimpleNamespace:
     )
 
 
+EXPOSED: set[str] = set()
+"""What _home exposed to Assist (the app reads it with voice_call/exposed)."""
+
+
 def _variables(slots: dict[str, Any], area: str | None = None, area_name: str | None = None) -> dict[str, Any]:
     """What the app gives a command (voice_call/actions.py)."""
     return {
@@ -83,6 +89,7 @@ def _variables(slots: dict[str, Any], area: str | None = None, area_name: str | 
         "speaker": {"name": None, "score": None},
         "target": {},
         "command": {"id": "c", "description": "", "text": ""},
+        "exposed": sorted(EXPOSED),
     }
 
 
@@ -215,6 +222,11 @@ async def test_are_any_lights_on(hass: HomeAssistant) -> None:
     assert _say(hass, spec, _variables({})) == (
         "Yes, Kitchen Ceiling, Kitchen Lamp and Bedroom Lamp are on."
     )
+    # What isn't exposed to Assist isn't counted; asked by name, it is.
+    EXPOSED.discard("light.kitchen_lamp")
+    assert _say(hass, spec, _variables({}, home.kitchen, "Kitchen")) == "Yes, Kitchen Ceiling is on in the Kitchen."
+    device = command("basic", "any_lights_on", "device")
+    assert _say(hass, device, _variables({"entity": ["light.kitchen_lamp"], "asked": "on"})) == "Yes, Kitchen Lamp is on."
 
 
 async def test_is_it_open(hass: HomeAssistant) -> None:

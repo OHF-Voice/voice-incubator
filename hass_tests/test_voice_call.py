@@ -298,3 +298,12 @@ async def test_intents_act_on_what_is_exposed(hass: HomeAssistant, hass_ws_clien
     assert result["error"]["code"] == "no_match" and result["error"]["reason"] == "area"
     result = await _intent(client, intent="HassNoSuchThing")
     assert result["error"]["code"] == "unknown_intent"
+
+    # A device the app names: exposed or not.
+    result = await _intent(client, intent="HassTurnOn", slots={"name": "light.desk"}, assistant=None)
+    assert [t["id"] for t in result["response"]["data"]["success"]] == ["light.desk"]
+
+    # What is exposed to Assist.
+    await client.send_json_auto_id({"type": "voice_call/exposed"})
+    msg = await client.receive_json()
+    assert msg["success"] and msg["result"]["entities"] == ["light.ceiling", "light.strip"]

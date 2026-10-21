@@ -15,7 +15,9 @@ Home Assistant), renamed so it cannot clash with it, and provided by this
 integration.
 
 The app runs Home Assistant's intents through it (``voice_call/intent/handle``)
-as Assist does: only on entities exposed to Assist, on behalf of a satellite.
+as Assist does -- only on entities exposed to Assist, unless the app names
+the device itself -- on behalf of a satellite, and reads which entities are
+exposed (``voice_call/exposed``) for the questions it answers itself.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     websocket_api.async_register_command(hass, websocket_sync_satellites)
     websocket_api.async_register_command(hass, websocket_list_satellites)
     websocket_api.async_register_command(hass, websocket_handle_intent)
+    websocket_api.async_register_command(hass, websocket_exposed)
     return True
 
 
@@ -129,6 +132,7 @@ ASSISTANT = "conversation"
         vol.Optional("language"): cv.string,
         vol.Optional("device_id"): cv.string,
         vol.Optional("text"): cv.string,
+        vol.Optional("assistant", default=ASSISTANT): vol.Any(cv.string, None),
     }
 )
 @websocket_api.require_admin
@@ -136,8 +140,9 @@ ASSISTANT = "conversation"
 async def websocket_handle_intent(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Run an intent as Assist would: only on entities exposed to it, for the
-    satellite whose device is ``device_id``. Slot values may be templates,
+    """Run an intent as Assist would: only on entities exposed to it (no
+    ``assistant``: on any, for a device the app names), for the satellite
+    whose device is ``device_id``. Slot values may be templates,
     rendered with ``variables`` (the command's). Why nothing matched comes
     back as ``error`` (``no_match`` and its reason: ``assistant`` when
     nothing that fits is exposed); the entities it matched that are
@@ -161,7 +166,7 @@ async def websocket_handle_intent(
             msg.get("text"),
             connection.context(msg),
             language=msg.get("language"),
-            assistant=ASSISTANT,
+            assistant=msg["assistant"],
             device_id=msg.get("device_id"),
         )
     except intent.MatchFailedError as err:
@@ -195,3 +200,21 @@ async def websocket_handle_intent(
         and state.state == STATE_UNAVAILABLE
     ]
     connection.send_result(msg["id"], {"response": result, "unavailable": unavailable})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "voice_call/exposed"})
+@websocket_api.require_admin
+@callback
+def websocket_exposed(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Every entity exposed to Assist, as Assist decides it (new ones by the
+    "expose new entities" setting)."""
+    from homeassistant.components.homeassistant.exposed_entities import (  # pylint: disable=import-outside-toplevel
+        async_should_expose,
+    )
+
+    connection.send_result(
+        msg["id"],
+        {"entities": sorted(e for e in hass.states.async_entity_ids() if async_should_expose(hass, ASSISTANT, e))},
+    )

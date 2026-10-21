@@ -220,7 +220,7 @@ commands:
       {%- set ns.areas = [satellite.area_id] -%}
       {%- endif -%}
       {%- set where = (' ' ~ place.said) if named else '' -%}
-      {%- set every = states.cover | selectattr('attributes.device_class', 'defined')
+      {%- set every = states.cover | selectattr('entity_id', 'in', exposed) | selectattr('attributes.device_class', 'defined')
         | selectattr('attributes.device_class', 'eq', slots.device_class) | list -%}
       {%- for s in every if area_id(s.entity_id) in ns.areas -%}
       {%- set ns.picked = ns.picked + [s] -%}
@@ -316,13 +316,13 @@ commands:
       {%- set words = {'unlocked': 'sbloccato', 'jammed': 'bloccato', 'locking': 'in chiusura',
         'unlocking': 'in sblocco', 'open': 'aperto', 'unavailable': 'non disponibile', 'unknown': 'sconosciuto'} -%}
       {%- set ns = namespace(open=[], total=0) -%}
-      {%- for s in states.lock -%}
+      {%- for s in states.lock if s.entity_id in exposed -%}
       {%- set ns.total = ns.total + 1 -%}
       {%- if s.state != 'locked' -%}
       {%- set ns.open = ns.open + [s.name ~ ': ' ~ words.get(s.state, s.state)] -%}
       {%- endif -%}
       {%- endfor -%}
-      {%- for s in states.binary_sensor | selectattr('attributes.device_class', 'defined')
+      {%- for s in states.binary_sensor | selectattr('entity_id', 'in', exposed) | selectattr('attributes.device_class', 'defined')
         | selectattr('attributes.device_class', 'eq', 'lock') -%}
       {%- set ns.total = ns.total + 1 -%}
       {%- if s.state != 'off' -%}
