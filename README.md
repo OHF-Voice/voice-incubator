@@ -691,7 +691,7 @@ switch rewrites the XMOS stages, and the `learn_tv` microphone routes either:
 | channel | used for | learn-tv | stock |
 |---|---|---|---|
 | 0 | wake words | mic 0 with the null, gain 4 | NS, gain 4 |
-| 1 | the call (`call-*.wav`) | mic 0 with the null, gain 16 | AGC, gain 1 |
+| 1 | the call (`call-*.wav`) | mic 0 with the null, gain 64 | AGC, gain 1 |
 | 2 | the second capture (`call-aec-*.wav`) | mic 0, gain 16 | NS, gain 16 |
 | 3 | a fallback wake detector (no VAD gate) | mic 0, gain 4 | off |
 
@@ -704,6 +704,13 @@ the null's own detection, then starts a call with the captures swapped, so the
 app hears mic 0: CALL_START says `detector: "fallback"` and `swapped: true` (a
 session shows "mic 0 only"). The null learns nothing during a call, and keeps
 what it learned.
+
+The call capture runs at 64, not 16: the null takes ~10 dB more off a talker
+it doesn't point at, and Silero VAD, on speech at -54 dBFS, missed the start
+of commands (30% of a command's chunks over 0.5, against 73% at 64; mic 0 at
+16, 70%). Mic 0's capture keeps the device's own speech after AEC, about
+10 dB over the talker: the stock pipeline's NS and AGC hide that residue,
+learn-tv has neither.
 
 Two sensors show where the null points: "Null direction", in degrees from the
 mic axis (0 where a sound reaches mic 0 first, 90 broadside; a two-mic null
