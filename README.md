@@ -682,23 +682,34 @@ noise. `scripts/make_cloud.py --gain 20` renders at a usable level.
 `voice-call-vpe-learn-tv.yaml` (beside `voice-call-vpe.yaml`, in the ESPHome
 checkout's `my_components_voice_call`) adds learn-tv
 (`mic_tap/okay-nabu-tv/LEARN_TV_IMPLEMENTATION.md`): a two-mic null on
-whatever has played for the last ~20 s, a TV. Both XMOS channels then carry a
-mic after AEC (the aec-both-mics XMOS firmware, 1.3.101), so there is no AGC
-tap, and the `learn_tv` microphone makes of them:
+whatever has played for the last ~20 s, a TV. Its "learn-tv" switch in Home
+Assistant (kept across reboots) goes back and forth between that and the stock
+XMOS taps, to compare. In learn-tv mode both XMOS channels carry a mic after
+AEC (the aec-both-mics XMOS firmware, 1.3.101), so there is no AGC tap; the
+switch rewrites the XMOS stages, and the `learn_tv` microphone routes either:
 
-| channel | what | used for |
-|---|---|---|
-| 0 | mic 0 with the null | wake words (gain 4), the call (`call-*.wav`, gain 16) |
-| 1 | mic 0, delayed alike | a fallback wake detector (gain 4, no VAD gate), the second capture (`call-aec-*.wav`, gain 16) |
+| channel | used for | learn-tv | stock |
+|---|---|---|---|
+| 0 | wake words | mic 0 with the null, gain 4 | NS, gain 4 |
+| 1 | the call (`call-*.wav`) | mic 0 with the null, gain 16 | AGC, gain 1 |
+| 2 | the second capture (`call-aec-*.wav`) | mic 0, gain 16 | NS, gain 16 |
+| 3 | a fallback wake detector (no VAD gate) | mic 0, gain 4 | off |
 
-The two captures are no longer 56.5 ms apart: the firmware says so in HELLO
-(`aec_lead_samples: 0`), and the app lines them up with that instead (the
-call's `call_start` step keeps it as `aec_lead`). A wake word only the
-fallback detector hears -- the talker stands where the null points -- is held
-300 ms for the null's own detection, then starts a call with the captures
-swapped, so the app hears mic 0: CALL_START says `detector: "fallback"` and
-`swapped: true` (a session shows "mic 0 only"). The null learns nothing during
-a call, and keeps what it learned.
+The captures are no longer 56.5 ms apart in either mode (learn_tv delays its
+channels alike; NS and AGC leave the XMOS together): HELLO says
+`aec_lead_samples: 0`, and the app lines them up with that (the call's
+`call_start` step keeps it as `aec_lead`). A wake word only the fallback
+detector hears -- the talker stands where the null points -- is held 300 ms for
+the null's own detection, then starts a call with the captures swapped, so the
+app hears mic 0: CALL_START says `detector: "fallback"` and `swapped: true` (a
+session shows "mic 0 only"). The null learns nothing during a call, and keeps
+what it learned.
+
+Two sensors show where the null points: "Null direction", in degrees from the
+mic axis (0 where a sound reaches mic 0 first, 90 broadside; a two-mic null
+can't tell a direction from its mirror about that axis), and "Null coherence",
+how steady it is (below ~10% it points nowhere). Both are unknown in stock
+mode and for the first 2 s.
 
 Unmeasured yet on a device: recognition on the learn-tv capture (no AGC or NS),
 the cost of a second detector next to learn-tv itself, and the gain over the
