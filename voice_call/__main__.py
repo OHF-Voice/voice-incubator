@@ -75,7 +75,7 @@ async def main() -> None:
         action="append",
         metavar="NAME",
         help="a satellite's wake word when none is picked in the UI, by id "
-        "(repeatable; default: okay_nabu). The VAD gate is always pushed",
+        "(repeatable; default: okay_nabu)",
     )
     parser.add_argument(
         "--wake-words-dir",
@@ -107,8 +107,8 @@ async def main() -> None:
         type=float,
         metavar="P",
         help="override the first-stage cutoff of every verified wake word "
-        "(default: each its own -- okay_nabu 0.2; custom wake words and the VAD "
-        "gate keep their manifests'). The manifests ship 0.85 and up, which "
+        "(default: each its own -- okay_nabu 0.2; custom wake words keep their "
+        "manifests'). The manifests ship 0.85 and up, which "
         "expects a voice at the device; the verifier is what refuses what a "
         "lower cutoff lets through",
     )
@@ -213,7 +213,7 @@ async def main() -> None:
             tdt=not args.no_tdt,
             embedding_dir=embedding,
             threads=args.threads,
-            wake_models=tuple(args.wake_model) if args.wake_model else ("okay_nabu", "vad"),
+            wake_models=tuple(args.wake_model) if args.wake_model else ("okay_nabu",),
             wake_words_dir=(
                 Path(args.wake_words_dir)
                 if args.wake_words_dir

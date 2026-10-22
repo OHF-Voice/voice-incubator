@@ -151,8 +151,8 @@ async def _per_satellite(tmp_path: Path) -> None:
     base = f"http://127.0.0.1:{http_port}/api"
     try:
         await asyncio.wait_for(satellite.ready.wait(), 30)
-        # Its own pick, after the VAD gate.
-        await wait_for(lambda: satellite.models == ["vad", "hey_mycroft"])
+        # Its own pick (and no VAD gate).
+        await wait_for(lambda: satellite.models == ["hey_mycroft"])
         assert satellite.model_headers["hey_mycroft"]["probability_cutoff"] == 0.7
         await wait_for(lambda: "hey_mycroft" in app.wake.started)
 
@@ -174,7 +174,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             # not looked for after it.)
             async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": ["hey_tater"]}) as response:
                 assert response.status == 200
-            await wait_for(lambda: satellite.models == ["vad", "hey_tater"])
+            await wait_for(lambda: satellite.models == ["hey_tater"])
             assert satellite.model_headers["hey_tater"]["probability_cutoff"] == 0.97
             assert satellite.model_headers["hey_tater"]["wake_word"] == "hey_tater"
 
@@ -227,10 +227,10 @@ async def _per_satellite(tmp_path: Path) -> None:
             # Back to the preferred one; one at a time.
             async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": None}) as response:
                 assert response.status == 200
-            await wait_for(lambda: satellite.models == ["vad", "hey_jarvis"])
+            await wait_for(lambda: satellite.models == ["hey_jarvis"])
             async with http.put(f"{base}/settings", json={"wake_words": ["okay_nabu"]}) as response:
                 assert response.status == 200
-            await wait_for(lambda: satellite.models == ["vad", "okay_nabu"])
+            await wait_for(lambda: satellite.models == ["okay_nabu"])
             async with http.put(f"{base}/settings", json={"wake_words": ["okay_nabu", "hey_mycroft"]}) as response:
                 assert response.status == 400
             async with http.put(f"{base}/settings", json={"wake_words": ["nope"]}) as response:

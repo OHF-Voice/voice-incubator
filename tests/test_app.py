@@ -547,8 +547,7 @@ async def _scenario(tmp_path: Path) -> None:
                 # meanwhile (not answered: the device keeps listening).
                 first = reports[0]
                 assert first["type"] == "wake" and first["detected"] == ["okay_nabu"]
-                vad, okay = first["models"]
-                assert vad["vad"] and vad["name"] == "Voice activity"
+                (okay,) = first["models"]  # no VAD gate
                 assert okay["name"] == "Okay Nabu" and okay["cutoff"] == 0.851 and 0 < okay["peak"] < 1
                 assert reports[1]["detected"] == []
             await wait_for(lambda: satellite.monitoring == [True, False])
@@ -576,7 +575,7 @@ async def _scenario(tmp_path: Path) -> None:
         assert any(e["type"] == "timer_ringing" for e in satellite.events)
         assert [e for e in satellite.events if e["type"] == "timer_progress"][-1]["data"] == {"shown": 0}
         assert await satellite.detect("Stop") == "timer_stopped"
-        await wait_for(lambda: satellite.clears == clears + 1 and satellite.models == ["vad", "okay_nabu"])
+        await wait_for(lambda: satellite.clears == clears + 1 and satellite.models == ["okay_nabu"])
         outcomes = [r.outcome for r in app.calls.recent]
         assert outcomes[-2:] == ["timer stopped", "timer stopped"] or outcomes[-1] == "timer stopped"
 
@@ -594,7 +593,7 @@ async def _scenario(tmp_path: Path) -> None:
         session = app.sessions[MAC]
         await wait_for(lambda: session.ringing is not None and not session.ringing.done() and "stop" in satellite.models)
         await satellite.device_event("stop_timer")
-        await wait_for(lambda: session.ringing.done() and satellite.models == ["vad", "okay_nabu"])
+        await wait_for(lambda: session.ringing.done() and satellite.models == ["okay_nabu"])
         stopped = next(s for s in app.calls.recent[-1].stages if s["stage"] == "timer_stopped")
         assert stopped["by"] == "button" and app.calls.recent[-1].outcome == "timer stopped"
 
@@ -894,7 +893,7 @@ async def _calendar(tmp_path: Path) -> None:
         session = app.sessions[MAC]
         await wait_for(lambda: session.ringing is not None and "stop" in satellite.models and satellite.played > played + 32000)
         assert await satellite.detect("Stop") == "timer_stopped"
-        await wait_for(lambda: session.ringing.done() and satellite.models == ["vad", "okay_nabu"])
+        await wait_for(lambda: session.ringing.done() and satellite.models == ["okay_nabu"])
         rang = next(s for r in reversed(app.calls.recent) for s in r.stages if s["stage"] == "timer_ringing")
         assert rang["timers"][0]["announce"].startswith("It's ")
 

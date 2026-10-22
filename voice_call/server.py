@@ -60,7 +60,7 @@ from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
 from .wake_training import WakeTraining
-from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, VAD, WakeWords
+from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -252,11 +252,10 @@ class Options:
     reconnect_seconds: float = 5.0
     max_reconnect_seconds: float = 60.0
     """Ceiling for the backoff after short-lived connections."""
-    wake_models: tuple[str, ...] = ("okay_nabu", "vad")
+    wake_models: tuple[str, ...] = ("okay_nabu",)
     """The wake words of a satellite that has none picked, when none are picked
-    for every satellite either, by id (``vad`` here is ignored: the VAD gate is
-    always pushed when it is there). Nothing is compiled into the firmware: the
-    models are pushed when the device connects."""
+    for every satellite either, by id. Nothing is compiled into the firmware:
+    the models are pushed when the device connects."""
     wake_words_dir: Path | None = None
     """Custom wake words: microWakeWord manifests and models (default:
     wake_words/ beside models/)."""
@@ -290,8 +289,8 @@ class Options:
     Negative disables it."""
     wake_probability_cutoff: float | None = None
     """Overrides the first-stage cutoff of every verified wake word (each has
-    its own: okay_nabu's is DEFAULT_WAKE_CUTOFF), never the VAD gate's or a
-    custom word's, which run at their manifests'.
+    its own: okay_nabu's is DEFAULT_WAKE_CUTOFF), never a custom word's, which
+    runs at its manifest's.
 
     The manifests ship 0.85, which assumes a voice at the device. Across a room
     that costs most of the recall, and the detections it refuses are ones the
@@ -965,14 +964,15 @@ class VoiceCallApp:
         return list(dict.fromkeys(used))
 
     def _wake_models_for(self, session: Session) -> list[WakeModel]:
-        """The VAD gate and the satellite's wake words, as many as fit beside
-        "stop" in the device's model slots.
+        """The satellite's wake words, as many as fit beside "stop" in the
+        device's model slots. No VAD gate: microWakeWord's VAD dropped ~2% of
+        wake words in the TV study and stopped no false accepts (README "No VAD
+        gate"), and the host verifies every wake word anyway.
 
         The device has no TFLite interpreter and no flatbuffer parser, so each
         graph is walked here and sent as a flat op table plus weights.
         """
         slots = int(session.hello.get("model_slots") or DEFAULT_MODEL_SLOTS)
-        vad = self.wake_words.model(VAD)
         room = max(1, slots - RESERVED_SLOTS)
         wanted = self.satellite_wake_words(session.satellite)
         models = [m for m in (self.wake_words.model(w) for w in wanted) if m is not None]
@@ -986,7 +986,7 @@ class VoiceCallApp:
             models = models[:room]
         if not models:
             _LOGGER.warning("[%s] No wake word model loaded; the device cannot wake", session)
-        return ([vad] if vad is not None else []) + models
+        return models
 
     async def _push_wake_models(self, session: Session) -> None:
         """Send the satellite's models. The device keeps none across a reboot,
@@ -1001,13 +1001,12 @@ class VoiceCallApp:
         session.wake_cutoffs = {m.model_id: m.probability_cutoff for m in models if not m.is_vad}
         for model in models:
             _LOGGER.info(
-                "[%s] Wake model %r: %d bytes, cutoff %.2f, window %d%s",
+                "[%s] Wake model %r: %d bytes, cutoff %.2f, window %d",
                 session,
                 model.model_id,
                 len(model.blob),
                 model.probability_cutoff,
                 model.sliding_window_size,
-                " (VAD gate)" if model.is_vad else "",
             )
         verified = [w for w in session.wake_words if self.wake.knows(w)]
         if verified:

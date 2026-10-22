@@ -474,12 +474,12 @@ Each satellite listens for one wake word: its own (Wake words page,
 `satellites.yaml`: `wake_words: [id]`), else the home's preferred one
 (`settings.yaml`), else `--wake-model` (default `okay_nabu`). Only the first
 of a list is used (`MAX_WAKE_WORDS`), and the API refuses two: the device has
-room for more, but the UI offers one for now. The app pushes the VAD gate and
-the wake word's model on `HELLO`, clearing whatever the device held first,
-and again when the pick or its cutoff changes -- never during a call, since
-clearing stops the detector's microphone. The firmware has six model slots and
-says so in `HELLO` (`model_slots`): the VAD gate, "stop" while a timer rings,
-and up to four wake words. Older firmware has four, so two.
+room for more, but the UI offers one for now. The app pushes the wake word's
+model on `HELLO`, clearing whatever the device held first, and again when the
+pick or its cutoff changes -- never during a call, since clearing stops the
+detector's microphone. The firmware has six model slots and says so in
+`HELLO` (`model_slots`): "stop" while a timer rings, and up to five wake
+words. Older firmware has four, so three. No VAD gate is pushed (below).
 
 The device reports the model's id as the wake word, which decides which
 verifier, second opinion and placement phrases apply (`voice_call/wake_words.py`).
@@ -629,6 +629,31 @@ models, 794 distinct phrases, versions 1 to 7 -- through three checks:
 The V7 models are three times the size of the older ones (94,772 B against
 33,876 B). A Voice PE took two of them, a V1 model and "okay nabu" at once.
 The manifests' cutoffs run from 0.02 to 1.0; 415 are 0.97.
+
+### No VAD gate
+
+microWakeWord's VAD model used to gate the wake words (a detection needed the
+VAD's own window over its cutoff too). The app no longer pushes it. In the TV
+study (mic_tap `okay-nabu-tv`: 684 runs over both VPEs, every channel and
+gain, and the XVF3800, with TV and music) the gate dropped ~2% of the wake
+words heard -- 21,167 against 21,664 at 0.85, 31,079 against 31,683 at 0.56
+-- and stopped no false accepts, there being none either way. On DiPCo
+(microWakeWord's `dinner_party_eval`, 91 h of dinner parties) by the
+firmware's own rule (`scripts/ambient_false_accepts.py`):
+
+| okay_nabu cutoff | gated | ungated |
+|---|---|---|
+| 0.3 | 0.68/h | 0.70/h |
+| 0.4 | 0.32/h | 0.32/h |
+| 0.5 | 0.14/h | 0.14/h |
+| 0.69 | 0.04/h | 0.04/h |
+| 0.85 | 0 | 0 |
+
+A custom word (okay_beefcake, trained in the app) was the same gated or not:
+0.20/h at 0.3, 0.05/h at 0.4, none from 0.5. Where people talk the gate is
+open (81% of DiPCo), and that is where false accepts come from; the host
+verifies every wake word in any case. The fallback detector ran ungated
+already. Its slot goes to wake words.
 
 ## Two captures per call
 

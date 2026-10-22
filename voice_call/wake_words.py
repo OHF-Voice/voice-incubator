@@ -17,8 +17,9 @@ The Wake words page may set any wake word's cutoff (``tuning``).
 Either way the command is placed after the wake phrase found again in the CTC
 evidence (``phrases``): for a custom word, its manifest's ``wake_word`` text.
 
-``vad`` and ``stop`` live in ``models/wake`` too but are not wake words: the
-VAD gates the others, and "stop" is pushed only while a timer rings.
+``vad`` and ``stop`` live in ``models/wake`` too but are not wake words:
+"stop" is pushed only while a timer rings, and the VAD (microWakeWord's gate
+on the others) is not pushed at all.
 """
 
 from __future__ import annotations
@@ -88,8 +89,8 @@ MAX_CUTOFF = 0.99
 """The device fires when the window's average is above the cutoff, so a
 manifest's 1.0 would never fire (one in the Tater catalog has it)."""
 
-RESERVED_SLOTS = 2
-"""Device model slots that are not wake words: the VAD gate and "stop"."""
+RESERVED_SLOTS = 1
+"""Device model slots that are not wake words: "stop"."""
 DEFAULT_MODEL_SLOTS = 4
 """What firmware that does not say has."""
 
