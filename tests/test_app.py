@@ -94,7 +94,11 @@ def test_calls_end_to_end(tmp_path):
 async def _scenario(tmp_path: Path) -> None:
     hass, hass_server = await fake_hass.serve()
     hass_port = hass_server.sockets[0].getsockname()[1]
-    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    # learn-tv firmware: its two captures delayed alike, and a fallback detector.
+    satellite = FakeSatellite(
+        mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0,
+        hello_extra={"aec_lead_samples": 0, "fallback": True},
+    )
     satellite_server = await serve(satellite)
     satellite_port = satellite_server.sockets[0].getsockname()[1]
 
@@ -121,7 +125,8 @@ async def _scenario(tmp_path: Path) -> None:
         await asyncio.wait_for(satellite.ready.wait(), 30)
 
         # "turn on the lights": the satellite's area is the target.
-        detection = {"probability": 230, "max_probability": 255, "cutoff": 51}
+        # Heard by mic 0 alone, which the satellite sends as the call.
+        detection = {"probability": 230, "max_probability": 255, "cutoff": 51, "detector": "fallback", "swapped": True}
         assert await satellite.call(read_call(CALLS / "call-15788.wav"), detection=detection) == "done"
         script = hass.scripts[-1]
         assert script["sequence"] == [{"action": "light.turn_on", "target": "{{ target }}"}]
@@ -142,6 +147,7 @@ async def _scenario(tmp_path: Path) -> None:
         start = record.stages[0]
         assert (start["probability"], start["max_probability"], start["cutoff"]) == (0.902, 1.0, 0.2)
         assert start["name"] == "Okay Nabu"
+        assert (start["detector"], start["swapped"], start["aec_lead"]) == ("fallback", True, 0)
         assert app.calls.list()[0]["wake"]["probability"] == 0.902
         # The list also says what was heard, what ran and what was said.
         listed = app.calls.list()[0]

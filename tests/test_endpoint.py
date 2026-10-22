@@ -154,6 +154,12 @@ def test_stt_hears_the_call_from_kaldis_split():
         heard, info = stt_audio_for(agc_pcm, aec_pcm, split, preroll, aec_preroll, "aec", boost=True)(command)
         assert info["channel"] == "aec" and 20 <= info["gain_db"] <= 30
         assert abs(20 * np.log10(np.abs(heard).max()) + 3) < 0.1  # a -3 dBFS peak
+    # Captures delayed alike (learn-tv's: the satellite says lead 0).
+    aec = (sound[:60000] * 0.056).astype("<i2").tobytes()
+    agc_pcm = sound[:60000].astype("<i2").tobytes()
+    heard, info = stt_audio_for(agc_pcm, aec, split, preroll, preroll, "aec", lead=0)(command)
+    assert np.corrcoef(heard, sound[split:60000] / 32768.0)[0, 1] > 0.99
+    agc_pcm = agc.astype("<i2").tobytes()
     # Without an AEC capture: the AGC one, and why.
     heard, info = stt_audio_for(agc_pcm, b"", split, preroll, preroll, "aec")(command)
     assert info == {"channel": "agc", "from": 1.875, "why": "no AEC capture"} and np.allclose(heard, wanted)

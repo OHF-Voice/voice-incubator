@@ -677,6 +677,33 @@ Measure this with the talker at a realistic level. An earlier pass had AEC at
 a peak of 1226 out of 32767: everything was marginal and the ordering was
 noise. `scripts/make_cloud.py --gain 20` renders at a usable level.
 
+### learn-tv firmware
+
+`voice-call-vpe-learn-tv.yaml` (beside `voice-call-vpe.yaml`, in the ESPHome
+checkout's `my_components_voice_call`) adds learn-tv
+(`mic_tap/okay-nabu-tv/LEARN_TV_IMPLEMENTATION.md`): a two-mic null on
+whatever has played for the last ~20 s, a TV. Both XMOS channels then carry a
+mic after AEC (the aec-both-mics XMOS firmware, 1.3.101), so there is no AGC
+tap, and the `learn_tv` microphone makes of them:
+
+| channel | what | used for |
+|---|---|---|
+| 0 | mic 0 with the null | wake words (gain 4), the call (`call-*.wav`, gain 16) |
+| 1 | mic 0, delayed alike | a fallback wake detector (gain 4, no VAD gate), the second capture (`call-aec-*.wav`, gain 16) |
+
+The two captures are no longer 56.5 ms apart: the firmware says so in HELLO
+(`aec_lead_samples: 0`), and the app lines them up with that instead (the
+call's `call_start` step keeps it as `aec_lead`). A wake word only the
+fallback detector hears -- the talker stands where the null points -- is held
+300 ms for the null's own detection, then starts a call with the captures
+swapped, so the app hears mic 0: CALL_START says `detector: "fallback"` and
+`swapped: true` (a session shows "mic 0 only"). The null learns nothing during
+a call, and keeps what it learned.
+
+Unmeasured yet on a device: recognition on the learn-tv capture (no AGC or NS),
+the cost of a second detector next to learn-tv itself, and the gain over the
+stock path in a real room.
+
 ## Speaker identification
 
 Every command is attributed to an enrolled household member, or to `unknown`,

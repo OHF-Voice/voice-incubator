@@ -60,6 +60,8 @@ class FakeSatellite:
     """Says in HELLO that it can stream outside calls, as newer firmware does."""
     monitoring: list[bool] = field(default_factory=list)
     """Every MONITOR the app sent: streaming, or not."""
+    hello_extra: dict = field(default_factory=dict)
+    """More to say in HELLO (learn-tv firmware's ``aec_lead_samples``, ``fallback``)."""
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()
@@ -76,6 +78,7 @@ class FakeSatellite:
             hello["model_slots"] = self.model_slots
         if self.monitor:
             hello["monitor"] = True
+        hello.update(self.hello_extra)
         writer.write(encode_json(Message.HELLO, hello))
         await writer.drain()
         try:
