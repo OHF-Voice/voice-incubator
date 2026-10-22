@@ -12,6 +12,7 @@ import numpy as np
 
 from voice_call.endpoint import (
     MAX_VAD_GAIN,
+    SETTLE_SECONDS,
     EndOfSpeech,
     Endpointer,
     MicroDetector,
@@ -147,6 +148,41 @@ def test_a_quiet_wake_word_raises_what_silero_hears():
         endpointer = Endpointer(EndOfSpeech(vad=vad), lambda _: heard, gain=4.0)
         endpointer.process(np.array([100, -20000, 20000] * (CHUNK // 6) + [0], "<i2").tobytes())
         assert list(heard.chunks[0][:3]) == expected and endpointer.gain == (4.0 if vad == "silero" else 1.0)
+
+
+def test_silero_hears_the_wake_word_first():
+    # The wake word goes through the detector (10 chunks here) and counts for
+    # nothing; nor do the 0.2 s after it, what Silero carries over from it.
+    settle = round(SETTLE_SECONDS / 0.01)
+
+    def run_warm(probabilities, vad="silero"):
+        scripted = Scripted(probabilities)
+        endpointer = Endpointer(
+            EndOfSpeech(vad=vad, speech_seconds=0.2, silence_seconds=0.3), lambda _: scripted, warm=bytes(CHUNK * 10)
+        )
+        for i in range(len(scripted.probabilities)):
+            if endpointer.process(bytes(CHUNK)):
+                return i
+        return None
+
+    assert run_warm([0.9] * 10 + [0.9] * settle + [0.1] * 40) is None
+    assert run_warm([0.9] * 10 + [0.9] * settle + [0.9] * 20 + [0.1] * 40) == settle + 20 + 30 - 1
+    # microVAD starts as it did: its own window fills first.
+    assert run_warm([0.9] * 20 + [0.1] * 40, vad="micro") == 20 + 30 - 1
+
+
+@pytest.mark.skipif(not CALL.exists(), reason="no recorded call")
+@pytest.mark.parametrize("pause", [0.0, 1.5])
+def test_a_warm_start_waits_for_the_command(pause):
+    # Straight after the wake word or after a pause, the command ends where it
+    # did from a cold start: what the wake word left in Silero doesn't start it.
+    pcm = read(CALL)
+    room = pcm[: int(0.6 * 32000)] * 4
+    audio = room[: int(pause * 32000)] + pcm[int(1.6 * 32000) :] + room
+    wake = pcm[int(0.4 * 32000) : int(1.6 * 32000)]
+    endpointer = Endpointer(EndOfSpeech(vad="silero", silence_seconds=0.5), warm=wake)
+    ended = next(((i + 1024) / 32000 for i in range(0, len(audio), 1024) if endpointer.process(audio[i : i + 1024])), None)
+    assert ended is not None and 2.8 <= 1.6 + ended - pause <= 3.1, ended
 
 
 @pytest.mark.skipif(not CALL.exists(), reason="no recorded call")

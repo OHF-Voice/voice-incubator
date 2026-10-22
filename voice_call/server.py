@@ -1609,7 +1609,7 @@ class VoiceCallApp:
         self._place_split(call, verdict)
         await self._start_stt(session, call)
         wake = call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes]
-        call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(bytes(wake)))
+        call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(bytes(wake)), warm=bytes(wake))
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:

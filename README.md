@@ -20,9 +20,13 @@ one call at a time:
 3. **endpointing** — a voice activity detector (`pysilero-vad`, or
    `pymicro-vad` set on the Settings page) watches the command audio for
    trailing silence, with hysteresis on its probabilities and on time.
-   Silero hears the command raised by up to 16 times when the wake word was
-   quiet (its loudest 32 ms brought to -30 dBFS: the call's `endpoint` step
-   keeps it as `vad_gain`). Speech-to-text hears the audio as it came;
+   Silero hears the wake word first, so a command said straight after it
+   isn't heard cold (it scored such commands ~0.4 against ~0.8, and they
+   waited for a second try), and its first 0.2 s after the split count for
+   nothing (what the wake word left in it). It hears the command raised by up
+   to 16 times when the wake word was quiet (its loudest 32 ms brought to
+   -30 dBFS: the call's `endpoint` step keeps it as `vad_gain`).
+   Speech-to-text hears the audio as it came;
 4. **recognition** — the app's own commands (made in its web UI, kept in
    `commands.yaml`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
    Parakeet's CTC output, after the wake phrase as that same output places it

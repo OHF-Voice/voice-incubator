@@ -12,6 +12,13 @@ Silero hears the command louder when the wake word was quiet (``vad_gain``):
 it misses speech far below full scale, as a capture without AGC carries it
 (the learn-tv firmware's, ~-53 dBFS), and leaves the command unstarted. Only
 the VAD's copy is raised; what speech-to-text hears is as it came.
+
+Silero also hears the wake word first (``warm``): started cold at the split,
+it scored a command said straight after it ~0.4, where it had heard speech
+all along ~0.8, and the command waited for a second try (or music) to begin.
+What it carries over from the wake word lasts ~0.15 s, so its first
+SETTLE_SECONDS after the split count for nothing, lest a pause after the wake
+word end a command not yet said.
 """
 
 from __future__ import annotations
@@ -106,6 +113,8 @@ VAD_LEVEL_DBFS = -30.0
 MAX_VAD_GAIN = 16.0
 WAKE_SECONDS = 1.2
 """How much audio before the split holds the wake word."""
+SETTLE_SECONDS = 0.2
+"""After a warm start, Silero's chunks that count for nothing."""
 _FRAME = 512
 
 
@@ -196,6 +205,7 @@ class Endpointer:
         settings: EndOfSpeech | None = None,
         make_detector: Callable[[str], Detector] = detector,
         gain: float = 1.0,
+        warm: bytes = b"",
     ) -> None:
         self.settings = settings or EndOfSpeech()
         self._detector = make_detector(self.settings.vad)
@@ -210,6 +220,19 @@ class Endpointer:
         self.speech_seconds = 0.0
         self.silence_seconds = 0.0
         self.speech_started = False
+        self._settle = 0
+        if warm and self.vad == "silero":
+            self._warm(warm)
+
+    def _warm(self, pcm: bytes) -> None:
+        """Silero's state from ``pcm`` (the audio before the split); what it says
+        of it, and of the first SETTLE_SECONDS after, counts for nothing."""
+        size = self._detector.chunk_bytes
+        pcm = pcm[len(pcm) % size :]
+        for start in range(0, len(pcm), size):
+            chunk = pcm[start : start + size]
+            self._detector(_amplify(chunk, self.gain) if self.gain != 1.0 else chunk)
+        self._settle = round(SETTLE_SECONDS / self._chunk_seconds)
 
     def process(self, pcm: bytes) -> bool:
         """Feed command audio; True once the command has ended."""
@@ -222,6 +245,9 @@ class Endpointer:
                 chunk = _amplify(chunk, self.gain)
             probability = self._detector(chunk)
             if probability is None:
+                continue
+            if self._settle:
+                self._settle -= 1
                 continue
             self.speaking = probability >= (
                 settings.silence_threshold if self.speaking else settings.speech_threshold
