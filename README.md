@@ -19,7 +19,10 @@ one call at a time:
    the command begins;
 3. **endpointing** — a voice activity detector (`pysilero-vad`, or
    `pymicro-vad` set on the Settings page) watches the command audio for
-   trailing silence, with hysteresis on its probabilities and on time;
+   trailing silence, with hysteresis on its probabilities and on time.
+   Silero hears the command raised by up to 16 times when the wake word was
+   quiet (its loudest 32 ms brought to -30 dBFS: the call's `endpoint` step
+   keeps it as `vad_gain`). Speech-to-text hears the audio as it came;
 4. **recognition** — the app's own commands (made in its web UI, kept in
    `commands.yaml`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
    Parakeet's CTC output, after the wake phrase as that same output places it
@@ -691,7 +694,7 @@ switch rewrites the XMOS stages, and the `learn_tv` microphone routes either:
 | channel | used for | learn-tv | stock |
 |---|---|---|---|
 | 0 | wake words | mic 0 with the null, gain 4 | NS, gain 4 |
-| 1 | the call (`call-*.wav`) | mic 0 with the null, gain 64 | AGC, gain 1 |
+| 1 | the call (`call-*.wav`) | mic 0 with the null, gain 16 | AGC, gain 1 |
 | 2 | the second capture (`call-aec-*.wav`) | mic 0, gain 16 | NS, gain 16 |
 | 3 | a fallback wake detector (no VAD gate) | mic 0, gain 4 | off |
 
@@ -705,12 +708,14 @@ app hears mic 0: CALL_START says `detector: "fallback"` and `swapped: true` (a
 session shows "mic 0 only"). The null learns nothing during a call, and keeps
 what it learned.
 
-The call capture runs at 64, not 16: the null takes ~10 dB more off a talker
-it doesn't point at, and Silero VAD, on speech at -54 dBFS, missed the start
-of commands (30% of a command's chunks over 0.5, against 73% at 64; mic 0 at
-16, 70%). Mic 0's capture keeps the device's own speech after AEC, about
-10 dB over the talker: the stock pipeline's NS and AGC hide that residue,
-learn-tv has neither.
+The null takes ~10 dB more off a talker it doesn't point at, and Silero VAD,
+on speech at -54 dBFS, missed the start of commands: 30% of a command's 32 ms
+chunks over 0.5 on a recorded call, against 73% four times louder. The
+capture stays as it is (speech-to-text hears it too); the endpointer raises
+only Silero's copy, by how quiet the wake word was (endpointing, above). Mic
+0's capture keeps the device's own speech after AEC, about 10 dB over the
+talker: the stock pipeline's NS and AGC hide that residue, learn-tv has
+neither.
 
 Two sensors show where the null points: "Null direction", in degrees from the
 mic axis (0 where a sound reaches mic 0 first, 90 broadside; a two-mic null

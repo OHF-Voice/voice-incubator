@@ -25,7 +25,7 @@ from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
 from .discover import Device, Discovery
-from .endpoint import VADS, EndOfSpeech, Endpointer, micro_available
+from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain
 from .endpoint import parse as parse_end_of_speech
 from .fallback import (
     DEFAULT_FALLBACK_MODEL,
@@ -1445,6 +1445,7 @@ class VoiceCallApp:
         if ended is not None:
             details.update(
                 vad=ended.vad,
+                vad_gain=round(ended.gain, 2),
                 command_seconds=round(len(call.command) / BYTE_RATE, 2),
                 speech_started=ended.speech_started,
                 speech_seconds=round(ended.speech_seconds, 2),
@@ -1607,7 +1608,8 @@ class VoiceCallApp:
 
         self._place_split(call, verdict)
         await self._start_stt(session, call)
-        call.endpointer = Endpointer(self.end_of_speech())
+        wake = call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes]
+        call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(bytes(wake)))
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:
@@ -1762,6 +1764,7 @@ class VoiceCallApp:
                 **(
                     {
                         "vad": ended.vad,
+                        "vad_gain": round(ended.gain, 2),
                         "speech_seconds": round(ended.speech_seconds, 2),
                         "silence_seconds": round(ended.silence_seconds, 2),
                         "settings": ended.settings.to_json(),

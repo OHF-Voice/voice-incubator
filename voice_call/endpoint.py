@@ -7,6 +7,11 @@ two, a chunk is what the one before it was. The command has begun after
 ``speech_seconds`` of speech -- until then, silence ends nothing -- and ends
 after ``silence_seconds`` of silence. Speech in the silence starts it over only
 after ``resume_seconds`` in a row: shorter sounds (a cough, a click) pause it.
+
+Silero hears the command louder when the wake word was quiet (``vad_gain``):
+it misses speech far below full scale, as a capture without AGC carries it
+(the learn-tv firmware's, ~-53 dBFS), and leaves the command unstarted. Only
+the VAD's copy is raised; what speech-to-text hears is as it came.
 """
 
 from __future__ import annotations
@@ -15,6 +20,8 @@ import logging
 from dataclasses import asdict, dataclass, fields, replace
 from typing import Any
 from collections.abc import Callable
+
+import numpy as np
 
 from .protocol import BYTE_RATE, BYTES_PER_SAMPLE
 
@@ -94,6 +101,33 @@ def parse(value: Any, base: EndOfSpeech) -> EndOfSpeech:
     return settings
 
 
+VAD_LEVEL_DBFS = -30.0
+"""Where Silero hears the wake word's loudest moment (gain only ever raises it)."""
+MAX_VAD_GAIN = 16.0
+WAKE_SECONDS = 1.2
+"""How much audio before the split holds the wake word."""
+_FRAME = 512
+
+
+def vad_gain(wake: bytes) -> float:
+    """The gain Silero hears the command at: the loudest 32 ms of ``wake``
+    (the audio just before the split) brought to VAD_LEVEL_DBFS, at least 1
+    and at most MAX_VAD_GAIN."""
+    samples = np.frombuffer(wake[: len(wake) // (_FRAME * BYTES_PER_SAMPLE) * _FRAME * BYTES_PER_SAMPLE], dtype="<i2")
+    if not samples.size:
+        return 1.0
+    frames = samples.astype(np.float64).reshape(-1, _FRAME) / 32768.0
+    loudest = float(np.sqrt((frames**2).mean(axis=1)).max())
+    if loudest <= 0.0:
+        return MAX_VAD_GAIN
+    return float(np.clip(10 ** (VAD_LEVEL_DBFS / 20) / loudest, 1.0, MAX_VAD_GAIN))
+
+
+def _amplify(chunk: bytes, gain: float) -> bytes:
+    samples = np.frombuffer(chunk, dtype="<i2").astype(np.float64) * gain
+    return np.clip(samples, -32768, 32767).astype("<i2").tobytes()
+
+
 def micro_available() -> bool:
     try:
         import pymicro_vad  # noqa: F401  # pylint: disable=import-outside-toplevel,unused-import
@@ -161,10 +195,13 @@ class Endpointer:
         self,
         settings: EndOfSpeech | None = None,
         make_detector: Callable[[str], Detector] = detector,
+        gain: float = 1.0,
     ) -> None:
         self.settings = settings or EndOfSpeech()
         self._detector = make_detector(self.settings.vad)
         self.vad = "micro" if isinstance(self._detector, MicroDetector) else self.settings.vad
+        self.gain = gain if self.vad == "silero" else 1.0
+        """What the VAD's copy of the audio is raised by (Silero's only)."""
         self._chunk_seconds = self._detector.chunk_bytes / BYTE_RATE
         self._leftover = b""
         self._run = 0.0
@@ -181,6 +218,8 @@ class Endpointer:
         while len(self._leftover) >= size:
             chunk = self._leftover[:size]
             self._leftover = self._leftover[size:]
+            if self.gain != 1.0:
+                chunk = _amplify(chunk, self.gain)
             probability = self._detector(chunk)
             if probability is None:
                 continue

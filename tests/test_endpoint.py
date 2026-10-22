@@ -8,7 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from voice_call.endpoint import EndOfSpeech, Endpointer, MicroDetector, SileroDetector, micro_available, parse
+import numpy as np
+
+from voice_call.endpoint import (
+    MAX_VAD_GAIN,
+    EndOfSpeech,
+    Endpointer,
+    MicroDetector,
+    SileroDetector,
+    micro_available,
+    parse,
+    vad_gain,
+)
 
 CALL = Path(__file__).resolve().parent.parent / "calls/call-15788.wav"
 CHUNK = 320  # bytes: 10 ms
@@ -105,6 +116,52 @@ def test_a_recorded_command_ends(vad):
         pytest.fail("never ended")
     # Silero ends half a second after the speech; microVAD, about half a second later still.
     assert (2.8 <= ended <= 3.1) if vad == "silero" else (3.2 <= ended <= 3.7), ended
+
+
+def tone(dbfs: float, seconds: float = 1.0) -> bytes:
+    t = np.arange(int(16000 * seconds)) / 16000
+    return (np.sin(2 * np.pi * 440 * t) * np.sqrt(2) * 10 ** (dbfs / 20) * 32768).astype("<i2").tobytes()
+
+
+def test_a_quiet_wake_word_raises_what_silero_hears():
+    # The wake word's loudest 32 ms to -30 dBFS: a quiet one 22 dB up, a loud
+    # one left alone, nothing at all (or a capture far quieter) at most 16x.
+    assert vad_gain(tone(-52.0)) == pytest.approx(10 ** (22 / 20), rel=0.01)
+    assert vad_gain(tone(-20.0)) == 1.0
+    assert vad_gain(bytes(32000)) == MAX_VAD_GAIN == vad_gain(tone(-80.0))
+    assert vad_gain(b"") == 1.0
+
+    class Heard:
+        chunk_bytes = CHUNK
+
+        def __init__(self):
+            self.chunks = []
+
+        def __call__(self, chunk):
+            self.chunks.append(np.frombuffer(chunk, "<i2"))
+            return 0.1
+
+    # Silero's copy, raised and clipped; microVAD's as it came.
+    for vad, expected in (("silero", [400, -32768, 32767]), ("micro", [100, -20000, 20000])):
+        heard = Heard()
+        endpointer = Endpointer(EndOfSpeech(vad=vad), lambda _: heard, gain=4.0)
+        endpointer.process(np.array([100, -20000, 20000] * (CHUNK // 6) + [0], "<i2").tobytes())
+        assert list(heard.chunks[0][:3]) == expected and endpointer.gain == (4.0 if vad == "silero" else 1.0)
+
+
+@pytest.mark.skipif(not CALL.exists(), reason="no recorded call")
+def test_a_quiet_command_ends():
+    # The recorded call 24 dB down, as a capture without AGC carries it:
+    # Silero never hears the command start, until it hears it at the level
+    # its wake word says.
+    pcm = (np.frombuffer(read(CALL), "<i2") // 16).astype("<i2").tobytes()
+    audio = pcm[int(1.6 * 32000) :] + pcm[: int(0.6 * 32000)] * 4
+    gain = vad_gain(pcm[int(0.4 * 32000) : int(1.6 * 32000)])
+    assert 8 < gain <= MAX_VAD_GAIN
+    for gain, ends in ((1.0, False), (gain, True)):
+        endpointer = Endpointer(EndOfSpeech(vad="silero", silence_seconds=0.5), gain=gain)
+        ended = next((1.6 + (i + 1024) / 32000 for i in range(0, len(audio), 1024) if endpointer.process(audio[i : i + 1024])), None)
+        assert (ended is not None and 2.8 <= ended <= 3.1) if ends else ended is None, (gain, ended)
 
 
 def test_why_a_call_timed_out():
