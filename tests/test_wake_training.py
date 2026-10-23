@@ -296,3 +296,21 @@ def test_a_real_model(tmp_path):
         assert model.max_pool
 
     asyncio.run(run())
+
+
+def test_the_homes_own_audio(tmp_path):
+    """Room audio in the data directory (features, as microWakeWord's
+    RaggedMmap stores them) joins the kit's negatives."""
+
+    async def run() -> None:
+        training, _ = make_training(tmp_path)
+        assert training.room_negatives() == [] and (await training.status())["room_hours"] == 0
+        mmap = training.room_dir / "living" / "training" / "living_mmap"
+        mmap.mkdir(parents=True)
+        (mmap / "dtype.ninja").write_text("uint16")
+        (mmap / "data.ninja").write_bytes(b"\0" * (40 * 2 * 180_000))  # half an hour of frames
+        (room,) = training.room_negatives()
+        assert room["name"] == "room-living" and room["hours"] == 0.5 and room["sampling_weight"] == 15.0
+        assert (await training.status())["room_hours"] == 0.5
+
+    asyncio.run(run())

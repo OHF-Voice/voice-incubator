@@ -2363,7 +2363,8 @@ function wakeTraining(first, reload) {
       : h("div", { class: "notice bad" }, `${quoted(job.phrase)}: ${job.error || job.state} `, h("a", { href: "api/wake_training/log", target: "_blank" }, "Log"));
     fill(box, last,
       status.unavailable ? h("div", { class: "muted" }, status.unavailable)
-        : [h("div", { class: "row" }, phrase, button), whose]);
+        : [h("div", { class: "row" }, phrase, button), whose,
+          status.room_hours ? h("div", { class: "muted small" }, `And against ${num(status.room_hours, 0)} h of this home's own audio.`) : null]);
   }
   show(first);
   return h("div", { class: "panel" },

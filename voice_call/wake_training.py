@@ -26,7 +26,19 @@ several people's recordings make a model that beats the shipped one.
 
 What training needs besides the phrase is the **kit** (made by
 scripts/make_wake_training_kit.py): the negative pool, in a directory with a
-``kit.yaml``. How well a word does is not known before it is
+``kit.yaml``, and background recordings (music, noise) to put behind the
+positives. The home's own room audio, when there is some
+(``<data>/wake_training/room/<set>/training/<set>_mmap``: microWakeWord
+features, never audio), joins the negatives: the word learns not to fire on
+what that home sounds like, and can listen more eagerly. It stays out of the
+kit, which an image ships.
+
+On a household's real far-field wake words, music behind the positives alone
+traded clean recall for recall over music (more false wakes, so a higher
+cutoff); with 36 h of the home's audio as negatives as well, 25 recordings
+from each of four people beat the shipped okay_nabu at one false wake an hour
+on ten other days of that home: 76% against 73% clean, 60% against 49% with
+music 5 dB under the speech, 41% against 31% with music as loud. How well a word does is not known before it is
 tried: the recipe's reference is about 60% of wake words at one false wake an
 hour (on "hey mycroft", one of the base model's own words), and one run can
 differ from the next by 6-11 points.
@@ -73,6 +85,10 @@ to 1 false wake an hour at about 0.70-0.83; the Wake words page tunes it."""
 NICE = 10
 THREADS = 4
 """TensorFlow's threads: a Pi 5's cores (more is no faster on this model)."""
+
+ROOM_WEIGHTS = {"sampling_weight": 15.0, "penalty_weight": 100.0}
+"""The home's audio among the negatives: as the kit's dinner parties."""
+ROOM_FRAMES_PER_HOUR = 360_000
 
 STAGES = {"positives": (0.0, 0.2), "preparing": (0.2, 0.22), "training": (0.22, 0.97), "converting": (0.97, 1.0)}
 """Each stage's share of the whole, for the progress bar."""
@@ -244,6 +260,8 @@ class WakeTraining:
         self._process: asyncio.subprocess.Process | None = None
         self._trainer_checked: tuple[float, str | None] | None = None
         self._recordings: dict[str, list[Path]] = {}
+        self.room_dir = self.work_dir / "room"
+        """The home's own room audio, as negative feature sets."""
 
     # -------------------------------------------------------------- state
 
@@ -331,6 +349,25 @@ class WakeTraining:
             return f"The trainer's Python lacks {missing.replace(',', ', ')}."
         return None
 
+    def room_negatives(self) -> list[dict[str, Any]]:
+        """The home's audio, as the trainer's negatives (``hours`` each)."""
+        found = []
+        for where in sorted(p for p in self.room_dir.glob("*") if p.is_dir()):
+            mmaps = sorted(where.glob("training/*_mmap"))
+            if not mmaps:
+                continue
+            frames = 0
+            for mmap in mmaps:
+                # A RaggedMmap's values, flat: 40 features a frame.
+                with contextlib.suppress(OSError, TypeError):
+                    import numpy as np  # pylint: disable=import-outside-toplevel
+
+                    size = np.dtype((mmap / "dtype.ninja").read_text().strip()).itemsize
+                    frames += (mmap / "data.ninja").stat().st_size // (40 * size)
+            found.append({"name": f"room-{where.name}", "dir": str(where), **ROOM_WEIGHTS,
+                          "hours": round(frames / ROOM_FRAMES_PER_HOUR, 1)})
+        return found
+
     def log(self) -> str:
         """The last job's log (the steps' output)."""
         if self.job is None:
@@ -346,6 +383,7 @@ class WakeTraining:
             "job": self.job.to_json() if self.job is not None else None,
             "clips": self.positive_clips,
             "steps": sum(self.training_steps),
+            "room_hours": round(sum(r["hours"] for r in self.room_negatives()), 1),
         }
 
     # ---------------------------------------------------------------- run
@@ -408,8 +446,11 @@ class WakeTraining:
             for name, paths in self._recordings.items():
                 for index, path in enumerate(paths):
                     shutil.copyfile(path, recorded / f"{word_id(name)}_{index:03d}.wav")
+            room = self.room_negatives()
             with log.open("w", encoding="utf-8") as log_file:
                 log_file.write(f"Training {job.phrase!r} as {job.word} with the kit in {kit.directory}\n")
+                if room:
+                    log_file.write("With the home's audio: " + ", ".join(f"{r['name']} ({r['hours']} h)" for r in room) + "\n")
                 if job.recordings:
                     log_file.write("With the recordings of " + ", ".join(f"{n} ({c})" for n, c in job.recordings.items()) + "\n")
                 log_file.flush()
@@ -426,7 +467,7 @@ class WakeTraining:
                     "work": str(work),
                     "positives": {s: str(work / "features" / f"{s}.npy") for s in ("training", "validation")},
                     "positive": kit.positive,
-                    "negatives": kit.negatives,
+                    "negatives": [*kit.negatives, *({k: v for k, v in r.items() if k != "hours"} for r in room)],
                     "batch_size": BATCH_SIZE,
                     "training_steps": self.training_steps,
                     "learning_rates": LEARNING_RATES[: len(self.training_steps)],
@@ -512,6 +553,7 @@ class WakeTraining:
         extra = {
             "clips": self.positive_clips, "steps": sum(self.training_steps), "temperature": TEMPERATURE,
             "recordings": job.recordings,
+            "room_hours": round(sum(r["hours"] for r in self.room_negatives()), 1),
         }
         manifest_path.write_text(json.dumps(manifest(job.phrase, job.word, self.language, extra), indent=2), "utf-8")
         error = self.check_model(job.word)

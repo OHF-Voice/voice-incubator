@@ -644,7 +644,8 @@ On the Wake words page, a typed phrase becomes a custom word
 speakers) says it 2,000 ways, each in a room with noise behind it, joined by
 the recordings of whichever speakers are ticked (Speakers page, above), and a
 model learns it against the kit's negatives (`scripts/make_wake_training_kit.py`:
-5,000 random spectrograms of each set). A word trained here can be trained
+5,000 random spectrograms of each set) and the home's own audio, when it has
+some (below). A word trained here can be trained
 again, with more recordings say: the new model replaces it when done, its
 tuned cutoff goes (its verifier stays), and satellites listening for it get it.
 A built-in word's phrase trains as a word of its own beside it
@@ -705,6 +706,30 @@ A household's model trained here matches the shipped one at 25 each: better
 for the speaker it hears worst (Oliver), worse for the one it hears best
 (Mike: 61.4% against 93.6%). Someone who recorded nothing gets about what the
 shipped model gives them, not micro-wake-word's 82%.
+
+**Music, and the home's own audio.** Played from another device, music
+costs every model, and those trained here more: with the held-out wake words
+mixed with music through a room (FMA clips the training never had), at the
+cutoff for one false wake an hour on ten days of the household's audio:
+
+| model (25 from each of four) | clean | music 5 dB under | as loud |
+|---|---|---|---|
+| shipped okay_nabu | 72.8% | 49.0% | 30.5% |
+| trained here, colored noise behind the positives | 71.8% | 31.2% | 18.6% |
+| ... music and noise behind them | 61.8% | 44.7% | 30.0% |
+| ... and 36 h of the home's audio as negatives | 76.3% (71-85) | 60.1% | 41.1% |
+
+The positives had only heard colored noise (the kit had no recordings), and
+the negatives have music: music came to mean "not the wake word". Music behind
+them alone made the model fire more on the household audio (a cutoff of 0.71
+for one false wake an hour, against 0.37), so it lost clean wake words; the
+home's own audio as negatives took that back. So the kit has `background/`
+(music and noise, for the positives), and a home's audio goes in
+`<data>/wake_training/room/<set>/training/<set>_mmap` -- features, not audio,
+outside the kit an image ships -- and joins the negatives at the kit's dinner
+parties' weights. (micro-wake-word's own background set,
+`mww-v30/background`, has no music: its `fma_16k` is a copy of
+`audioset_16k`.)
 
 A model trained here needs firmware whose executor runs max pooling (Wake
 word models, above).
