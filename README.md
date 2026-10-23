@@ -794,23 +794,33 @@ renames, recolors and forgets them. Colors come from a fixed list of hues that
 stay distinct on the ring, skipping red (error) and the default cyan (nobody
 recognized).
 
-**Someone else talking.** Once a command's first segment of speech is in --
-speech is split at pauses of 0.15 s -- the speaker is identified from it and
-the wake word, and each later segment is checked against their profile once
-it is 1.05 s long and every 0.25 s after. Two checks in a row under 0.30 make
-it someone else's: their speech is silence for the command, which ends as
-soon as the speaker has been quiet for the end-of-speech silence since their
-last word, and what is recognized stops 0.3 s after it (speech-to-text
-streamed live has heard the rest). The session's End of speech step shows it.
-Nobody identified: nothing is checked, as before. Simulated with Piper's
-voices (four enrolled speakers, each against a voice like most
-people's and the closest of 60, after a pause shorter than the silence) the
-command ended 1.4 s into the other voice every time for the typical one,
-rather than after it stopped; the closest was mostly not caught (and the call
-then ends as before); the speaker's own continuations were cut no more often
-than without it. Checking against the command itself, for an unknown speaker,
-caught more of the close voices but cut the speaker's own continuations three
-times as often, so it is not done.
+**Someone else talking.** Once a command is a second long, its speaker is
+identified from it and the wake word, and from then on its last second is
+checked against their profile every 0.2 s, when it is mostly speech. Two
+checks in a row under 0.20 mean someone else is talking: their speech is
+silence for the command, which ends as soon as the speaker has been quiet
+for the end-of-speech silence since their last word -- most often there and
+then -- and what is recognized stops 0.3 s after it (speech-to-text streamed
+live has heard the rest). Their last word is where the scores fell halfway
+from the speaker's to the other voice's, half a window back, or a pause near
+it. The session's End of speech step shows it. Nobody identified: nothing is
+checked, as before.
+
+Windows, not stretches between pauses, because people start talking with no
+pause at all: three recorded sessions where someone else did so, or after a
+0.16 s pause, were cut 1.3 s and about 3.4 and 4.4 s into them by checking
+only the stretches after a pause, where windows would have cut them about
+0.4-1.1 s in. Simulated with
+Piper's voices (six enrolled speakers, each against a voice like most
+people's and the closest of 60, after no pause, 0.1 s or 0.3 s), a typical
+voice was cut 0.9-1.1 s in every time, rather than after it stopped, with the
+speaker's last word placed within 0.26 s early to 0.2 s late (10th to 90th
+percentile; the speaker's level is the command's first checks); the closest voice a quarter
+of the time (the call otherwise ends as before); and neither the command nor
+the speaker's own going on was cut. Higher thresholds, or one check instead
+of two, caught more close voices but cut the speaker's own going on: their
+short stretches score as low as 0.2 against their own profile with music
+playing.
 
 **Learning.** A command that clears the threshold by 0.05, beats the
 runner-up by 0.1 and has 2 s of speech is folded into that person's profile,

@@ -3020,7 +3020,7 @@ function stepDetails(stage) {
     return h("div", { class: "small" }, `${VAD_NAMES[data.vad] || data.vad}: ${num(data.speech_seconds, 2)} s of speech, ${num(data.silence_seconds, 2)} s of silence at the end`,
       h("div", { class: "muted" }, `speech at ${num(s.speech_threshold)}, silence below ${num(s.silence_threshold)} · ${num(s.speech_seconds)} s to start, ${num(s.silence_seconds)} s to end, ${num(s.resume_seconds)} s to resume`),
       data.others ? h("div", { class: data.others.at !== undefined ? "" : "muted" }, data.others.at !== undefined
-        ? `Someone other than ${data.others.speaker} from ${num(data.others.other_from, 2)} s (scored ${data.others.scores.map((v) => num(v, 2)).join(", ")}): ended at their last word, ${num(data.others.last_word, 2)} s`
+        ? `Someone other than ${data.others.speaker} talking by ${num(data.others.at, 2)} s (scored ${data.others.scores.map((v) => num(v, 2)).join(", ")}): ended at their last word, about ${num(data.others.last_word, 2)} s`
         : data.others.speaker ? `Watched for someone other than ${data.others.speaker} (${num(data.others.score, 2)})` : "Nobody identified: not watched for someone else") : null);
   }
   if (name === "timeout") {

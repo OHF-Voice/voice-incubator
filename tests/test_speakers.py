@@ -135,22 +135,28 @@ async def _scenario(tmp_path: Path, piper) -> None:
             assert alice["enrolled"][0]["satellite"] == "Kitchen VPE"
             satellite.room_audio = None
 
-            # Her command, a pause shorter than the silence, then someone else.
+            # Her command, then someone else: after a pause shorter than the
+            # silence, or straight after with no pause at all.
             wake, command = say(piper, "Okay Nabu.", ALICE), say(piper, COMMAND, ALICE)
             satellite.speed = 2.0
             hass.stt_text = COMMAND  # the speech-to-text keeps the voices apart
             other = [a for t in TALK for a in (say(piper, t, OTHER), 0.2)][:-1]
-            audio, starts = call_audio(wake, 0.15, command, 0.3, *other)
-            other_start = starts[1]
-            await satellite.call(audio, timeout=40)
-            await wait_for(lambda: app.calls.recent[-1].outcome != "in progress", 30)
-            record = app.calls.recent[-1]
-            stages = {s["stage"]: s for s in record.stages}
-            others = stages["endpoint"]["others"]
-            assert others["speaker"] == "Alice" and others["at"] < others["other_from"] + 2.0, others
-            assert record.marks["end"] < other_start + 2.5  # rather than after ~6 s of them
-            assert stages["speaker"]["name"] == "Alice"
-            assert stages["recognition"]["command"] == "lights_on" and record.outcome == "done"
+            for pause in (0.3, 0.0):
+                audio, starts = call_audio(wake, 0.15, command, pause, *other)
+                other_start = starts[1]
+                await satellite.call(audio, timeout=40)
+                await wait_for(lambda: app.calls.recent[-1].outcome != "in progress", 30)
+                record = app.calls.recent[-1]
+                stages = {s["stage"]: s for s in record.stages}
+                others = stages["endpoint"]["others"]
+                assert others["speaker"] == "Alice" and len(others["scores"]) == 2, others
+                # About a second into them (two at most), rather than after ~6 s of
+                # them; and her last word about where it was.
+                assert record.marks["end"] < other_start + 2.5, (pause, record.marks["end"], other_start)
+                said = starts[0] + len(command) / RATE - record.marks["kaldi_split"]
+                assert abs(others["last_word"] - said) < 0.35, (pause, others, said)
+                assert stages["speaker"]["name"] == "Alice"
+                assert stages["recognition"]["command"] == "lights_on" and record.outcome == "done", pause
 
             # Her going on herself: not cut.
             more = [a for t in TALK for a in (say(piper, t, ALICE), 0.2)][:-1]

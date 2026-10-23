@@ -21,23 +21,28 @@ SETTLE_SECONDS after the split count for nothing, lest a pause after the wake
 word end a command not yet said.
 
 Someone else's speech is silence for the command, once it is known to be
-someone else's (``watch``): speech comes in segments, split at pauses of
-SEGMENT_GAP, and the first is the command. A later segment is checked against
-the identified speaker's voice (``due``, ``verdict``: the caller embeds it)
-once it is OTHER_AFTER long and every OTHER_EVERY after; two checks in a row
-under OTHER_SCORE make it someone else's, and the command then ends as soon as
-the speaker has been quiet for ``silence_seconds`` since their last word -- a
-second and a bit into the other voice, rather than after it stops. Simulated
-on Piper's voices (four enrolled speakers, each against a typical voice and
-the closest of 60), a typical voice was cut 1.4 s in every time, the closest
-mostly not (as before), and the speaker's own continuations no more often than
-the endpointer alone.
+someone else's (``watch``): the last WINDOW of the command is checked against
+the identified speaker's voice every OTHER_EVERY (``due``, ``verdict``: the
+caller embeds it), when it is mostly speech (OTHER_SPEECH); OTHER_RUN checks
+in a row under OTHER_SCORE mean someone else is talking. The speaker's last
+word is where the scores fell halfway from the speaker's to the other
+voice's, half a window back -- or the pause next to it, when there is one --
+and the command ends as soon as they have been quiet for ``silence_seconds``
+since: most often there and then, a second or less into the other voice.
+Windows, not stretches between pauses: someone who starts with no pause at
+all after the command would otherwise go unchecked until they paused (three
+recorded sessions were cut 0.9, 2.9 and 3.3 s later than this would have).
+Simulated on Piper's voices (six enrolled speakers, each against a typical
+voice and the closest of 60, after no pause, 0.1 s or 0.3 s), a typical voice
+was cut 0.9-1.1 s in every time, the closest a quarter of the time (and the
+call then ends as before), and neither the command nor the speaker's own
+going on was ever cut.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass, field, fields, replace
+from dataclasses import asdict, dataclass, fields, replace
 from typing import Any
 from collections.abc import Callable
 
@@ -130,14 +135,20 @@ SETTLE_SECONDS = 0.2
 """After a warm start, Silero's chunks that count for nothing."""
 SEGMENT_GAP = 0.15
 """A pause this long ends a segment of speech."""
-OTHER_AFTER = 1.05
-"""A segment after the command is first checked once it is this long..."""
-OTHER_EVERY = 0.25
-"""... and again every this much longer, until it is decided."""
-OTHER_SCORE = 0.30
-"""Two checks in a row scoring under this (cosine to the speaker's profile)
-make a segment someone else's; over it at OTHER_AFTER + 2 * OTHER_EVERY, the
-speaker's."""
+WINDOW = 1.0
+"""What is checked against the speaker: the command's last second."""
+OTHER_EVERY = 0.2
+OTHER_SPEECH = 0.7
+"""A window less speech than this is not checked (and breaks a run)."""
+OTHER_SCORE = 0.20
+OTHER_RUN = 2
+"""Checks in a row scoring under OTHER_SCORE (cosine to the speaker's
+profile) that mean someone else is talking. Higher, or fewer, cut the
+speaker's own going on in simulation; the speaker's own short stretches score
+as low as 0.2 with music playing."""
+SNAP = (0.5, 0.3)
+"""A pause this long before, or after, where the scores put the speaker's last
+word is taken as it (the speech before it: their own last word)."""
 
 
 @dataclass
@@ -146,13 +157,6 @@ class Segment:
 
     start: float
     end: float
-    owner: str | None = None
-    """``speaker``, ``other``, or None while undecided (the speaker's, meanwhile)."""
-    low: int = 0
-    """Checks in a row under OTHER_SCORE."""
-    checked: float = 0.0
-    """Its end at the last check."""
-    scores: list[float] = field(default_factory=list)
 _FRAME = 512
 
 
@@ -264,10 +268,17 @@ class Endpointer:
         self.segments: list[Segment] = []
         self._quiet = 0.0
         self.watching = False
-        """Whether later segments are checked against the speaker (``due``)."""
+        """Whether the command is checked against the speaker (``due``)."""
+        self._checked = 0.0
+        self._checks: list[tuple[float, float]] = []
+        """Each check: (window end, score)."""
+        self._low: list[tuple[float, float]] = []
+        """The run of low checks."""
+        self.other_from: float | None = None
+        """Speech after this is someone else's (seconds from the split)."""
         self.cut: dict[str, Any] | None = None
-        """When someone else's speech ended the command: where they began, the
-        speaker's last word, when it was decided, and the checks' scores."""
+        """When someone else's speech ended the command: the speaker's last
+        word, when it was decided, and the low checks' scores."""
         self.ended = False
         if warm and self.vad == "silero":
             self._warm(warm)
@@ -287,44 +298,66 @@ class Endpointer:
         nobody was identified)."""
         self.watching = on
 
-    def due(self) -> tuple[int, float, float] | None:
-        """The segment to check now, ``(index, start, end)``: the latest, when
-        it is undecided and long enough."""
-        if not self.watching or self.ended or len(self.segments) < 2:
-            return None
-        segment = self.segments[-1]
-        if segment.owner is not None or segment.end - segment.start < OTHER_AFTER - 1e-9:
-            return None
-        if segment.scores and segment.end - segment.checked < OTHER_EVERY - 1e-9:
-            return None
-        return len(self.segments) - 1, segment.start, segment.end
+    def _speech_in(self, start: float, end: float) -> float:
+        return sum(max(0.0, min(s.end, end) - max(s.start, start)) for s in self.segments)
 
-    def verdict(self, index: int, score: float, end: float) -> bool:
-        """A check of segment ``index`` up to ``end``; True when it ends the
-        command (someone else's, and the speaker quiet long enough since)."""
-        segment = self.segments[index]
-        if self.ended or segment.owner is not None:
+    def due(self) -> tuple[float, float] | None:
+        """The window to check now, ``(start, end)``: the last WINDOW, every
+        OTHER_EVERY, when it is mostly speech."""
+        if not self.watching or self.ended or self.other_from is not None:
+            return None
+        end = self.elapsed
+        if end < WINDOW - 1e-9 or end - self._checked < OTHER_EVERY - 1e-9:
+            return None
+        self._checked = end
+        if self._speech_in(end - WINDOW, end) < OTHER_SPEECH * WINDOW - 1e-9:
+            self._low.clear()  # a pause in between: a run starts over
+            return None
+        return end - WINDOW, end
+
+    def verdict(self, score: float, end: float) -> bool:
+        """The check of the window ending at ``end``; True when it ends the
+        command (someone else talking, and the speaker quiet long enough since
+        their last word)."""
+        if self.ended or self.other_from is not None:
             return False
-        segment.scores.append(round(score, 3))
-        segment.checked = end
-        segment.low = segment.low + 1 if score < OTHER_SCORE else 0
-        if segment.low >= 2:
-            segment.owner = "other"
-            last = max((s.end for s in self.segments if s.owner != "other"), default=0.0)
-            self.silence_seconds = max(0.0, self.elapsed - last)
-            self._run = 0.0
-            self.cut = {
-                "other_from": round(segment.start, 2),
-                "last_word": round(last, 2),
-                "at": round(self.elapsed, 2),
-                "scores": list(segment.scores),
-            }
-            _LOGGER.info("Someone else from %.2fs; the speaker's last word at %.2fs", segment.start, last)
-            if self.speech_started and self.silence_seconds >= self.settings.silence_seconds - 1e-9:
-                return self._end()
-        elif segment.low == 0 and segment.end - segment.start >= OTHER_AFTER + 2 * OTHER_EVERY - 1e-9:
-            segment.owner = "speaker"
+        self._checks.append((end, round(score, 3)))
+        if score >= OTHER_SCORE:
+            self._low.clear()
+            return False
+        self._low.append((end, round(score, 3)))
+        if len(self._low) < OTHER_RUN:
+            return False
+        last = self._last_word()
+        self.other_from = last
+        self.silence_seconds = max(0.0, self.elapsed - last)
+        self._run = 0.0
+        self.cut = {"last_word": round(last, 2), "at": round(self.elapsed, 2), "scores": [s for _, s in self._low]}
+        _LOGGER.info("Someone else talking since about %.2fs (decided at %.2fs)", last, self.elapsed)
+        if self.speech_started and self.silence_seconds >= self.settings.silence_seconds - 1e-9:
+            return self._end()
         return False
+
+    def _last_word(self) -> float:
+        """Where the speaker stopped: the scores' fall halfway from theirs (the
+        command's first checks: by the run, the ones before it may be the
+        other voice's already) to the other voice's (the run), half a window
+        back; or a pause near it."""
+        first = self._checks.index(self._low[0])
+        theirs = [s for _, s in self._checks[: min(3, first)]]
+        high = float(np.median(theirs)) if theirs else 0.5
+        low = float(np.mean([s for _, s in self._low]))
+        half = (high + low) / 2
+        crossed = self._low[0][0]
+        for i in range(first, 0, -1):  # the latest fall, going back from the run
+            (t0, s0), (t1, s1) = self._checks[i - 1], self._checks[i]
+            if s0 >= half > s1:
+                crossed = t0 + (t1 - t0) * (s0 - half) / (s0 - s1)
+                break
+        last = crossed - WINDOW / 2
+        # A segment ending close by, and not the one going on: its end.
+        ends = [s.end for s in self.segments[:-1] if last - SNAP[0] <= s.end <= last + SNAP[1]]
+        return max(0.0, ends[-1] if ends else last)
 
     def _end(self) -> bool:
         self.ended = True
@@ -359,11 +392,10 @@ class Endpointer:
             speaking = self.speaking
             if self.speaking:
                 if not self.segments or self._quiet >= SEGMENT_GAP - 1e-9:
-                    owner = None if self.segments else "speaker"
-                    self.segments.append(Segment(self.elapsed - seconds, self.elapsed, owner))
+                    self.segments.append(Segment(self.elapsed - seconds, self.elapsed))
                 self.segments[-1].end = self.elapsed
                 self._quiet = 0.0
-                speaking = self.segments[-1].owner != "other"
+                speaking = self.other_from is None
             else:
                 self._quiet += seconds
             if speaking:

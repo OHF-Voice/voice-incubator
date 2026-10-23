@@ -1639,7 +1639,8 @@ class VoiceCallApp:
             self._check_speaker_due(session, call)
 
     def _check_speaker_due(self, session: Session, call: Call) -> None:
-        """Check the segment of speech going on, when it is due, beside the audio."""
+        """Check the command's last second against the speaker, when it is
+        due, beside the audio."""
         if call.speaker_checking or call.speaker_ref is False or call.endpointer is None:
             return
         due = call.endpointer.due()
@@ -1647,14 +1648,14 @@ class VoiceCallApp:
             call.speaker_checking = True
             self._spawn(self._check_speaker(session, call, *due))
 
-    async def _check_speaker(self, session: Session, call: Call, index: int, start: float, end: float) -> None:
-        """Is segment ``index`` the identified speaker's? Identifies them first
-        (the wake word and the command's first segment), once."""
+    async def _check_speaker(self, session: Session, call: Call, start: float, end: float) -> None:
+        """Is the command from ``start`` to ``end`` still the identified
+        speaker? Identifies them first (the wake word and the command so far), once."""
         assert self.speakers is not None and call.endpointer is not None
         endpointer = call.endpointer
         try:
             if call.speaker_ref is None:
-                ident = await self.speakers.identify(self._speaker_slice(call, -WAKE_SECONDS, endpointer.segments[0].end))
+                ident = await self.speakers.identify(self._speaker_slice(call, -WAKE_SECONDS, end))
                 call.speaker_watch = {"speaker": ident.name, "score": None if ident.score is None else round(ident.score, 3)}
                 reference = self.speakers.reference(ident.name) if ident.name else None
                 if reference is None:
@@ -1666,12 +1667,14 @@ class VoiceCallApp:
                 _LOGGER.debug("[%s] Watching for someone other than %s", session, ident.name)
             vector = await self.speakers.embed_window(self._speaker_slice(call, start, end))
             score = float(vector @ call.speaker_ref)
-            if endpointer.verdict(index, score, end) and not call.finished:
+            ended = endpointer.verdict(score, end)
+            if endpointer.other_from is not None:
+                call.speaker_end = endpointer.other_from
+            if ended and not call.finished:
                 call.finished = True
-                call.speaker_end = endpointer.cut["last_word"] if endpointer.cut else None
                 _LOGGER.info(
-                    "[%s] Someone other than %s from %.2fs: the command ended at their last word, %.2fs",
-                    session, (call.speaker_watch or {}).get("speaker"), start, call.speaker_end or 0.0,
+                    "[%s] Someone other than %s talking: the command ended at their last word, %.2fs",
+                    session, (call.speaker_watch or {}).get("speaker"), call.speaker_end or 0.0,
                 )
                 self._spawn(self._respond(session, call))
         except Exception:  # never let the check take the call down with it
