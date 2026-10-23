@@ -150,6 +150,12 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.post("/api/speakers/enrollment", api.start_enrollment),
             web.post("/api/speakers/enrollment/save", api.save_enrollment),
             web.delete("/api/speakers/enrollment", api.cancel_enrollment),
+            web.get("/api/speakers/recording", api.wake_recording),
+            web.post("/api/speakers/recording", api.start_wake_recording),
+            web.delete("/api/speakers/recording", api.stop_wake_recording),
+            web.get("/api/speakers/{name}/wake/{word}/{take}.wav", api.wake_take),
+            web.delete("/api/speakers/{name}/wake/{word}/{take}", api.delete_wake_takes),
+            web.delete("/api/speakers/{name}/wake/{word}", api.delete_wake_takes),
             web.patch("/api/speakers/{name}", api.update_speaker),
             web.delete("/api/speakers/{name}", api.delete_speaker),
             web.post("/api/try", api.try_text),
@@ -828,6 +834,12 @@ class Api:
                         session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
                     ),
                     "model_slots": (session.hello.get("model_slots") if session else None),
+                    # Its pick, trained here, which its firmware can't run (no max pooling).
+                    "wake_words_need_firmware": [
+                        w for w in app.satellite_wake_words(key)
+                        if session and not session.hello.get("max_pool")
+                        and (model := app.wake_words.model(w)) is not None and model.max_pool
+                    ],
                     # As stored (absent: as every satellite) and as it comes out.
                     "voice": {
                         k: stored.get(k)
@@ -1196,7 +1208,10 @@ class Api:
             words = []
             for word in catalog.scan().values():
                 item = word.to_json()
-                item["runs"] = catalog.model(word.id) is not None
+                model = catalog.model(word.id)
+                item["runs"] = model is not None
+                item["pooled"] = bool(model is not None and model.max_pool)
+                item["trained"] = (word.manifest.get("trained") or None) if word.custom else None
                 item["error"] = catalog.errors.get(word.id)
                 item["tuning"] = tuning.get(word.id) or {}
                 entry = app.wake.config.wake_words.get(word.id)
@@ -1409,14 +1424,27 @@ class Api:
         return web.json_response({"ok": True})
 
     async def wake_training(self, request: web.Request) -> web.Response:
-        """Whether a wake word can be trained here, and the job running or the last."""
-        return web.json_response(await self.app.wake_training.status())
+        """Whether a wake word can be trained here, and the job running or the
+        last; the phrases speakers have recorded (whose, how many), and the
+        words trained here (which may be trained again)."""
+        takes = self.app.wake_takes
+        trained = [w.id for w in self.app.wake_words.scan().values() if self.app.trained_here(w.id)]
+        return web.json_response({
+            **await self.app.wake_training.status(),
+            "recorded": takes.phrases() if takes is not None else {},
+            "trained": trained,
+        })
 
     async def train_wake_word(self, request: web.Request) -> web.Response:
-        """Train a wake word for ``{phrase}``: it runs on, the page follows it."""
+        """Train a wake word for ``{phrase, speakers?}``, with those speakers'
+        recordings of it (everyone's when not given): it runs on, the page
+        follows it."""
         body = await request.json()
+        speakers = body.get("speakers")
         try:
-            job = await self.app.wake_training.start(body.get("phrase"))
+            job = await self.app.train_wake_word(
+                body.get("phrase"), None if speakers is None else [str(n) for n in speakers]
+            )
         except TrainingError as err:
             raise ConfigError(str(err)) from err
         return web.json_response({"ok": True, "job": job.to_json()})
@@ -1464,10 +1492,12 @@ class Api:
         for key, session in self.app.sessions.items():
             if session.writer is None or not session.satellite:
                 continue
+            words = [self.app.wake_words.get(w) for w in self.app.satellite_wake_words(key)]
             satellites.append({
                 "key": key,
                 "name": self.app.satellite(key).name,
                 "enroll": bool(session.hello.get("monitor_aec")),
+                "wake_word": next((w.name for w in words if w is not None), None),
             })
         return web.json_response({
             "enabled": self.app.speakers is not None,
@@ -1477,7 +1507,35 @@ class Api:
             "satellites": sorted(satellites, key=lambda s: s["name"].lower()),
             "passage": PASSAGE,
             "enrollment": self.app.enrollment_status(),
+            "recording": self.app.wake_recording_status(),
+            "wake_words": sorted({w.name for w in self.app.wake_words.scan().values()}),
         })
+
+    async def wake_recording(self, request: web.Request) -> web.Response:
+        return web.json_response({"recording": self.app.wake_recording_status()})
+
+    async def start_wake_recording(self, request: web.Request) -> web.Response:
+        """``{satellite, name, phrase}``: record that speaker saying it there."""
+        body = await request.json()
+        status = await self.app.start_wake_recording(
+            str(body.get("satellite") or ""), str(body.get("name") or ""), body.get("phrase")
+        )
+        return web.json_response({"ok": True, "recording": status})
+
+    async def stop_wake_recording(self, request: web.Request) -> web.Response:
+        return web.json_response({"ok": True, "recording": await self.app.stop_wake_recording()})
+
+    async def wake_take(self, request: web.Request) -> web.StreamResponse:
+        m = request.match_info
+        path = self.app.wake_take_path(m["name"], m["word"], m["take"])
+        if path is None or not path.is_file():
+            raise FileNotFoundError("No such recording")
+        return web.FileResponse(path, headers={"Content-Type": "audio/wav"})
+
+    async def delete_wake_takes(self, request: web.Request) -> web.Response:
+        m = request.match_info
+        gone = self.app.delete_wake_takes(m["name"], m["word"], m.get("take"))
+        return web.json_response({"ok": True, "deleted": gone})
 
     async def enrollment(self, request: web.Request) -> web.Response:
         return web.json_response({"enrollment": self.app.enrollment_status()})

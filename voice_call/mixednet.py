@@ -20,7 +20,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._mixednet_compiler import EXTERNAL_SRC, Compiler
+from ._mixednet_compiler import EXTERNAL_SRC, MN_MAX_POOL, Compiler
 
 MAGIC = b"MNB1"
 FORMAT_VERSION = 1
@@ -52,6 +52,8 @@ class WakeModel:
     sliding_window_size: int
     feature_step_size: int
     is_vad: bool
+    max_pool: bool = False
+    """Pooled (the app's trained words): firmware without the op can't run it."""
 
     @property
     def sha256(self) -> str:
@@ -79,7 +81,10 @@ def _align4(data: bytearray) -> None:
 
 def pack(tflite_path: Path) -> bytes:
     """Lower ``tflite_path`` and serialize it into one relocatable blob."""
-    compiler = Compiler(Path(tflite_path)).run()
+    return _serialize(Compiler(Path(tflite_path)).run())
+
+
+def _serialize(compiler: Compiler) -> bytes:
 
     data = bytearray()
     offsets: dict[int, int] = {}
@@ -171,12 +176,14 @@ def load(tflite_path: Path, manifest_path: Path | None = None) -> WakeModel:
     micro = manifest.get("micro", {})
 
     wake_word = manifest.get("wake_word", tflite_path.stem)
+    compiler = Compiler(tflite_path).run()
     return WakeModel(
         model_id=tflite_path.stem,
         wake_word=wake_word,
-        blob=pack(tflite_path),
+        blob=_serialize(compiler),
         probability_cutoff=float(micro.get("probability_cutoff", 0.85)),
         sliding_window_size=int(micro.get("sliding_window_size", 5)),
         feature_step_size=int(micro.get("feature_step_size", 10)),
         is_vad=wake_word == "vad",
+        max_pool=any(op["type"] == MN_MAX_POOL for op in compiler.ops),
     )

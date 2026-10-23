@@ -1,6 +1,7 @@
 """Speakers, end to end: one enrolled from a satellite while she reads the
-passage aloud (Piper's voices), and her command cut short when someone else
-starts talking after it -- but not when she goes on herself.
+passage aloud (Piper's voices), her wake word recorded there, and her command
+cut short when someone else starts talking after it -- but not when she goes
+on herself.
 
 Needs the models (speech, speaker, Piper's libritts_r voice); skipped without them.
 """
@@ -120,7 +121,7 @@ async def _scenario(tmp_path: Path, piper) -> None:
             # On, with nobody enrolled: the Settings page says so.
             ends = (await api("GET", "status"))[1]["end_of_speech"]
             assert ends["used"]["end_on_other_voice"] is True and ends["voices"] == 0
-            assert data["satellites"] == [{"key": MAC, "name": "Kitchen VPE", "enroll": True}]
+            assert data["satellites"] == [{"key": MAC, "name": "Kitchen VPE", "enroll": True, "wake_word": "Okay Nabu"}]
 
             # Alice reads the passage, near the satellite.
             satellite.room_audio = pcm(*[a for para in PASSAGE.split("\n\n") for a in (say(piper, para, ALICE), 0.6)])
@@ -136,6 +137,33 @@ async def _scenario(tmp_path: Path, piper) -> None:
             (alice,) = data["speakers"]
             assert alice["name"] == "Alice" and alice["seconds"] > 30 and alice["color_name"] == "green"
             assert alice["enrolled"][0]["satellite"] == "Kitchen VPE"
+            satellite.room_audio = None
+
+            # Her wake word, again and again at the satellite (round and round:
+            # the room's audio loops); someone else's in between is not kept.
+            takes = [a for _ in range(3) for a in (say(piper, "Okay Nabu.", ALICE), 0.8)]
+            satellite.room_audio = pcm(0.5, *takes, say(piper, "Okay Nabu.", OTHER), 0.8)
+            status, data = await api("POST", "speakers/recording", {"satellite": MAC, "name": "alice", "phrase": "okay nabu!"})
+            assert status == 200, data
+            recording = data["recording"]
+            assert recording["speaker"] == "Alice" and recording["word"] == "okay_nabu" and recording["model"] == "okay_nabu"
+            assert (await api("POST", "speakers/enrollment", {"satellite": MAC, "name": "bob"}))[0] == 400
+            await wait_for(lambda: app.wake_recording.kept >= 7 and not app.wake_recording.checking, 60)
+            status, data = await api("DELETE", "speakers/recording")
+            assert data["recording"]["state"] == "done" and satellite.monitoring[-1] is False
+            noted = data["recording"]["takes"]
+            assert all(t["kept"] and t["heard"] is not None for t in noted if t["kept"])
+            assert any(not t["kept"] and t["why"] == "Didn't sound like Alice" for t in noted), [(t["score"], t["kept"]) for t in noted]
+            (alice,) = (await api("GET", "speakers"))[1]["speakers"]
+            (word,) = alice["wake"]
+            assert word["word"] == "okay_nabu" and word["phrase"] == "okay nabu" and word["count"] >= 7
+            take = word["takes"][0]
+            async with http.get(f"/api/speakers/Alice/wake/okay_nabu/{take['id']}.wav") as response:
+                assert response.status == 200 and len(await response.read()) > RATE
+            assert (await api("DELETE", f"speakers/Alice/wake/okay_nabu/{take['id']}"))[0] == 200
+            assert (await api("GET", "wake_training"))[1]["recorded"] == {
+                "okay_nabu": {"phrase": "okay nabu", "speakers": {"Alice": word["count"] - 1}}
+            }
             satellite.room_audio = None
 
             # Her command, then someone else: after a pause shorter than the
@@ -191,11 +219,14 @@ async def _scenario(tmp_path: Path, piper) -> None:
             # Renamed, recolored, forgotten.
             status, data = await api("PATCH", "speakers/Alice", {"name": "alicia", "color": "violet"})
             assert status == 200 and data["speaker"]["name"] == "Alicia" and data["speaker"]["color_name"] == "violet"
+            assert data["speaker"]["wake"][0]["count"] == word["count"] - 1  # her takes went with her
             status, data = await api("PATCH", "speakers/Alicia", {"color": "red"})
             assert status == 400 and "No color red" in data["error"]
+            assert any((tmp_path / "wake_recordings").iterdir())
             status, data = await api("DELETE", "speakers/Alicia")
             assert status == 200
             assert (await api("GET", "speakers"))[1]["speakers"] == []
+            assert not any((tmp_path / "wake_recordings").iterdir())
             assert (await api("DELETE", "speakers/Alicia"))[0] == 404
     finally:
         runner.cancel()

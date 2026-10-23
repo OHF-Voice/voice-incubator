@@ -22,20 +22,36 @@ VOICE = ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx"
 MODEL = ROOT / "models/wake/okay_nabu.tflite"
 
 
-def make_kit(directory: Path, backbone: bool = True) -> Path:
+def make_kit(directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "kit.yaml").write_text(textwrap.dedent("""\
         version: 1
-        backbone: base_backbone.weights.h5
         positive: {sampling_weight: 14.0, penalty_weight: 3.0}
         negatives:
         - {name: speech, sampling_weight: 25.0, penalty_weight: 50.0}
         - {name: missing, sampling_weight: 1.0, penalty_weight: 8.0}
     """))
-    if backbone:
-        (directory / "base_backbone.weights.h5").write_bytes(b"weights")
     (directory / "negatives/speech/training/speech_mmap").mkdir(parents=True)
     return directory
+
+
+def make_recordings(directory: Path, count: int) -> list[Path]:
+    """Someone's takes: a second of the test call each (its wake word)."""
+    import wave  # pylint: disable=import-outside-toplevel
+
+    directory.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(ROOT / "tests/okay_nabu_turn_on_the_lights.wav"), "rb") as wav:
+        audio = wav.readframes(wav.getnframes())
+    paths = []
+    for index in range(count):
+        path = directory / f"take{index}.wav"
+        with wave.open(str(path), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            wav.writeframes(audio[index * 3200 : index * 3200 + 32000])
+        paths.append(path)
+    return paths
 
 
 def test_phrases_and_ids():
@@ -54,8 +70,6 @@ def test_the_kit(tmp_path):
     assert [n["name"] for n in kit.negatives] == ["speech"]
     assert kit.negatives[0]["dir"] == str(tmp_path / "kit/negatives/speech")
     assert kit.positive == {"sampling_weight": 14.0, "penalty_weight": 3.0} and kit.rirs is None
-    with pytest.raises(TrainingError, match="backbone"):
-        Kit.load(make_kit(tmp_path / "no-backbone", backbone=False))
     with pytest.raises(TrainingError, match="No training kit"):
         Kit.load(tmp_path / "nothing")
 
@@ -82,6 +96,19 @@ def test_positives(tmp_path, capsys):
     assert training[:, -100:].mean() > training[:, :50].mean()
     reports = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert reports[-1]["finished"] and reports[-1]["training"] == 54
+
+    # Recordings join them one for one, all trained on; and Piper's come out
+    # as they did without them.
+    takes = make_recordings(tmp_path / "takes", 2)
+    assert wake_positives.main([
+        "--phrase", "hey computer", "--voice", str(VOICE), "--out", str(tmp_path / "with"), "--clips", "10",
+        "--slides", "3", "--real", str(takes[0]), "--real", str(tmp_path / "takes"),
+    ]) == 0
+    with_takes = np.load(tmp_path / "with/training.npy")
+    assert with_takes.shape == ((9 + 3) * 2 * 3, 204, 40)
+    assert (with_takes[:54] == training).all()
+    reports = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert reports[0]["recordings"] == 3 and reports[-1]["done"] == 13
 
 
 def test_rooms_and_noise_keep_the_clip():
@@ -110,6 +137,7 @@ if mode == "fail":
 if mode == "slow":
     time.sleep(60)
 assert job["negatives"][0]["name"] == "speech" and job["frames"] == 204 and job["temperature"] == 3.0
+assert job["training_steps"] == [8000] and "backbone" not in job
 assert len(open(job["positives"]["training"], "rb").read()) > 0
 shutil.copyfile({model!r}, job["out"])
 print(json.dumps({{"stage": "done"}}), flush=True)
@@ -137,6 +165,7 @@ def make_training(tmp_path: Path, mode: str = "ok", **kwargs) -> tuple[WakeTrain
     training = WakeTraining(
         tmp_path / "data/wake_training", custom, [tmp_path / "nowhere", make_kit(tmp_path / "kit")], VOICE, "en",
         trainer_python=str(make_trainer(tmp_path, mode)), check_model=check, on_installed=installed.append,
+        exists=lambda word: (custom / f"{word}.json").exists(), retrainable=lambda word: word != "okay_nabu",
         **kwargs,
     )
     training.positive_clips = 4
@@ -159,12 +188,25 @@ def test_a_wake_word_from_its_phrase(tmp_path):
         assert installed == ["hey_tester"]
         saved = json.loads((tmp_path / "wake_words/hey_tester.json").read_text())
         assert saved["wake_word"] == "Hey Tester" and saved["trained"]["clips"] == 4
+        assert saved["trained"]["recordings"] == {}
         assert (tmp_path / "wake_words/hey_tester.tflite").read_bytes() == MODEL.read_bytes()
         # The work is gone; the log and what became of the job stay.
         assert sorted(p.name for p in (tmp_path / "data/wake_training").iterdir()) == ["hey_tester.log", "job.json"]
         assert "Training 'Hey Tester'" in training.log()
         again = WakeTraining(tmp_path / "data/wake_training", None, [], None, "en")
         assert again.job is not None and again.job.state == "done"
+
+        # Again, with someone's recordings: it replaces the one before.
+        takes = make_recordings(tmp_path / "takes", 3)
+        job = await training.start("hey tester", {"Alice": takes, "Bob": []})
+        assert job.again and job.recordings == {"Alice": 3}
+        await asyncio.wait_for(training._task, 120)  # pylint: disable=protected-access
+        assert job.state == "done", job.error
+        saved = json.loads((tmp_path / "wake_words/hey_tester.json").read_text())
+        assert saved["trained"]["recordings"] == {"Alice": 3}
+        assert "With the recordings of Alice (3)" in training.log()
+        assert sorted(p.name for p in (tmp_path / "wake_words").iterdir()) == ["hey_tester.json", "hey_tester.tflite"]
+        assert installed == ["hey_tester", "hey_tester"]
 
     asyncio.run(run())
 
@@ -206,7 +248,7 @@ def test_what_keeps_it_from_training(tmp_path):
         training._trainer_checked = None  # pylint: disable=protected-access
         assert (await training.status())["unavailable"] == "The trainer's Python lacks tensorflow, microwakeword."
         training.exists = lambda word: word == "okay_nabu"
-        with pytest.raises(TrainingError):
+        with pytest.raises(TrainingError, match="wasn.t trained here"):
             await training.start("okay nabu")
 
     asyncio.run(run())
@@ -226,9 +268,8 @@ KIT = ROOT / "models/wake-training"
 @pytest.mark.skipif(not (KIT / "kit.yaml").exists(), reason="no training kit")
 @pytest.mark.skipif(not VOICE.exists(), reason="no Piper voice")
 def test_a_real_model(tmp_path):
-    """The real trainer, briefly: warm-started from the kit's backbone (all but
-    the head load), 100 steps, temperature-scaled, exported -- and the model
-    lowers for the satellite."""
+    """The real trainer, briefly: from scratch, 100 steps, temperature-scaled,
+    exported -- and the model, pooled, lowers for the satellite."""
     pytest.importorskip("pymicro_features")
     for module in ("tensorflow", "microwakeword", "mmap_ninja"):
         pytest.importorskip(module)
@@ -240,10 +281,11 @@ def test_a_real_model(tmp_path):
             check_model=lambda word: None if load_wake_model(custom / f"{word}.tflite", custom / f"{word}.json") else "?",
         )
         training.positive_clips = 20
-        training.training_steps = [20] * 5
-        job = await training.start("hey tester")
+        training.training_steps = [100]
+        job = await training.start("hey tester", {"Alice": make_recordings(tmp_path / "takes", 2)})
         await asyncio.wait_for(training._task, 600)  # pylint: disable=protected-access
         assert job.state == "done", training.log()[-2000:]
-        assert "initialised 33 of 35 tensors" in training.log()
+        model = load_wake_model(custom / "hey_tester.tflite", custom / "hey_tester.json")
+        assert model.max_pool
 
     asyncio.run(run())

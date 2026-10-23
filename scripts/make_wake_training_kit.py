@@ -1,12 +1,10 @@
 """Make the kit the app trains wake words with (voice_call/wake_training.py).
 
-What a new wake word is trained against is the same for every word: the base
-model's backbone to start from, and negatives -- speech, music, noise and
-confusable phrases, as microWakeWord features -- to learn what it is not.
-This puts them in one directory::
+What a new wake word is trained against is the same for every word:
+negatives -- speech, music, noise and confusable phrases, as microWakeWord
+features -- to learn what it is not. This puts them in one directory::
 
     <out>/kit.yaml
-    <out>/base_backbone.weights.h5
     <out>/negatives/<set>/training/<set>_mmap     (--clips of each, at random)
     <out>/negatives/<set>/validation/<set>_mmap   (--validation, when it has some)
     <out>/rirs/*.wav, <out>/background/*.wav       (optional: --rirs, --background)
@@ -17,7 +15,6 @@ the whole 54.5 GB pool, in about 2.9 GB; 1,250 cost about 13
 default, with the pool's two roots, is::
 
     .venv/bin/python scripts/make_wake_training_kit.py --out models/wake-training \\
-        --backbone ~/mww/base/base_backbone.weights.h5 \\
         --features /media/cache/mww-v30/negative_features \\
         --datasets /media/cache/mww-v30/negative_datasets
 
@@ -43,7 +40,7 @@ SCALE = 25.6
 """Float features are the frontend's uint16 output divided by this."""
 
 RECIPE = [
-    # (set, root, sampling weight, penalty weight) -- the warm-start recipe.
+    # (set, root, sampling weight, penalty weight) -- ON_DEVICE_WARM_START.md's.
     ("confusables-qwen", "features", 1.0, 8.0),
     ("edge", "features", 0.25, 8.0),
     *((f"synthetic-negatives-{code}", "features", 1.5, 8.0) for code in ("ca", "de", "en", "es", "fr", "it", "nl")),
@@ -112,7 +109,6 @@ def _copy_wavs(source: Path | None, target: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--backbone", type=Path, required=True, help="base_backbone.weights.h5")
     parser.add_argument("--features", type=Path, help="Root of the negative feature sets (the recipe's)")
     parser.add_argument("--datasets", type=Path, help="Root of the negative datasets (the recipe's)")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=DIR:SAMPLING:PENALTY",
@@ -138,7 +134,6 @@ def main() -> int:
 
     rng = random.Random(args.seed)
     args.out.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(args.backbone, args.out / "base_backbone.weights.h5")
     negatives = []
     for name, directory, sampling, penalty in sets:
         training = _mmaps(directory / "training")
@@ -155,7 +150,6 @@ def main() -> int:
         parser.error("no negative sets were found")
     kit = {
         "version": 1,
-        "backbone": "base_backbone.weights.h5",
         "positive": POSITIVE,
         "negatives": negatives,
     }

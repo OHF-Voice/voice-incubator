@@ -1666,7 +1666,9 @@ async function pageSatellite(key, opened) {
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)", " · ", h("a", { href: "#/wake" }, "change")),
+          h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)",
+            (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordName(wake, s.wake_words_need_firmware[0])} needs newer firmware`) : null,
+            " · ", h("a", { href: "#/wake" }, "change")),
           s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
     h("div", { class: "panel" },
       h("div", { class: "row" },
@@ -2292,19 +2294,45 @@ function wakeWordEditor(word, wake, reload) {
       } }, "Delete") : null));
 }
 
-// Training a wake word from a phrase: the form, or the job running (followed
-// until it ends), and how the last one went.
+// A phrase's wake word id, as the app makes it ("Hey, Computer!" -> hey_computer).
+function wakeWordId(phrase) {
+  return String(phrase || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+// Whose recordings a wake word was trained with: "Alice (12), Bob (10)".
+function recordingsText(recordings) {
+  return Object.entries(recordings || {}).map(([name, n]) => `${name} (${n})`).join(", ");
+}
+
+// Training a wake word from a phrase: the form, with whose recordings of it
+// to train with, or the job running (followed until it ends), and how the
+// last one went.
 function wakeTraining(first, reload) {
   const box = h("div");
   const phrase = h("input", { type: "text", placeholder: "hey computer", style: "max-width:260px", "aria-label": "Wake phrase" });
   const stages = { positives: "Saying it", preparing: "Preparing", training: "Training", converting: "Saving" };
+  const whose = h("div", { class: "row small" });
+  const button = h("button", { class: "primary", onclick: start }, "Train");
+  let ticks = [];
+  function recorded() {
+    const word = wakeWordId(phrase.value);
+    const found = (first.recorded || {})[word];
+    button.textContent = (first.trained || []).includes(word) ? "Train again" : "Train";
+    ticks = found ? Object.entries(found.speakers).map(([name, n]) => ({ name, box: h("input", { type: "checkbox", checked: true }), n })) : [];
+    fill(whose, ticks.length
+      ? ["With the recordings of", ticks.map((t) => h("label", {}, t.box, ` ${t.name} (${t.n})`))]
+      : word.length >= 3 ? h("span", { class: "muted" }, "Nobody has recorded it: ", h("a", { href: "#/speakers" }, "record it on the Speakers page"), " for a model that hears them better.") : null);
+  }
+  phrase.addEventListener("input", recorded);
   let followed = false;
   async function poll() {
     if (!document.body.contains(box)) return;
     try { show(await api("GET", "wake_training")); } catch (err) { toast(err.message); }
   }
   async function start() {
-    try { await api("POST", "wake_training", { phrase: phrase.value }); poll(); }
+    const body = { phrase: phrase.value };
+    if (ticks.length) body.speakers = ticks.filter((t) => t.box.checked).map((t) => t.name);
+    try { await api("POST", "wake_training", body); poll(); }
     catch (err) { toast(err.message); }
   }
   function show(status) {
@@ -2312,9 +2340,10 @@ function wakeTraining(first, reload) {
     if (job && job.state === "running") {
       followed = true;
       const left = job.seconds_left != null ? ` · about ${Math.max(1, Math.round(job.seconds_left / 60))} min left` : "";
+      const recs = Object.keys(job.recordings || {}).length ? ` · with ${recordingsText(job.recordings)}` : "";
       fill(box, h("div", { class: "row" },
         h("div", { class: "grow" },
-          h("div", {}, `${quoted(job.phrase)}: ${stages[job.stage] || job.stage}${left}`),
+          h("div", {}, `${quoted(job.phrase)}: ${stages[job.stage] || job.stage}${left}${recs}`),
           h("progress", { max: 1, value: job.progress, style: "width:100%" })),
         h("button", { onclick: async () => { try { await api("DELETE", "wake_training"); poll(); } catch (err) { toast(err.message); } } }, "Cancel")));
       setTimeout(poll, 2000);
@@ -2322,16 +2351,16 @@ function wakeTraining(first, reload) {
     }
     if (followed && job && job.state === "done") return reload(job.word);
     const last = !job ? null
-      : job.state === "done" ? h("div", { class: "notice ok" }, `Trained ${quoted(job.phrase)}. `, h("a", { href: `#/wake?word=${encodeURIComponent(job.word)}` }, "Tune it"))
+      : job.state === "done" ? h("div", { class: "notice ok" }, `Trained ${quoted(job.phrase)}${Object.keys(job.recordings || {}).length ? ` with the recordings of ${recordingsText(job.recordings)}` : ""}. `, h("a", { href: `#/wake?word=${encodeURIComponent(job.word)}` }, "Tune it"))
       : job.state === "cancelled" ? null
       : h("div", { class: "notice bad" }, `${quoted(job.phrase)}: ${job.error || job.state} `, h("a", { href: "api/wake_training/log", target: "_blank" }, "Log"));
     fill(box, last,
       status.unavailable ? h("div", { class: "muted" }, status.unavailable)
-        : h("div", { class: "row" }, phrase, h("button", { class: "primary", onclick: start }, "Train")));
+        : [h("div", { class: "row" }, phrase, button), whose]);
   }
   show(first);
   return h("div", { class: "panel" },
-    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. It is added unverified, at its own cutoff; try it before relying on it.`),
+    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. Speakers' own recordings of it (the Speakers page) are trained with too, and it hears them better. It is added unverified, at its own cutoff; try it before relying on it. Training a word trained here again replaces it when done.`),
     box);
 }
 
@@ -2372,6 +2401,7 @@ async function pageWakeWords(query) {
             word.custom ? "custom" : "built in",
             word.verified ? `verified, ${word.verifier.confusables.length} confusables` : "not verified",
             `cutoff ${num(word.cutoff)}`,
+            word.trained && Object.keys(word.trained.recordings || {}).length ? `trained with ${recordingsText(word.trained.recordings)}` : null,
             users.length ? `on ${users.map((s) => s.name).join(", ")}` : null,
           ].filter(Boolean).join(" · "))),
         word.id === wake.preferred ? h("span", { class: "badge accent" }, "preferred") : null,
@@ -2415,7 +2445,8 @@ async function pageWakeWords(query) {
       h("div", { class: "kv", style: "align-items:center" }, satRows.flatMap(({ s, select }) => [
         h("div", {}, s.name, s.connected ? null : h("span", { class: "muted small" }, " (offline)")),
         h("div", { class: "row" }, select,
-          s.connected && (s.wake_words_used || []).length ? h("span", { class: "muted small" }, `listening for ${wakeWordName(wake, s.wake_words_used[0])}`) : null)])),
+          s.connected && (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordName(wake, s.wake_words_need_firmware[0])} needs newer firmware`)
+            : s.connected && (s.wake_words_used || []).length ? h("span", { class: "muted small" }, `listening for ${wakeWordName(wake, s.wake_words_used[0])}`) : null)])),
       h("div", { class: "row", style: "margin-top:10px" }, h("button", { class: "primary", onclick: async () => {
         try {
           for (const { s, select } of satRows) {
@@ -2475,9 +2506,10 @@ function wakeTitle(wake) {
   return wake && wake.probability !== undefined ? `window average ${prob(wake.probability)}, highest ${prob(wake.max_probability)}, cutoff ${prob(wake.cutoff)}` : null;
 }
 
-// Speakers: the voices commands are attributed to, and enrolling one from
-// a satellite (they read the passage aloud while it listens).
-async function pageSpeakers(preset) {
+// Speakers: the voices commands are attributed to, enrolling one from a
+// satellite (they read the passage aloud while it listens), and their own
+// wake words, recorded there for training.
+async function pageSpeakers(preset, recordFor) {
   const data = await api("GET", "speakers");
   if (!data.enabled) {
     fill($main, h("h1", {}, "Speakers"), h("div", { class: "panel muted" }, "Speaker identification is turned off (--no-speaker-id)."));
@@ -2505,6 +2537,7 @@ async function pageSpeakers(preset) {
         ].filter(Boolean).join(" · "))),
       color,
       h("button", { onclick: () => pageSpeakers(sp.name) }, "Add more"),
+      h("button", { onclick: () => pageSpeakers(null, sp.name) }, "Wake word"),
       h("button", { onclick: async () => {
         const name = prompt(`Rename ${sp.name} to`, sp.name);
         if (!name || name === sp.name) return;
@@ -2516,13 +2549,118 @@ async function pageSpeakers(preset) {
         try { await api("DELETE", `speakers/${encodeURIComponent(sp.name)}`); pageSpeakers(); }
         catch (err) { toast(err.message); }
       } }, "Delete")));
+    if ((sp.wake || []).length) list.append(h("div", { class: "wake-takes" }, sp.wake.map((w) => wakeTakes(sp, w))));
   }
   fill($main,
     h("h1", {}, "Speakers"),
     h("div", { class: "panel" },
       heading("h2", "Voices", `A command is attributed to the closest voice scoring ${num(data.threshold, 2)} or more, and the ring takes their color. Once someone is identified, someone else starting to talk ends their command (Settings, End of speech). Voices also learn from commands they clearly win.`),
       data.speakers.length ? list : h("div", { class: "muted" }, "No voices yet: enroll one below, or add a session's from its page.")),
-    enrollPanel(data, preset));
+    enrollPanel(data, preset),
+    data.speakers.length ? wakeRecordPanel(data, recordFor) : null);
+  if (recordFor) $main.lastChild.scrollIntoView({ block: "start" });
+}
+
+// One speaker's takes of a wake word: how many, whether the satellite heard
+// them, each to play or delete.
+function wakeTakes(sp, w) {
+  const base = `speakers/${encodeURIComponent(sp.name)}/wake/${encodeURIComponent(w.word)}`;
+  const remove = async (take) => {
+    if (!take && !confirm(`Delete ${sp.name}'s ${w.count} recordings of ${quoted(w.phrase)}?`)) return;
+    try { await api("DELETE", take ? `${base}/${take.id}` : base); pageSpeakers(); }
+    catch (err) { toast(err.message); }
+  };
+  const heard = w.checked ? ` · the satellite heard ${w.heard} of ${w.checked}` : "";
+  return h("details", { class: "small" },
+    h("summary", {}, `${quoted(w.phrase)}: ${w.count} recording${w.count === 1 ? "" : "s"}${heard}`),
+    w.takes.slice().reverse().map((t) => h("div", { class: "row" },
+      h("audio", { controls: true, preload: "none", src: `api/${base}/${t.id}.wav`, style: "height:32px; max-width:260px" }),
+      h("span", { class: "grow muted" }, [
+        `${num(t.seconds, 1)} s`, t.satellite, t.heard === true ? "heard" : t.heard === false ? "not heard" : null,
+        new Date(t.at * 1000).toLocaleDateString(),
+      ].filter(Boolean).join(" · ")),
+      h("button", { class: "danger", "aria-label": "Delete this recording", onclick: () => remove(t) }, "Delete"))),
+    h("div", { class: "row" }, h("button", { class: "danger", onclick: () => remove(null) }, "Delete all")));
+}
+
+// Recording someone saying a wake phrase at a satellite, again and again:
+// each take kept (or why not) as it comes.
+function wakeRecordPanel(data, preset) {
+  const box = h("div");
+  const speaker = h("select", { style: "max-width:220px", "aria-label": "Whose" },
+    data.speakers.map((sp) => h("option", { value: sp.name, selected: sp.name === preset || null }, sp.name)));
+  const usable = data.satellites.filter((s) => s.enroll);
+  const satellite = h("select", { style: "max-width:260px", "aria-label": "Satellite" },
+    data.satellites.map((s) => h("option", { value: s.key, disabled: !s.enroll || null }, s.enroll ? s.name : `${s.name} (update its firmware)`)));
+  if (usable.length) satellite.value = usable[0].key;
+  const words = h("datalist", { id: "wake-phrases" }, data.wake_words.map((w) => h("option", { value: w })));
+  const phrase = h("input", { type: "text", list: "wake-phrases", style: "max-width:220px", "aria-label": "Wake phrase" });
+  let typed = false;
+  const follow = () => { if (!typed) phrase.value = (data.satellites.find((s) => s.key === satellite.value) || {}).wake_word || ""; };
+  phrase.addEventListener("input", () => { typed = true; });
+  satellite.addEventListener("change", follow);
+  follow();
+  let timer = null;
+  const stop = () => { if (timer) clearTimeout(timer); timer = null; };
+  state.leaving.push(stop);
+
+  async function refresh() {
+    timer = null;
+    if (!document.body.contains(box)) return;
+    try { show((await api("GET", "speakers/recording")).recording); } catch (err) { toast(err.message); }
+  }
+  async function start() {
+    try { show((await api("POST", "speakers/recording", { satellite: satellite.value, name: speaker.value, phrase: phrase.value })).recording); }
+    catch (err) { toast(err.message); }
+  }
+  async function finish() {
+    try { await api("DELETE", "speakers/recording"); pageSpeakers(null, speaker.value); } catch (err) { toast(err.message); }
+  }
+  let view = null;
+  function listening(r) {
+    if (!view) {
+      view = {
+        text: h("div"),
+        progress: h("progress", { max: r.good, style: "width:100%" }),
+        meter: h("meter", { min: -70, max: -10, low: -50, high: -20, optimum: -30, style: "width:100%", "aria-label": "Level" }),
+        takes: h("div", { class: "small" }),
+      };
+      fill(box,
+        h("div", { class: "row" },
+          h("div", { class: "grow" }, view.text, view.progress, view.meter),
+          h("button", { class: "primary", onclick: finish }, "Done")),
+        h("div", { class: "passage" }, h("p", {}, `Say ${quoted(r.phrase)}, then pause. Again and again.`)),
+        view.takes);
+    }
+    const heard = r.heard !== null ? ` · the satellite heard ${r.heard}` : "";
+    view.text.textContent = `${r.speaker} on ${r.satellite_name}: ${r.kept} kept${r.kept >= r.target ? (r.kept >= r.good ? " (plenty)" : ` (enough; ${r.good} is better)`) : ` of ${r.target}`}${heard}${r.checking ? " · checking…" : ""}`;
+    view.progress.value = Math.min(r.kept, r.good);
+    view.meter.value = Math.max(-70, Math.min(-10, r.level === null ? -90 : r.level));
+    view.meter.title = `Level ${num(r.level, 0)} dBFS`;
+    fill(view.takes, r.takes.map((t) => h("div", { class: t.kept ? "" : "muted" },
+      t.kept ? "✓ " : "✗ ",
+      [t.why, `${num(t.seconds, 1)} s`, t.heard === true ? "heard" : t.heard === false ? "not heard" : null].filter(Boolean).join(" · "))));
+  }
+  function show(r) {
+    stop();
+    if (r && r.state === "listening") {
+      listening(r);
+      timer = setTimeout(refresh, 500);
+      return;
+    }
+    view = null;
+    const last = !r ? null
+      : r.state === "failed" ? h("div", { class: "notice bad" }, `${r.speaker}: ${r.error || "failed"}`)
+      : null;
+    fill(box, last,
+      usable.length
+        ? h("div", { class: "row" }, words, speaker, satellite, phrase, h("button", { class: "primary", onclick: start }, "Start"))
+        : h("div", { class: "muted" }, data.satellites.length ? "Update a satellite's firmware to record from it." : "No satellite is connected."));
+  }
+  show(data.recording);
+  return h("div", { class: "panel" },
+    heading("h2", "Record a wake word", "Say the wake phrase at the satellite ten times or more, pausing between, the way and from where you usually say it. The ring blinks red while it listens, and the phrase starts no command. A wake word trained with someone's recordings hears them better: in micro-wake-word's tests ten took them from about 62% of their wake words to 90%, twenty-five to 96%, and did little for anyone else. Train it on the Wake words page."),
+    box);
 }
 
 function enrollPanel(data, preset) {

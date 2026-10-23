@@ -203,7 +203,8 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
 | `voice_call/wake.py` | Kaldi wake verification and split point |
 | `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
-| `voice_call/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
+| `voice_call/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), with speakers' recordings of it, `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
+| `voice_call/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
 | `voice_call/endpoint.py` | endpointing: Silero VAD or microVAD, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
@@ -243,7 +244,7 @@ so do meaning and the model step among a command's versions and copies
 | `scripts/synth_wake_words.py` | wake words and near misses spoken by every Piper English voice, in rooms and noise |
 | `scripts/bench_wake_words.py` | a wake word through both stages on labeled clips, at several cutoffs; sweeps thresholds afterwards |
 | `scripts/check_wake_words.py` | whether custom wake words lower for the device, match TFLite and hear their own phrase |
-| `scripts/make_wake_training_kit.py` | the kit wake words are trained with: the base backbone and 5,000 random spectrograms of each negative set |
+| `scripts/make_wake_training_kit.py` | the kit wake words are trained with: 5,000 random spectrograms of each negative set |
 | `tests/alignments/` | wake word spans and word boundaries, one JSONL per session |
 | `tests/corpus_corrections.csv` | what was actually said, where it differs from the prompt list |
 | `corpus/positives/` | 32 VPE captures of in-vocabulary commands, for threshold work |
@@ -443,6 +444,12 @@ offsets into a trailing data section:
 MNB1 | header | buffers[] | ops[] | shifts[] | sigmoid LUT | weights/bias/mult/shift
 ```
 
+The ops are mixednet-executor's: ring push, dense, depthwise, copy, and max
+pool -- the last for a word trained here, whose last layer is max-pooled
+(below). Firmware whose executor has it says `max_pool` in `HELLO`; older
+firmware refuses such a model, so the app doesn't send it, and the Wake words
+page says the satellite needs newer firmware.
+
 The device copies the small tables out and points the op weights straight into
 the received buffer, so the ~45 kB that matter are never duplicated. Detection
 settings travel with it as JSON, read from the model's microWakeWord manifest:
@@ -630,6 +637,56 @@ The V7 models are three times the size of the older ones (94,772 B against
 33,876 B). A Voice PE took two of them, a V1 model and "okay nabu" at once.
 The manifests' cutoffs run from 0.02 to 1.0; 415 are 0.97.
 
+### Training a wake word
+
+On the Wake words page, a typed phrase becomes a custom word
+(`voice_call/wake_training.py`): Piper's `en_US-libritts_r-medium` (2,306
+speakers) says it 2,000 ways, each in a room with noise behind it, joined by
+the recordings of whichever speakers are ticked (Speakers page, above), and a
+model learns it against the kit's negatives (`scripts/make_wake_training_kit.py`:
+5,000 random spectrograms of each set). A word trained here can be trained
+again, with more recordings say: the new model replaces it when done, its
+tuned cutoff goes (its verifier stays), and satellites listening for it get it.
+
+The recipe is micro-wake-word's `notebooks/POOLING_AND_PERSONALIZATION.md`:
+the base model's 4-block MixedNet with its last layer's 17 positions
+max-pooled in fours (the head reads 4 x 64 features, not 17 x 64 tied to
+positions; 25,217 parameters), trained from scratch for 8,000 steps at a
+constant 5e-4, the head divided by 3 before conversion. There it beat the
+Flatten model at 8,000 steps (45.1% against 38.6% at 1 false wake an hour)
+and its 100,000. It replaces a warm start from the 54-word base model, which
+on a word that base never saw cost 21 points at 8,000 steps.
+
+What a speaker's own recordings do, on okay_nabu's real far-field utterances
+(office-multicap: 3,264, Mike and three others at four VPE positions) at the
+cutoff where 156 h of household audio gives one false wake an hour, by the
+firmware's rule (n=3 unless noted):
+
+| model | Mike (held out) | the other three |
+|---|---|---|
+| shipped okay_nabu | 93.6% | 67.4% |
+| trained here, warm start (before) | 5.2% | 2.6% |
+| trained here, pooled | 12.6% (5-25) | 2.2% (0-5) |
+| ... and 10 of Mike's recordings | 48.9% (14-72) | 5.8% (2-13) |
+| ... and 25 | 77.5% (56-91) | 6.2% (3-10) |
+
+The recordings were his from one VPE position (the others' utterances span
+four), cut at the wake phrase. A word trained here is far below the shipped
+model across the room: Piper's clips are not far-field speech. Recorded rooms
+and background in place of the kit's synthetic ones (270 MIT impulse
+responses, 1,370 AudioSet and FMA clips, as micro-wake-word's runs had) did no
+better -- 8.7% for Mike without his recordings, 62.3% with ten, 2.4% for the
+others -- and neither did prepare_finetune's weights (negatives x20 in the
+loss, positives sampled 2 to their 30).
+
+Recordings buy the speaker who made them and almost nobody else, as in
+micro-wake-word's own measurements (62% -> 90% -> 96% for Mike with 0, 10 and
+25). Whether ten from each of four people do as much for each of them as ten
+of one person's do for that person is being measured there.
+
+A model trained here needs firmware whose executor runs max pooling (Wake
+word models, above).
+
 ### No VAD gate
 
 microWakeWord's VAD model used to gate the wake words (a detection needed the
@@ -793,6 +850,21 @@ speaker, and so can recordings on the command line (below). The Speakers page
 renames, recolors and forgets them. Colors come from a fixed list of hues that
 stay distinct on the ring, skipping red (error) and the default cyan (nobody
 recognized).
+
+**Their wake words.** Also on the Speakers page, an enrolled speaker says a
+wake phrase at a satellite, pausing between, ten times or more
+(`voice_call/wake_recordings.py`). The satellite streams as for enrolling,
+and while monitored a wake word starts no command. Silero cuts the stream into
+utterances; one with 0.4-2.5 s of speech is a take, kept when it scores 0.35
+or more against the speaker's voice and no other voice scores higher (Piper's
+speakers score about 0.65 against their own, 0.25 against another's) -- a
+stricter bar than "someone else talking" below, since a take refused only
+costs another. Whether the satellite's own model of the phrase heard each take
+(its `WAKE_REPORT`s) is noted: how well the word does for them before
+training. Takes are WAVs in `wake_recordings/` beside `speakers.json`, listed
+in the profile under `wake` by the word's id (60 at most per word), so they
+follow a rename and go with a delete; the page plays and deletes them one by
+one. Training a wake word (below) uses the recordings of whoever is ticked.
 
 **Someone else talking.** Once a command is a second long, its speaker is
 identified from it and the wake word, and from then on its last second is

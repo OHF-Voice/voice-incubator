@@ -259,6 +259,22 @@ async def _per_satellite(tmp_path: Path) -> None:
             async with http.delete(f"{base}/wake_words/hey_tater") as response:
                 assert response.status == 200
             assert "hey_tater" not in app.store.wake_tuning and not app.wake.knows("hey_tater")
+
+            # A word trained here pools its last layer (tests/fixtures/pooled.tflite,
+            # "okay nabu" as the app trains it): firmware that doesn't say it
+            # runs that is not given it.
+            shutil.copy(ROOT / "tests/fixtures/pooled.tflite", tmp_path / "wake_words/hey_pooled.tflite")
+            manifest = {"type": "micro", "wake_word": "Hey Pooled", "model": "hey_pooled.tflite", "micro": {"probability_cutoff": 0.8}}
+            (tmp_path / "wake_words/hey_pooled.json").write_text(json.dumps(manifest))
+            async with http.get(f"{base}/wake_words") as response:
+                pooled = next(w for w in (await response.json())["wake_words"] if w["id"] == "hey_pooled")
+            assert pooled["runs"] and pooled["pooled"]
+            async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": ["hey_pooled"]}) as response:
+                assert response.status == 200
+            session = app.sessions[MAC]
+            assert app._wake_models_for(session) == []  # pylint: disable=protected-access
+            session.hello["max_pool"] = True
+            assert [m.model_id for m in app._wake_models_for(session)] == ["hey_pooled"]  # pylint: disable=protected-access
     finally:
         runner.cancel()
         await app.stop()

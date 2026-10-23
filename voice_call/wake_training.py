@@ -10,16 +10,21 @@ Raspberry Pi 5, and about 2 GB):
    ``POSITIVE_CLIPS`` ways, each given a room and noise, made into the
    features the satellite computes.
 2. **Model** (voice_call/wake_trainer.py, a Python with TensorFlow and
-   microWakeWord): warm-started from the base model's backbone, trained
-   against the kit's negatives, temperature-scaled and exported as the
-   quantized streaming model the satellite runs.
+   microWakeWord): trained from scratch against the kit's negatives,
+   temperature-scaled and exported as the quantized streaming model the
+   satellite runs.
+
+The speakers' own recordings of the phrase (voice_call/wake_recordings.py),
+of whoever is ticked, join Piper's clips: a model that hears them better.
 
 The model and its manifest then go in the custom wake word directory, like an
-uploaded one: unverified, at ``CUTOFF``, until given confusables.
+uploaded one: unverified, at ``CUTOFF``, until given confusables. A word
+trained here can be trained again (with more recordings, say): the new model
+replaces it when it is done.
 
 What training needs besides the phrase is the **kit** (made by
-scripts/make_wake_training_kit.py): the backbone and the negative pool, in a
-directory with a ``kit.yaml``. How well a word does is not known before it is
+scripts/make_wake_training_kit.py): the negative pool, in a directory with a
+``kit.yaml``. How well a word does is not known before it is
 tried: the recipe's reference is about 60% of wake words at one false wake an
 hour (on "hey mycroft", one of the base model's own words), and one run can
 differ from the next by 6-11 points.
@@ -49,8 +54,9 @@ _LOGGER = logging.getLogger(__name__)
 
 POSITIVE_CLIPS = 2000
 """Piper clips of the phrase; a tenth are held out for validation."""
-TRAINING_STEPS = [2000] * 5
-LEARNING_RATES = [1e-3, 5e-4, 2.5e-4, 1e-4, 5e-5]
+TRAINING_STEPS = [8000]
+LEARNING_RATES = [5e-4]
+"""Where the pooled model peaks at a constant rate: 16,000 steps do worse."""
 BATCH_SIZE = 128
 TEMPERATURE = 3.0
 """The head is divided by it before conversion (any T >= 2 does)."""
@@ -87,10 +93,9 @@ class TrainingError(Exception):
 
 @dataclass
 class Kit:
-    """The backbone and negatives every wake word is trained with."""
+    """The negatives every wake word is trained with."""
 
     directory: Path
-    backbone: Path
     positive: dict[str, float]
     negatives: list[dict[str, Any]]
     rirs: Path | None = None
@@ -105,9 +110,6 @@ class Kit:
             raise TrainingError(f"No training kit in {directory}") from err
         except yaml.YAMLError as err:
             raise TrainingError(f"{path}: {err}") from err
-        backbone = directory / str(spec.get("backbone") or "base_backbone.weights.h5")
-        if not backbone.is_file():
-            raise TrainingError(f"The training kit has no backbone ({backbone.name})")
         negatives = []
         for entry in spec.get("negatives") or []:
             where = directory / "negatives" / str(entry["name"])
@@ -122,7 +124,6 @@ class Kit:
 
         return cls(
             directory=directory,
-            backbone=backbone,
             positive={"sampling_weight": 14.0, "penalty_weight": 3.0, **(spec.get("positive") or {})},
             negatives=negatives,
             rirs=optional("rirs"),
@@ -175,6 +176,10 @@ class Job:
     started: float = field(default_factory=time.time)
     finished: float | None = None
     error: str | None = None
+    recordings: dict[str, int] = field(default_factory=dict)
+    """Whose recordings it is trained with, and how many."""
+    again: bool = False
+    """It replaces a word trained here before."""
 
     @property
     def progress(self) -> float:
@@ -186,7 +191,7 @@ class Job:
         out = {
             "id": self.id, "phrase": self.phrase, "word": self.word, "state": self.state, "stage": self.stage,
             "done": self.done, "total": self.total, "started": self.started, "finished": self.finished,
-            "error": self.error, "progress": self.progress,
+            "error": self.error, "progress": self.progress, "recordings": self.recordings, "again": self.again,
         }
         if self.state == "running" and 0.02 < self.progress < 1.0:
             elapsed = time.time() - self.started
@@ -209,6 +214,7 @@ class WakeTraining:
         check_model: Callable[[str], str | None] | None = None,
         on_installed: Callable[[str], Awaitable[None] | None] | None = None,
         exists: Callable[[str], bool] | None = None,
+        retrainable: Callable[[str], bool] | None = None,
     ) -> None:
         self.work_dir = Path(work_dir)
         self.custom_dir = custom_dir
@@ -222,12 +228,15 @@ class WakeTraining:
         self.on_installed = on_installed
         self.exists = exists or (lambda _word: False)
         """Whether a wake word of that id is there already."""
+        self.retrainable = retrainable or (lambda _word: False)
+        """Whether it is one trained here, which may be trained again."""
         self.positive_clips = POSITIVE_CLIPS
         self.training_steps = list(TRAINING_STEPS)
         self.job: Job | None = self._load_job()
         self._task: asyncio.Task | None = None
         self._process: asyncio.subprocess.Process | None = None
         self._trainer_checked: tuple[float, str | None] | None = None
+        self._recordings: dict[str, list[Path]] = {}
 
     # -------------------------------------------------------------- state
 
@@ -334,7 +343,8 @@ class WakeTraining:
 
     # ---------------------------------------------------------------- run
 
-    async def start(self, text: Any) -> Job:
+    async def start(self, text: Any, recordings: dict[str, list[Path]] | None = None) -> Job:
+        """Train ``text``'s wake word, with ``recordings`` of it (by speaker)."""
         phrase = phrase_of(text)
         word = word_id(phrase)
         if self.running:
@@ -343,12 +353,17 @@ class WakeTraining:
             raise TrainingError("Type the wake phrase.")
         if len(phrase) > 40:
             raise TrainingError("That's too long for a wake word.")
-        if self.exists(word):
-            raise TrainingError(f"There is a wake word {word} already: delete it first.")
+        again = self.exists(word)
+        if again and not self.retrainable(word):
+            raise TrainingError(f"There is a wake word {word} already that wasn't trained here.")
         why = await self.unavailable()
         if why:
             raise TrainingError(why)
-        self.job = Job(id=uuid.uuid4().hex[:12], phrase=phrase, word=word)
+        self._recordings = {name: list(paths) for name, paths in (recordings or {}).items() if paths}
+        self.job = Job(
+            id=uuid.uuid4().hex[:12], phrase=phrase, word=word, again=again,
+            recordings={name: len(paths) for name, paths in self._recordings.items()},
+        )
         self._save_job()
         self._task = asyncio.ensure_future(self._run(self.job))
         return self.job
@@ -379,8 +394,15 @@ class WakeTraining:
             kit = self.kit()
             assert self.voice is not None and self.custom_dir is not None
             work.mkdir(parents=True, exist_ok=True)
+            recorded = work / "recordings"
+            recorded.mkdir()
+            for name, paths in self._recordings.items():
+                for index, path in enumerate(paths):
+                    shutil.copyfile(path, recorded / f"{word_id(name)}_{index:03d}.wav")
             with log.open("w", encoding="utf-8") as log_file:
                 log_file.write(f"Training {job.phrase!r} as {job.word} with the kit in {kit.directory}\n")
+                if job.recordings:
+                    log_file.write("With the recordings of " + ", ".join(f"{n} ({c})" for n, c in job.recordings.items()) + "\n")
                 log_file.flush()
                 await self._step(job, log_file, [
                     sys.executable, "-m", "voice_call.wake_positives",
@@ -388,6 +410,7 @@ class WakeTraining:
                     "--clips", str(self.positive_clips), "--frames", str(FRAMES),
                     *(["--rirs", str(kit.rirs)] if kit.rirs else []),
                     *(["--background", str(kit.background)] if kit.background else []),
+                    *(["--real", str(recorded)] if job.recordings else []),
                 ])
                 tflite = work / f"{job.word}.tflite"
                 (work / "job.json").write_text(json.dumps({
@@ -395,7 +418,6 @@ class WakeTraining:
                     "positives": {s: str(work / "features" / f"{s}.npy") for s in ("training", "validation")},
                     "positive": kit.positive,
                     "negatives": kit.negatives,
-                    "backbone": str(kit.backbone),
                     "batch_size": BATCH_SIZE,
                     "training_steps": self.training_steps,
                     "learning_rates": LEARNING_RATES[: len(self.training_steps)],
@@ -468,17 +490,27 @@ class WakeTraining:
             raise TrainingError(error or f"Training stopped ({'killed: out of memory?' if code == -9 else f'exit {code}'}); see {log_file.name}")
 
     def _install(self, job: Job, tflite: Path) -> None:
-        """Into the custom wake words, as an upload would be; removed again if
-        the satellite can't run it."""
+        """Into the custom wake words, as an upload would be, in place of the
+        one trained before; that one back if the satellite can't run it."""
         assert self.custom_dir is not None
         self.custom_dir.mkdir(parents=True, exist_ok=True)
         model = self.custom_dir / f"{job.word}.tflite"
         manifest_path = self.custom_dir / f"{job.word}.json"
+        kept = [(path, path.with_name(path.name + ".before")) for path in (model, manifest_path) if path.exists()]
+        for path, before in kept:
+            path.replace(before)
         shutil.copyfile(tflite, model)
-        extra = {"clips": self.positive_clips, "steps": sum(self.training_steps), "temperature": TEMPERATURE}
+        extra = {
+            "clips": self.positive_clips, "steps": sum(self.training_steps), "temperature": TEMPERATURE,
+            "recordings": job.recordings,
+        }
         manifest_path.write_text(json.dumps(manifest(job.phrase, job.word, self.language, extra), indent=2), "utf-8")
         error = self.check_model(job.word)
         if error:
             model.unlink(missing_ok=True)
             manifest_path.unlink(missing_ok=True)
+            for path, before in kept:
+                before.replace(path)
             raise TrainingError(f"The trained model can't run on the satellite: {error}")
+        for _, before in kept:
+            before.unlink(missing_ok=True)

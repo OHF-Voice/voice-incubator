@@ -15,6 +15,12 @@ microWakeWord's own Augmentation does. Its features are the micro frontend's,
 as the device makes them, and only the frames the model looks at are kept:
 ``frames`` at the end, ``slides`` times, each ending one frame earlier.
 
+Recordings of the phrase (``--real``: the speakers' own, from a satellite)
+join Piper's clips one for one and are made into features the same way. Ten
+of a speaker's take the detector from about 62% of their wake words to 90%,
+and do little for anyone else's (POOLING_AND_PERSONALIZATION.md); they are
+all trained on, none held out.
+
 Writes ``training.npy`` and ``validation.npy`` (uint16, ``(n, frames, 40)``,
 as microWakeWord stores unscaled features) and prints its progress as JSON
 lines.
@@ -76,6 +82,17 @@ def _wavs(directory: Path | None) -> list[Path]:
     if directory is None or not directory.is_dir():
         return []
     return sorted(directory.rglob("*.wav"))
+
+
+def recordings(paths: list[Path]) -> list[np.ndarray]:
+    """The usable recordings among ``paths`` (.wav files, or directories of them)."""
+    found = []
+    for path in paths:
+        for wav in _wavs(path) if path.is_dir() else [path]:
+            audio = _read_wav(wav)
+            if audio is not None and MIN_SECONDS <= audio.size / RATE <= MAX_SECONDS:
+                found.append(audio)
+    return found
 
 
 def synthetic_room(rng: np.random.Generator) -> np.ndarray:
@@ -187,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--validation", type=float, default=0.1, help="Share of clips held out")
     parser.add_argument("--rirs", type=Path, help="Room impulse responses (.wav), else synthetic rooms")
     parser.add_argument("--background", type=Path, help="Background recordings (.wav), else colored noise")
+    parser.add_argument("--real", type=Path, action="append", default=[],
+                        help="Recordings of the phrase (.wav, or a directory of them): trained on beside Piper's")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args(argv)
 
@@ -203,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     pick = random.Random(args.seed)
     augment = Augmenter(rng, _wavs(args.rirs), _wavs(args.background))
     written = variants(args.phrase)
+    real = recordings(args.real)
     held_out = max(1, round(args.clips * args.validation))
     samples = int(RATE * CLIP_SECONDS)
     if (samples - 480) // FRAME_SAMPLES + 1 < args.frames + args.slides - 1:
@@ -211,14 +231,33 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     training = np.lib.format.open_memmap(
         args.out / "training.npy.part", mode="w+", dtype=np.uint16,
-        shape=((args.clips - held_out) * args.repeats * args.slides, args.frames, FEATURES),
+        shape=((args.clips - held_out + len(real)) * args.repeats * args.slides, args.frames, FEATURES),
     )
     validation = np.lib.format.open_memmap(
         args.out / "validation.npy.part", mode="w+", dtype=np.uint16, shape=(held_out, args.frames, FEATURES),
     )
     counts = {"training": 0, "validation": 0}
+
+    def add(audio: np.ndarray, held: bool) -> None:
+        for _ in range(1 if held else args.repeats):
+            # The detector fires just after the phrase: a little silence after
+            # it, then the clip at the end of CLIP_SECONDS.
+            after = np.zeros(int(RATE * pick.uniform(0.05, 0.25)), dtype=np.float32)
+            clip = np.concatenate([audio, after])[-samples:]
+            clip = np.concatenate([np.zeros(samples - clip.size, dtype=np.float32), clip])
+            spectrogram = features(augment(clip))
+            if held:
+                validation[counts["validation"]] = spectrogram[-args.frames :]
+                counts["validation"] += 1
+                continue
+            for slide in range(args.slides):
+                end = spectrogram.shape[0] - slide
+                training[counts["training"]] = spectrogram[end - args.frames : end]
+                counts["training"] += 1
+
+    total = args.clips + len(real)
+    report(stage="positives", done=0, total=total, speakers=speakers, recordings=len(real))
     made = attempts = 0
-    report(stage="positives", done=0, total=args.clips, speakers=speakers)
     while made < args.clips:
         attempts += 1
         if attempts > args.clips * 3:
@@ -237,31 +276,19 @@ def main(argv: list[str] | None = None) -> int:
         seconds = audio.size / RATE
         if not MIN_SECONDS <= seconds <= MAX_SECONDS or float(np.sqrt(np.mean(audio**2))) < MIN_RMS:
             continue
-        held = made < held_out
-        for _ in range(1 if held else args.repeats):
-            # The detector fires just after the phrase: a little silence after
-            # it, then the clip at the end of CLIP_SECONDS.
-            after = np.zeros(int(RATE * pick.uniform(0.05, 0.25)), dtype=np.float32)
-            clip = np.concatenate([audio, after])[-samples:]
-            clip = np.concatenate([np.zeros(samples - clip.size, dtype=np.float32), clip])
-            spectrogram = features(augment(clip))
-            if held:
-                validation[counts["validation"]] = spectrogram[-args.frames :]
-                counts["validation"] += 1
-                continue
-            for slide in range(args.slides):
-                end = spectrogram.shape[0] - slide
-                training[counts["training"]] = spectrogram[end - args.frames : end]
-                counts["training"] += 1
+        add(audio, held=made < held_out)
         made += 1
         if made % 20 == 0 or made == args.clips:
-            report(stage="positives", done=made, total=args.clips)
+            report(stage="positives", done=made, total=total)
+    # After Piper's, so that with or without them Piper's clips come out the same.
+    for audio in real:
+        add(audio, held=False)
     training.flush()
     validation.flush()
     del training, validation
     (args.out / "training.npy.part").replace(args.out / "training.npy")
     (args.out / "validation.npy.part").replace(args.out / "validation.npy")
-    report(stage="positives", done=made, total=args.clips, finished=True, **counts)
+    report(stage="positives", done=total, total=total, finished=True, **counts)
     return 0
 
 

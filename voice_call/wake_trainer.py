@@ -7,12 +7,14 @@ imports -- with a job file the app wrote::
 
     python voice_call/wake_trainer.py job.json
 
-The recipe (micro-wake-word's notebooks/ON_DEVICE_WARM_START.md): the MixedNet
-of the 54-word base model, every layer initialised from its backbone (its
-head is new) and trainable, 10,000 steps down a learning-rate ladder. Then the
-head's kernel and bias are divided by ``temperature`` before conversion:
-straight out of the converter, most positives pin at the top uint8 level and
-no cutoff can be placed; sigmoid(z / T) ranks the same and spreads them out.
+The recipe (micro-wake-word's notebooks/POOLING_AND_PERSONALIZATION.md): the
+base model's MixedNet with its last layer's 17 positions max-pooled in fours
+(the head reads 4 x 64, not 17 x 64 position-tied features), trained from
+scratch -- a base backbone does not help a word it never saw -- for 8,000
+steps at a constant learning rate. Then the head's kernel and bias are
+divided by ``temperature`` before conversion: straight out of the converter,
+most positives pin at the top uint8 level and no cutoff can be placed;
+sigmoid(z / T) ranks the same and spreads them out.
 
 Progress goes to stdout as JSON lines, everything else (TensorFlow's chatter,
 microWakeWord's log) to stderr.
@@ -28,7 +30,8 @@ import time
 from pathlib import Path
 
 ARCHITECTURE = [
-    # The base backbone's (26,049 parameters): anything else does not load.
+    # The base model's backbone (24,960 parameters), windowed max pooling and
+    # a head of 257.
     "--pointwise_filters", "64,64,64,64",
     "--repeat_in_block", "1,1,1,1",
     "--mixconv_kernel_sizes", "[5],[7,11],[9,15],[23]",
@@ -36,6 +39,7 @@ ARCHITECTURE = [
     "--first_conv_filters", "32",
     "--first_conv_kernel_size", "5",
     "--stride", "3",
+    "--pooled", "1", "--max_pool", "1", "--pool_stride", "4",
 ]
 
 _progress = None
@@ -155,7 +159,8 @@ def main(argv: list[str] | None = None) -> int:
         "eval_step_interval": 10_000_000,
         "training_steps": job["training_steps"],
         "learning_rates": job["learning_rates"],
-        "positive_class_weight": [1], "negative_class_weight": [1],
+        "positive_class_weight": [job.get("positive_class_weight", 1)],
+        "negative_class_weight": [job.get("negative_class_weight", 1)],
         "time_mask_count": [0], "time_mask_max_size": [0], "freq_mask_count": [0], "freq_mask_max_size": [0],
         "maximization_metric": "average_viable_recall", "minimization_metric": None, "target_minimization": 0.9,
         "train_dir": str(train_dir),
@@ -170,17 +175,6 @@ def main(argv: list[str] | None = None) -> int:
 
     data = input_data.FeatureHandler(config)
     model = mixednet.model(flags, config["training_input_shape"], config["batch_size"])
-    if job.get("backbone"):
-        before = [w.numpy().copy() for w in model.weights]
-        # The backbone has no head: that one tensor stays as initialised.
-        model.load_weights(job["backbone"], skip_mismatch=True)
-        missed = sum(1 for w, b in zip(model.weights, before) if (w.numpy() == b).all())
-        loaded = len(before) - missed
-        logging.info("initialised %d of %d tensors from %s", loaded, len(before), job["backbone"])
-        if loaded < len(before) // 2:
-            report(error=f"The backbone doesn't fit the model ({loaded} of {len(before)} tensors loaded)")
-            return 1
-
     total = int(sum(job["training_steps"]))
     steps = 0
     reported = time.monotonic()

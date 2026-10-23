@@ -61,7 +61,9 @@ from .tts import Speech
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
-from .wake_training import WakeTraining
+from .wake_recordings import TAKE_SCORE, WakeRecording, WakeTakes
+from .wake_recordings import summary as wake_summary
+from .wake_training import WakeTraining, phrase_of, word_id
 from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
 
 _LOGGER = logging.getLogger(__name__)
@@ -467,8 +469,9 @@ class VoiceCallApp:
             trainer_python=options.wake_trainer_python,
             micro_wake_word=options.micro_wake_word,
             check_model=self._trained_model_error,
-            on_installed=lambda _word: self.wake_words.forget(),
+            on_installed=self._wake_word_trained,
             exists=lambda word: self.wake_words.get(word) is not None or word in SPECIAL,
+            retrainable=self.trained_here,
         )
         """Training a new wake word from a phrase (the Wake words page)."""
         if options.wake_training_clips:
@@ -526,6 +529,13 @@ class VoiceCallApp:
         self.sessions: dict[str, Session] = {}
         self.enrollment: Enrollment | None = None
         """A speaker being enrolled from a satellite (the Speakers page)."""
+        self.wake_recording: WakeRecording | None = None
+        """A speaker saying a wake phrase at a satellite (the Speakers page)."""
+        self.wake_takes = (
+            WakeTakes(self.speakers.profiles.path.parent / "wake_recordings", self.speakers.profiles.speakers)
+            if self.speakers is not None else None
+        )
+        """Their takes, kept with their voices."""
         """Connected satellites, by satellite key."""
         self._discovery: Discovery | None = None
         self._web = None
@@ -1006,6 +1016,12 @@ class VoiceCallApp:
         room = max(1, slots - RESERVED_SLOTS)
         wanted = self.satellite_wake_words(session.satellite)
         models = [m for m in (self.wake_words.model(w) for w in wanted) if m is not None]
+        if not session.hello.get("max_pool"):
+            # A word trained here pools its last layer, which older firmware's
+            # executor refuses.
+            for model in [m for m in models if m.max_pool]:
+                _LOGGER.warning("[%s] %s needs newer firmware (max pooling): update it", session, model.model_id)
+            models = [m for m in models if not m.max_pool]
         if len(models) > room:
             _LOGGER.warning(
                 "[%s] Only %d wake word(s) fit on this device; not listening for %s",
@@ -1160,6 +1176,9 @@ class VoiceCallApp:
                     enrollment = self.enrollment
                     if enrollment is not None and enrollment.satellite == session.satellite and enrollment.listening:
                         enrollment.state, enrollment.error = "failed", "The satellite disconnected"
+                    recording = self.wake_recording
+                    if recording is not None and recording.satellite == session.satellite and recording.listening:
+                        recording.state, recording.error = "failed", "The satellite disconnected"
                     writer.close()
                     with contextlib.suppress(Exception):
                         await writer.wait_closed()
@@ -1253,11 +1272,23 @@ class VoiceCallApp:
                 enrollment.add(payload)
                 if was and not enrollment.listening:
                     await self._set_monitor(session)  # collected all it takes
+            recording = self.wake_recording
+            if recording is not None and recording.satellite == session.satellite:
+                was = recording.listening
+                for audio, start, end in recording.add(payload):
+                    self._spawn(self._judge_take(recording, audio, start, end))
+                if was and not recording.listening:
+                    await self._set_monitor(session)  # long enough
             return
 
         if msg_type == Message.WAKE_REPORT:
-            if session.listeners:
-                self._live(session, self._wake_report(json.loads(payload) if payload else {}))
+            recording = self.wake_recording
+            if session.listeners or (recording is not None and recording.satellite == session.satellite):
+                report = json.loads(payload) if payload else {}
+                if recording is not None and recording.satellite == session.satellite:
+                    recording.report(report)
+                if session.listeners:
+                    self._live(session, self._wake_report(report))
             return
 
         if msg_type == Message.AUDIO_IN_AEC:
@@ -1398,11 +1429,12 @@ class VoiceCallApp:
             await self._set_monitor(session)
 
     async def _set_monitor(self, session: Session) -> None:
-        """Have the device stream outside calls while someone listens live or a
-        speaker is enrolled from it, and not otherwise."""
-        enrollment = self.enrollment
-        wanted = bool(session.listeners) or (
-            enrollment is not None and enrollment.satellite == session.satellite and enrollment.listening
+        """Have the device stream outside calls while someone listens live, a
+        speaker is enrolled from it or records a wake word there, and not
+        otherwise."""
+        wanted = bool(session.listeners) or any(
+            s is not None and s.satellite == session.satellite and s.listening
+            for s in (self.enrollment, self.wake_recording)
         )
         if wanted != session.monitoring and session.writer is not None:
             session.monitoring = wanted
@@ -1425,8 +1457,7 @@ class VoiceCallApp:
             raise ConfigError("The satellite is not connected")
         if not session.hello.get("monitor_aec"):
             raise ConfigError("This satellite's firmware can't stream for enrollment: update it")
-        if self.enrollment is not None and self.enrollment.listening:
-            raise ConfigError(f"Already enrolling {self.enrollment.name} on {self.enrollment.satellite_name}")
+        self._not_listening()
         self.enrollment = Enrollment(key, self.satellite(key).name, self.speakers.profiles.find(speaker) or speaker)
         _LOGGER.info("[%s] Enrolling %s", session, self.enrollment.name)
         await self._set_monitor(session)
@@ -1495,11 +1526,115 @@ class VoiceCallApp:
     def delete_speaker(self, name: str) -> None:
         if self.speakers is None:
             raise ConfigError("Speaker identification is turned off")
-        try:
-            self.speakers.profiles.remove(name)
-        except KeyError as err:
-            raise FileNotFoundError(f"No speaker {name}") from err
+        key = self.speakers.profiles.find(name)
+        if key is None:
+            raise FileNotFoundError(f"No speaker {name}")
+        if self.wake_takes is not None:
+            self.wake_takes.forget(self.speakers.profiles.speakers[key])
+        self.speakers.profiles.remove(key)
         self.speakers.profiles.save()
+
+    def _not_listening(self) -> None:
+        """One satellite listens for the Speakers page at a time."""
+        if self.enrollment is not None and self.enrollment.listening:
+            raise ConfigError(f"Already enrolling {self.enrollment.name} on {self.enrollment.satellite_name}")
+        recording = self.wake_recording
+        if recording is not None and recording.listening:
+            raise ConfigError(f"Already recording {recording.speaker} on {recording.satellite_name}")
+
+    # ------------------------------------------------------ wake recordings
+
+    def wake_recording_status(self) -> dict[str, Any] | None:
+        return self.wake_recording.to_json() if self.wake_recording is not None else None
+
+    async def start_wake_recording(self, key: str, name: str, phrase: Any) -> dict[str, Any]:
+        """Record a speaker saying a wake phrase at a satellite, again and again."""
+        if self.speakers is None or self.wake_takes is None:
+            raise ConfigError("Speaker identification is turned off")
+        speaker = self.speakers.profiles.find(str(name or ""))
+        if speaker is None:
+            raise ConfigError("Enroll their voice first")
+        said = phrase_of(phrase)
+        word = word_id(said)
+        if len(word) < 3:
+            raise ConfigError("Type the wake phrase")
+        session = self.sessions.get(key)
+        if session is None or session.writer is None:
+            raise ConfigError("The satellite is not connected")
+        if not session.hello.get("monitor_aec"):
+            raise ConfigError("This satellite's firmware can't stream for recording: update it")
+        self._not_listening()
+        # The satellite's own model of the word, if it runs one: did it hear each take?
+        model = next((
+            w for w in session.wake_words
+            if w == word or (self.wake_words.get(w) is not None and word_id(self.wake_words.get(w).name) == word)
+        ), None)
+        self.wake_recording = WakeRecording(key, self.satellite(key).name, speaker, said, word, model=model)
+        _LOGGER.info("[%s] Recording %s saying %r", session, speaker, said)
+        await self._set_monitor(session)
+        return self.wake_recording.to_json()
+
+    async def stop_wake_recording(self) -> dict[str, Any] | None:
+        recording = self.wake_recording
+        if recording is None:
+            return None
+        if recording.state == "listening":
+            recording.state = "done"
+        session = self.sessions.get(recording.satellite)
+        if session is not None:
+            with contextlib.suppress(ConnectionError, OSError):
+                await self._set_monitor(session)
+        return recording.to_json()
+
+    async def _judge_take(self, recording: WakeRecording, audio: bytes, start: float, end: float) -> None:
+        """Keep an utterance when it sounds like the speaker, and like no one
+        else more."""
+        assert self.speakers is not None and self.wake_takes is not None
+        try:
+            names, voices = self.speakers.profiles.matrix()
+            vector = await self.speakers.embed_window(audio)
+            scores = dict(zip(names, (voices @ vector).tolist())) if voices is not None else {}
+            score = scores.get(recording.speaker)
+            closest = max(scores, key=scores.get, default=None)
+            if score is None or score < TAKE_SCORE:
+                recording.taken(False, start, end, why=f"Didn't sound like {recording.speaker}", score=score)
+                return
+            if closest != recording.speaker:
+                recording.taken(False, start, end, why=f"Sounded more like {closest}", score=score)
+                return
+            if self.speakers.profiles.find(recording.speaker) != recording.speaker:
+                recording.taken(False, start, end, why=f"{recording.speaker} is gone")
+                return
+            take = self.wake_takes.add(
+                recording.speaker, recording.word, recording.phrase, audio,
+                satellite=recording.satellite_name, score=None if score is None else round(score, 3),
+                heard=recording.heard(start, end),
+            )
+            self.speakers.profiles.save()
+            recording.taken(True, start, end, score=score, take=take)
+        except Exception as err:  # noqa: BLE001 - shown with the take
+            _LOGGER.exception("Judging a take of %s failed", recording.speaker)
+            recording.taken(False, start, end, why=str(err))
+        finally:
+            recording.checking -= 1
+
+    def delete_wake_takes(self, name: str, word: str, take_id: str | None = None) -> int:
+        if self.speakers is None or self.wake_takes is None:
+            raise ConfigError("Speaker identification is turned off")
+        key = self.speakers.profiles.find(name)
+        if key is None:
+            raise FileNotFoundError(f"No speaker {name}")
+        gone = self.wake_takes.remove(key, word, take_id)
+        if not gone:
+            raise FileNotFoundError("No such recording")
+        self.speakers.profiles.save()
+        return gone
+
+    def wake_take_path(self, name: str, word: str, take_id: str) -> Path | None:
+        if self.speakers is None or self.wake_takes is None:
+            return None
+        key = self.speakers.profiles.find(name)
+        return self.wake_takes.find(key, word, take_id) if key is not None else None
 
     # ----------------------------------------------------------------- calls
 
@@ -2416,6 +2551,29 @@ class VoiceCallApp:
             return []
         return [_profile_json(name, p) for name, p in sorted(self.speakers.profiles.speakers.items())]
 
+    async def train_wake_word(self, phrase: Any, speakers: list[str] | None = None):
+        """Train ``phrase``'s wake word with the recordings of ``speakers``
+        (None: everyone's)."""
+        recordings = {}
+        if self.wake_takes is not None:
+            recordings = self.wake_takes.of(word_id(phrase_of(phrase)), speakers)
+        return await self.wake_training.start(phrase, recordings)
+
+    def trained_here(self, word: str) -> bool:
+        found = self.wake_words.get(word)
+        return found is not None and found.custom and (found.manifest.get("trained") or {}).get("by") == "voice_call"
+
+    async def _wake_word_trained(self, word: str) -> None:
+        """A model trained here is saved: a cutoff tuned for the one before it
+        goes (its verifier stays), and satellites listening for it get it."""
+        self.wake_words.forget()
+        entry = dict(self.store.wake_tuning.get(word) or {})
+        if entry.pop("cutoff", None) is not None:
+            await self.tune_wake_word(word, entry or None)
+        for session in list(self.sessions.values()):
+            if session.writer is not None and word in session.wake_words:
+                self._spawn(self._push_wake_models(session))
+
     def _trained_model_error(self, word: str) -> str | None:
         """Why a wake word just trained can't run on the satellites, if so."""
         self.wake_words.forget()
@@ -2710,6 +2868,7 @@ def _profile_json(name: str, profile: dict[str, Any]) -> dict[str, Any]:
         "learned": profile.get("learned", 0),
         "learned_s": round(float(profile.get("learned_s") or 0.0), 1),
         "enrolled": profile.get("enrolled", []),
+        "wake": wake_summary(profile),
     }
 
 

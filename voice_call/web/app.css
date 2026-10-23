@@ -337,3 +337,5 @@ button.hint:hover, button.hint:focus-visible, button.hint[aria-expanded="true"] 
 /* Speakers: the passage read aloud while enrolling. */
 .passage { max-width: 46em; margin-top: 12px; font-size: 1.15em; line-height: 1.6; }
 .passage p { margin: 0 0 0.8em; }
+.wake-takes { padding: 0 0 8px 26px; }
+.wake-takes details > .row { margin: 6px 0; }

@@ -4,12 +4,13 @@
 The streaming mixednet graph has a very narrow shape: every convolution has VALID
 padding and produces exactly one output frame, because the ring-buffer state
 variables supply the whole receptive field. That makes every arithmetic layer a
-dot product, so the whole graph lowers to four op kinds:
+dot product, so the whole graph lowers to five op kinds:
 
     RING_PUSH  append new frames to a ring window
     DENSE      per-output-channel dot product over a contiguous window
     DEPTHWISE  per-channel dot product over K taps, with a channel offset
     COPY       channel-axis concatenation
+    MAX_POOL   per-channel maximum over K frames (a pooled model's last layer)
 
 This script walks the TFLite graph symbolically, checks those assumptions hold,
 and emits the resulting op table plus weights as a C header.
@@ -30,6 +31,8 @@ from tflite import (
     DepthwiseConv2DOptions,
     FullyConnectedOptions,
     Model,
+    Padding,
+    Pool2DOptions,
     StridedSliceOptions,
     VarHandleOptions,
 )
@@ -38,7 +41,7 @@ OP_NAMES = {v: k for k, v in BO.__dict__.items() if not k.startswith("_")}
 
 TYPE_NP = {0: np.float32, 2: np.int32, 3: np.uint8, 9: np.int8}
 
-MN_RING_PUSH, MN_DENSE, MN_DEPTHWISE, MN_COPY = 0, 1, 2, 3
+MN_RING_PUSH, MN_DENSE, MN_DEPTHWISE, MN_COPY, MN_MAX_POOL = 0, 1, 2, 3, 4
 EXTERNAL_SRC = 0xFF
 
 
@@ -433,6 +436,41 @@ class Compiler:
         o.Init(tbl.Bytes, tbl.Pos)
         self._dense(op, ins, outs, f"fc{outs[0]}", o.FusedActivationFunction())
 
+    def op_max_pool_2d(self, op, ins, outs, inits):
+        """Windows of K frames, S apart, each frame's channels kept apart: one
+        op per output frame. Max pooling keeps the input's quantization (TFLite
+        requires it), so it is a plain int8 maximum."""
+        tbl = op.BuiltinOptions()
+        o = Pool2DOptions()
+        o.Init(tbl.Bytes, tbl.Pos)
+        assert o.Padding() == Padding.VALID, "only VALID pooling"
+        assert o.FilterWidth() == 1 and o.StrideW() == 1, "pooling across features"
+        assert self.quant(ins[0]) == self.quant(outs[0]), "max pool changes the quantization"
+        src = self.values[ins[0]]
+        taps, step = o.FilterHeight(), o.StrideH()
+        frames = (src.nt - taps) // step + 1
+        assert frames >= 1 and self.shape(outs[0])[1] == frames, (src, taps, step, self.shape(outs[0]))
+        out_buf = self.new_buffer(f"pool{outs[0]}", frames, src.nc)
+        act_min, act_max = self._act_range(o.FusedActivationFunction(), outs[0])
+        for frame in range(frames):
+            self.ops.append(
+                dict(
+                    type=MN_MAX_POOL,
+                    src_buf=src.buf,
+                    src_t0=src.t0 + frame * step,
+                    src_c0=src.c0,
+                    src_nt=taps,
+                    src_nc=src.nc,
+                    src_stride=src.stride,
+                    dst_buf=out_buf,
+                    dst_off=frame * src.nc,
+                    out_channels=src.nc,
+                    act_min=act_min,
+                    act_max=act_max,
+                )
+            )
+        self.values[outs[0]] = View(out_buf, 0, frames, 0, src.nc, src.nc)
+
     def op_logistic(self, op, ins, outs, inits):
         self.logit = (self.values[ins[0]], ins[0], outs[0])
 
@@ -552,7 +590,7 @@ class Compiler:
                 macs += o["out_channels"] * o["src_nt"] * o["src_nc"]
             elif o["type"] == MN_DEPTHWISE:
                 macs += o["out_channels"] * o["src_nt"]
-        kinds = {MN_RING_PUSH: "ring", MN_DENSE: "dense", MN_DEPTHWISE: "dw", MN_COPY: "copy"}
+        kinds = {MN_RING_PUSH: "ring", MN_DENSE: "dense", MN_DEPTHWISE: "dw", MN_COPY: "copy", MN_MAX_POOL: "max"}
         seq = " ".join(kinds[o["type"]] for o in self.ops)
         return (
             f"ops={len(self.ops)} buffers={len(self.buffers)} "
