@@ -25,7 +25,7 @@ from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
 from .discover import Device, Discovery
-from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain
+from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain, wake_speech
 from .endpoint import parse as parse_end_of_speech
 from .fallback import (
     DEFAULT_FALLBACK_MODEL,
@@ -151,6 +151,47 @@ AEC_LEAD_SAMPLES = 905
 the XMOS's two taps (README "Two captures per call", 56.5 ms)."""
 STT_PEAK = 10 ** (-3 / 20)
 STT_MAX_GAIN = 10 ** (30 / 20)
+
+
+NULL_CALL_SPEECH = 0.1
+NULL_AEC_SPEECH = 0.25
+"""Silero's share of the wake word heard as speech, under which the call
+capture has lost the talker (learn-tv's null on them) and from which the AEC
+capture still has them: ordinary calls hear 0.3-0.8 in both."""
+
+
+def _aec_shift(call: Call) -> int:
+    """Bytes to add to a position in the AGC capture for the same moment in
+    the AEC one: each pre-roll ends at the detection, less the AEC tap's lead."""
+    return (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - call.aec_lead * 2
+
+
+def _aec_lined_up(call: Call, start: int, end: int) -> bytes:
+    """The AEC capture from ``start`` to ``end`` of the AGC capture's timeline
+    (silence where it has nothing)."""
+    lo, hi = (start + _aec_shift(call)) & ~1, (end + _aec_shift(call)) & ~1
+    out = bytearray(max(0, hi - lo))
+    have_lo, have_hi = max(lo, 0), min(hi, len(call.aec) & ~1)
+    if have_hi > have_lo:
+        out[have_lo - lo : have_hi - lo] = call.aec[have_lo:have_hi]
+    return bytes(out)
+
+
+def _heard(call: Call, start: int, end: int) -> bytes:
+    """The call from ``start`` to ``end`` as heard: the call capture, or in
+    the null the AEC one lined up with it."""
+    return _aec_lined_up(call, start, end) if call.in_null else bytes(call.audio[start:end])
+
+
+def _aec_since(call: Call) -> bytes:
+    """In the null: what has come of the AEC capture since ``endpoint_pos``
+    (on the AGC capture's timeline), up to what the AGC capture has."""
+    end = min(len(call.audio), len(call.aec) - _aec_shift(call)) & ~1
+    if end <= call.endpoint_pos:
+        return b""
+    pcm = _aec_lined_up(call, call.endpoint_pos, end)
+    call.endpoint_pos = end
+    return pcm
 
 
 def stt_audio_for(
@@ -351,6 +392,11 @@ class Call:
     finished: bool = False
     endpointer: Endpointer | None = None
     split_bytes: int = 0
+    in_null: bool = False
+    """The talker stood in learn-tv's null: the call capture lost their voice
+    and the AEC one is heard instead (endpointing, recognition, STT)."""
+    endpoint_pos: int = 0
+    """In the null: how far into ``aec`` the command has been taken."""
     interrupted_ring: bool = False
     """The call stopped a ringing timer: if it says nothing else, it was that."""
     wake_start: float | None = None
@@ -1765,8 +1811,11 @@ class VoiceCallApp:
         if call.endpointer is None:
             return  # verification still running; audio keeps accumulating
 
-        start = max(call.split_bytes, len(call.audio) - len(chunk))
-        new_audio = bytes(call.audio[start:])
+        if call.in_null:
+            new_audio = _aec_since(call)
+        else:
+            start = max(call.split_bytes, len(call.audio) - len(chunk))
+            new_audio = bytes(call.audio[start:])
         if not new_audio:
             return
         call.command += new_audio
@@ -1857,6 +1906,30 @@ class VoiceCallApp:
             return False
         return result.split >= (call.preroll_bytes / BYTE_RATE) - TAIL_EDGE_SECONDS
 
+    async def _check_null(self, session: Session, call: Call) -> None:
+        """Whether the talker stood in learn-tv's null: the wake word, the
+        pre-roll's last WAKE_SECONDS (it ends at the detection), is not speech
+        in the call capture and is in the AEC one. Then the call is heard on
+        the AEC capture throughout -- verified, ended and recognized."""
+        if not call.aec_preroll_bytes:
+            return
+        end = call.preroll_bytes
+        start = max(0, end - int(WAKE_SECONDS * BYTE_RATE))
+        heard = await asyncio.to_thread(wake_speech, bytes(call.audio[start:end]))
+        if heard >= NULL_CALL_SPEECH:
+            return
+        # The AEC capture's pre-roll can trail the call's by a moment.
+        deadline = time.monotonic() + 0.5
+        while len(call.aec) < end + _aec_shift(call) and time.monotonic() < deadline and not call.finished:
+            await asyncio.sleep(0.02)
+        aec_heard = await asyncio.to_thread(wake_speech, _aec_lined_up(call, start, end))
+        call.in_null = aec_heard >= NULL_AEC_SPEECH
+        if call.record is not None:
+            call.record.stage("talker_in_null", call_speech=round(heard, 2), aec_speech=round(aec_heard, 2),
+                              used="aec" if call.in_null else "call")
+        if call.in_null:
+            _LOGGER.info("[%s] The talker is in the null: heard on the AEC capture", session)
+
     async def _audio_through(self, call: Call, want: int, timeout: float) -> bool:
         """Wait for the call to have ``want`` bytes. False if it never does."""
         deadline = time.monotonic() + timeout
@@ -1870,7 +1943,7 @@ class VoiceCallApp:
         self, label: str, call: Call, offset: int
     ) -> tuple[Any, bytes]:
         """Verify the pre-roll-sized window that starts ``offset`` bytes in."""
-        window = bytes(call.audio[offset : offset + call.preroll_bytes])
+        window = _heard(call, offset, offset + call.preroll_bytes)
         result = await self.wake.verify(window, call.wake_word or None)
         assert result is not None
         _LOGGER.info(
@@ -1894,7 +1967,7 @@ class VoiceCallApp:
         off its end, and the second opinion on a `last`/`prefix` rejection.
         A wake word with no verifier (a custom one) stands as detected."""
         if call.wake_word and not self.wake.knows(call.wake_word):
-            window = bytes(call.audio[: call.preroll_bytes])
+            window = _heard(call, 0, call.preroll_bytes)
             if call.record is not None:
                 call.record.stage("wake_unverified", wake_word=call.wake_word)
             return WakeVerdict(True, VerifyResult(call.wake_word, accepted=True), 0, window)
@@ -1942,7 +2015,17 @@ class VoiceCallApp:
         return verdict
 
     async def _verify(self, session: Session, call: Call) -> None:
+        await self._check_null(session, call)
         verdict = await self._verify_wake(str(session), call)
+        if call.in_null and not verdict.accepted:
+            # Refused on the AEC capture: the call capture's verdict as well,
+            # as before the null was noticed, so that nothing is refused that
+            # was taken then. The call is heard on the AEC capture either way.
+            call.in_null = False
+            again = await self._verify_wake(str(session), call)
+            call.in_null = True
+            if again.accepted:
+                verdict = again
         result = verdict.result
 
         if not verdict.accepted:
@@ -1959,9 +2042,9 @@ class VoiceCallApp:
             )
 
         self._place_split(call, verdict)
+        wake = _heard(call, max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)), call.split_bytes)
         await self._start_stt(session, call)
-        wake = call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes]
-        call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(bytes(wake)), warm=bytes(wake))
+        call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(wake), warm=wake)
         # Someone else talking ends the command, once the speaker is
         # identified: when that is on, with profiles to identify them by.
         call.endpointer.watch(
@@ -1969,7 +2052,11 @@ class VoiceCallApp:
             and self.speakers is not None
             and bool(self.speakers.profiles.speakers)
         )
-        call.command += bytes(call.audio[call.split_bytes :])
+        if call.in_null:
+            call.endpoint_pos = call.split_bytes
+            call.command += _aec_since(call)
+        else:
+            call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:
             call.finished = True
@@ -1988,7 +2075,10 @@ class VoiceCallApp:
             return
         start, gain = call.split_bytes, 1.0
         audio: dict[str, Any] = {"channel": "agc", "from": round(call.split_bytes / BYTE_RATE, 3)}
-        if voice.stt_audio != "agc" and not call.aec:
+        if call.in_null:
+            audio.update(channel="aec", why="the talker is in the null")
+            start = max(0, start + _aec_shift(call))
+        elif voice.stt_audio != "agc" and not call.aec:
             audio["why"] = "no AEC capture"
         elif voice.stt_audio != "agc":
             audio["channel"] = "aec"
@@ -2157,6 +2247,9 @@ class VoiceCallApp:
         else:
             transcriber = await self._transcriber(satellite)
         agc, aec = bytes(call.audio), bytes(call.aec)
+        if call.in_null:
+            # Heard as the AEC capture, on the AGC capture's timeline.
+            agc = _aec_lined_up(call, 0, len(call.audio))
         stop = self._speaker_stop(call)
         if stop is not None:
             # Someone else's speech ended it: recognized up to the speaker's last word.

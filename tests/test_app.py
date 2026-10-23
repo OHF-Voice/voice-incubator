@@ -12,6 +12,7 @@ import socket
 from pathlib import Path
 
 import aiohttp
+import numpy as np
 import pytest
 
 from voice_call.server import Options, VoiceCallApp
@@ -605,6 +606,20 @@ async def _scenario(tmp_path: Path) -> None:
         record = app.calls.recent[-1]
         assert record.outcome == "error"
         assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, that didn't work."
+
+        # The talker in learn-tv's null: the call capture lost them (a faint
+        # hum here) and the AEC capture has them. Heard on that one, start to end.
+        hass.fail_scripts = False
+        said = read_call(CALLS / "call-15788.wav")
+        hum = (np.sin(np.arange(len(said) // 2) * 2 * np.pi * 120 / 16000) * 30).astype("<i2").tobytes()
+        assert await satellite.call(hum, aec_pcm=said) == "done"
+        record = app.calls.recent[-1]
+        null = next(s for s in record.stages if s["stage"] == "talker_in_null")
+        assert null["used"] == "aec" and null["call_speech"] < 0.1 <= null["aec_speech"], null
+        assert next(s for s in record.stages if s["stage"] == "recognition")["command"] == "lights_on"
+        # An ordinary call isn't asked twice.
+        assert await satellite.call(said) == "done"
+        assert not any(s["stage"] == "talker_in_null" for s in app.calls.recent[-1].stages)
     finally:
         runner.cancel()
         await app.stop()

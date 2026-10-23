@@ -184,11 +184,13 @@ class FakeSatellite:
         return await self.call(bytes(CHUNK * 4), timeout=timeout, wake_word=wake_word)
 
     async def call(
-        self, pcm: bytes, timeout: float = 30.0, wake_word: str = "okay_nabu", detection: dict | None = None
+        self, pcm: bytes, timeout: float = 30.0, wake_word: str = "okay_nabu", detection: dict | None = None,
+        aec_pcm: bytes | None = None,
     ) -> str:
         """Place one call; returns why the app hung up. ``detection``: what
         the wake word came in with, as firmware that says so sends it
-        (``probability``, ``max_probability``, ``cutoff``, 0-255)."""
+        (``probability``, ``max_probability``, ``cutoff``, 0-255).
+        ``aec_pcm``: the second capture, when it isn't the same as the call's."""
         await self.ready.wait()
         assert self._writer is not None
         self._hangup.clear()
@@ -199,11 +201,11 @@ class FakeSatellite:
         self._writer.write(encode_json(Message.CALL_START, info))
         self._in_call = True
         try:
-            return await self._stream_call(pcm, timeout)
+            return await self._stream_call(pcm, timeout, aec_pcm)
         finally:
             self._in_call = False
 
-    async def _stream_call(self, pcm: bytes, timeout: float) -> str:
+    async def _stream_call(self, pcm: bytes, timeout: float, aec_pcm: bytes | None = None) -> str:
         assert self._writer is not None
         silence = bytes(CHUNK)
         offset = 0
@@ -214,7 +216,8 @@ class FakeSatellite:
             offset += CHUNK
             self._writer.write(encode(Message.AUDIO_IN, chunk))
             if self.aec:
-                self._writer.write(encode(Message.AUDIO_IN_AEC, chunk))
+                second = chunk if aec_pcm is None else (aec_pcm[offset - CHUNK : offset] or silence)
+                self._writer.write(encode(Message.AUDIO_IN_AEC, second))
             await self._writer.drain()
             await asyncio.sleep(CHUNK / BYTE_RATE / self.speed)
         if not self._hangup.is_set():

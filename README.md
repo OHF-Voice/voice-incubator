@@ -841,6 +841,19 @@ app hears mic 0: CALL_START says `detector: "fallback"` and `swapped: true` (a
 session shows "mic 0 only"). The null learns nothing during a call, and keeps
 what it learned.
 
+When the null's own detector does hear it, barely, the call capture can still
+have lost the talker: a child's call, its wake word at 0.41 against a cutoff
+of 0.40, then 15 s of "no speech was heard" -- her voice was there at -30
+dBFS, but with 6-10 dB less of it below 1 kHz than mic 0 had, and Silero
+heard none of it. So the app looks at the wake word first, the pre-roll's last
+1.2 s in each capture (`voice_call/endpoint.py` `wake_speech`): under a tenth
+of it speech in the call capture and a quarter or more in the second, and the
+talker is in the null (`talker_in_null`). The call is then verified, ended,
+recognized and streamed to speech-to-text from the second capture, lined up
+with the first; and verified on the call capture too, when the second one's
+verdict is a refusal, so that nothing is refused that was taken before.
+Ordinary calls hear 0.3-0.8 of their wake word as speech in both captures.
+
 The null takes ~10 dB more off a talker it doesn't point at, and Silero VAD,
 on speech at -54 dBFS, missed the start of commands: 30% of a command's 32 ms
 chunks over 0.5 on a recorded call, against 73% four times louder. The
