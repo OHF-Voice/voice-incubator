@@ -2163,7 +2163,13 @@ function voicePicker(ttsSelect, value, inherit, languageSelect) {
 function wakeWordName(wake, id) {
   if (!id) return "none";
   const word = (wake.wake_words || []).find((w) => w.id === id);
-  return word ? word.name : id;
+  return word ? wakeWordLabel(word) : id;
+}
+
+// A wake word as picked: a custom one says so, since one trained here from a
+// built-in phrase has the built-in one's name.
+function wakeWordLabel(word) {
+  return word.custom ? `${word.name} (custom)` : word.name;
 }
 
 const THRESHOLD_FIELDS = [
@@ -2369,7 +2375,7 @@ async function pageWakeWords(query) {
   const params = new URLSearchParams(query || "");
   const [wake, sats, training] = await Promise.all([api("GET", "wake_words"), loadSatellites(), api("GET", "wake_training")]);
   const runs = wake.wake_words.filter((w) => w.runs);
-  const option = (w, selected) => h("option", { value: w.id, selected: selected || null }, w.name);
+  const option = (w, selected) => h("option", { value: w.id, selected: selected || null }, wakeWordLabel(w));
   const reload = (word) => {
     const target = word ? `#/wake?word=${encodeURIComponent(word)}` : location.hash;
     if (location.hash === target) pageWakeWords(location.hash.split("?")[1]);
