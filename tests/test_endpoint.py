@@ -12,6 +12,7 @@ import numpy as np
 
 from voice_call.endpoint import (
     MAX_VAD_GAIN,
+    BothDetector,
     SETTLE_SECONDS,
     EndOfSpeech,
     Endpointer,
@@ -77,18 +78,56 @@ def test_nothing_said_yet_is_skipped():
     assert run([None] * 30 + [0.9] * 20 + [0.1] * 40, speech_seconds=0.2, silence_seconds=0.3) == 30 + 20 + 30 - 1
 
 
+def test_nothing_said_ends_the_call():
+    # No speech 8 s after the wake word: nothing was said.
+    endpointer = Endpointer(EndOfSpeech(no_speech_seconds=8.0), lambda vad: Scripted([0.1] * 900))
+    ended = next(i for i in range(900) if endpointer.process(bytes(CHUNK)))
+    assert ended == 799 and endpointer.no_speech
+    # Speech by then: it waits for the end of it, as ever.
+    endpointer = Endpointer(EndOfSpeech(no_speech_seconds=8.0), lambda vad: Scripted([0.1] * 700 + [0.9] * 300 + [0.1] * 200))
+    ended = next(i for i in range(1200) if endpointer.process(bytes(CHUNK)))
+    assert ended == 1000 + 100 - 1 and not endpointer.no_speech
+
+
+class Micro:
+    """microVAD's part, given in advance: one per 10 ms."""
+
+    chunk_bytes = CHUNK
+
+    def __init__(self, probabilities):
+        self.probabilities = list(probabilities)
+
+    def __call__(self, chunk):
+        return self.probabilities.pop(0)
+
+
+def test_both_hear_speech_when_either_does():
+    both = BothDetector.__new__(BothDetector)
+    both.gain, both._leftover = 1.0, b""  # pylint: disable=protected-access
+    both.silero = lambda chunk: 0.2
+    both.micro = Micro([None, None, None, 0.1, 0.3, 0.8, 0.1, 0.1, 0.1])
+    # 32 ms a chunk: microVAD's 10 ms chunks fall three or four to it.
+    assert both(bytes(1024)) == 0.2  # microVAD's window still filling: Silero alone
+    assert both(bytes(1024)) == 0.8  # the likeliest of microVAD's, over Silero's
+    assert both(bytes(1024)) == 0.2
+
+
 def test_settings():
     base = EndOfSpeech(silence_seconds=0.8)
     assert parse(None, base) == base
     assert parse({"vad": "micro", "speech_threshold": "0.6", "silence_seconds": None}, base) == EndOfSpeech(
         vad="micro", speech_threshold=0.6, silence_seconds=0.8
     )
+    assert parse({"vad": "both", "no_speech_seconds": 6}, base) == EndOfSpeech(
+        vad="both", silence_seconds=0.8, no_speech_seconds=6.0
+    )
     assert base.end_on_other_voice and parse({"end_on_other_voice": False}, base) == EndOfSpeech(
         silence_seconds=0.8, end_on_other_voice=False
     )
     for bad, why in (
         ({"end_on_other_voice": "yes"}, "true or false"),
-        ({"vad": "webrtc"}, "one of silero, micro"),
+        ({"vad": "webrtc"}, "one of silero, micro, both"),
+        ({"no_speech_seconds": 1}, "from 2 to 60"),
         ({"loud": 1}, "unknown loud"),
         ({"silence_seconds": 0.1}, "from 0.3 to 5"),
         ({"speech_threshold": "high"}, "a number"),
@@ -104,22 +143,24 @@ def read(path: Path) -> bytes:
 
 
 @pytest.mark.skipif(not CALL.exists(), reason="no recorded call")
-@pytest.mark.parametrize("vad", ["silero", "micro"])
+@pytest.mark.parametrize("vad", ["silero", "micro", "both"])
 def test_a_recorded_command_ends(vad):
-    if vad == "micro" and not micro_available():
+    if vad != "silero" and not micro_available():
         pytest.skip("no pymicro-vad")
     pcm = read(CALL)
     # The command, then the room: speech ends at about 2.35 s.
     audio = pcm[int(1.6 * 32000) :] + pcm[: int(0.6 * 32000)] * 4
     endpointer = Endpointer(EndOfSpeech(vad=vad, silence_seconds=0.5))
-    assert isinstance(endpointer._detector, MicroDetector if vad == "micro" else SileroDetector)  # pylint: disable=protected-access
+    kind = {"silero": SileroDetector, "micro": MicroDetector, "both": BothDetector}[vad]
+    assert isinstance(endpointer._detector, kind) and endpointer.vad == vad  # pylint: disable=protected-access
     for i in range(0, len(audio), 1024):
         if endpointer.process(audio[i : i + 1024]):
             ended = 1.6 + (i + 1024) / 32000
             break
     else:
         pytest.fail("never ended")
-    # Silero ends half a second after the speech; microVAD, about half a second later still.
+    # Silero ends half a second after the speech; microVAD, and so both,
+    # about half a second later still.
     assert (2.8 <= ended <= 3.1) if vad == "silero" else (3.2 <= ended <= 3.7), ended
 
 

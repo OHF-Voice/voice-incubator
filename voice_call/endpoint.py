@@ -1,5 +1,6 @@
 """End-of-command detection: a voice activity detector's probabilities, with
-hysteresis -- Silero VAD (pysilero-vad) or microVAD (pymicro-vad).
+hysteresis -- Silero VAD (pysilero-vad), microVAD (pymicro-vad), or both
+(speech when either hears it).
 
 Each chunk of audio is speech or silence. Speech begins at ``speech_threshold``
 and lasts until the probability falls below ``silence_threshold``; between the
@@ -7,6 +8,14 @@ two, a chunk is what the one before it was. The command has begun after
 ``speech_seconds`` of speech -- until then, silence ends nothing -- and ends
 after ``silence_seconds`` of silence. Speech in the silence starts it over only
 after ``resume_seconds`` in a row: shorter sounds (a cough, a click) pause it.
+With no speech at all ``no_speech_seconds`` after the wake word, nothing was
+said, and the call ends (``no_speech``).
+
+Silero misses some voices: a child's commands, loud and clear to the
+speech-to-text, were 0.3 s of speech to it and left the command unstarted
+for 15 s, where microVAD heard a third of them as speech. microVAD hears more
+of what isn't speech, too. Both together (``vad`` "both") is the louder of
+the two, chunk by chunk.
 
 Silero hears the command louder when the wake word was quiet (``vad_gain``):
 it misses speech far below full scale, as a capture without AGC carries it
@@ -52,7 +61,7 @@ from .protocol import BYTE_RATE, BYTES_PER_SAMPLE
 
 _LOGGER = logging.getLogger(__name__)
 
-VADS = {"silero": "Silero VAD", "micro": "microVAD"}
+VADS = {"silero": "Silero VAD", "micro": "microVAD", "both": "Both"}
 
 LIMITS = {
     "speech_threshold": (0.05, 0.99),
@@ -61,6 +70,7 @@ LIMITS = {
     "silence_seconds": (0.3, 5.0),
     "resume_seconds": (0.0, 2.0),
     "max_seconds": (3.0, 60.0),
+    "no_speech_seconds": (2.0, 60.0),
 }
 """Each number's range, inclusive."""
 
@@ -84,6 +94,9 @@ class EndOfSpeech:
     """Speech in a row that starts the silence over."""
     max_seconds: float = 15.0
     """The longest a command may be, from the wake word."""
+    no_speech_seconds: float = 8.0
+    """With no speech by then (from the wake word), nothing was said: the call
+    ends."""
     end_on_other_voice: bool = True
     """Someone other than the identified speaker talking ends their command
     (``watch``): with enrolled voices to identify them by."""
@@ -250,11 +263,37 @@ class MicroDetector(Detector):
         return None if probability < 0 else probability
 
 
+class BothDetector(Detector):
+    """Silero and microVAD on the same audio, in Silero's chunks: the likelier
+    of the two (microVAD's likeliest 10 ms in the chunk). Silero hears it
+    raised by ``gain``, microVAD as it came; until microVAD's window has
+    filled, Silero alone."""
+
+    chunk_bytes = SileroDetector.chunk_bytes
+
+    def __init__(self, gain: float = 1.0) -> None:
+        self.micro = MicroDetector()
+        self.silero = SileroDetector()
+        self.gain = gain
+        self._leftover = b""
+
+    def __call__(self, chunk: bytes) -> float | None:
+        silero = self.silero(_amplify(chunk, self.gain) if self.gain != 1.0 else chunk)
+        self._leftover += chunk
+        size, micro = self.micro.chunk_bytes, []
+        while len(self._leftover) >= size:
+            probability = self.micro(self._leftover[:size])
+            self._leftover = self._leftover[size:]
+            if probability is not None:
+                micro.append(probability)
+        return max([silero, *micro]) if silero is not None else (max(micro) if micro else None)
+
+
 def detector(vad: str) -> Detector:
     """``vad``'s detector; Silero when microVAD is not installed."""
-    if vad == "micro":
+    if vad in ("micro", "both"):
         try:
-            return MicroDetector()
+            return MicroDetector() if vad == "micro" else BothDetector()
         except ImportError:
             _LOGGER.warning("pymicro-vad is not installed; using Silero VAD")
     return SileroDetector()
@@ -272,9 +311,18 @@ class Endpointer:
     ) -> None:
         self.settings = settings or EndOfSpeech()
         self._detector = make_detector(self.settings.vad)
-        self.vad = "micro" if isinstance(self._detector, MicroDetector) else self.settings.vad
-        self.gain = gain if self.vad == "silero" else 1.0
+        if isinstance(self._detector, (MicroDetector, BothDetector)):
+            self.vad = "micro" if isinstance(self._detector, MicroDetector) else "both"
+        elif isinstance(self._detector, SileroDetector):
+            self.vad = "silero"  # what was asked for, or what it fell back to
+        else:
+            self.vad = self.settings.vad
+        self.gain = gain if self.vad in ("silero", "both") else 1.0
         """What the VAD's copy of the audio is raised by (Silero's only)."""
+        if isinstance(self._detector, BothDetector):
+            self._detector.gain, self._raise = self.gain, False  # it raises Silero's copy itself
+        else:
+            self._raise = self.gain != 1.0
         self._chunk_seconds = self._detector.chunk_bytes / BYTE_RATE
         self._leftover = b""
         self._run = 0.0
@@ -301,7 +349,9 @@ class Endpointer:
         """When someone else's speech ended the command: the speaker's last
         word, when it was decided, and the low checks' scores."""
         self.ended = False
-        if warm and self.vad == "silero":
+        self.no_speech = False
+        """It ended with no speech, ``no_speech_seconds`` after the wake word."""
+        if warm and self.vad in ("silero", "both"):
             self._warm(warm)
 
     def _warm(self, pcm: bytes) -> None:
@@ -311,7 +361,7 @@ class Endpointer:
         pcm = pcm[len(pcm) % size :]
         for start in range(0, len(pcm), size):
             chunk = pcm[start : start + size]
-            self._detector(_amplify(chunk, self.gain) if self.gain != 1.0 else chunk)
+            self._detector(_amplify(chunk, self.gain) if self._raise else chunk)
         self._settle = round(SETTLE_SECONDS / self._chunk_seconds)
 
     def watch(self, on: bool = True) -> None:
@@ -397,10 +447,15 @@ class Endpointer:
         while len(self._leftover) >= size:
             chunk = self._leftover[:size]
             self._leftover = self._leftover[size:]
-            if self.gain != 1.0:
+            if self._raise:
                 chunk = _amplify(chunk, self.gain)
             probability = self._detector(chunk)
             self.elapsed += seconds
+            if not self.speech_started and self.elapsed >= settings.no_speech_seconds - 1e-9:
+                self.no_speech = True
+                self.ended = True
+                _LOGGER.info("No speech %.1fs after the wake word (%s)", self.elapsed, VADS[self.vad])
+                return True
             if probability is None:
                 continue
             if self._settle:

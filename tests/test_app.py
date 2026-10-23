@@ -620,6 +620,12 @@ async def _scenario(tmp_path: Path) -> None:
         # An ordinary call isn't asked twice.
         assert await satellite.call(said) == "done"
         assert not any(s["stage"] == "talker_in_null" for s in app.calls.recent[-1].stages)
+
+        # The wake word, and nothing said after it: the call ends 8 s on.
+        assert await satellite.call(said[: int(1.5 * 32000)]) == "timeout"
+        gave_up = next(s for s in app.calls.recent[-1].stages if s["stage"] == "timeout")
+        assert gave_up["why"] == "no speech was heard" and gave_up["seconds"] == 8.0
+        assert 8.0 <= gave_up["command_seconds"] < 9.0
     finally:
         runner.cancel()
         await app.stop()

@@ -397,6 +397,7 @@ function endOfSpeechPanel() {
     silence_seconds: number("silence_seconds", 0.1, 5),
     resume_seconds: number("resume_seconds", 0.05, 2),
     max_seconds: number("max_seconds", 1, 60),
+    no_speech_seconds: number("no_speech_seconds", 1, 60),
   };
   async function save(body) {
     try { await api("PUT", "settings", { end_of_speech: body }); toast("Saved"); await refreshStatus(); pageSettings(); }
@@ -418,7 +419,7 @@ function endOfSpeechPanel() {
   return h("div", { class: "panel" },
     heading("h2", "End of speech", "When a satellite stops listening: once you have started speaking, after enough silence. A voice activity detector says how likely each moment of the audio is to be speech."),
     h("div", { class: "row" },
-      field("Detector", vad, "Silero VAD judges 32 ms at a time and notices the end of speech soonest. microVAD, microWakeWord's, judges 10 ms at a time and is smoother, but notices the end about half a second later: give it a shorter silence. It says nothing for its first 0.76 s.")),
+      field("Detector", vad, "Silero VAD judges 32 ms at a time and notices the end of speech soonest. microVAD, microWakeWord's, judges 10 ms at a time and is smoother, but notices the end about half a second later: give it a shorter silence. It says nothing for its first 0.76 s. Both: speech when either hears it — for voices Silero misses, such as some children's; it hears more noise as speech, and ends as late as microVAD.")),
     h("div", { class: "row" },
       field("Speech at", inputs.speech_threshold, "Audio this likely to be speech, or more, is speech."),
       field("Silence below", inputs.silence_threshold, "Speech lasts until the likelihood falls below this; in between, nothing changes. Lower holds on through quiet words.")),
@@ -426,7 +427,8 @@ function endOfSpeechPanel() {
       field("Speech to start (s)", inputs.speech_seconds, "Speech that starts the command. Until then, silence ends nothing: the satellite waits for you."),
       field("Silence to end (s)", inputs.silence_seconds, "Silence after speech that ends the command. Shorter answers sooner; longer lets you pause. The default is the app's option, “End-of-command silence”."),
       field("Speech to resume (s)", inputs.resume_seconds, "Speech in a row that starts the silence over. Shorter sounds — a cough, a click — only pause it."),
-      field("Longest command (s)", inputs.max_seconds, "From the wake word: the satellite stops listening then, whatever it heard.")),
+      field("Longest command (s)", inputs.max_seconds, "From the wake word: the satellite stops listening then, whatever it heard."),
+      field("No speech for (s)", inputs.no_speech_seconds, "From the wake word: with no speech by then, nothing was said, and the satellite stops listening.")),
     h("label", {}, others, "End when someone else talks", hint("Once the speaker is identified by their voice, someone else starting to talk ends the command at the speaker's last word, about a second in, rather than when they stop.")),
     note,
     h("div", { class: "row" },

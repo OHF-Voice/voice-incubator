@@ -17,9 +17,15 @@ one call at a time:
    rejection ends the call, unless the second opinion overturns it (below). An
    acceptance also yields the **split point**: where the wake phrase ends and
    the command begins;
-3. **endpointing** — a voice activity detector (`pysilero-vad`, or
-   `pymicro-vad` set on the Settings page) watches the command audio for
-   trailing silence, with hysteresis on its probabilities and on time.
+3. **endpointing** — a voice activity detector (`pysilero-vad`,
+   `pymicro-vad`, or both, set on the Settings page) watches the command
+   audio for trailing silence, with hysteresis on its probabilities and on
+   time. Both is speech when either hears it: Silero missed a child's
+   commands that the speech-to-text heard plainly (0.3 s of speech in each,
+   so they never started), where microVAD heard her; it also hears more noise
+   as speech, and ends as late as microVAD, about half a second after Silero.
+   With no speech 8 s after the wake word (`no_speech_seconds`), nothing was
+   said and the call ends, rather than at the 15 s limit.
    Silero hears the wake word first, so a command said straight after it
    isn't heard cold (it scored such commands ~0.4 against ~0.8, and they
    waited for a second try), and its first 0.2 s after the split count for
@@ -205,7 +211,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
 | `voice_call/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), with speakers' recordings of it, `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
 | `voice_call/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
-| `voice_call/endpoint.py` | endpointing: Silero VAD or microVAD, with hysteresis |
+| `voice_call/endpoint.py` | endpointing: Silero VAD, microVAD or both, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
 | `voice_call/commands.py` | the command schema: combinations, presets, where it is, what happens |

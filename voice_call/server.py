@@ -810,7 +810,7 @@ class VoiceCallApp:
             "used": self.end_of_speech().to_json(),
             "set": dict(self.store.settings.get("end_of_speech") or {}),
             "defaults": self.end_of_speech_base().to_json(),
-            "vads": {key: {"name": name, "installed": key != "micro" or micro_available()} for key, name in VADS.items()},
+            "vads": {key: {"name": name, "installed": key == "silero" or micro_available()} for key, name in VADS.items()},
             # For "End when someone else talks": the voices to tell them apart by
             # (None: speaker identification is off).
             "voices": len(self.speakers.profiles.speakers) if self.speakers is not None else None,
@@ -1754,10 +1754,25 @@ class VoiceCallApp:
             why, details = self._timed_out(call)
             _LOGGER.warning("[%s] Command exceeded %.1fs (%s); ending", session, longest, why)
             call.finished = True
-            if call.record is not None:
-                call.record.stage("timeout", why=why, seconds=longest, **details)
-                self.calls.finish(call.record, "timeout", why, self._call_audio(call))
-            self._spawn(self._hang_up(session, "timeout"))
+            self._give_up(session, call, why, longest, details)
+
+    def _give_up(self, session: Session, call: Call, why: str, seconds: float, details: dict[str, Any]) -> None:
+        """The call ends with nothing done: it ran out of time, or nobody spoke."""
+        if call.record is not None:
+            call.record.stage("timeout", why=why, seconds=seconds, **details)
+            self.calls.finish(call.record, "timeout", why, self._call_audio(call))
+        self._spawn(self._hang_up(session, "timeout"))
+
+    def _command_ended(self, session: Session, call: Call) -> None:
+        """The endpointer ended the command: answer it -- or, nothing said
+        ``no_speech_seconds`` after the wake word, hang up."""
+        call.finished = True
+        if call.endpointer is not None and call.endpointer.no_speech:
+            seconds = call.endpointer.settings.no_speech_seconds
+            _LOGGER.info("[%s] No speech %.1fs after the wake word; ending", session, seconds)
+            self._give_up(session, call, "no speech was heard", seconds, self._timed_out(call)[1])
+            return
+        self._spawn(self._respond(session, call))
 
     @staticmethod
     def _timed_out(call: Call) -> tuple[str, dict[str, Any]]:
@@ -1821,8 +1836,7 @@ class VoiceCallApp:
         call.command += new_audio
         self._feed_stt(call)
         if call.endpointer.process(new_audio) and not call.finished:
-            call.finished = True
-            self._spawn(self._respond(session, call))
+            self._command_ended(session, call)
         else:
             self._check_speaker_due(session, call)
 
@@ -2059,8 +2073,7 @@ class VoiceCallApp:
             call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:
-            call.finished = True
-            self._spawn(self._respond(session, call))
+            self._command_ended(session, call)
         else:
             self._check_speaker_due(session, call)
 
