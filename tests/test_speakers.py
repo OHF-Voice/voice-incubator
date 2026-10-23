@@ -117,6 +117,9 @@ async def _scenario(tmp_path: Path, piper) -> None:
 
             status, data = await api("GET", "speakers")
             assert data["speakers"] == [] and data["passage"] == PASSAGE
+            # On, with nobody enrolled: the Settings page says so.
+            ends = (await api("GET", "status"))[1]["end_of_speech"]
+            assert ends["used"]["end_on_other_voice"] is True and ends["voices"] == 0
             assert data["satellites"] == [{"key": MAC, "name": "Kitchen VPE", "enroll": True}]
 
             # Alice reads the passage, near the satellite.
@@ -169,6 +172,21 @@ async def _scenario(tmp_path: Path, piper) -> None:
             others = next(s for s in record.stages if s["stage"] == "endpoint").get("others", {})
             assert others.get("speaker") == "Alice" and "at" not in others, others
             assert record.marks["end"] > more_start + sum(len(a) / RATE if not isinstance(a, float) else a for a in more)
+
+            # Turned off: her command runs on through them, as before.
+            status, _ = await api("PUT", "settings", {"end_of_speech": {"end_on_other_voice": False}})
+            assert status == 200 and (tmp_path / "settings.yaml").read_text().count("end_on_other_voice: false") == 1
+            ends = (await api("GET", "status"))[1]["end_of_speech"]
+            assert ends["set"]["end_on_other_voice"] is False and ends["voices"] == 1
+            hass.stt_text = COMMAND
+            audio, starts = call_audio(wake, 0.15, command, 0.0, *other)
+            await satellite.call(audio, timeout=40)
+            await wait_for(lambda: app.calls.recent[-1].outcome != "in progress", 30)
+            record = app.calls.recent[-1]
+            assert "others" not in next(s for s in record.stages if s["stage"] == "endpoint")
+            assert record.marks["end"] > starts[1] + 4.0
+            status, _ = await api("PUT", "settings", {"end_of_speech": {"end_on_other_voice": None}})
+            assert "end_on_other_voice" not in (tmp_path / "settings.yaml").read_text()
 
             # Renamed, recolored, forgotten.
             status, data = await api("PATCH", "speakers/Alice", {"name": "alicia", "color": "violet"})

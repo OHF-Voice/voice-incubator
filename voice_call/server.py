@@ -754,6 +754,9 @@ class VoiceCallApp:
             "set": dict(self.store.settings.get("end_of_speech") or {}),
             "defaults": self.end_of_speech_base().to_json(),
             "vads": {key: {"name": name, "installed": key != "micro" or micro_available()} for key, name in VADS.items()},
+            # For "End when someone else talks": the voices to tell them apart by
+            # (None: speaker identification is off).
+            "voices": len(self.speakers.profiles.speakers) if self.speakers is not None else None,
         }
 
     def beep_elsewhere(self) -> str:
@@ -1823,9 +1826,13 @@ class VoiceCallApp:
         await self._start_stt(session, call)
         wake = call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes]
         call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(bytes(wake)), warm=bytes(wake))
-        # Someone else talking after the command ends it, once the speaker is
-        # identified (from its first segment): with profiles to identify by.
-        call.endpointer.watch(self.speakers is not None and bool(self.speakers.profiles.speakers))
+        # Someone else talking ends the command, once the speaker is
+        # identified: when that is on, with profiles to identify them by.
+        call.endpointer.watch(
+            call.endpointer.settings.end_on_other_voice
+            and self.speakers is not None
+            and bool(self.speakers.profiles.speakers)
+        )
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:

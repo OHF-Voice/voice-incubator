@@ -84,6 +84,9 @@ class EndOfSpeech:
     """Speech in a row that starts the silence over."""
     max_seconds: float = 15.0
     """The longest a command may be, from the wake word."""
+    end_on_other_voice: bool = True
+    """Someone other than the identified speaker talking ends their command
+    (``watch``): with enrolled voices to identify them by."""
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -107,6 +110,11 @@ def parse(value: Any, base: EndOfSpeech) -> EndOfSpeech:
         if key == "vad":
             if item not in VADS:
                 raise ValueError(f"end_of_speech.vad: one of {', '.join(VADS)}")
+            changes[key] = item
+            continue
+        if key == "end_on_other_voice":
+            if not isinstance(item, bool):
+                raise ValueError(f"end_of_speech.{key}: true or false")
             changes[key] = item
             continue
         low, high = LIMITS[key]

@@ -83,7 +83,11 @@ def test_settings():
     assert parse({"vad": "micro", "speech_threshold": "0.6", "silence_seconds": None}, base) == EndOfSpeech(
         vad="micro", speech_threshold=0.6, silence_seconds=0.8
     )
+    assert base.end_on_other_voice and parse({"end_on_other_voice": False}, base) == EndOfSpeech(
+        silence_seconds=0.8, end_on_other_voice=False
+    )
     for bad, why in (
+        ({"end_on_other_voice": "yes"}, "true or false"),
         ({"vad": "webrtc"}, "one of silero, micro"),
         ({"loud": 1}, "unknown loud"),
         ({"silence_seconds": 0.1}, "from 0.3 to 5"),

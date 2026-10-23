@@ -402,9 +402,18 @@ function endOfSpeechPanel() {
     try { await api("PUT", "settings", { end_of_speech: body }); toast("Saved"); await refreshStatus(); pageSettings(); }
     catch (err) { toast(err.message); }
   }
+  const others = h("input", { type: "checkbox", checked: (set.end_on_other_voice ?? defaults.end_on_other_voice) !== false });
+  // On, with nobody to tell apart: it does nothing until someone is enrolled.
+  const noVoices = () => !others.checked ? null
+    : status.voices === null ? h("div", { class: "notice warn" }, "Speaker identification is turned off, so this does nothing.")
+    : status.voices === 0 ? h("div", { class: "notice warn" }, "No voices are enrolled, so this does nothing yet: ", h("a", { href: "#/speakers" }, "enroll one on the Speakers page"), ".")
+    : null;
+  const note = h("div", {}, noVoices());
+  others.addEventListener("change", () => fill(note, noVoices()));
   const values = () => ({
     vad: vad.value === defaults.vad ? null : vad.value,
     ...Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, numberOrNull(input)])),
+    end_on_other_voice: others.checked === (defaults.end_on_other_voice !== false) ? null : others.checked,
   });
   return h("div", { class: "panel" },
     heading("h2", "End of speech", "When a satellite stops listening: once you have started speaking, after enough silence. A voice activity detector says how likely each moment of the audio is to be speech."),
@@ -418,6 +427,8 @@ function endOfSpeechPanel() {
       field("Silence to end (s)", inputs.silence_seconds, "Silence after speech that ends the command. Shorter answers sooner; longer lets you pause. The default is the app's option, “End-of-command silence”."),
       field("Speech to resume (s)", inputs.resume_seconds, "Speech in a row that starts the silence over. Shorter sounds — a cough, a click — only pause it."),
       field("Longest command (s)", inputs.max_seconds, "From the wake word: the satellite stops listening then, whatever it heard.")),
+    h("label", {}, others, "End when someone else talks", hint("Once the speaker is identified by their voice, someone else starting to talk ends the command at the speaker's last word, about a second in, rather than when they stop.")),
+    note,
     h("div", { class: "row" },
       h("button", { class: "primary", onclick: () => save(values()) }, "Save"),
       h("button", { onclick: () => save(null) }, "Restore defaults")));
@@ -2509,7 +2520,7 @@ async function pageSpeakers(preset) {
   fill($main,
     h("h1", {}, "Speakers"),
     h("div", { class: "panel" },
-      heading("h2", "Voices", `A command is attributed to the closest voice scoring ${num(data.threshold, 2)} or more, and the ring takes their color. Once someone is identified, someone else starting to talk ends their command. Voices also learn from commands they clearly win.`),
+      heading("h2", "Voices", `A command is attributed to the closest voice scoring ${num(data.threshold, 2)} or more, and the ring takes their color. Once someone is identified, someone else starting to talk ends their command (Settings, End of speech). Voices also learn from commands they clearly win.`),
       data.speakers.length ? list : h("div", { class: "muted" }, "No voices yet: enroll one below, or add a session's from its page.")),
     enrollPanel(data, preset));
 }

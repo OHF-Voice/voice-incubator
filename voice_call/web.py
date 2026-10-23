@@ -1114,7 +1114,7 @@ class Api:
                     raise ConfigError(str(err)) from err
                 if merged:
                     settings["end_of_speech"] = {
-                        k: v if k == "vad" else float(v) for k, v in merged.items()
+                        k: v if k == "vad" or isinstance(v, bool) else float(v) for k, v in merged.items()
                     }
                 else:
                     settings.pop("end_of_speech", None)

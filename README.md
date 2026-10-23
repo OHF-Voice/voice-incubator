@@ -804,7 +804,9 @@ then -- and what is recognized stops 0.3 s after it (speech-to-text streamed
 live has heard the rest). Their last word is where the scores fell halfway
 from the speaker's to the other voice's, half a window back, or a pause near
 it. The session's End of speech step shows it. Nobody identified: nothing is
-checked, as before.
+checked, as before. It is on by default: "End when someone else talks" on the
+Settings page (`end_of_speech: {end_on_other_voice: false}` turns it off),
+which says so, with a link to the Speakers page, while no voice is enrolled.
 
 Windows, not stretches between pauses, because people start talking with no
 pause at all: three recorded sessions where someone else did so, or after a
