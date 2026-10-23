@@ -26,6 +26,7 @@ from adapt_ctc.template import TemplateError, expand
 
 from . import languages, music, timers
 from .endpoint import parse as parse_end_of_speech
+from .enrollment import PASSAGE
 from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
@@ -44,6 +45,7 @@ from .store import (
     plain,
 )
 from .protocol import SAMPLE_RATE
+from .speaker import PALETTE
 from .voices import language_code
 from .pronounce import guess, model_phones
 from .wake import THRESHOLDS
@@ -144,6 +146,12 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.post("/api/calls/{id}/replay", api.replay),
             web.post("/api/calls/{id}/speaker", api.add_voice),
             web.get("/api/speakers", api.speakers),
+            web.get("/api/speakers/enrollment", api.enrollment),
+            web.post("/api/speakers/enrollment", api.start_enrollment),
+            web.post("/api/speakers/enrollment/save", api.save_enrollment),
+            web.delete("/api/speakers/enrollment", api.cancel_enrollment),
+            web.patch("/api/speakers/{name}", api.update_speaker),
+            web.delete("/api/speakers/{name}", api.delete_speaker),
             web.post("/api/try", api.try_text),
         ]
     )
@@ -1449,7 +1457,62 @@ class Api:
         return web.json_response({"ok": True, **added})
 
     async def speakers(self, request: web.Request) -> web.Response:
-        return web.json_response({"enabled": self.app.speakers is not None, "speakers": self.app.speaker_list()})
+        """The speakers, and what the Speakers page needs to enroll one: the
+        satellites (which can), the ring colors, the passage, and an
+        enrollment going on."""
+        satellites = []
+        for key, session in self.app.sessions.items():
+            if session.writer is None or not session.satellite:
+                continue
+            satellites.append({
+                "key": key,
+                "name": self.app.satellite(key).name,
+                "enroll": bool(session.hello.get("monitor_aec")),
+            })
+        return web.json_response({
+            "enabled": self.app.speakers is not None,
+            "speakers": self.app.speaker_list(),
+            "threshold": self.app.speakers.threshold if self.app.speakers is not None else None,
+            "palette": [{"name": name, "rgb": list(rgb)} for name, rgb in PALETTE],
+            "satellites": sorted(satellites, key=lambda s: s["name"].lower()),
+            "passage": PASSAGE,
+            "enrollment": self.app.enrollment_status(),
+        })
+
+    async def enrollment(self, request: web.Request) -> web.Response:
+        return web.json_response({"enrollment": self.app.enrollment_status()})
+
+    async def start_enrollment(self, request: web.Request) -> web.Response:
+        """``{satellite, name}``: listen on that satellite for that speaker."""
+        body = await request.json()
+        status = await self.app.start_enrollment(str(body.get("satellite") or ""), str(body.get("name") or ""))
+        return web.json_response({"ok": True, "enrollment": status})
+
+    async def save_enrollment(self, request: web.Request) -> web.Response:
+        status = await self.app.finish_enrollment(save=True)
+        if status is None:
+            raise ConfigError("Nobody is being enrolled")
+        if status["state"] == "failed":
+            raise ConfigError(status["error"] or "Enrolling failed")
+        return web.json_response({"ok": True, "enrollment": status})
+
+    async def cancel_enrollment(self, request: web.Request) -> web.Response:
+        await self.app.finish_enrollment(save=False)
+        return web.json_response({"ok": True})
+
+    async def update_speaker(self, request: web.Request) -> web.Response:
+        """``{name?, color?}``: rename them, or give them a ring color from the palette."""
+        body = await request.json()
+        profile = self.app.update_speaker(
+            request.match_info["name"],
+            new_name=None if body.get("name") is None else str(body["name"]),
+            color=None if body.get("color") is None else str(body["color"]),
+        )
+        return web.json_response({"ok": True, "speaker": profile})
+
+    async def delete_speaker(self, request: web.Request) -> web.Response:
+        self.app.delete_speaker(request.match_info["name"])
+        return web.json_response({"ok": True})
 
     async def replay(self, request: web.Request) -> web.Response:
         body = await _json_or_empty(request)

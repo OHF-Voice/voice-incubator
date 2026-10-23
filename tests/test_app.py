@@ -206,7 +206,8 @@ async def _scenario(tmp_path: Path) -> None:
             assert audio.status == 200 and audio.headers["Content-Type"] == "audio/wav"
 
             # Whose voice it was: into a new speaker, then the same one again.
-            assert (await (await http.get("/api/speakers")).json()) == {"enabled": True, "speakers": []}
+            listed = await (await http.get("/api/speakers")).json()
+            assert listed["enabled"] and listed["speakers"] == [] and listed["enrollment"] is None
             added = await (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": "mike"})).json()
             assert added["ok"] and added["name"] == "Mike" and added["learned"] == 0 and added["speech_s"] > 1
             added = await (await http.post(f"/api/calls/{kept['id']}/speaker", json={"name": "MIKE"})).json()

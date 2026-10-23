@@ -185,6 +185,62 @@ def test_a_warm_start_waits_for_the_command(pause):
     assert ended is not None and 2.8 <= 1.6 + ended - pause <= 3.1, ended
 
 
+def run_watched(probabilities, score, watch=True, **settings):
+    """Where the command ended (seconds), answering each check with ``score``
+    as the server would, and the endpointer."""
+    scripted = Scripted(probabilities)
+    endpointer = Endpointer(EndOfSpeech(**settings), lambda _: scripted)
+    endpointer.watch(watch)
+    for _ in range(len(probabilities)):
+        if endpointer.process(bytes(CHUNK)):
+            return round(endpointer.elapsed, 2), endpointer
+        due = endpointer.due()
+        if due is not None and endpointer.verdict(due[0], score, due[2]):
+            return round(endpointer.elapsed, 2), endpointer
+    return None, endpointer
+
+
+def test_someone_else_talking_ends_the_command():
+    # 0.5 s of command, 0.3 s of pause, then 3 s of someone else: checked once
+    # it is 1.05 s long and 0.25 s later; two low scores make it someone
+    # else's, and the speaker has been quiet since 0.5 s -- it ends there and
+    # then, not half a second after they stop.
+    talk = [0.9] * 50 + [0.1] * 30 + [0.9] * 300 + [0.1] * 100
+    ended, endpointer = run_watched(talk, 0.1, speech_seconds=0.2, silence_seconds=0.5)
+    assert ended == 2.1
+    assert endpointer.cut == {"other_from": 0.8, "last_word": 0.5, "at": 2.1, "scores": [0.1, 0.1]}
+    assert [s.owner for s in endpointer.segments] == ["speaker", "other"]
+    # Not watched (nobody identified): as before.
+    assert run_watched(talk, 0.1, watch=False, speech_seconds=0.2, silence_seconds=0.5)[0] == 4.3
+    # The speaker going on: three checks over the score make it theirs, and
+    # it is checked no more.
+    ended, endpointer = run_watched(talk, 0.6, speech_seconds=0.2, silence_seconds=0.5)
+    assert ended == 4.3 and endpointer.cut is None
+    assert endpointer.segments[1].owner == "speaker" and endpointer.segments[1].scores == [0.6, 0.6, 0.6]
+
+
+def test_one_low_score_is_not_enough():
+    scripted = Scripted([0.9] * 50 + [0.1] * 30 + [0.9] * 300 + [0.1] * 100)
+    endpointer = Endpointer(EndOfSpeech(speech_seconds=0.2, silence_seconds=0.5), lambda _: scripted)
+    endpointer.watch()
+    scores = iter([0.1, 0.5, 0.1, 0.5])
+    for _ in range(480):
+        if endpointer.process(bytes(CHUNK)):
+            break
+        due = endpointer.due()
+        if due is not None:
+            assert not endpointer.verdict(due[0], next(scores), due[2])
+    # Low, high, low, high: never two in a row, so it ran to the end.
+    assert endpointer.cut is None and round(endpointer.elapsed, 2) == 4.3
+    # The command itself is never checked, nor a segment before it is long enough.
+    scripted = Scripted([0.9] * 200)
+    endpointer = Endpointer(EndOfSpeech(), lambda _: scripted)
+    endpointer.watch()
+    for _ in range(200):
+        endpointer.process(bytes(CHUNK))
+        assert endpointer.due() is None
+
+
 @pytest.mark.skipif(not CALL.exists(), reason="no recorded call")
 def test_a_quiet_command_ends():
     # The recorded call 24 dB down, as a capture without AGC carries it:

@@ -777,13 +777,40 @@ Benchmarked on recorded VPE audio of four speakers (whosaidit): ~1% EER on AGC,
 ~0.5% on AEC; at 0.45, about 98% of household commands are accepted while 0.5%
 of an un-enrolled speaker's in the same room get through.
 
-**Enrolling.** On a kept session's page (Sessions), its Speaker step adds its
-voice to a speaker, known or new; or enroll from recordings on the command
-line (below). Colors come from a fixed list of hues that stay distinct on the
-ring, skipping red (error) and the default cyan (nobody recognized). Saying
-"learn a new voice for Natalie" to a satellite, which learned her voice from
-her next five commands, was removed until it has a better way to start (git
-history before 2026-10-18 has it).
+**Enrolling.** On the Speakers page: pick a name (new, or someone to add
+to) and a satellite, and read the passage it shows aloud in a normal voice,
+walking slowly around the room -- close to the satellite, across the room,
+facing away now and then -- for about a minute (45 s of speech; 10 s at
+least). Meanwhile the satellite streams what speakers are identified on (the
+second capture, `AUDIO_MONITOR_AEC`, while monitored: firmware that can says
+`monitor_aec` in HELLO) and its ring blinks red. Enrolling again on another
+satellite, or in another room, adds to the same voice. The passage is the
+app's own: commands as they will be said to a satellite, then plain sentences.
+Walking matters more than the words: a far-field speaker embedding learns the
+room and the distance as much as the voice, and identification happens across
+the room. A kept session's page (Sessions) can also add its voice to a
+speaker, and so can recordings on the command line (below). The Speakers page
+renames, recolors and forgets them. Colors come from a fixed list of hues that
+stay distinct on the ring, skipping red (error) and the default cyan (nobody
+recognized).
+
+**Someone else talking.** Once a command's first segment of speech is in --
+speech is split at pauses of 0.15 s -- the speaker is identified from it and
+the wake word, and each later segment is checked against their profile once
+it is 1.05 s long and every 0.25 s after. Two checks in a row under 0.30 make
+it someone else's: their speech is silence for the command, which ends as
+soon as the speaker has been quiet for the end-of-speech silence since their
+last word, and what is recognized stops 0.3 s after it (speech-to-text
+streamed live has heard the rest). The session's End of speech step shows it.
+Nobody identified: nothing is checked, as before. Simulated with Piper's
+voices (four enrolled speakers, each against a voice like most
+people's and the closest of 60, after a pause shorter than the silence) the
+command ended 1.4 s into the other voice every time for the typical one,
+rather than after it stopped; the closest was mostly not caught (and the call
+then ends as before); the speaker's own continuations were cut no more often
+than without it. Checking against the command itself, for an unknown speaker,
+caught more of the close voices but cut the speaker's own continuations three
+times as often, so it is not done.
 
 **Learning.** A command that clears the threshold by 0.05, beats the
 runner-up by 0.1 and has 2 s of speech is folded into that person's profile,
@@ -1067,7 +1094,10 @@ sliding window's mean (what meets the cutoff), and the wake words detected
 -- which it does not answer: someone listening is not talking to it. The
 browser plays the audio through Web Audio (a fifth of a second behind, for
 the network's jitter) and draws the level, the last six seconds, and a strip
-per model with its cutoff and its detections.
+per model with its cutoff and its detections. A speaker being enrolled from a
+satellite (the Speakers page) keeps it monitored too, and firmware that says
+`"monitor_aec": true` in HELLO also streams the second capture meanwhile, as
+`AUDIO_MONITOR_AEC` (0x0C): what speakers are identified on.
 
 A call's `CALL_START` says what its wake word came in with: `probability`,
 the sliding window's mean that met the cutoff, `max_probability`, the

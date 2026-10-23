@@ -2464,6 +2464,130 @@ function wakeTitle(wake) {
   return wake && wake.probability !== undefined ? `window average ${prob(wake.probability)}, highest ${prob(wake.max_probability)}, cutoff ${prob(wake.cutoff)}` : null;
 }
 
+// Speakers: the voices commands are attributed to, and enrolling one from
+// a satellite (they read the passage aloud while it listens).
+async function pageSpeakers(preset) {
+  const data = await api("GET", "speakers");
+  if (!data.enabled) {
+    fill($main, h("h1", {}, "Speakers"), h("div", { class: "panel muted" }, "Speaker identification is turned off (--no-speaker-id)."));
+    return;
+  }
+  const rgb = (c) => (c ? `rgb(${c.join(",")})` : "var(--line)");
+  const list = h("div", { class: "list" });
+  for (const sp of data.speakers) {
+    const color = h("select", { "aria-label": `${sp.name}'s ring color`, style: "max-width:130px" },
+      data.palette.map((p) => h("option", { value: p.name, selected: p.name === sp.color_name || null }, p.name)));
+    color.addEventListener("change", async () => {
+      try { await api("PATCH", `speakers/${encodeURIComponent(sp.name)}`, { color: color.value }); pageSpeakers(); }
+      catch (err) { toast(err.message); }
+    });
+    const enrolled = (sp.enrolled || []).map((e) => e.satellite);
+    const where = [...new Set(enrolled)];
+    list.append(h("div", { class: "item" },
+      h("span", { class: "dot", style: `background:${rgb(sp.color)}; width:14px; height:14px` }),
+      h("div", { class: "grow" },
+        h("div", { class: "title" }, sp.name),
+        h("div", { class: "muted small" }, [
+          `${num(sp.seconds, 0)} s of speech`,
+          where.length ? `enrolled on ${where.join(", ")}` : null,
+          sp.learned ? `learned from ${sp.learned} command${sp.learned === 1 ? "" : "s"}` : null,
+        ].filter(Boolean).join(" · "))),
+      color,
+      h("button", { onclick: () => pageSpeakers(sp.name) }, "Add more"),
+      h("button", { onclick: async () => {
+        const name = prompt(`Rename ${sp.name} to`, sp.name);
+        if (!name || name === sp.name) return;
+        try { await api("PATCH", `speakers/${encodeURIComponent(sp.name)}`, { name }); pageSpeakers(); }
+        catch (err) { toast(err.message); }
+      } }, "Rename"),
+      h("button", { class: "danger", onclick: async () => {
+        if (!confirm(`Forget ${sp.name}'s voice?`)) return;
+        try { await api("DELETE", `speakers/${encodeURIComponent(sp.name)}`); pageSpeakers(); }
+        catch (err) { toast(err.message); }
+      } }, "Delete")));
+  }
+  fill($main,
+    h("h1", {}, "Speakers"),
+    h("div", { class: "panel" },
+      heading("h2", "Voices", `A command is attributed to the closest voice scoring ${num(data.threshold, 2)} or more, and the ring takes their color. Once someone is identified, someone else starting to talk ends their command. Voices also learn from commands they clearly win.`),
+      data.speakers.length ? list : h("div", { class: "muted" }, "No voices yet: enroll one below, or add a session's from its page.")),
+    enrollPanel(data, preset));
+}
+
+function enrollPanel(data, preset) {
+  const box = h("div");
+  const names = h("datalist", { id: "speaker-names" }, data.speakers.map((sp) => h("option", { value: sp.name })));
+  const name = h("input", { type: "text", list: "speaker-names", value: preset || "", placeholder: "name", style: "max-width:220px", "aria-label": "Whose voice" });
+  const usable = data.satellites.filter((s) => s.enroll);
+  const satellite = h("select", { style: "max-width:260px", "aria-label": "Satellite" },
+    data.satellites.map((s) => h("option", { value: s.key, disabled: !s.enroll || null }, s.enroll ? s.name : `${s.name} (update its firmware)`)));
+  if (usable.length) satellite.value = usable[0].key;
+  let timer = null;
+  const stop = () => { if (timer) clearTimeout(timer); timer = null; };
+  state.leaving.push(stop);
+
+  async function refresh() {
+    timer = null;
+    if (!document.body.contains(box)) return;
+    try { show((await api("GET", "speakers/enrollment")).enrollment); } catch (err) { toast(err.message); }
+  }
+  async function start() {
+    try { show((await api("POST", "speakers/enrollment", { satellite: satellite.value, name: name.value })).enrollment); }
+    catch (err) { toast(err.message); }
+  }
+  async function save() {
+    try { await api("POST", "speakers/enrollment/save"); toast("Saved"); pageSpeakers(); }
+    catch (err) { toast(err.message); refresh(); }
+  }
+  async function cancel() {
+    try { await api("DELETE", "speakers/enrollment"); pageSpeakers(); } catch (err) { toast(err.message); }
+  }
+  // While it listens: built once, then updated in place (a rebuild every
+  // half second would lose clicks).
+  let view = null;
+  function listening(e) {
+    if (!view) {
+      view = {
+        text: h("div"),
+        progress: h("progress", { max: e.target_s, style: "width:100%" }),
+        meter: h("meter", { min: -70, max: -10, low: -50, high: -20, optimum: -30, style: "width:100%", "aria-label": "Level" }),
+        save: h("button", { class: "primary", onclick: save }, "Save"),
+      };
+      fill(box,
+        h("div", { class: "row" },
+          h("div", { class: "grow" }, view.text, view.progress, view.meter),
+          view.save,
+          h("button", { onclick: cancel }, "Cancel")),
+        h("div", { class: "passage" }, data.passage.split("\n\n").map((para) => h("p", {}, para))));
+    }
+    view.text.textContent = `${e.name} on ${e.satellite_name}: ${num(e.speech_s, 0)} of ${num(e.target_s, 0)} s of speech${e.full ? " (that's all it takes)" : ""}`;
+    view.progress.value = Math.min(e.speech_s, e.target_s);
+    view.meter.value = Math.max(-70, Math.min(-10, e.level === null ? -90 : e.level));
+    view.meter.title = `Level ${num(e.level, 0)} dBFS`;
+    view.save.disabled = e.speech_s < e.min_s;
+  }
+  function show(e) {
+    stop();
+    if (e && e.state === "listening") {
+      listening(e);
+      timer = setTimeout(refresh, 500);
+      return;
+    }
+    view = null;
+    const last = !e ? null
+      : e.state === "failed" ? h("div", { class: "notice bad" }, `${e.name}: ${e.error || "failed"}`)
+      : null;
+    fill(box, last,
+      usable.length
+        ? h("div", { class: "row" }, names, name, satellite, h("button", { class: "primary", onclick: start }, "Start"))
+        : h("div", { class: "muted" }, data.satellites.length ? "Update a satellite's firmware to enroll from it." : "No satellite is connected."));
+  }
+  show(data.enrollment);
+  return h("div", { class: "panel" },
+    heading("h2", "Enroll", "Read the passage aloud in your normal voice while walking slowly around the room: close to the satellite, across the room, facing away now and then. About a minute. The ring blinks red while it listens. Enrolling again on another satellite, or in another room, adds to the same voice."),
+    box);
+}
+
 async function pageSessions(query) {
   const satellite = new URLSearchParams(query || "").get("satellite");
   await loadSatellites();
@@ -2794,7 +2918,7 @@ function stepGlance(stage) {
     case "wake_unverified":
       return { title: "Verification", status: "", line: "none for this wake word" };
     case "endpoint":
-      return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command${d.vad ? ` · ${VAD_NAMES[d.vad] || d.vad}` : ""}` };
+      return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command${d.vad ? ` · ${VAD_NAMES[d.vad] || d.vad}` : ""}${d.others && d.others.at !== undefined ? " · someone else cut in" : ""}` };
     case "speaker":
       return { title: "Speaker", status: d.name ? "ok" : "", line: `${d.name ? `${d.name} (${num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized"}${inTime(d.seconds)}` };
     case "split":
@@ -2894,7 +3018,10 @@ function stepDetails(stage) {
   if (name === "endpoint" && data.vad) {
     const s = data.settings || {};
     return h("div", { class: "small" }, `${VAD_NAMES[data.vad] || data.vad}: ${num(data.speech_seconds, 2)} s of speech, ${num(data.silence_seconds, 2)} s of silence at the end`,
-      h("div", { class: "muted" }, `speech at ${num(s.speech_threshold)}, silence below ${num(s.silence_threshold)} · ${num(s.speech_seconds)} s to start, ${num(s.silence_seconds)} s to end, ${num(s.resume_seconds)} s to resume`));
+      h("div", { class: "muted" }, `speech at ${num(s.speech_threshold)}, silence below ${num(s.silence_threshold)} · ${num(s.speech_seconds)} s to start, ${num(s.silence_seconds)} s to end, ${num(s.resume_seconds)} s to resume`),
+      data.others ? h("div", { class: data.others.at !== undefined ? "" : "muted" }, data.others.at !== undefined
+        ? `Someone other than ${data.others.speaker} from ${num(data.others.other_from, 2)} s (scored ${data.others.scores.map((v) => num(v, 2)).join(", ")}): ended at their last word, ${num(data.others.last_word, 2)} s`
+        : data.others.speaker ? `Watched for someone other than ${data.others.speaker} (${num(data.others.score, 2)})` : "Nobody identified: not watched for someone else") : null);
   }
   if (name === "timeout") {
     return h("div", { class: "small" }, `${num(data.audio_seconds, 1)} s of audio, the last ${num(data.audio_stopped, 1)} s ago`,
@@ -3325,6 +3452,7 @@ async function route() {
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "wake") await pageWakeWords(query);
+    else if (page === "speakers") await pageSpeakers();
     else if (page === "sessions") await pageSessions(query);
     else if (page === "session") await pageSession(arg);
     // Old links: the Commands, Skills, Satellites and Test pages (now the

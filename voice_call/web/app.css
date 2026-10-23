@@ -333,3 +333,7 @@ button.hint:hover, button.hint:focus-visible, button.hint[aria-expanded="true"] 
 .hint-wrap:hover .hint-text[hidden], .hint-wrap:focus-within .hint-text[hidden] { display: block; }
 .var { display: inline-flex; align-items: center; gap: 2px; }
 .hint-text.flip { left: auto; right: -8px; }
+
+/* Speakers: the passage read aloud while enrolling. */
+.passage { max-width: 46em; margin-top: 12px; font-size: 1.15em; line-height: 1.6; }
+.passage p { margin: 0 0 0.8em; }

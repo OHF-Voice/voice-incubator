@@ -60,6 +60,11 @@ class FakeSatellite:
     """Says in HELLO that it can stream outside calls, as newer firmware does."""
     monitoring: list[bool] = field(default_factory=list)
     """Every MONITOR the app sent: streaming, or not."""
+    monitor_aec: bool = True
+    """Says in HELLO that it streams the second capture too while monitored."""
+    room_audio: bytes | None = None
+    """What its microphones hear between calls (looped), streamed on both
+    captures while monitored; else a quiet hum, on the first."""
     hello_extra: dict = field(default_factory=dict)
     """More to say in HELLO (learn-tv firmware's ``aec_lead_samples``, ``fallback``)."""
 
@@ -78,6 +83,8 @@ class FakeSatellite:
             hello["model_slots"] = self.model_slots
         if self.monitor:
             hello["monitor"] = True
+            if self.monitor_aec:
+                hello["monitor_aec"] = True
         hello.update(self.hello_extra)
         writer.write(encode_json(Message.HELLO, hello))
         await writer.drain()
@@ -141,10 +148,17 @@ class FakeSatellite:
         report with a wake word heard (and, monitored, not answered). A call
         streams its own audio instead, as the device does."""
         tone = (np.sin(np.arange(CHUNK // 2) * 2 * np.pi * 440 / SAMPLE_RATE) * 3000).astype("<i2").tobytes()
-        sent = 0
+        sent = offset = 0
         while self._writer is not None:
             if not self._in_call:
-                self._writer.write(encode(Message.AUDIO_MONITOR, tone))
+                if self.room_audio:
+                    chunk = (self.room_audio + self.room_audio)[offset % len(self.room_audio) :][:CHUNK]
+                    offset += CHUNK
+                    self._writer.write(encode(Message.AUDIO_MONITOR, chunk))
+                    if self.monitor_aec:
+                        self._writer.write(encode(Message.AUDIO_MONITOR_AEC, chunk))
+                else:
+                    self._writer.write(encode(Message.AUDIO_MONITOR, tone))
                 if sent % 3 == 0:
                     report = {
                         "models": [

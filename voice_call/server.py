@@ -53,7 +53,9 @@ from .protocol import (
     encode_json,
     ms_to_bytes,
 )
-from .speaker import Identification, SpeakerId
+from .enrollment import MIN_SECONDS as ENROLL_MIN_SECONDS
+from .enrollment import Enrollment
+from .speaker import PALETTE, Identification, SpeakerId
 from .store import Compiled, Store
 from .tts import Speech
 from .wake import VerifyResult, WakeVerifier
@@ -112,6 +114,16 @@ def _satellite_key(hello: dict, fallback: str) -> str:
     and reflashing; else whatever discovery keyed the session on."""
     mac = re.sub(r"[^0-9a-fA-F]", "", str(hello.get("mac") or "")).lower()
     return mac or fallback
+
+
+SPEAKER_END_MARGIN = 0.3
+"""What is recognized runs this far past the speaker's last word, when someone
+else's speech ended the command (Silero's segments end close on the speech)."""
+
+
+def _seconds_bytes(seconds: float) -> int:
+    """Seconds as a whole number of samples' bytes (negative before)."""
+    return int(round(seconds * BYTE_RATE / BYTES_PER_SAMPLE)) * BYTES_PER_SAMPLE
 
 
 def _seconds(value: float | None) -> float | None:
@@ -351,6 +363,16 @@ class Call:
     when it always runs."""
     stt_gain: float = 1.0
     """What the AEC capture is boosted by as it is streamed."""
+    speaker_ref: Any = None
+    """The identified speaker's profile, once the command's first segment is in
+    (what later segments are checked against); False when nobody was."""
+    speaker_watch: dict[str, Any] | None = None
+    """Who that was, and the score."""
+    speaker_checking: bool = False
+    """A check of a segment is running."""
+    speaker_end: float | None = None
+    """Where the speaker's last word ended, in seconds from the split, when
+    someone else's speech ended the command: what is recognized stops there."""
 
 
 @dataclass
@@ -406,6 +428,9 @@ class Session:
     comes, between calls (the device streams it while monitored) and in them."""
     live_call: bool = False
     """Listeners were told a call started, and not yet that it ended."""
+    monitoring: bool = False
+    """What the device was last told (MONITOR): someone listens live, or a
+    speaker is enrolled from it."""
 
     def __str__(self) -> str:
         return self.device_id
@@ -499,6 +524,8 @@ class VoiceCallApp:
         self._tasks: set[asyncio.Task] = set()
         self._sessions: dict[str, asyncio.Task] = {}
         self.sessions: dict[str, Session] = {}
+        self.enrollment: Enrollment | None = None
+        """A speaker being enrolled from a satellite (the Speakers page)."""
         """Connected satellites, by satellite key."""
         self._discovery: Discovery | None = None
         self._web = None
@@ -1126,6 +1153,10 @@ class VoiceCallApp:
                             queue.get_nowait()
                         queue.put_nowait(None)
                     session.listeners.clear()
+                    session.monitoring = False
+                    enrollment = self.enrollment
+                    if enrollment is not None and enrollment.satellite == session.satellite and enrollment.listening:
+                        enrollment.state, enrollment.error = "failed", "The satellite disconnected"
                     writer.close()
                     with contextlib.suppress(Exception):
                         await writer.wait_closed()
@@ -1210,6 +1241,15 @@ class VoiceCallApp:
 
         if msg_type == Message.AUDIO_MONITOR:
             self._live(session, payload)
+            return
+
+        if msg_type == Message.AUDIO_MONITOR_AEC:
+            enrollment = self.enrollment
+            if enrollment is not None and enrollment.satellite == session.satellite:
+                was = enrollment.listening
+                enrollment.add(payload)
+                if was and not enrollment.listening:
+                    await self._set_monitor(session)  # collected all it takes
             return
 
         if msg_type == Message.WAKE_REPORT:
@@ -1341,7 +1381,7 @@ class VoiceCallApp:
         session.listeners.add(queue)
         if len(session.listeners) == 1:
             _LOGGER.info("[%s] Someone is listening live", session)
-            await self._send_json(session, Message.MONITOR, {"active": True})
+        await self._set_monitor(session)
         return queue
 
     async def stop_listening(self, key: str, queue: asyncio.Queue) -> None:
@@ -1351,8 +1391,112 @@ class VoiceCallApp:
         session.listeners.discard(queue)
         if not session.listeners:
             _LOGGER.info("[%s] Nobody is listening live any more", session)
+        with contextlib.suppress(ConnectionError, OSError):
+            await self._set_monitor(session)
+
+    async def _set_monitor(self, session: Session) -> None:
+        """Have the device stream outside calls while someone listens live or a
+        speaker is enrolled from it, and not otherwise."""
+        enrollment = self.enrollment
+        wanted = bool(session.listeners) or (
+            enrollment is not None and enrollment.satellite == session.satellite and enrollment.listening
+        )
+        if wanted != session.monitoring and session.writer is not None:
+            session.monitoring = wanted
+            await self._send_json(session, Message.MONITOR, {"active": wanted})
+
+    # ------------------------------------------------------------ speakers
+
+    def enrollment_status(self) -> dict[str, Any] | None:
+        return self.enrollment.to_json() if self.enrollment is not None else None
+
+    async def start_enrollment(self, key: str, name: str) -> dict[str, Any]:
+        """Collect a speaker's voice from a satellite while they read aloud."""
+        if self.speakers is None:
+            raise ConfigError("Speaker identification is turned off")
+        speaker = _speaker_name(name)
+        if speaker is None:
+            raise ConfigError("Give the speaker a name")
+        session = self.sessions.get(key)
+        if session is None or session.writer is None:
+            raise ConfigError("The satellite is not connected")
+        if not session.hello.get("monitor_aec"):
+            raise ConfigError("This satellite's firmware can't stream for enrollment: update it")
+        if self.enrollment is not None and self.enrollment.listening:
+            raise ConfigError(f"Already enrolling {self.enrollment.name} on {self.enrollment.satellite_name}")
+        self.enrollment = Enrollment(key, self.satellite(key).name, self.speakers.profiles.find(speaker) or speaker)
+        _LOGGER.info("[%s] Enrolling %s", session, self.enrollment.name)
+        await self._set_monitor(session)
+        return self.enrollment.to_json()
+
+    async def finish_enrollment(self, save: bool) -> dict[str, Any] | None:
+        """Stop listening; with ``save``, make or extend the profile."""
+        enrollment = self.enrollment
+        if enrollment is None:
+            return None
+        if enrollment.state in ("done", "failed", "cancelled"):
+            if not save:
+                self.enrollment = None
+            return enrollment.to_json()
+        enrollment.state = "saving" if save else "cancelled"
+        session = self.sessions.get(enrollment.satellite)
+        if session is not None:
             with contextlib.suppress(ConnectionError, OSError):
-                await self._send_json(session, Message.MONITOR, {"active": False})
+                await self._set_monitor(session)
+        if not save:
+            self.enrollment = None
+            return enrollment.to_json()
+        assert self.speakers is not None
+        try:
+            if enrollment.speech_s < ENROLL_MIN_SECONDS:
+                raise ConfigError(f"Only {enrollment.speech_s:.0f} s of speech: read for longer")
+            utterance = await self.speakers.embed(bytes(enrollment.audio))
+            if utterance is None:
+                raise ConfigError("Too little speech to learn a voice from")
+            name, profile = self.speakers.add(enrollment.name, utterance)
+            profile.setdefault("enrolled", []).append({
+                "satellite": enrollment.satellite_name,
+                "speech_s": round(enrollment.speech_s, 1),
+                "at": time.time(),
+            })
+            self.speakers.profiles.save()
+            enrollment.name, enrollment.profile, enrollment.state = name, _profile_json(name, profile), "done"
+        except ConfigError as err:
+            enrollment.state, enrollment.error = "failed", str(err)
+        return enrollment.to_json()
+
+    def update_speaker(self, name: str, new_name: str | None = None, color: str | None = None) -> dict[str, Any]:
+        """Rename a speaker, or give them another ring color (a palette name)."""
+        if self.speakers is None:
+            raise ConfigError("Speaker identification is turned off")
+        profiles = self.speakers.profiles
+        key = profiles.find(name)
+        if key is None:
+            raise FileNotFoundError(f"No speaker {name}")
+        if new_name is not None:
+            renamed = _speaker_name(new_name)
+            if renamed is None:
+                raise ConfigError("Give the speaker a name")
+            try:
+                key = profiles.rename(key, renamed)
+            except ValueError as err:
+                raise ConfigError(str(err)) from err
+        if color is not None:
+            rgb = dict(PALETTE).get(color)
+            if rgb is None:
+                raise ConfigError(f"No color {color}: one of {', '.join(n for n, _ in PALETTE)}")
+            profiles.recolor(key, rgb)
+        profiles.save()
+        return _profile_json(key, profiles.speakers[key])
+
+    def delete_speaker(self, name: str) -> None:
+        if self.speakers is None:
+            raise ConfigError("Speaker identification is turned off")
+        try:
+            self.speakers.profiles.remove(name)
+        except KeyError as err:
+            raise FileNotFoundError(f"No speaker {name}") from err
+        self.speakers.profiles.save()
 
     # ----------------------------------------------------------------- calls
 
@@ -1491,6 +1635,73 @@ class VoiceCallApp:
         if call.endpointer.process(new_audio) and not call.finished:
             call.finished = True
             self._spawn(self._respond(session, call))
+        else:
+            self._check_speaker_due(session, call)
+
+    def _check_speaker_due(self, session: Session, call: Call) -> None:
+        """Check the segment of speech going on, when it is due, beside the audio."""
+        if call.speaker_checking or call.speaker_ref is False or call.endpointer is None:
+            return
+        due = call.endpointer.due()
+        if due is not None:
+            call.speaker_checking = True
+            self._spawn(self._check_speaker(session, call, *due))
+
+    async def _check_speaker(self, session: Session, call: Call, index: int, start: float, end: float) -> None:
+        """Is segment ``index`` the identified speaker's? Identifies them first
+        (the wake word and the command's first segment), once."""
+        assert self.speakers is not None and call.endpointer is not None
+        endpointer = call.endpointer
+        try:
+            if call.speaker_ref is None:
+                ident = await self.speakers.identify(self._speaker_slice(call, -WAKE_SECONDS, endpointer.segments[0].end))
+                call.speaker_watch = {"speaker": ident.name, "score": None if ident.score is None else round(ident.score, 3)}
+                reference = self.speakers.reference(ident.name) if ident.name else None
+                if reference is None:
+                    call.speaker_ref = False
+                    endpointer.watch(False)
+                    _LOGGER.debug("[%s] Nobody identified: not watching for someone else", session)
+                    return
+                call.speaker_ref = reference
+                _LOGGER.debug("[%s] Watching for someone other than %s", session, ident.name)
+            vector = await self.speakers.embed_window(self._speaker_slice(call, start, end))
+            score = float(vector @ call.speaker_ref)
+            if endpointer.verdict(index, score, end) and not call.finished:
+                call.finished = True
+                call.speaker_end = endpointer.cut["last_word"] if endpointer.cut else None
+                _LOGGER.info(
+                    "[%s] Someone other than %s from %.2fs: the command ended at their last word, %.2fs",
+                    session, (call.speaker_watch or {}).get("speaker"), start, call.speaker_end or 0.0,
+                )
+                self._spawn(self._respond(session, call))
+        except Exception:  # never let the check take the call down with it
+            _LOGGER.exception("[%s] Checking the speaker failed", session)
+            call.speaker_ref = False
+            endpointer.watch(False)
+        finally:
+            call.speaker_checking = False
+        if not call.finished:
+            self._check_speaker_due(session, call)
+
+    def _speaker_slice(self, call: Call, start: float, end: float | None) -> bytes:
+        """The capture speakers are identified on, from ``start`` to ``end``
+        seconds after the split (negative: before it; None: to the end)."""
+        assert self.speakers is not None
+        if self.speakers.channel == "aec" and call.aec:
+            # The two captures carry their own pre-rolls; line them up on the
+            # detection, which ends both.
+            audio = call.aec
+            split = call.split_bytes - call.preroll_bytes + (call.aec_preroll_bytes or call.preroll_bytes)
+        else:
+            audio, split = call.audio, call.split_bytes
+        a = max(0, split + _seconds_bytes(start))
+        b = len(audio) if end is None else max(a, split + _seconds_bytes(end))
+        return bytes(audio[a:b])
+
+    def _speaker_stop(self, call: Call) -> float | None:
+        """Where what is recognized stops, in seconds from the split: a little
+        after the speaker's last word, when someone else's speech ended it."""
+        return None if call.speaker_end is None else call.speaker_end + SPEAKER_END_MARGIN
 
     def _ran_into_edge(self, result: Any, call: Call) -> bool:
         """Did the wake phrase end at the end of the pre-roll?
@@ -1609,11 +1820,16 @@ class VoiceCallApp:
         await self._start_stt(session, call)
         wake = call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes]
         call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(bytes(wake)), warm=bytes(wake))
+        # Someone else talking after the command ends it, once the speaker is
+        # identified (from its first segment): with profiles to identify by.
+        call.endpointer.watch(self.speakers is not None and bool(self.speakers.profiles.speakers))
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")
         if call.endpointer.process(bytes(call.command)) and not call.finished:
             call.finished = True
             self._spawn(self._respond(session, call))
+        else:
+            self._check_speaker_due(session, call)
 
     async def _start_stt(self, session: Session, call: Call) -> None:
         """When the satellite's STT entity always runs: the stream it hears
@@ -1767,6 +1983,9 @@ class VoiceCallApp:
                         "speech_seconds": round(ended.speech_seconds, 2),
                         "silence_seconds": round(ended.silence_seconds, 2),
                         "settings": ended.settings.to_json(),
+                        # Who was watched for, and when someone else's speech ended it.
+                        **({"others": {**(call.speaker_watch or {}), **(ended.cut or {})}}
+                           if call.speaker_watch or ended.cut else {}),
                     }
                     if ended is not None
                     else {}
@@ -1791,12 +2010,17 @@ class VoiceCallApp:
             transcriber.finish()
         else:
             transcriber = await self._transcriber(satellite)
-        agc = bytes(call.audio)
+        agc, aec = bytes(call.audio), bytes(call.aec)
+        stop = self._speaker_stop(call)
+        if stop is not None:
+            # Someone else's speech ended it: recognized up to the speaker's last word.
+            agc = agc[: call.split_bytes + _seconds_bytes(stop)]
+            aec = aec[: call.split_bytes - call.preroll_bytes + (call.aec_preroll_bytes or call.preroll_bytes) + _seconds_bytes(stop)]
         if isinstance(transcriber, HassTranscriber):
             # A request (or, when a stream failed, the request after it):
             # from Kaldi's split, as a stream is.
             transcriber.audio_for = stt_audio_for(
-                agc, bytes(call.aec), call.split_bytes // 2, call.preroll_bytes // 2,
+                agc, aec, call.split_bytes // 2, call.preroll_bytes // 2,
                 (call.aec_preroll_bytes or call.preroll_bytes) // 2,
                 capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
                 boost=satellite.voice.stt_audio == "aec_boost",
@@ -2321,18 +2545,11 @@ class VoiceCallApp:
         what was benchmarked. Not the whole pre-roll -- whatever was said before
         the wake word (a TV, someone else) would be scored too.
         """
-        lead = ms_to_bytes(1200)
         assert self.speakers is not None
-        if self.speakers.channel == "aec" and call.aec:
-            # The two captures carry their own pre-rolls; line them up on the
-            # detection, which ends both.
-            split = call.split_bytes - call.preroll_bytes + (
-                call.aec_preroll_bytes or call.preroll_bytes
-            )
-            return bytes(call.aec[max(0, split - lead) :])
-        if self.speakers.channel == "aec":
+        if self.speakers.channel == "aec" and not call.aec:
             _LOGGER.debug("[%s] No AEC capture; identifying from AGC", session)
-        return bytes(call.audio[max(0, call.split_bytes - lead) :])
+        # Not past their last word when someone else's speech ended the command.
+        return self._speaker_slice(call, -WAKE_SECONDS, self._speaker_stop(call))
 
     async def _identify(self, session: Session, call: Call) -> Identification | None:
         assert self.speakers is not None
@@ -2473,12 +2690,16 @@ class VoiceCallApp:
 
 
 def _profile_json(name: str, profile: dict[str, Any]) -> dict[str, Any]:
+    color = tuple(profile.get("color") or ())
     return {
         "name": name,
         "color": profile.get("color"),
+        "color_name": next((n for n, rgb in PALETTE if rgb == color), None),
         "seconds": round(float(profile.get("speech_s") or 0.0), 1),
         "windows": profile.get("n_windows"),
         "learned": profile.get("learned", 0),
+        "learned_s": round(float(profile.get("learned_s") or 0.0), 1),
+        "enrolled": profile.get("enrolled", []),
     }
 
 

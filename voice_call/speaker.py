@@ -217,6 +217,29 @@ class Profiles:
         }
         return self.speakers[name]
 
+    def rename(self, name: str, new: str) -> str:
+        """``name``'s profile under ``new``; ValueError when that is someone else's."""
+        key = self.find(name)
+        if key is None:
+            raise KeyError(name)
+        other = self.find(new)
+        if other is not None and other != key:
+            raise ValueError(f"{other} already has a voice")
+        self.speakers[new] = self.speakers.pop(key)
+        return new
+
+    def remove(self, name: str) -> None:
+        key = self.find(name)
+        if key is None:
+            raise KeyError(name)
+        del self.speakers[key]
+
+    def recolor(self, name: str, rgb: tuple[int, int, int]) -> None:
+        key = self.find(name)
+        if key is None:
+            raise KeyError(name)
+        self.speakers[key]["color"] = list(rgb)
+
     def learn(self, name: str, utt: Utterance, cap: int) -> None:
         """Fold an utterance in. The existing centroid counts as at most ``cap``
         windows, so the profile keeps following slow changes in voice and room."""
@@ -273,6 +296,19 @@ class SpeakerId:
         assert self._embedder is not None, "start() first"
         async with self._lock:
             return await asyncio.to_thread(self._embedder.embed, pcm_to_float(pcm))
+
+    async def embed_window(self, pcm: bytes) -> np.ndarray:
+        """One stretch of audio's embedding as it is (unit length): no trimming,
+        no windows -- a segment of speech, scored while it goes on."""
+        assert self._embedder is not None, "start() first"
+        embedder = self._embedder
+        async with self._lock:
+            return await asyncio.to_thread(lambda: _unit(embedder._one(pcm_to_float(pcm))))
+
+    def reference(self, name: str) -> np.ndarray | None:
+        """``name``'s profile, unit length."""
+        profile = self.profiles.speakers.get(name)
+        return None if profile is None else _unit(np.asarray(profile["centroid"], dtype=np.float32))
 
     async def identify(self, pcm: bytes) -> Identification:
         utt = await self.embed(pcm)

@@ -19,12 +19,25 @@ all along ~0.8, and the command waited for a second try (or music) to begin.
 What it carries over from the wake word lasts ~0.15 s, so its first
 SETTLE_SECONDS after the split count for nothing, lest a pause after the wake
 word end a command not yet said.
+
+Someone else's speech is silence for the command, once it is known to be
+someone else's (``watch``): speech comes in segments, split at pauses of
+SEGMENT_GAP, and the first is the command. A later segment is checked against
+the identified speaker's voice (``due``, ``verdict``: the caller embeds it)
+once it is OTHER_AFTER long and every OTHER_EVERY after; two checks in a row
+under OTHER_SCORE make it someone else's, and the command then ends as soon as
+the speaker has been quiet for ``silence_seconds`` since their last word -- a
+second and a bit into the other voice, rather than after it stops. Simulated
+on Piper's voices (four enrolled speakers, each against a typical voice and
+the closest of 60), a typical voice was cut 1.4 s in every time, the closest
+mostly not (as before), and the speaker's own continuations no more often than
+the endpointer alone.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 from collections.abc import Callable
 
@@ -115,6 +128,31 @@ WAKE_SECONDS = 1.2
 """How much audio before the split holds the wake word."""
 SETTLE_SECONDS = 0.2
 """After a warm start, Silero's chunks that count for nothing."""
+SEGMENT_GAP = 0.15
+"""A pause this long ends a segment of speech."""
+OTHER_AFTER = 1.05
+"""A segment after the command is first checked once it is this long..."""
+OTHER_EVERY = 0.25
+"""... and again every this much longer, until it is decided."""
+OTHER_SCORE = 0.30
+"""Two checks in a row scoring under this (cosine to the speaker's profile)
+make a segment someone else's; over it at OTHER_AFTER + 2 * OTHER_EVERY, the
+speaker's."""
+
+
+@dataclass
+class Segment:
+    """A stretch of speech, in seconds from the split."""
+
+    start: float
+    end: float
+    owner: str | None = None
+    """``speaker``, ``other``, or None while undecided (the speaker's, meanwhile)."""
+    low: int = 0
+    """Checks in a row under OTHER_SCORE."""
+    checked: float = 0.0
+    """Its end at the last check."""
+    scores: list[float] = field(default_factory=list)
 _FRAME = 512
 
 
@@ -221,6 +259,16 @@ class Endpointer:
         self.silence_seconds = 0.0
         self.speech_started = False
         self._settle = 0
+        self.elapsed = 0.0
+        """Seconds of command audio judged."""
+        self.segments: list[Segment] = []
+        self._quiet = 0.0
+        self.watching = False
+        """Whether later segments are checked against the speaker (``due``)."""
+        self.cut: dict[str, Any] | None = None
+        """When someone else's speech ended the command: where they began, the
+        speaker's last word, when it was decided, and the checks' scores."""
+        self.ended = False
         if warm and self.vad == "silero":
             self._warm(warm)
 
@@ -234,6 +282,60 @@ class Endpointer:
             self._detector(_amplify(chunk, self.gain) if self.gain != 1.0 else chunk)
         self._settle = round(SETTLE_SECONDS / self._chunk_seconds)
 
+    def watch(self, on: bool = True) -> None:
+        """Check segments after the command against the speaker (or stop:
+        nobody was identified)."""
+        self.watching = on
+
+    def due(self) -> tuple[int, float, float] | None:
+        """The segment to check now, ``(index, start, end)``: the latest, when
+        it is undecided and long enough."""
+        if not self.watching or self.ended or len(self.segments) < 2:
+            return None
+        segment = self.segments[-1]
+        if segment.owner is not None or segment.end - segment.start < OTHER_AFTER - 1e-9:
+            return None
+        if segment.scores and segment.end - segment.checked < OTHER_EVERY - 1e-9:
+            return None
+        return len(self.segments) - 1, segment.start, segment.end
+
+    def verdict(self, index: int, score: float, end: float) -> bool:
+        """A check of segment ``index`` up to ``end``; True when it ends the
+        command (someone else's, and the speaker quiet long enough since)."""
+        segment = self.segments[index]
+        if self.ended or segment.owner is not None:
+            return False
+        segment.scores.append(round(score, 3))
+        segment.checked = end
+        segment.low = segment.low + 1 if score < OTHER_SCORE else 0
+        if segment.low >= 2:
+            segment.owner = "other"
+            last = max((s.end for s in self.segments if s.owner != "other"), default=0.0)
+            self.silence_seconds = max(0.0, self.elapsed - last)
+            self._run = 0.0
+            self.cut = {
+                "other_from": round(segment.start, 2),
+                "last_word": round(last, 2),
+                "at": round(self.elapsed, 2),
+                "scores": list(segment.scores),
+            }
+            _LOGGER.info("Someone else from %.2fs; the speaker's last word at %.2fs", segment.start, last)
+            if self.speech_started and self.silence_seconds >= self.settings.silence_seconds - 1e-9:
+                return self._end()
+        elif segment.low == 0 and segment.end - segment.start >= OTHER_AFTER + 2 * OTHER_EVERY - 1e-9:
+            segment.owner = "speaker"
+        return False
+
+    def _end(self) -> bool:
+        self.ended = True
+        _LOGGER.info(
+            "Command ended (%s: %.2fs speech, %.2fs silence)",
+            VADS[self.vad],
+            self.speech_seconds,
+            self.silence_seconds,
+        )
+        return True
+
     def process(self, pcm: bytes) -> bool:
         """Feed command audio; True once the command has ended."""
         self._leftover += pcm
@@ -244,6 +346,7 @@ class Endpointer:
             if self.gain != 1.0:
                 chunk = _amplify(chunk, self.gain)
             probability = self._detector(chunk)
+            self.elapsed += seconds
             if probability is None:
                 continue
             if self._settle:
@@ -252,7 +355,18 @@ class Endpointer:
             self.speaking = probability >= (
                 settings.silence_threshold if self.speaking else settings.speech_threshold
             )
+            # The speaker's speech: someone else's is silence for the command.
+            speaking = self.speaking
             if self.speaking:
+                if not self.segments or self._quiet >= SEGMENT_GAP - 1e-9:
+                    owner = None if self.segments else "speaker"
+                    self.segments.append(Segment(self.elapsed - seconds, self.elapsed, owner))
+                self.segments[-1].end = self.elapsed
+                self._quiet = 0.0
+                speaking = self.segments[-1].owner != "other"
+            else:
+                self._quiet += seconds
+            if speaking:
                 self.speech_seconds += seconds
                 self._run += seconds
                 if not self.speech_started:
@@ -266,11 +380,5 @@ class Endpointer:
                 if self.speech_started:
                     self.silence_seconds += seconds
                     if self.silence_seconds >= settings.silence_seconds - 1e-9:
-                        _LOGGER.info(
-                            "Command ended (%s: %.2fs speech, %.2fs silence)",
-                            VADS[self.vad],
-                            self.speech_seconds,
-                            self.silence_seconds,
-                        )
-                        return True
+                        return self._end()
         return False

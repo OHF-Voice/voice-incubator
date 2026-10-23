@@ -44,6 +44,9 @@ class Message(IntEnum):
     probability (0-255) since the last report, of an inference and of its
     window's mean (what meets the cutoff), and wake words detected, which a
     monitored device does not answer."""
+    AUDIO_MONITOR_AEC = 0x0C
+    """The second capture outside a call, while monitored: what speakers are
+    enrolled on. Firmware that sends it says ``"monitor_aec": true`` in HELLO."""
 
     """App to device."""
     AUDIO_OUT = 0x10
