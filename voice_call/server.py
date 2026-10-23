@@ -64,7 +64,7 @@ from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
 from .wake_recordings import TAKE_SCORE, WakeRecording, WakeTakes
 from .wake_recordings import summary as wake_summary
 from .wake_training import WakeTraining, phrase_of, word_id
-from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
+from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords, trained_from
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -472,6 +472,7 @@ class VoiceCallApp:
             on_installed=self._wake_word_trained,
             exists=lambda word: self.wake_words.get(word) is not None or word in SPECIAL,
             retrainable=self.trained_here,
+            builtin=lambda word: (found := self.wake_words.get(word)) is not None and not found.custom,
         )
         """Training a new wake word from a phrase (the Wake words page)."""
         if options.wake_training_clips:
@@ -924,7 +925,7 @@ class VoiceCallApp:
         """The second opinion's threshold unless the page sets one."""
         if self.options.wake_ratio is not None and self.options.wake_ratio >= 0:
             return self.options.wake_ratio
-        return RATIO_THRESHOLD.get(word_id, DEFAULT_RATIO)
+        return RATIO_THRESHOLD.get(word_id) or RATIO_THRESHOLD.get(trained_from(word_id) or "", DEFAULT_RATIO)
 
     def ratio_threshold(self, word_id: str) -> float:
         tuned = (self.store.wake_tuning.get(word_id) or {}).get("second_opinion")
@@ -2565,10 +2566,20 @@ class VoiceCallApp:
 
     async def _wake_word_trained(self, word: str) -> None:
         """A model trained here is saved: a cutoff tuned for the one before it
-        goes (its verifier stays), and satellites listening for it get it."""
+        goes (its verifier stays), and satellites listening for it get it. One
+        trained from a built-in word's phrase is verified as that word is, the
+        first time: its confusables and pronunciations."""
         self.wake_words.forget()
         entry = dict(self.store.wake_tuning.get(word) or {})
-        if entry.pop("cutoff", None) is not None:
+        base = trained_from(word)
+        if base is not None and word not in self.store.wake_tuning:
+            shipped = self.wake.shipped_entry(base) or {}
+            tuned = self.store.wake_tuning.get(base) or {}
+            await self.tune_wake_word(word, {
+                "confusables": list(tuned.get("confusables", shipped.get("confusables") or [])),
+                "pronunciations": {**(shipped.get("pronunciations") or {}), **(tuned.get("pronunciations") or {})},
+            })
+        elif entry.pop("cutoff", None) is not None:
             await self.tune_wake_word(word, entry or None)
         for session in list(self.sessions.values()):
             if session.writer is not None and word in session.wake_words:

@@ -250,6 +250,13 @@ def test_what_keeps_it_from_training(tmp_path):
         training.exists = lambda word: word == "okay_nabu"
         with pytest.raises(TrainingError, match="wasn.t trained here"):
             await training.start("okay nabu")
+        # A built-in word's phrase is a word of its own beside it.
+        training.builtin = lambda word: word == "okay_nabu"
+        training.trainer_python = str(make_trainer(tmp_path, "slow"))
+        training._trainer_checked = None  # pylint: disable=protected-access
+        job = await training.start("okay nabu")
+        assert job.word == "okay_nabu_trained" and not job.again
+        await training.cancel()
 
     asyncio.run(run())
 

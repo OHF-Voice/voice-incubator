@@ -85,6 +85,17 @@ RATIO_THRESHOLD: dict[str, float] = {
     "hey_mycroft": 1.2,
 }
 
+TRAINED_SUFFIX = "_trained"
+"""A built-in word's phrase trained here (with a household's recordings) is a
+custom word of its own beside it: okay_nabu_trained."""
+
+
+def trained_from(word_id: str) -> str | None:
+    """The built-in word whose phrase ``word_id`` was trained from, if any."""
+    base = word_id.removesuffix(TRAINED_SUFFIX)
+    return base if base != word_id and base in PHRASES else None
+
+
 MAX_CUTOFF = 0.99
 """The device fires when the window's average is above the cutoff, so a
 manifest's 1.0 would never fire (one in the Tater catalog has it)."""
@@ -224,7 +235,10 @@ class WakeWords:
                 verified=verified,
                 cutoff=min(float(tuned), MAX_CUTOFF) if tuned is not None else default,
                 default_cutoff=default,
-                phrases=PHRASES.get(word_id) or ((spoken(name),) if spoken(name) else ()),
+                phrases=(
+                    PHRASES.get(word_id) or PHRASES.get(trained_from(word_id) or "")
+                    or ((spoken(name),) if spoken(name) else ())
+                ),
             )
         self._words = dict(sorted(words.items(), key=lambda kv: (kv[1].custom, kv[1].name.lower())))
         self._signature = signature

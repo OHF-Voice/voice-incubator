@@ -1,11 +1,13 @@
 """A speaker's own wake words: them saying a wake phrase at a satellite, kept
 with their voice, for training that wake word (voice_call/wake_training.py).
 
-Ten recordings of one person take a trained model from about 62% of their
-wake words to 90%, twenty-five to 96%, and do little for anyone else's
-(micro-wake-word's POOLING_AND_PERSONALIZATION.md: one utterance from one
-microphone each, beside 2,000 of Piper's). So a household records each of
-its voices, and a word is trained with the recordings of whoever is ticked.
+Several people's recordings make a trained model hear all of them, and even
+people who recorded none (micro-wake-word's POOLING_AND_PERSONALIZATION.md:
+one utterance from one microphone each, beside 2,000 of Piper's): 25 each
+from four people took their wake words to 94%, and 50 each from three took a
+fourth, unheard, to 82% where the shipped model gets 56%. Many from one
+person do little for anyone else. So everyone in a household records, and a
+word is trained with the recordings of whoever is ticked.
 
 Recording, the satellite streams what speakers are enrolled on (the second
 capture, while monitored: a wake word then starts no call) and reports what
@@ -17,11 +19,18 @@ for them now.
 
 A take is a WAV beside the speakers' profiles (``wake_recordings/``); the
 profile lists them under ``wake``, by the word's id, so they follow a rename
-and go with a delete.
+and go with a delete. Recordings made elsewhere come in on the command line,
+with the app stopped (it keeps the profiles in memory and would write over
+them)::
+
+    python -m voice_call.wake_recordings list
+    python -m voice_call.wake_recordings add Jenn "okay nabu" takes/*.wav --source office-multicap
+    python -m voice_call.wake_recordings forget Jenn "okay nabu"
 """
 
 from __future__ import annotations
 
+import argparse
 import time
 import uuid
 import wave
@@ -34,11 +43,11 @@ import numpy as np
 
 from .protocol import BYTE_RATE, SAMPLE_RATE
 
-TARGET_TAKES = 10
-"""Enough to count: about 62% -> 90% for them."""
-GOOD_TAKES = 25
-"""About 96%."""
-MAX_TAKES = 60
+TARGET_TAKES = 25
+"""Each person's, for a household: 94% of their wake words (ten each, 75%)."""
+GOOD_TAKES = 50
+"""97%."""
+MAX_TAKES = 160
 """A word's takes per speaker (the oldest go)."""
 MAX_SECONDS = 300.0
 """Listening stops after this."""
@@ -288,3 +297,55 @@ def summary(profile: dict[str, Any]) -> list[dict[str, Any]]:
             "takes": [{k: t.get(k) for k in ("id", "at", "seconds", "satellite", "score", "heard")} for t in takes],
         })
     return out
+
+
+def main() -> None:
+    from .speaker import Profiles  # pylint: disable=import-outside-toplevel
+    from .wake_training import phrase_of, word_id  # pylint: disable=import-outside-toplevel
+
+    root = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(prog="python -m voice_call.wake_recordings", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--profiles", type=Path, default=root / "var/speakers.json")
+    parser.add_argument("--channel", default="aec", help="capture channel the profiles belong to")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list")
+    add = sub.add_parser("add", help="keep recordings of a speaker saying a phrase as their takes")
+    add.add_argument("name")
+    add.add_argument("phrase")
+    add.add_argument("files", nargs="+", type=Path, help="16 kHz mono 16-bit WAVs, one take each")
+    add.add_argument("--source", default="imported", help="where they were recorded (shown as the satellite)")
+    forget = sub.add_parser("forget", help="delete a speaker's takes of a phrase")
+    forget.add_argument("name")
+    forget.add_argument("phrase")
+    a = parser.parse_args()
+
+    profiles = Profiles(a.profiles, a.channel)
+    takes = WakeTakes(a.profiles.parent / "wake_recordings", profiles.speakers)
+    if a.cmd == "list":
+        for name, profile in sorted(profiles.speakers.items()):
+            for word in summary(profile):
+                print(f"{name:<16}{word['phrase']:<24}{word['count']:>4} takes")
+        return
+    name = profiles.find(a.name)
+    if name is None:
+        raise SystemExit(f"no speaker named {a.name!r}: enroll their voice first")
+    phrase = phrase_of(a.phrase)
+    if a.cmd == "forget":
+        print(f"deleted {takes.remove(name, word_id(phrase))} of {name}'s takes of {phrase!r}")
+        profiles.save()
+        return
+    added = 0
+    for path in a.files:
+        with wave.open(str(path), "rb") as wav:
+            if (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) != (SAMPLE_RATE, 1, 2):
+                raise SystemExit(f"{path}: not 16 kHz mono 16-bit")
+            pcm = wav.readframes(wav.getnframes())
+        takes.add(name, word_id(phrase), phrase, pcm, satellite=a.source, score=None, heard=None)
+        added += 1
+    profiles.save()
+    print(f"{name}: {added} takes of {phrase!r} added, {len(takes.words(name)[word_id(phrase)]['takes'])} in all")
+
+
+if __name__ == "__main__":
+    main()

@@ -275,6 +275,20 @@ async def _per_satellite(tmp_path: Path) -> None:
             assert app._wake_models_for(session) == []  # pylint: disable=protected-access
             session.hello["max_pool"] = True
             assert [m.model_id for m in app._wake_models_for(session)] == ["hey_pooled"]  # pylint: disable=protected-access
+
+            # "Okay Nabu" trained here (as the app saves it) is a word of its
+            # own, found again and verified as the built-in one is.
+            shutil.copy(ROOT / "tests/fixtures/pooled.tflite", tmp_path / "wake_words/okay_nabu_trained.tflite")
+            manifest = {"type": "micro", "wake_word": "Okay Nabu", "model": "okay_nabu_trained.tflite",
+                        "micro": {"probability_cutoff": 0.8}, "trained": {"by": "voice_call"}}
+            (tmp_path / "wake_words/okay_nabu_trained.json").write_text(json.dumps(manifest))
+            app.wake_words.forget()
+            assert app.trained_here("okay_nabu_trained") and not app.trained_here("okay_nabu")
+            await app._wake_word_trained("okay_nabu_trained")  # pylint: disable=protected-access
+            trained = app.wake_words.get("okay_nabu_trained")
+            assert trained.custom and trained.verified and trained.phrases == app.wake_words.phrases("okay_nabu")
+            assert "okay bamboo" in app.store.wake_tuning["okay_nabu_trained"]["confusables"]
+            assert app.default_ratio("okay_nabu_trained") == 1.3
     finally:
         runner.cancel()
         await app.stop()

@@ -647,6 +647,9 @@ model learns it against the kit's negatives (`scripts/make_wake_training_kit.py`
 5,000 random spectrograms of each set). A word trained here can be trained
 again, with more recordings say: the new model replaces it when done, its
 tuned cutoff goes (its verifier stays), and satellites listening for it get it.
+A built-in word's phrase trains as a word of its own beside it
+(`okay_nabu_trained`), found again in the CTC evidence as the built-in one is
+and given its confusables and pronunciations, so it is verified too.
 
 The recipe is micro-wake-word's `notebooks/POOLING_AND_PERSONALIZATION.md`:
 the base model's 4-block MixedNet with its last layer's 17 positions
@@ -679,10 +682,29 @@ better -- 8.7% for Mike without his recordings, 62.3% with ten, 2.4% for the
 others -- and neither did prepare_finetune's weights (negatives x20 in the
 loss, positives sampled 2 to their 30).
 
-Recordings buy the speaker who made them and almost nobody else, as in
+One person's recordings buy that person and almost nobody else, as in
 micro-wake-word's own measurements (62% -> 90% -> 96% for Mike with 0, 10 and
-25). Whether ten from each of four people do as much for each of them as ten
-of one person's do for that person is being measured there.
+25). Several people's buy everyone: there, 25 each from all four took their
+held-out wake words to 94.3% (ten each, 74.8%), and 50 each from three took
+the fourth, who recorded none, to 82.4% -- the shipped okay_nabu got him
+56.2% -- where 153 of Mike's alone gave the others 13.8%. Collect a few from
+everyone, not many from one; and a household's "okay nabu" trained so can
+beat the shipped one.
+
+Here, with the same recordings (cut at the wake phrase, one VPE position),
+on the held-out wake words of those who recorded, and Oliver's (n=3):
+
+| model | those who recorded | Oliver |
+|---|---|---|
+| shipped okay_nabu | 73.4% (four), 85.1% (three) | 37.9% |
+| trained here, 10 from each of four | 47.7% (38-56) | 30.6% (29-32), recorded |
+| ... 25 from each of four | 73.4% (54-86) | 66.1% (45-83), recorded |
+| ... 50 from each of three | 85.5% (79-92) | 39.4% (20-59), recorded none |
+
+A household's model trained here matches the shipped one at 25 each: better
+for the speaker it hears worst (Oliver), worse for the one it hears best
+(Mike: 61.4% against 93.6%). Someone who recorded nothing gets about what the
+shipped model gives them, not micro-wake-word's 82%.
 
 A model trained here needs firmware whose executor runs max pooling (Wake
 word models, above).
@@ -851,8 +873,8 @@ renames, recolors and forgets them. Colors come from a fixed list of hues that
 stay distinct on the ring, skipping red (error) and the default cyan (nobody
 recognized).
 
-**Their wake words.** Also on the Speakers page, an enrolled speaker says a
-wake phrase at a satellite, pausing between, ten times or more
+**Their wake words.** Also on the Speakers page, everyone enrolled says a
+wake phrase at a satellite, pausing between, 25 times
 (`voice_call/wake_recordings.py`). The satellite streams as for enrolling,
 and while monitored a wake word starts no command. Silero cuts the stream into
 utterances; one with 0.4-2.5 s of speech is a take, kept when it scores 0.35
@@ -862,7 +884,7 @@ stricter bar than "someone else talking" below, since a take refused only
 costs another. Whether the satellite's own model of the phrase heard each take
 (its `WAKE_REPORT`s) is noted: how well the word does for them before
 training. Takes are WAVs in `wake_recordings/` beside `speakers.json`, listed
-in the profile under `wake` by the word's id (60 at most per word), so they
+in the profile under `wake` by the word's id (160 at most per word), so they
 follow a rename and go with a delete; the page plays and deletes them one by
 one. Training a wake word (below) uses the recordings of whoever is ticked.
 

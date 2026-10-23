@@ -20,7 +20,9 @@ of whoever is ticked, join Piper's clips: a model that hears them better.
 The model and its manifest then go in the custom wake word directory, like an
 uploaded one: unverified, at ``CUTOFF``, until given confusables. A word
 trained here can be trained again (with more recordings, say): the new model
-replaces it when it is done.
+replaces it when it is done. A built-in word's phrase ("okay nabu") becomes a
+word of its own beside it (okay_nabu_trained, wake_words.TRAINED_SUFFIX):
+several people's recordings make a model that beats the shipped one.
 
 What training needs besides the phrase is the **kit** (made by
 scripts/make_wake_training_kit.py): the negative pool, in a directory with a
@@ -49,6 +51,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .wake_words import TRAINED_SUFFIX
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -215,6 +219,7 @@ class WakeTraining:
         on_installed: Callable[[str], Awaitable[None] | None] | None = None,
         exists: Callable[[str], bool] | None = None,
         retrainable: Callable[[str], bool] | None = None,
+        builtin: Callable[[str], bool] | None = None,
     ) -> None:
         self.work_dir = Path(work_dir)
         self.custom_dir = custom_dir
@@ -230,6 +235,8 @@ class WakeTraining:
         """Whether a wake word of that id is there already."""
         self.retrainable = retrainable or (lambda _word: False)
         """Whether it is one trained here, which may be trained again."""
+        self.builtin = builtin or (lambda _word: False)
+        """Whether it is a built-in word (its phrase trains as another)."""
         self.positive_clips = POSITIVE_CLIPS
         self.training_steps = list(TRAINING_STEPS)
         self.job: Job | None = self._load_job()
@@ -353,6 +360,8 @@ class WakeTraining:
             raise TrainingError("Type the wake phrase.")
         if len(phrase) > 40:
             raise TrainingError("That's too long for a wake word.")
+        if self.builtin(word):
+            word += TRAINED_SUFFIX
         again = self.exists(word)
         if again and not self.retrainable(word):
             raise TrainingError(f"There is a wake word {word} already that wasn't trained here.")

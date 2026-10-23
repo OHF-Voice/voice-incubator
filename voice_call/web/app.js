@@ -2317,7 +2317,8 @@ function wakeTraining(first, reload) {
   function recorded() {
     const word = wakeWordId(phrase.value);
     const found = (first.recorded || {})[word];
-    button.textContent = (first.trained || []).includes(word) ? "Train again" : "Train";
+    const trained = first.trained || [];
+    button.textContent = trained.includes(word) || trained.includes(`${word}_trained`) ? "Train again" : "Train";
     ticks = found ? Object.entries(found.speakers).map(([name, n]) => ({ name, box: h("input", { type: "checkbox", checked: true }), n })) : [];
     fill(whose, ticks.length
       ? ["With the recordings of", ticks.map((t) => h("label", {}, t.box, ` ${t.name} (${t.n})`))]
@@ -2360,7 +2361,7 @@ function wakeTraining(first, reload) {
   }
   show(first);
   return h("div", { class: "panel" },
-    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. Speakers' own recordings of it (the Speakers page) are trained with too, and it hears them better. It is added unverified, at its own cutoff; try it before relying on it. Training a word trained here again replaces it when done.`),
+    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. Speakers' own recordings of it (the Speakers page) are trained with too: several people's help everyone, and a built-in phrase trained so is a word of its own beside the built-in one. It is added unverified, at its own cutoff; try it before relying on it. Training a word trained here again replaces it when done.`),
     box);
 }
 
@@ -2659,7 +2660,7 @@ function wakeRecordPanel(data, preset) {
   }
   show(data.recording);
   return h("div", { class: "panel" },
-    heading("h2", "Record a wake word", "Say the wake phrase at the satellite ten times or more, pausing between, the way and from where you usually say it. The ring blinks red while it listens, and the phrase starts no command. A wake word trained with someone's recordings hears them better: in micro-wake-word's tests ten took them from about 62% of their wake words to 90%, twenty-five to 96%, and did little for anyone else. Train it on the Wake words page."),
+    heading("h2", "Record a wake word", "Everyone in the home: say the wake phrase at the satellite 25 times, pausing between, the way and from where you usually say it. The ring blinks red while it listens, and the phrase starts no command. A wake word trained with several people's recordings hears them all better, and people who made none: in micro-wake-word's tests 25 each from four people took them to 94% of their wake words, and 50 each from three took a fourth to 82%, where the shipped “Okay Nabu” got 56%. Train it on the Wake words page."),
     box);
 }
 

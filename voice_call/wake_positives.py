@@ -16,10 +16,9 @@ as the device makes them, and only the frames the model looks at are kept:
 ``frames`` at the end, ``slides`` times, each ending one frame earlier.
 
 Recordings of the phrase (``--real``: the speakers' own, from a satellite)
-join Piper's clips one for one and are made into features the same way. Ten
-of a speaker's take the detector from about 62% of their wake words to 90%,
-and do little for anyone else's (POOLING_AND_PERSONALIZATION.md); they are
-all trained on, none held out.
+join Piper's clips one for one and are made into features the same way. A
+few from each of several people help them all and people who made none
+(POOLING_AND_PERSONALIZATION.md); they are all trained on, none held out.
 
 Writes ``training.npy`` and ``validation.npy`` (uint16, ``(n, frames, 40)``,
 as microWakeWord stores unscaled features) and prints its progress as JSON
