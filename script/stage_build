@@ -34,6 +34,16 @@ for lang in de nl fr es it pl ru ua; do
         cp -a "models/$name-transducer-int8" local/models/
     fi
 done
+# One encoder for each language's CTC model and transducer (adapt_ctc/hybrid.py):
+# the CTC model's head beside the transducer, checked to give its
+# log-probabilities. The app then loads the encoder once.
+.venv/bin/python -m adapt_ctc.hybrid local/models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8 local/models/parakeet-tdt-int8
+for lang in de nl fr es it pl ru ua; do
+    name="stt_${lang}_fastconformer_hybrid_large_pc"
+    if [[ -d "local/models/$name-transducer-int8" ]]; then
+        .venv/bin/python -m adapt_ctc.hybrid "local/models/speech-to-phrase/$name-int8" "local/models/$name-transducer-int8"
+    fi
+done
 # The command fallback's default model (78 MB), from scripts/export_gliner.py.
 if [[ -d models/gliner2.5-small-v1-onnx ]]; then
     cp -a models/gliner2.5-small-v1-onnx local/models/

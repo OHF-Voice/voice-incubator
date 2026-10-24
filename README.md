@@ -213,7 +213,7 @@ so do meaning and the model step among a command's versions and copies
 | `voice_call/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
 | `voice_call/endpoint.py` | endpointing: Silero VAD, microVAD or both, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
-| `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints |
+| `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints; the CTC model and the transducer as one when they share an encoder (`adapt_ctc/hybrid.py`) |
 | `voice_call/commands.py` | the command schema: combinations, presets, where it is, what happens |
 | `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
 | `voice_call/actions.py` | variables, `execute_script`, intents (on what was heard, as Assist would: exposed devices only), the response, the `voice_call_command` event |
@@ -1992,6 +1992,27 @@ Almost all of it is one file. Measured per startup stage on the Pi:
 (Measured with speech-to-phrase. adapt-ctc loads the same int8 CTC model once,
 and the grammars are gone; EmbeddingGemma 2, when loaded for hints, is
 another model on top. These have not been re-measured on the Pi.)
+
+**One encoder.** The CTC model and the TDT transducer are the two branches of
+one NeMo model (`parakeet-tdt_ctc-110m`; each language's FastConformer
+hybrid likewise), exported apart, each with its own copy of the encoder. The
+CTC branch adds only a 1x1 convolution and a log-softmax to it, so
+`adapt_ctc/hybrid.py` keeps that head beside the transducer (`ctc_head.npz`,
+made by `python -m adapt_ctc.hybrid CTC_DIR TDT_DIR`, which checks the
+transducer's encoder then gives the CTC model's log-probabilities -- within
+3e-5 for English and all eight other languages -- and by `script/stage_build`).
+The engine then loads the encoder once, and decodes transcripts itself rather
+than with sherpa-onnx: the engine's peak, after a call's matching and its
+transcript, 692 -> 512 MB on x86; 42 ms for a 2.8 s call's transcript
+against sherpa-onnx's 29 ms (3 ms when it is the audio just matched). The
+transcripts come from adapt-ctc's features, which are NeMo's own (NeMo's
+preprocessor gives the same to 0.034, past the first frame), where sherpa-onnx
+computes Kaldi's: of 200 office-multicap prompts, 91 came out word for word
+the same, at the same word error rate (32.9% against 32.5%); in German, 19 of
+20. Without the head, the two load as before. (Citrinet was measured as a
+lighter CTC model and is not one: 246 MB at its smallest, but 59.7% of the
+office-multicap commands right against Parakeet's 88.5%, and a child's 42.6%
+against 79.6%.)
 
 `--no-tdt` only drops the TDT transducer, so it barely moves the total.
 The encoder that always loads is the one to shrink:

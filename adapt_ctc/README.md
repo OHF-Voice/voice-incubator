@@ -378,7 +378,11 @@ intents:
 - **TDT transcript.** Otherwise the command is transcribed by Parakeet's TDT
   transducer head. The CTC export has no transducer, so this is a second
   model, decoded with sherpa-onnx (the `tdt` extra). It costs about 30 ms per
-  command on x86.
+  command on x86. With the CTC model's head beside it (`adapt_ctc/hybrid.py`,
+  `python -m adapt_ctc.hybrid CTC_DIR TDT_DIR`), one model does both: the
+  transducer's encoder gives the CTC model's log-probabilities, and the
+  transcript is decoded greedily here, as sherpa-onnx does (TDT or plain
+  RNN-T), from the same features (about 40 ms).
 - The transcript must equal an example after normalizing both: case,
   punctuation, apostrophes and spaces are ignored, and digits are spelled out.
   So "Whats the weather like to morrow." matches the first example above.

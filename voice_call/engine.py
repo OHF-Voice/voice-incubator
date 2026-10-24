@@ -258,9 +258,10 @@ class Engine:
         embedding_dir: Path | None = None,
         threads: int = 2,
     ) -> None:
-        self.model = CtcModel(model_dir, num_threads=threads)
         self.threads = threads
-        self.transcriber = self._load_tdt(tdt_dir)
+        shared = self._shared(model_dir, tdt_dir)
+        self.model = shared or CtcModel(model_dir, num_threads=threads)
+        self.transcriber = shared or self._load_tdt(tdt_dir)
         self.tdt_dir = Path(tdt_dir) if self.transcriber is not None and tdt_dir is not None else None
         self.embedder = None
         if embedding_dir is not None and (Path(embedding_dir) / "onnx/model_q4.onnx").is_file():
@@ -290,6 +291,18 @@ class Engine:
         self.build_seconds = 0.0
         self._lock = threading.Lock()
 
+    def _shared(self, model_dir: Path, tdt_dir: Path | None):
+        """The CTC model and the transducer as one, with one encoder, when the
+        transducer has the CTC model's head beside it (adapt_ctc.hybrid):
+        Parakeet's encoder loaded once rather than twice (720 -> 486 MB)."""
+        from adapt_ctc.hybrid import HybridModel, has_shared_model  # pylint: disable=import-outside-toplevel
+
+        if not has_shared_model(tdt_dir, model_dir):
+            return None
+        assert tdt_dir is not None
+        _LOGGER.info("CTC and TDT share one encoder: %s", tdt_dir)
+        return HybridModel(tdt_dir, self.threads)
+
     def _load_tdt(self, tdt_dir: Path | None):
         from adapt_ctc.tdt import has_model  # pylint: disable=import-outside-toplevel
 
@@ -312,7 +325,11 @@ class Engine:
         """Transcribe with another TDT model from now on (the English one or
         the multilingual one). Slow: call from a thread. False, and the old
         one kept, when it cannot be loaded."""
-        transcriber = self._load_tdt(tdt_dir)
+        shared = getattr(self.model, "transcribe", None) is not None and tdt_dir is not None
+        if shared and Path(tdt_dir).resolve() == self.model.model_dir:
+            transcriber = self.model  # back to the one sharing its encoder
+        else:
+            transcriber = self._load_tdt(tdt_dir)
         if transcriber is None and tdt_dir is not None:
             return False
         with self._lock:
