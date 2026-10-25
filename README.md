@@ -44,7 +44,7 @@ one call at a time:
    variables;
 6. **speech** — its response template for how it went (`done`, `failed`, a
    timer operation's or a script's own outcome), rendered by Home Assistant,
-   is spoken with Piper (`en_GB-jenny_dioco`); without one, the built-in
+   is spoken with Piper (`en_US-ellie` for English); without one, the built-in
    sentence -- when done, at the command's level of verbosity (below). A
    command with nothing to say plays `sounds/acknowledge.mp3`.
 

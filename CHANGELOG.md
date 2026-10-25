@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- **English speaks with Ellie** (`en_US-ellie-medium`, Hi-Fi TTS reader 92,
+  CC BY 4.0) in place of Jenny. It needs Piper 1.5 or later (merged vowel
+  ids), which the image has.
 - **The UI's files are JSON**: `commands.json`, `satellites.json`,
   `settings.json` and `wake_words.json` in `/data`, read once and written
   whole. Only the UI edits them: the Settings page's commands.yaml editor is

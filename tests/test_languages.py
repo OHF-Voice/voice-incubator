@@ -33,7 +33,7 @@ def test_packs(english):
     assert english.ctc_dir(ROOT).name.startswith("stt_en_parakeet_tdt_ctc_110m")
     # Without its models, the app says which and stops.
     assert english.missing(ROOT / "nowhere") == [
-        "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m", "models/piper/en_GB-jenny_dioco-medium.onnx"]
+        "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m", "models/piper/en_US-ellie-medium.onnx"]
     # Its matcher config is the base every home's commands build on.
     config = base_config()
     assert config["language"] == "en" and "the" in config["filler"] and config["settings"]["examples_first"]

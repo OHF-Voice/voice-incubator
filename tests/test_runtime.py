@@ -11,7 +11,7 @@ from adapt_ctc.runtime import release_memory, session_options
 
 ROOT = Path(__file__).resolve().parent.parent
 TDT = ROOT / "models/parakeet-tdt-int8"
-VOICE = ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx"
+VOICE = ROOT / "models/piper/en_US-ellie-medium.onnx"
 SPEAKER = ROOT / "models/speaker/redimnet_b2_vox2.onnx"
 
 

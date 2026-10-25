@@ -11,7 +11,7 @@ PACK = Pack(
     ctc="speech-to-phrase/stt_en_parakeet_tdt_ctc_110m",
     transducer="parakeet-tdt",
     transducer_about="parakeet-tdt_ctc-110m, 110M parameters",
-    piper="en_GB-jenny_dioco-medium.onnx",
+    piper="en_US-ellie-medium.onnx",
     adapt={
         "language": "en",
         "filler": ["the", "a", "an", "please", "my", "can you", "could you", "would you", "it", "of"],
