@@ -32,6 +32,11 @@ COPY requirements-training.txt ./
 COPY local/micro-wake-word /usr/src/micro-wake-word
 RUN pip3 install --no-cache-dir -r requirements-training.txt \
     && pip3 install --no-cache-dir --no-deps /usr/src/micro-wake-word
+# Its layers/ and audio/ have no __init__.py, so pip (find_packages) leaves
+# them out: the whole package, over what it installed.
+RUN cp -r /usr/src/micro-wake-word/microwakeword/. \
+        "$(python3 -c 'import microwakeword, os; print(os.path.dirname(microwakeword.__file__))')" \
+    && python3 -c 'from microwakeword import mixednet, train, utils'
 COPY local/models ./models
 # The wake verifier's resident decoder, when it was staged as source (aarch64).
 RUN if [ ! -x models/wake-kaldi-decoderd/verify_decoderd ]; then \
