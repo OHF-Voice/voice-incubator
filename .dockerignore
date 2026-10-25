@@ -14,7 +14,7 @@ false positives
 tests
 scripts
 **/__pycache__
-**/*.so
+adapt_ctc/*.so
 custom_components
 hass_tests
 hacs.json

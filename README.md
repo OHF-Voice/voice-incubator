@@ -2067,6 +2067,29 @@ positives.
 
 ## Running on a Pi 4 (aarch64)
 
+**The image.** For an aarch64 machine (an HA Green, a Pi), the Kaldi tools are
+the Kaldi of 2021 that Rhasspy shipped, as `kaldi-manylinux` built it, and the
+image's build compiles the resident decoder against its headers:
+
+```bash
+scripts/make_kaldi_tools_aarch64.sh      # models/wake-kaldi-tools-aarch64, from ~/opt/kaldi-manylinux
+script/stage_build --arch aarch64
+```
+
+Its verdicts are the x86 tools': 24 of the same 36 captured wake words
+accepted, on an HA Green as on x86.
+
+On an HA Green (4 Cortex-A55 cores, 4 GB) the image builds there in 14
+minutes (3.5 GB). Run on a copy of a home's data (GLiNER fallback on), pinned
+to a fake satellite answering 16 recorded calls: ready in 57 s at 818 MB (the
+app 638, the Kaldi decoders 180), 950 MB after the calls, 1069 MB at its
+peak. A command matched 0.7-1.0 s after it ended (1.6 s when matched on the
+transcript); the wake word was verified 0.6-1.4 s after its audio arrived.
+With one decoder process for the four graphs (`groups: [[kw, bg, prefix,
+kwc]]` in `wake.yaml`), 894 MB after the calls and 978 MB at the peak, but
+verification is 0.3-0.6 s slower, which a call mostly does not notice: the
+command is still being said (it ended up to 0.35 s later on the shortest).
+
 Three dependencies are native and must match the architecture; everything else
 (the ONNX models, Piper, the Python code) copies straight across.
 

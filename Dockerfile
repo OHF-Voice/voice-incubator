@@ -15,10 +15,11 @@ RUN \
         curl \
         libgomp1 \
         libicu-dev \
+        libopenblas0 \
         python3 \
         python3-dev \
         python3-pip \
-    && pip3 install --no-cache-dir -U setuptools wheel \
+    && pip3 install --no-cache-dir -U --ignore-installed setuptools wheel \
     && pip3 install --no-cache-dir -r requirements.txt \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,6 +33,15 @@ COPY local/micro-wake-word /usr/src/micro-wake-word
 RUN pip3 install --no-cache-dir -r requirements-training.txt \
     && pip3 install --no-cache-dir --no-deps /usr/src/micro-wake-word
 COPY local/models ./models
+# The wake verifier's resident decoder, when it was staged as source (aarch64).
+RUN if [ ! -x models/wake-kaldi-decoderd/verify_decoderd ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends libopenblas-dev \
+        && bash models/wake-kaldi-decoderd/build.sh "$PWD/models/wake-kaldi-tools" \
+        && rm -rf models/wake-kaldi-decoderd/.fst_shadow_include \
+        && apt-get purge -y libopenblas-dev && apt-get autoremove -y \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 COPY setup.py wake.yaml ./
 COPY sounds ./sounds

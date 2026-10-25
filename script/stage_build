@@ -7,16 +7,38 @@
 # working tree. The Kaldi tools and its daemon are native binaries: stage
 # them on (or for) the architecture you build for.
 #
-#   script/stage_build [--embedding]      # --embedding: also EmbeddingGemma 2 (hints by meaning)
+#   script/stage_build [--embedding] [--arch aarch64]
+#
+# --embedding: also EmbeddingGemma 2 (hints by meaning). --arch: the
+# architecture the image is for (default this machine's).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 KALDI_SRC="${WYOMING_WAKE_KALDI:-$HOME/opt/wyoming-wake-kaldi}"
+embedding=0
+arch="$(uname -m)"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --embedding) embedding=1 ;;
+        --arch) arch="$2"; shift ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
 
 rm -rf local
 mkdir -p local/models/speech-to-phrase
 cp -a models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8 local/models/speech-to-phrase/
-cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake \
-      models/wake-kaldi-models models/wake-kaldi-tools models/wake-kaldi-decoderd local/models/
+cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake models/wake-kaldi-models local/models/
+# The Kaldi verifier's tools and its resident decoder. x86-64's as built here;
+# aarch64's the Kaldi of 2021 (scripts/make_kaldi_tools_aarch64.sh), with the
+# decoder's source, which the image's build compiles.
+if [[ "$arch" == aarch64 ]]; then
+    cp -a models/wake-kaldi-tools-aarch64 local/models/wake-kaldi-tools
+    mkdir -p local/models/wake-kaldi-decoderd
+    cp models/wake-kaldi-decoderd/build.sh models/wake-kaldi-decoderd/verify_decoderd.cc local/models/wake-kaldi-decoderd/
+else
+    cp -a models/wake-kaldi-tools models/wake-kaldi-decoderd local/models/
+fi
 # The multilingual TDT model (640 MB), when it has been put in models/: the
 # sherpa-onnx release sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8, as is.
 if [[ -d models/parakeet-tdt-v3-int8 ]]; then
@@ -68,7 +90,7 @@ if [[ -d models/wake-training ]]; then
 fi
 find local -name __pycache__ -prune -exec rm -rf {} +
 
-if [[ "${1:-}" == "--embedding" ]]; then
+if (( embedding )); then
     snapshot="$(ls -d "$HOME"/.cache/huggingface/hub/models--onnx-community--embeddinggemma-2-ONNX/snapshots/* | tail -1)"
     mkdir -p local/models/embeddinggemma-2/onnx
     cp -L "$snapshot/tokenizer.json" local/models/embeddinggemma-2/
