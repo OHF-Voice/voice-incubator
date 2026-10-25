@@ -327,6 +327,20 @@ def test_gliner_skips():
     assert found.trace["llm"]["skipped"] == "none of its commands is close in meaning" and stub.labels is None
 
 
+def test_gliner_without_meaning_is_given_its_commands():
+    # Without an embedding model nothing is closest: the commands chosen for
+    # it first, then the others, to top_k -- not the first by id, which left
+    # out every chosen one sorted after them.
+    stub = StubGliner({"set an alarm": 0.9})
+    compiled = chosen_for(STORE, llm=["set_alarm"])
+    fallback = Fallback(model=stub, top_k=3)
+    fallback.prepare(FakeEngine(compiled), wait=True)
+    found = fallback.decide("wake me at seven", None, compiled, KITCHEN, None)
+    assert "skipped" not in found.trace["llm"]
+    assert stub.labels == ["set an alarm", "add something to the shopping list", "turn on a device",
+                           "something else: a question, small talk or thanks"]
+
+
 def test_gliner_picks_a_command_that_hears_nothing_too():
     # One label among the others, and "not a command". Hearing nothing in it,
     # it runs only when meaning puts it first too -- ahead of the everyday

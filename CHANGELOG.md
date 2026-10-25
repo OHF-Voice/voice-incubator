@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- **GLiNER without an embedding model** is given the commands chosen for it
+  first, then others to tell them from: it was given the first eight by id,
+  so a command sorted after them (a shopping list) was never offered.
 - **English speaks with Ellie** (`en_US-ellie-medium`, Hi-Fi TTS reader 92,
   CC BY 4.0) in place of Jenny. It needs Piper 1.5 or later (merged vowel
   ids), which the image has.

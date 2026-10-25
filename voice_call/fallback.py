@@ -828,15 +828,20 @@ class Fallback:
         for command in compiled.commands.values():
             if not command.disabled and command.id in arguments.parameters and label_of(command) != NOT_A_COMMAND_LABEL:
                 groups.setdefault(label_of(command), []).append(command)
-        # Each label shown by its closest command, closest first (without an
-        # embedding model, every one).
+        # Each label shown by its closest command, closest first.
+        similarity = by_similarity()
         shown: dict[str, str] = {}
-        for command_id in list(by_similarity()) or sorted(compiled.commands):
+        for command_id in list(similarity) or sorted(compiled.commands):
             command = compiled.commands.get(command_id)
             if command is not None and label_of(command) in groups:
                 shown.setdefault(label_of(command), command_id)
         order = list(shown)
         mine = {label for label, members in groups.items() if any(c.id in self.chosen for c in members)}
+        if not similarity:
+            # Without an embedding model nothing is closest: its own commands,
+            # then the others to tell them from, rather than the first by id
+            # (a shopping list was never among them).
+            order = [label for label in order if label in mine] + [label for label in order if label not in mine]
         candidates = order[: self.top_k] if self.top_k else order
         if not mine & set(candidates):
             trace["skipped"] = "none of its commands is close in meaning"
