@@ -9,6 +9,7 @@ Needs the models (speech, speaker, Piper's libritts_r voice); skipped without th
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import aiohttp
@@ -203,7 +204,7 @@ async def _scenario(tmp_path: Path, piper) -> None:
 
             # Turned off: her command runs on through them, as before.
             status, _ = await api("PUT", "settings", {"end_of_speech": {"end_on_other_voice": False}})
-            assert status == 200 and (tmp_path / "settings.yaml").read_text().count("end_on_other_voice: false") == 1
+            assert status == 200 and json.loads((tmp_path / "settings.json").read_text())["end_of_speech"]["end_on_other_voice"] is False
             ends = (await api("GET", "status"))[1]["end_of_speech"]
             assert ends["set"]["end_on_other_voice"] is False and ends["voices"] == 1
             hass.stt_text = COMMAND
@@ -214,7 +215,7 @@ async def _scenario(tmp_path: Path, piper) -> None:
             assert "others" not in next(s for s in record.stages if s["stage"] == "endpoint")
             assert record.marks["end"] > starts[1] + 4.0
             status, _ = await api("PUT", "settings", {"end_of_speech": {"end_on_other_voice": None}})
-            assert "end_on_other_voice" not in (tmp_path / "settings.yaml").read_text()
+            assert "end_on_other_voice" not in (tmp_path / "settings.json").read_text()
 
             # Renamed, recolored, forgotten.
             status, data = await api("PATCH", "speakers/Alice", {"name": "alicia", "color": "violet"})

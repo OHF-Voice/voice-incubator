@@ -456,7 +456,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/unknown", json={"response": "{{ nope("})).status == 200
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
             assert (await http.put("/api/unknown", json={"response": ""})).status == 200
-            assert "unknown" not in (tmp_path / "commands.yaml").read_text()
+            assert "unknown" not in json.loads((tmp_path / "commands.json").read_text())
 
             # What example templates stand for, for the editor.
             stands = (await (await http.post("/api/examples", json={"examples": ["turn on the light[s]", "(oops"]})).json())["examples"]

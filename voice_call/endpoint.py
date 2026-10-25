@@ -78,7 +78,7 @@ LIMITS = {
 @dataclass(frozen=True)
 class EndOfSpeech:
     """How the end of a command is found: the Settings page's "End of speech"
-    (settings.yaml ``end_of_speech``), over the app's options."""
+    (settings.json ``end_of_speech``), over the app's options."""
 
     vad: str = "silero"
     speech_threshold: float = 0.5

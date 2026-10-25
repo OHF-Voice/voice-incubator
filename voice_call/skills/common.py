@@ -38,7 +38,7 @@ class Reply:
 
 
 class Settings:
-    """A skill's settings, as stored (``settings.yaml`` ``skill_settings``, by
+    """A skill's settings, as stored (``settings.json`` ``skill_settings``, by
     skill: only what differs from the built-in, so what an update adds
     reaches you) and as its page edits them (in full). None of its own: this."""
 

@@ -32,8 +32,6 @@ DEFAULTS = [
     "mdi:folder-outline",
     # New command: a custom one.
     "mdi:pencil-plus-outline",
-    # Settings: commands.yaml.
-    "mdi:code-braces",
     # The Home page: your own commands, the skills (questions), and the
     # Unknown command.
     "mdi:pencil-outline",

@@ -1,5 +1,5 @@
 # Example commands, offered in the web UI's library. Adding one copies it into
-# commands.yaml, where it can be changed like any other command.
+# the home's commands, where it can be changed like any other command.
 #
 # Each entry is a command (see voice_call/commands.py) plus:
 #   title:     what the library calls it

@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **The UI's files are JSON**: `commands.json`, `satellites.json`,
+  `settings.json` and `wake_words.json` in `/data`, read once and written
+  whole. Only the UI edits them: the Settings page's commands.yaml editor is
+  gone, and a hand edit on disk is no longer looked for (a command's YAML tab
+  stays). On an HA Green, reading the commands went from 386 ms to under a
+  millisecond, and the command library is read and checked once rather than
+  on every opening and every command added (1.6 s each time). Files from
+  before are copied to JSON once and left as they were.
 - **Intents**: a command can run a Home Assistant intent instead of an
   action, as Assist would -- in the area or floor named, or the satellite's,
   only on devices exposed to Assist; a device named (Names page) exposed or

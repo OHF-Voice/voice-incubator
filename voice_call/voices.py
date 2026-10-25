@@ -1,8 +1,8 @@
 """Home Assistant's STT and TTS entities, in place of the built-in models.
 
-Chosen for every satellite (``settings.yaml``: ``stt``, ``tts``,
+Chosen for every satellite (``settings.json``: ``stt``, ``tts``,
 ``tts_voice``, ``stt_language``, ``tts_language``) and per satellite
-(``satellites.yaml``, the same keys, where ``builtin`` means the app's own
+(``satellites.json``, the same keys, where ``builtin`` means the app's own
 model and no key means "as every satellite"), plus ``speak_on``: a media
 player that says a satellite's responses instead of the satellite itself.
 

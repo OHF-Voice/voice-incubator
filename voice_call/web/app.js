@@ -328,7 +328,7 @@ async function refreshStatus() {
   document.getElementById("status").replaceChildren(...badges);
   const banner = document.getElementById("banner");
   const notes = [];
-  if (s.store_error) notes.push(h("div", { class: "notice bad" }, "commands.yaml has an error, so the previous commands are still in use: ", s.store_error));
+  if (s.store_error) notes.push(h("div", { class: "notice bad" }, "The commands have an error, so the previous ones are still in use: ", s.store_error));
   if (s.integration && s.integration !== "ready" && s.integration !== "connecting") notes.push(h("div", { class: "notice warn" }, s.integration));
   if (s.calendar && s.calendar !== "ready" && s.calendar !== "connecting") notes.push(h("div", { class: "notice warn" }, "Alarms and reminders won't work: ", s.calendar));
   if (s.unspeakable && s.unspeakable.length) notes.push(h("div", { class: "notice warn" }, "These phrases can't be spelled in the speech model's pieces and will never be heard: ", s.unspeakable.join(", ")));
@@ -3550,7 +3550,7 @@ function liveSection(s) {
 // ---------------------------------------------------------------- settings
 
 // Everything about how commands are recognized and answered that is not a
-// command: the fallback, the conversation agent, responses; and the YAML.
+// command: the fallback, the conversation agent, responses.
 async function pageSettings() {
   await Promise.all([refreshStatus(), loadSatellites()]);
   fill($main,
@@ -3560,32 +3560,6 @@ async function pageSettings() {
     fallbackPanel(),
     agentPanel(),
     responsesPanel(),
-    h("div", { class: "panel" },
-      h("h2", {}, "Advanced"),
-      h("div", { class: "item clickable", onclick: () => { location.hash = "#/yaml"; } },
-        icon("mdi:code-braces", "big"),
-        h("div", { class: "grow" },
-          h("div", { class: "title" }, "Edit commands.yaml"),
-          h("div", { class: "muted small" }, "Commands, names and value lists, in one file.")))),
-  );
-}
-
-// -------------------------------------------------------------------- yaml
-
-async function pageYaml() {
-  const data = await api("GET", "yaml");
-  const area = h("textarea", { class: "code big" });
-  area.value = data.text;
-  const errors = h("div");
-  fill($main, 
-    h("div", { class: "row" }, h("a", { href: "#/settings" }, "← Settings"), heading("h1", "commands.yaml", "Everything the UI edits, in one file. Hand edits made on disk are picked up too. Commands written here may use anything adapt-ctc supports, including entities outside the UI's domains.", { class: "grow", style: "margin:0" }),
-      h("button", { class: "primary", onclick: async () => {
-        fill(errors, );
-        try { await api("PUT", "yaml", { text: area.value }); toast("Saved"); refreshStatus(); }
-        catch (err) { errors.append(errorBox(err)); }
-      } }, "Save")),
-    errors,
-    h("div", { class: "panel" }, area),
   );
 }
 
@@ -3598,7 +3572,7 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", yaml: "settings", session: "sessions" }[page];
+    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", session: "sessions" }[page];
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
@@ -3624,7 +3598,6 @@ async function route() {
     else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
     else if (page === "call") location.hash = `#/session/${arg}`;
     else if (page === "settings") await pageSettings();
-    else if (page === "yaml") await pageYaml();
     else await pageHome();
   } catch (err) {
     fill($main, errorBox(err));

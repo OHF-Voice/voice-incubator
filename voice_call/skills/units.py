@@ -86,7 +86,7 @@ class Unit:
 
 
 def _plain(number: float) -> float | int:
-    """1852.0 as 1852, for settings.yaml."""
+    """1852.0 as 1852, for settings.json."""
     return int(number) if float(number).is_integer() else number
 
 

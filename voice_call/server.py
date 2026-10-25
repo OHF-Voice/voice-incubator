@@ -73,9 +73,6 @@ _LOGGER = logging.getLogger(__name__)
 # reconnect backoff.
 STABLE_CONNECTION_SECONDS = 30.0
 
-# How often a hand edit of commands.yaml is looked for.
-STORE_POLL_SECONDS = 2.0
-
 # Running timers' names are recognized from a list rebuilt when they change;
 # a burst of changes makes one rebuild.
 TIMER_LIST_DEBOUNCE = 0.3
@@ -243,7 +240,7 @@ def stt_audio_for(
 # language's own (its pack's: for English, the TDT head beside the CTC model,
 # parakeet-tdt_ctc-110m, int8 preferred), or NVIDIA's multilingual
 # parakeet-tdt-0.6b-v3 (25 European languages; it finds the language itself),
-# as sherpa-onnx releases it. ``en`` in settings.yaml, from before languages
+# as sherpa-onnx releases it. ``en`` in settings.json, from before languages
 # had packs, is the language's own.
 TDT_MODELS = ("own", "multilingual")
 DEFAULT_TDT = "own"
@@ -587,7 +584,6 @@ class VoiceCallApp:
         """Connected satellites, by satellite key."""
         self._discovery: Discovery | None = None
         self._web = None
-        self._store_watcher: asyncio.Task | None = None
         # Recognition, Piper and the wake verifier's retry share the CPU; two
         # satellites waking at once is rare, so one lock over them is enough.
         self._model_lock = asyncio.Lock()
@@ -636,18 +632,12 @@ class VoiceCallApp:
             await self.speakers.start()
         release_memory()  # what loading the models needed only meanwhile
 
-        self._store_watcher = asyncio.ensure_future(self._watch_store())
         from .web import start_web  # pylint: disable=import-outside-toplevel
 
         self._web = await start_web(self)
 
     async def stop(self) -> None:
         await self.wake_training.stop()
-        for task in (self._store_watcher,):
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
         if self._web is not None:
             await self._web.cleanup()
         for task in list(self._sessions.values()):
@@ -662,13 +652,13 @@ class VoiceCallApp:
     # ------------------------------------------------------------- commands
 
     async def reload_commands(self) -> Compiled | None:
-        """Load commands.yaml and recognize its commands. A file that does not
-        parse keeps the previous commands (and says why in the UI)."""
+        """Load the commands and recognize them. Commands that do not
+        compile keep the previous ones (and say why in the UI)."""
         try:
             compiled = self.store.load()
         except (ConfigError, ValueError, OSError) as err:
             self.store_error = str(err)
-            _LOGGER.error("commands.yaml: %s; keeping the previous commands", err)
+            _LOGGER.error("%s: %s; keeping the previous commands", self.store.commands_path.name, err)
             return None
         await self.apply(compiled)
         return compiled
@@ -691,7 +681,7 @@ class VoiceCallApp:
     # ------------------------------------------------------------ fallback
 
     def fallback_settings(self) -> dict[str, Any]:
-        """``settings.yaml``: when nothing matched, run the closest command by
+        """``settings.json``: when nothing matched, run the closest command by
         meaning (``fallback_meaning``), and let GLiNER (``fallback_llm``;
         ``fallback_model``) pick one among the closest ``fallback_top_k`` and
         hear what it needs, sure to at least ``fallback_threshold``. Both on
@@ -798,13 +788,13 @@ class VoiceCallApp:
         return EndOfSpeech(silence_seconds=self.options.silence_seconds, max_seconds=self.options.max_command_seconds)
 
     def end_of_speech(self) -> EndOfSpeech:
-        """``settings.yaml`` ``end_of_speech`` (the Settings page) over
+        """``settings.json`` ``end_of_speech`` (the Settings page) over
         ``end_of_speech_base``."""
         base = self.end_of_speech_base()
         try:
             return parse_end_of_speech(self.store.settings.get("end_of_speech"), base)
         except ValueError as err:
-            _LOGGER.warning("Ignoring end_of_speech in settings.yaml: %s", err)
+            _LOGGER.warning("Ignoring end_of_speech in settings.json: %s", err)
             return base
 
     def end_of_speech_status(self) -> dict[str, Any]:
@@ -821,14 +811,14 @@ class VoiceCallApp:
         }
 
     def beep_elsewhere(self) -> str:
-        """``settings.yaml`` ``beep_elsewhere``: what a command that beeps
+        """``settings.json`` ``beep_elsewhere``: what a command that beeps
         says when it acted out of the satellite's area (actions.BEEP_ELSEWHERE
         unless set)."""
         value = self.store.settings.get("beep_elsewhere")
         return value if value in VERBOSITY[1:] else actions.BEEP_ELSEWHERE
 
     def agent_settings(self) -> dict[str, Any]:
-        """``settings.yaml``: the Home Assistant conversation agent that gets
+        """``settings.json``: the Home Assistant conversation agent that gets
         what nothing here understood (``agent``; none unless chosen), and how
         long a satellite's conversation with it is kept (``agent_keep_minutes``,
         five as on the Voice PE)."""
@@ -845,13 +835,6 @@ class VoiceCallApp:
 
     def agent_status(self) -> dict[str, Any]:
         return {**self.agent_settings(), "conversations": self.agent.status()}
-
-    async def _watch_store(self) -> None:
-        while True:
-            await asyncio.sleep(STORE_POLL_SECONDS)
-            if self.store.changed_on_disk():
-                _LOGGER.info("commands.yaml changed on disk; reloading")
-                await self.reload_commands()
 
     # ----------------------------------------------------------- satellites
 
@@ -886,7 +869,7 @@ class VoiceCallApp:
     # ----------------------------------------------------------- TDT model
 
     def tdt_dir(self, choice: str | None = None) -> Path | None:
-        """The transducer's directory: the one picked (settings.yaml
+        """The transducer's directory: the one picked (settings.json
         ``tdt_model``), else the language's own. None with ``--no-tdt``."""
         if not self.options.tdt:
             return None
@@ -933,7 +916,7 @@ class VoiceCallApp:
 
     def configure_skills(self) -> None:
         """The skills' settings, as their pages set them
-        (``settings.yaml`` ``skill_settings``)."""
+        (``settings.json`` ``skill_settings``)."""
         if self.engine is not None:
             self.engine.skill_settings = skills.configure(self.store.settings.get("skill_settings"))
 

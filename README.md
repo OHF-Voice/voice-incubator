@@ -34,7 +34,7 @@ one call at a time:
    -30 dBFS: the call's `endpoint` step keeps it as `vad_gain`).
    Speech-to-text hears the audio as it came;
 4. **recognition** — the app's own commands (made in its web UI, kept in
-   `commands.yaml`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
+   `commands.json`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
    Parakeet's CTC output, after the wake phrase as that same output places it
    (below). A command that matches nothing is answered with what it looks like
    it was trying to do: "…set the brightness, but I didn't hear the
@@ -112,12 +112,18 @@ identification `--speaker-threshold`, `--speaker-channel`,
 ## Commands
 
 The app no longer reads Home Assistant's sentence triggers. Its commands are
-its own, in `commands.yaml`, which the web UI writes round-trip (comments and
-order survive) and which may be edited by hand: a change on disk is picked up
-within two seconds. A save from the UI is validated first -- by the command
-schema (`voice_call/commands.py`) and by adapt-ctc's own config checks -- so a
-broken command is refused rather than saved, and a file broken by hand keeps
-the previous commands in use and says why in the UI.
+its own, in `commands.json`, which only the web UI edits: it is read once and
+written whole on every save (a command's YAML tab still shows and takes one
+command as YAML). Round-trip YAML, which kept a hand edit's comments, took 386
+ms to read the commands and 218 ms to write them on an HA Green; JSON takes
+under a millisecond. A data directory from before is copied over once: each
+`.yaml` file to its `.json`, the YAML left as it was and not read again. A
+save from the UI is validated first -- by the command schema
+(`voice_call/commands.py`) and by adapt-ctc's own config checks -- so a broken
+command is refused rather than saved; commands an update no longer accepts
+keep the previous ones in use, saying why in the UI. The command library
+ships with the app: it is read and checked once (1.6 s on the Green, mostly
+parsing its YAML), when it is first opened.
 
 A command is one adapt-ctc intent (examples, keywords, names, a number, value
 lists, free text) plus where it is available and what it does. All of them
@@ -175,7 +181,7 @@ come on, not a timer you can't. What a global setting would get wrong is
 "can you see it": `actions.place` works out where the command acted -- the
 areas, floors and devices it names (a device's area from the registry) or
 else the satellite's area -- and a beep is said only when that is the
-satellite's own area. Elsewhere it says `beep_elsewhere` (settings.yaml,
+satellite's own area. Elsewhere it says `beep_elsewhere` (settings.json,
 "Responses" on the Settings page; `specific` unless set: "Turned on the
 lights in the Office" says where, which "Turned on the lights" can't).
 Home Assistant's default does the same with the brief sentence. Templates see
@@ -184,10 +190,10 @@ rendered response is tidied of the gap an empty variable leaves. A copy of the
 command on a satellite can say more or less there.
 
 **The Home's and a satellite's own.** A command is the Home's, or one
-satellite's (`satellite: <key>` in `commands.yaml`); a satellite takes the
-Home's unless `home: false` in `satellites.yaml` (`Satellite.available`).
-Skills the same way: the Home's (`settings.yaml` `skills`, each on unless
-false) and a satellite's own (`satellites.yaml` `skills: {id: true}`). There
+satellite's (`satellite: <key>` in `commands.json`); a satellite takes the
+Home's unless `home: false` in `satellites.json` (`Satellite.available`).
+Skills the same way: the Home's (`settings.json` `skills`, each on unless
+false) and a satellite's own (`satellites.json` `skills: {id: true}`). There
 are no command groups or per-area overrides any more (either key is refused,
 saying what to do instead). A command that should do something else on one satellite is a
 copy of it there (Duplicate, on its page), and on that satellite its own goes
@@ -215,7 +221,7 @@ so do meaning and the model step among a command's versions and copies
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
 | `voice_call/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints; the CTC model and the transducer as one when they share an encoder (`adapt_ctc/hybrid.py`) |
 | `voice_call/commands.py` | the command schema: combinations, presets, where it is, what happens |
-| `voice_call/store.py` | `commands.yaml`, `satellites.yaml`, `settings.yaml` |
+| `voice_call/store.py` | `commands.json`, `satellites.json`, `settings.json`, `wake_words.json` |
 | `voice_call/actions.py` | variables, `execute_script`, intents (on what was heard, as Assist would: exposed devices only), the response, the `voice_call_command` event |
 | `voice_call/calls.py` | per-call traces, saved audio, debug sessions |
 | `voice_call/web.py`, `voice_call/web/` | the web UI and its API |
@@ -279,9 +285,10 @@ actually do: the micro_wake_word frontend, mixednet-executor and
 verdict and the split point (with the tail retry and the second opinion); then
 the app's engine, from the call decoded half a second before the wake word to
 the command recognized after the wake phrase. The commands are a
-`commands.yaml` or an adapt-ctc config (`--commands`; by default adapt-ctc's
-`home-extras.yaml`), and `tests/corpus_expected.yaml` says which command and
-slots each prompt must come back as, or that it must be refused. An expected
+`commands.json` (or a `commands.yaml` from before) or an adapt-ctc config
+(`--commands`; by default adapt-ctc's `home-extras.yaml`), and
+`tests/corpus_expected.yaml` says which command and slots each prompt must
+come back as, or that it must be refused. An expected
 command the commands lack is an error before any audio is read, because a
 bench run on a mismatched pair measures the files. Rows carry adapt-ctc's
 verdicts (correct, missed, wrong intent, wrong slots, false accept), the CTC
@@ -484,8 +491,8 @@ what `--wake-cutoff 0.5` is for.
 ## Wake words
 
 Each satellite listens for one wake word: its own (Wake words page,
-`satellites.yaml`: `wake_words: [id]`), else the home's preferred one
-(`settings.yaml`), else `--wake-model` (default `okay_nabu`). Only the first
+`satellites.json`: `wake_words: [id]`), else the home's preferred one
+(`settings.json`), else `--wake-model` (default `okay_nabu`). Only the first
 of a list is used (`MAX_WAKE_WORDS`), and the API refuses two: the device has
 room for more, but the UI offers one for now. The app pushes the wake word's
 model on `HELLO`, clearing whatever the device held first, and again when the
@@ -511,7 +518,7 @@ for the word, not at startup. Graphs are built in `<data>/wake-train`.
 
 ### Tuning on the Wake words page
 
-`wake_words.yaml` in the data directory holds what the page changed, per
+`wake_words.json` in the data directory holds what the page changed, per
 wake word, only where it differs from the default:
 
 ```yaml
@@ -1160,8 +1167,8 @@ down by itself in between (`timers.progress`).
 
 `voice_call/voices.py`. Each satellite listens and speaks with the built-in
 models (TDT, Piper) or with Home Assistant's entities: `stt`, `tts`,
-`tts_voice` in `settings.yaml` for every satellite, the same keys in
-`satellites.yaml` per satellite (`builtin` for the app's own model, no key for
+`tts_voice` in `settings.json` for every satellite, the same keys in
+`satellites.json` per satellite (`builtin` for the app's own model, no key for
 "as every satellite"), plus `speak_on`, a media player for its responses.
 
 **STT replaces TDT, not the matcher.** The CTC matcher always decides. The
@@ -1180,7 +1187,7 @@ best match for English (`stt/engine/list`); TTS has `tts_language` the same
 way, and a satellite may say `auto` to override the home's language with the
 automatic one.
 
-**Always run** (`stt_always`, in `settings.yaml` or per satellite, with an
+**Always run** (`stt_always`, in `settings.json` or per satellite, with an
 STT entity): `StreamingTranscriber` posts to the same `/api/stt/<entity>` as
 a chunked upload, which Home Assistant hands the entity as it arrives
 (`request.content`). `VoiceCallApp._start_stt` opens it once Kaldi has
@@ -1263,7 +1270,7 @@ with a color that showed red gets a new one when the profiles load.
 
 ### The multilingual TDT model
 
-`settings.yaml` `tdt_model: multilingual` replaces the English TDT head
+`settings.json` `tdt_model: multilingual` replaces the English TDT head
 (parakeet-tdt_ctc-110m's) with NVIDIA's parakeet-tdt-0.6b-v3, as sherpa-onnx
 releases it (`sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8`, copied as is into
 `models/parakeet-tdt-v3-int8`; `adapt_ctc/tdt.py` takes its `*.int8.onnx`
@@ -1364,7 +1371,7 @@ decided it may be.
    it (only that command's entity types, no classification), and that picks
    the combination --
    nothing heard is the empty one, when it has it. Without the model, meaning
-   runs only commands that hear nothing. `settings.yaml` `fallback_meaning`,
+   runs only commands that hear nothing. `settings.json` `fallback_meaning`,
    on by default.
 2. **The model step** (`fallback_model`; the commands chosen for `llm`, its
    id from when it was an LLM): GLiNER2.5 small (below). What it picks is
@@ -1576,13 +1583,13 @@ command fallback -- a question still gets an answer:
    prices, opening hours, "tonight", "last night"). Each answers at three
    levels (`common.Reply`: brief "96.", specific "It's 96.", verbose
    "Twelve times eight is 96." -- the question said back where the skill
-   can't say it with the answer); `settings.yaml` `skill_responses` picks
+   can't say it with the answer); `settings.json` `skill_responses` picks
    one and may give a template per level, which the server renders through
    Home Assistant (`VoiceCallApp._skill_says`, the built-in sentence when it
    can't). The "can't look it up" skill, which answered questions about now
    or here, is gone: those go to the agent, or the Unknown command.
 2. **A Home Assistant conversation agent** (`voice_call/agent.py`;
-   `settings.yaml` `agent`, none unless chosen): everything else -- not only
+   `settings.json` `agent`, none unless chosen): everything else -- not only
    questions -- through `conversation/process`, with the satellite's
    `device_id` (Home Assistant 2026.10 and later; sent without it to an older
    one) and its `conversation_id`, kept for `agent_keep_minutes` (5, the
@@ -1608,8 +1615,8 @@ grammars take what the models make of short words: "F and C", "CNF" and "CN
 F" for "C in F", "one a half", "quartz", and spoken decimals ("ninety eight
 point six").
 
-Every skill is on unless turned off, for the whole home (`settings.yaml`
-`skills: {spelling: false}`) or one satellite (`satellites.yaml`, the same;
+Every skill is on unless turned off, for the whole home (`settings.json`
+`skills: {spelling: false}`) or one satellite (`satellites.json`, the same;
 its own setting wins). A skill is a `Skill` (`skills/common.py`: id, name,
 description, examples, icon, `answer(text, settings) -> Reply | None`,
 `settings`) in a module named after its id, listed in `SKILLS`
@@ -1619,7 +1626,7 @@ Its settings are a `common.Settings` subclass in its module: `load` reads
 them as stored, `to_json` gives them to its page in full, and `store` turns
 what the page sends back into what is stored -- only what differs from the
 built-in, so built-in units and holidays left alone follow updates.
-`settings.yaml` `skill_settings`, by skill:
+`settings.json` `skill_settings`, by skill:
 
 ```yaml
 skill_settings:
@@ -1935,7 +1942,7 @@ at the device**:
 - `wake.yaml` `theta_competitor: 0.10` rejects near-homophones ("okay natalie")
 - adapt-ctc's `span_gate` (2.5 nats per token) and `max_cost` (10), tuned on
   Voice PE recordings and the office-multicap corpus; override them under
-  `settings:` in `commands.yaml`. (`--max-score`, speech-to-phrase's per-token
+  `settings:` in `commands.json`. (`--max-score`, speech-to-phrase's per-token
   gate, is gone with it.)
 
 Playing a recording through loudspeakers across a room degrades the audio

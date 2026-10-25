@@ -203,7 +203,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             async with http.put(f"{base}/wake_words/hey_tater", json=body) as response:
                 assert response.status == 200, await response.text()
             assert app.store.wake_tuning["hey_tater"] == {"cutoff": 0.6, "confusables": ["hey potato", "hey glorbo"], "pronunciations": {"glorbo": "ɡ l ˈɔ ɹ b oʊ"}}
-            assert "hey_tater" in (tmp_path / "wake_words.yaml").read_text()
+            assert "hey_tater" in json.loads((tmp_path / "wake_words.json").read_text())
             assert app.wake.knows("hey_tater") and "hey_tater" in app.wake.started and "hey_tater" in app.wake_ratios
             await wait_for(lambda: satellite.model_headers["hey_tater"]["probability_cutoff"] == 0.6)
             await satellite.call(read_call(CALLS / "call-15788.wav"), wake_word="hey_tater")

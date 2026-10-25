@@ -1,6 +1,8 @@
 """Commands: parsing, presets, slots, where they are (the Home's or a
 satellite's), and the store."""
 
+import json
+
 import pytest
 
 from adapt_ctc.config import ConfigError, parse_config
@@ -138,42 +140,64 @@ def test_store_validates_with_adapt_ctc():
         compile_store({"commandz": {}})
 
 
-def test_store_edits_keep_comments(tmp_path):
-    store = Store(tmp_path)
-    (tmp_path / "commands.yaml").write_text(
-        "# my commands\nnames: {}\nlists: {}\ncommands:\n"
-        "  # the lights\n  lights:\n    description: turn on the lights\n"
-        "    require: [[turn on], [lights]]\n    response: ok\n"
-    )
-    store.load()
+def saved(tmp_path, data):
+    """A store whose commands file already holds ``data``."""
+    (tmp_path / "commands.json").write_text(json.dumps(data))
+    return Store(tmp_path)
+
+
+def test_store_edits(tmp_path):
+    store = saved(tmp_path, {"commands": {"lights": {"description": "turn on the lights", "require": [["turn on"], ["lights"]], "response": "ok"}}})
     store.put_command("time", {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."})
     store.put_name("areas", "kitchen", {"name": "Kitchen", "aliases": ["Cookhouse"]})
-    text = (tmp_path / "commands.yaml").read_text()
-    assert "# my commands" in text and "# the lights" in text
-    assert "examples: [what time is it]" in text
+    on_disk = json.loads((tmp_path / "commands.json").read_text())
+    assert on_disk["commands"]["time"]["examples"] == ["what time is it"]
+    assert on_disk == store.document()
     compiled = store.load()
     assert set(compiled.commands) == {"lights", "time"}
     assert compiled.data["names"]["areas"]["kitchen"]["aliases"] == ["Cookhouse"]
+    # A new store reads what this one saved.
+    assert set(Store(tmp_path).load().commands) == {"lights", "time"}
     # Renaming keeps its place; deleting removes it.
     store.put_command("lights_on", compiled.data["commands"]["lights"], old_id="lights")
     assert list(store.load().commands) == ["lights_on", "time"]
     store.delete_command("time")
     assert list(store.load().commands) == ["lights_on"]
     # An invalid edit is refused and the file is untouched.
-    before = (tmp_path / "commands.yaml").read_text()
+    before = (tmp_path / "commands.json").read_text()
     with pytest.raises(ConfigError):
         store.put_command("broken", {"description": "x"})
-    assert (tmp_path / "commands.yaml").read_text() == before
+    assert (tmp_path / "commands.json").read_text() == before
+    assert list(store.load().commands) == ["lights_on"]
+    # What it hands out is a copy.
+    store.document()["commands"].clear()
+    assert list(store.load().commands) == ["lights_on"]
 
 
-def test_on_and_off_stay_words(tmp_path):
-    store = Store(tmp_path)
-    store.save_text(
-        "commands:\n  off:\n    description: turn off\n    require: [[turn off]]\n"
-        "    exclude: [on]\n    response: ok\n"
+def test_yaml_from_before_is_copied_once(tmp_path):
+    yaml_text = (
+        "# my commands\nnames: {}\nlists: {}\ncommands:\n  off:\n    description: turn off\n"
+        "    require: [[turn off]]\n    exclude: [on]\n    response: ok\n"
     )
+    (tmp_path / "commands.yaml").write_text(yaml_text)
+    (tmp_path / "settings.yaml").write_text("keep_audio: true\nend_of_speech: {silence_seconds: 0.5}\n")
+    store = Store(tmp_path)
     compiled = store.load()
-    assert compiled.commands["off"].intent["exclude"] == ["on"]
+    assert compiled.commands["off"].intent["exclude"] == ["on"]  # YAML 1.2: on and off stay words
+    store.load_extras()
+    assert store.settings["keep_audio"] is True and store.settings["end_of_speech"] == {"silence_seconds": 0.5}
+    assert json.loads((tmp_path / "commands.json").read_text())["commands"]["off"]["exclude"] == ["on"]
+    assert json.loads((tmp_path / "settings.json").read_text())["keep_audio"] is True
+    # The YAML stays as it was, and is not read again.
+    store.put_command("time", {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."})
+    assert (tmp_path / "commands.yaml").read_text() == yaml_text
+    (tmp_path / "commands.yaml").write_text("commands: {}\n")
+    assert set(Store(tmp_path).load().commands) == {"off", "time"}
+    # One that doesn't parse says which.
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "commands.yaml").write_text("commands: [\n")
+    with pytest.raises(ConfigError, match="commands.yaml"):
+        Store(tmp_path / "other").load()
 
 
 def test_the_homes_or_a_satellites():
@@ -204,18 +228,16 @@ def test_fallback_steps_are_chosen():
 
 
 def test_choosing_commands_for_the_fallback(tmp_path):
-    store = Store(tmp_path)
-    store.save_text(
-        "commands:\n"
-        "  lights:\n    description: turn on the lights\n    require: [[lights]]\n    response: ok\n"
-        "  fan:\n    description: turn on the fan\n    require: [[fan]]\n    response: ok\n    fallback: [meaning]\n"
-    )
+    store = saved(tmp_path, {"commands": {
+        "lights": {"description": "turn on the lights", "require": [["lights"]], "response": "ok"},
+        "fan": {"description": "turn on the fan", "require": [["fan"]], "response": "ok", "fallback": ["meaning"]},
+    }})
     compiled = store.put_fallback({"llm": ["lights", "fan"]})
     assert compiled.commands["lights"].fallback == ("llm",)
     assert compiled.commands["fan"].fallback == ("meaning", "llm")  # meaning left as it was
     compiled = store.put_fallback({"meaning": [], "llm": ["fan"]})
     assert compiled.commands["lights"].fallback == () and compiled.commands["fan"].fallback == ("llm",)
-    assert "fallback" not in store.read_text().split("fan:")[0]  # not left empty
+    assert "fallback" not in store.document()["commands"]["lights"]  # not left empty
     with pytest.raises(ConfigError, match="No command 'nope'"):
         store.put_fallback({"llm": ["nope"]})
 
@@ -228,13 +250,10 @@ def test_command_groups_are_gone():
 
 
 def test_store_duplicates_a_command(tmp_path):
-    store = Store(tmp_path)
-    store.save_text(
-        "commands:\n"
-        "  lights:\n    description: turn on the lights\n    require: [[turn on], [lights]]\n"
-        "    response: ok  # said\n"
-        "  time:\n    description: tell the time\n    examples: [what time is it]\n    response: Noon.\n"
-    )
+    store = saved(tmp_path, {"commands": {
+        "lights": {"description": "turn on the lights", "require": [["turn on"], ["lights"]], "response": "ok"},
+        "time": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
+    }})
     # The Home's, right after it.
     compiled = store.duplicate_command("lights", "lights_copy", "Lights, again")
     assert list(compiled.commands) == ["lights", "lights_copy", "time"]
@@ -244,7 +263,7 @@ def test_store_duplicates_a_command(tmp_path):
     assert compiled.commands["kids_time"].satellite == "sat1" and compiled.commands["time"].satellite is None
     compiled = store.duplicate_command("kids_time", "time_again")
     assert compiled.commands["time_again"].satellite is None
-    assert "# said" in (tmp_path / "commands.yaml").read_text()
+    assert list(store.document()["commands"]) == ["lights", "lights_copy", "time", "kids_time", "time_again"]
     with pytest.raises(ConfigError, match="already a command 'time'"):
         store.duplicate_command("lights", "time")
     with pytest.raises(FileNotFoundError):

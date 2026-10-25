@@ -105,7 +105,7 @@ Open a wake word on the Wake words page to change:
 
 Saving rebuilds the wake word's checker, a few seconds on a Raspberry Pi;
 **Restore its defaults** undoes everything changed. What you change is kept
-in `wake_words.yaml`.
+in `wake_words.json`.
 
 ### Listening and speaking
 
@@ -249,7 +249,7 @@ added again. A command has:
     `locked_unlocked`, `cover_classes` and `hvac_modes` (heat, cool,
     heat_cool, auto, dry, fan_only, off) -- and editing one on the Names
     page makes it yours, in the app's language. A value's phrases in another
-    language than `commands.yaml`'s go under the language's code
+    language than your commands' go under the language's code
     (`red: {en: [red], de: [rot]}`); only the app's language's are heard.
   - **Free text**, kept bounded so it can be heard reliably: between two
     keywords ("add … to the shopping list"), from a keyword to the end
@@ -718,10 +718,10 @@ area or floor and its name and aliases are offered as a starting point. Add
 the spellings the speech model actually uses as aliases ("Echo Bee" for
 ecobee). Devices are limited to lights, switches, fans, covers, locks,
 climate, media players, scenes, scripts, input booleans, valves and vacuums;
-`commands.yaml` may name anything.
+a command's YAML tab may name anything.
 
-A name is in the language it was given in. In another language than
-`commands.yaml`'s, a thing's name and aliases go under the language's code,
+A name is in the language it was given in. In another language than your
+commands', a thing's name and aliases go under the language's code,
 beside its others; only the app's language's are heard and shown:
 
 ```yaml
@@ -770,10 +770,15 @@ names:
   recognized better from then on (and their name reaches commands as
   `speaker`).
 
-## YAML
+## What is kept
 
-Everything the UI edits is in `/data/commands.yaml` (Settings page, "Advanced"),
-and you may edit it directly; comments survive saves from the UI.
+Everything the UI edits is in `/data`, as JSON the UI alone reads and writes:
+`commands.json` (commands, names and value lists), `satellites.json`,
+`settings.json` and `wake_words.json`. They are not for editing by hand.
+Files from before this version (`commands.yaml` and the others) are copied
+to JSON once, and left as they were. The commands, written as YAML, look like
+this; a command's YAML tab shows and takes one of them (what is under its id
+below), and names and lists are edited on the Names page.
 
 ```yaml
 language: en  # what the commands are said in, unless one says its own
@@ -830,7 +835,7 @@ commands:
   command library and skills (default: `en`, English; or `de`, German, `nl`,
   Dutch, `fr`, French, `es`, Spanish, `it`, Italian, `pl`, Polish, `ru`,
   Russian, or `uk`, Ukrainian). One at a time: a command or a name is in the
-  language it was made in (`commands.yaml` `language:`, or its own: see
+  language it was made in (the commands' `language:`, or its own: see
   Names), and only the app's are heard and shown -- the others stay in the
   file, hidden, until the app is in theirs again. The web UI is in English. In
   another language than English, skills are asked and answered in it, with its

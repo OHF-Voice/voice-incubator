@@ -184,7 +184,7 @@ class WakeWords:
         """Replaces every verified word's default first-stage cutoff
         (``--wake-cutoff``); a cutoff set on the Wake words page still wins."""
         self.tuning = tuning or dict
-        """What the Wake words page set, per wake word (``wake_words.yaml``)."""
+        """What the Wake words page set, per wake word (``wake_words.json``)."""
         self._words: dict[str, WakeWord] = {}
         self._signature: tuple = ()
         self._models: dict[tuple, WakeModel] = {}

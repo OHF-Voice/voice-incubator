@@ -62,7 +62,7 @@ says the built-in sentence::
 
 ``satellite`` puts a command on one satellite (by its key); without it, the
 command is the Home's, and runs on every satellite that takes the Home's
-commands (all do unless told not to: ``home: false`` in ``satellites.yaml``).
+commands (all do unless told not to: ``home: false`` in ``satellites.json``).
 A command that should do something else on one satellite is a copy of it on
 that satellite: there, its own copy goes first::
 

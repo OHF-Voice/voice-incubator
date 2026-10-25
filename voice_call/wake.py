@@ -10,7 +10,7 @@ a satellite listens for it (``ensure``), not all at startup. A wake word that
 is not in ``wake.yaml`` -- a custom one -- has no verifier: ``verify`` returns
 None and the detection stands.
 
-What the Wake words page changes (``wake_words.yaml`` in the data directory)
+What the Wake words page changes (``wake_words.json`` in the data directory)
 goes over ``wake.yaml``: a wake word's confusables, pronunciations and
 thresholds, and custom wake words given confusables, which are then verified
 like the built-in ones (``build``). A change rebuilds the graphs and restarts
@@ -82,7 +82,7 @@ class WakeVerifier:
     def raw(self, tuning: dict[str, dict[str, Any]], custom: dict[str, str]) -> dict[str, Any]:
         """``wake.yaml`` with the page's changes, paths absolute.
 
-        ``tuning``: per wake word, what the page changed (``wake_words.yaml``).
+        ``tuning``: per wake word, what the page changed (``wake_words.json``).
         ``custom``: custom wake words, by id, with their phrase ("hey tater"):
         those with confusables get a verifier entry of their own.
         """

@@ -14,7 +14,7 @@ from adapt_ctc.config import ConfigError
 from voice_call import languages, skills
 from voice_call.commands import base_config
 from voice_call.server import tdt_choice
-from voice_call.store import NEW_FILE, Store, compile_store
+from voice_call.store import Store, compile_store
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,12 +49,12 @@ def test_only_the_languages_skills(english, monkeypatch):
     assert skills.enabled() == frozenset() and skills.answer("how many cups are in a quart") is None
 
 
-def test_the_commands_language(english):
+def test_the_commands_language(english, tmp_path):
     assert compile_store({}).language == "en"  # none said: English
     assert compile_store({"language": "de"}).language == "de"
     with pytest.raises(ConfigError, match="language"):
         compile_store({"language": "German"})
-    assert "language: en\n" in NEW_FILE.format(language="en")
+    assert Store(tmp_path).document()["language"] == "en"  # a new home's says it
 
 
 MIXED = {
@@ -79,8 +79,7 @@ def test_only_the_apps_languages_commands(english):
 
 
 def test_a_command_is_made_in_the_apps_language(english, tmp_path):
-    store = Store(tmp_path)
-    store.save_text(NEW_FILE.format(language="en"))
+    store = Store(tmp_path)  # made in English: the app's language when first read
     store.put_command("never_mind", {"description": "do nothing", "examples": ["never mind"], "fallback": ["meaning"]})
     languages.use("de")
     compiled = store.put_command("vergiss_es", {"description": "nichts tun", "examples": ["vergiss es"]})
@@ -115,8 +114,7 @@ def test_names_are_in_their_language(english, tmp_path):
 
     # Naming it in the app's language keeps its other names, and so does
     # taking that name away.
-    store = Store(tmp_path)
-    store.save_text(NEW_FILE.format(language="en"))
+    store = Store(tmp_path)  # made in English: the app's language when first read
     languages.use("en")
     store.put_name("areas", "kitchen", {"name": "Kitchen"})
     languages.use("de")
@@ -143,8 +141,7 @@ def test_lists_are_in_their_language(english, tmp_path):
     assert compile_store({"language": "en", "lists": {"modes": ["eco"]}}).data["lists"]["colors"]["red"] == ["rot"]
     assert compile_store({"language": "en", "lists": {"modes": ["eco"]}}).hidden_lists == {"en": 1}
 
-    store = Store(tmp_path)
-    store.save_text(NEW_FILE.format(language="en"))
+    store = Store(tmp_path)  # made in English: the app's language when first read
     languages.use("en")
     store.put_list("colors", {"red": ["red", "crimson"], "blue": "blue"})
     languages.use("de")
@@ -157,16 +154,12 @@ def test_lists_are_in_their_language(english, tmp_path):
 
 
 def plain_lists(store):
-    from voice_call.store import plain  # pylint: disable=import-outside-toplevel
-
-    return plain(store._parse(store.read_text()))["lists"] or {}  # pylint: disable=protected-access
+    return store.document()["lists"] or {}
 
 
 def plain_names(store):
-    """The areas' names as the file has them, every language."""
-    from voice_call.store import plain  # pylint: disable=import-outside-toplevel
-
-    return plain(store._parse(store.read_text()))["names"]["areas"] or {}  # pylint: disable=protected-access
+    """The areas' names as saved, every language."""
+    return store.document()["names"]["areas"] or {}
 
 
 def test_the_transducer_choice():

@@ -107,8 +107,6 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.post("/api/commands/check", api.check_command),
             web.post("/api/examples", api.examples),
             web.post("/api/commands/{id}/duplicate", api.duplicate_command),
-            web.get("/api/yaml", api.get_yaml),
-            web.put("/api/yaml", api.put_yaml),
             web.post("/api/yaml/dump", api.yaml_dump),
             web.put("/api/names/{kind}/{id}", api.put_name),
             web.delete("/api/names/{kind}/{id}", api.delete_name),
@@ -227,7 +225,15 @@ def library_versions(family_id: str, spec: dict[str, Any]) -> list[tuple[str, st
 def load_library() -> list[dict[str, Any]]:
     """Example commands shipped with the app, by file: one entry for each
     version of each command (``family``, ``variant``: see
-    library_versions)."""
+    library_versions). A copy of ``_library``'s."""
+    return plain(_library(languages.current().code))
+
+
+@functools.cache
+def _library(code: str) -> list[dict[str, Any]]:
+    """The library in ``code`` (the app's language), read and checked once:
+    it ships with the app. 1.6 s on an HA Green, mostly parsing YAML. Not to
+    be changed: ``load_library`` hands out copies."""
     entries = []
     for path, data in library_files():
         file_lists = data.get("lists") or {}
@@ -376,12 +382,11 @@ class Api:
         )
 
     async def get_store(self, request: web.Request) -> web.Response:
-        text = self.app.store.read_text()
         data: dict[str, Any] = {}
         error = self.app.store_error
         try:
-            data = plain(self.app.store._parse(text))  # pylint: disable=protected-access
-        except Exception as err:  # noqa: BLE001 - shown in the UI
+            data = self.app.store.document()
+        except (ConfigError, ValueError, OSError) as err:  # shown in the UI
             error = str(err)
         # The app's language's commands; the others are kept, not shown.
         here, default = languages.current().code, file_language(data)
@@ -450,7 +455,7 @@ class Api:
 
     async def get_command(self, request: web.Request) -> web.Response:
         command_id = request.match_info["id"]
-        commands = plain(self.app.store._parse(self.app.store.read_text())).get("commands") or {}  # pylint: disable=protected-access
+        commands = self.app.store.document().get("commands") or {}
         if command_id not in commands:
             raise FileNotFoundError(f"No command {command_id}")
         return web.json_response(
@@ -519,19 +524,6 @@ class Api:
 
     async def delete_command(self, request: web.Request) -> web.Response:
         return await self._saved(self.app.store.delete_command(request.match_info["id"]))
-
-    async def get_yaml(self, request: web.Request) -> web.Response:
-        return web.json_response({"text": self.app.store.read_text()})
-
-    async def put_yaml(self, request: web.Request) -> web.Response:
-        body = await request.json()
-        try:
-            compiled = self.app.store.save_text(str(body.get("text") or ""))
-        except ConfigError:
-            raise
-        except Exception as err:  # noqa: BLE001 - YAML syntax errors
-            raise ConfigError(str(err)) from err
-        return await self._saved(compiled)
 
     async def put_name(self, request: web.Request) -> web.Response:
         body = _clean(await request.json())
@@ -709,16 +701,14 @@ class Api:
     # -------------------------------------------------------------- library
 
     async def library(self, request: web.Request) -> web.Response:
-        return web.json_response({"entries": load_library()})
+        entries = await asyncio.to_thread(_library, languages.current().code)
+        return web.json_response({"entries": entries})
 
     async def library_add(self, request: web.Request) -> web.Response:
         body = await request.json()
+        entries = await asyncio.to_thread(_library, languages.current().code)
         entry = next(
-            (
-                e
-                for e in load_library()
-                if e["file"] == body.get("file") and e["id"] == body.get("id")
-            ),
+            (e for e in entries if e["file"] == body.get("file") and e["id"] == body.get("id")),
             None,
         )
         if entry is None:
@@ -730,12 +720,12 @@ class Api:
         if satellite:
             spec["satellite"] = satellite
         # Shared lists it uses, unless yours already has one by that name.
-        have = self.app.store.load().data.get("lists") or {}
+        compiled = self.app.store.load()
+        have = compiled.data.get("lists") or {}
         for name, values in entry["lists"].items():
             if name not in have:
-                self.app.store.put_list(name, copy.deepcopy(values))
+                compiled = self.app.store.put_list(name, copy.deepcopy(values))
         # Every command's id, in any language: another's keeps its own.
-        compiled = self.app.store.load()
         existing = {*compiled.commands, *compiled.hidden}
         base = SAFE_ID.sub("_", str(body.get("new_id") or entry["id"]).lower()).strip("_") or "command"
         if base in compiled.hidden:

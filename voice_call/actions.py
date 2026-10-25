@@ -44,7 +44,7 @@ How much is said when it is done is the command's verbosity
 (commands.VERBOSITY): nothing at all, a beep, or its response for that level
 -- or the closest written -- else the built-in sentence for it. A beep is for what the
 satellite's own area can see happen: a command that acted elsewhere says the
-``elsewhere`` level instead (settings.yaml ``beep_elsewhere``), and a
+``elsewhere`` level instead (settings.json ``beep_elsewhere``), and a
 question always answers.
 
 Every command that runs also fires a ``voice_call_command`` event with the

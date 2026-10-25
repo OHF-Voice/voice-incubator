@@ -7,10 +7,10 @@ questions"): each parses the whole question *and* computes an answer, or
 lets it fall through -- on 180 held-out questions none of their answers was
 wrong.
 
-Every skill is the Home's unless taken off it (``settings.yaml``
+Every skill is the Home's unless taken off it (``settings.json``
 ``skills: {spelling: false}``), and answers on every satellite that takes the
 Home's commands and skills. A satellite may also be given a skill of its own
-(``satellites.yaml``: ``skills: {spelling: true}``) -- one the Home doesn't
+(``satellites.json``: ``skills: {spelling: true}``) -- one the Home doesn't
 have, or for a satellite that doesn't take the Home's.
 
 They are asked in ``SKILLS`` order, before the command fallback (meaning,
@@ -26,7 +26,7 @@ speech-to-text, may write them, in the words the grammars read.
 Each answers at three levels (``common.LEVELS``): brief ("96."), specific
 ("It's 96.", the default) and verbose ("Twelve times eight is 96."). Which,
 and a template of your own for any of them (rendered by Home Assistant), is
-the skill's page's (``settings.yaml`` ``skill_responses``) -- as are its
+the skill's page's (``settings.json`` ``skill_responses``) -- as are its
 settings (``skill_settings``, by skill; ``common.Settings``): the units and
 their sizes, words spelled your way, holidays, a 24-hour clock, precision.
 """
@@ -71,7 +71,7 @@ def available() -> dict[str, Skill]:
 
 
 def load(skill_id: str, stored: Any) -> tuple[Settings, str | None]:
-    """A skill's settings as stored (``settings.yaml`` ``skill_settings``:
+    """A skill's settings as stored (``settings.json`` ``skill_settings``:
     by skill), and what is wrong with them -- then, the built-in ones."""
     try:
         return SKILLS[skill_id].settings.load(stored), None
@@ -80,7 +80,7 @@ def load(skill_id: str, stored: Any) -> tuple[Settings, str | None]:
 
 
 def configure(stored: Any) -> dict[str, Settings]:
-    """Every skill's settings, from ``settings.yaml`` ``skill_settings``."""
+    """Every skill's settings, from ``settings.json`` ``skill_settings``."""
     stored = stored if isinstance(stored, dict) else {}
     out = {}
     for skill_id, skill in SKILLS.items():
@@ -119,7 +119,7 @@ class Answer:
 
 
 def home_skills(home: Any = None) -> frozenset[str]:
-    """The Home's skills: each unless ``home`` (``settings.yaml``) turns it
+    """The Home's skills: each unless ``home`` (``settings.json``) turns it
     off."""
     home = home if isinstance(home, dict) else {}
     return frozenset(skill_id for skill_id in available() if home.get(skill_id) is not False)
@@ -163,7 +163,7 @@ def answer(text: str, on: frozenset[str] | None = None, settings: dict[str, Sett
 
 
 def skill_response(settings: dict[str, Any], skill_id: str) -> dict[str, Any]:
-    """How a skill answers, as its page set it (``settings.yaml``
+    """How a skill answers, as its page set it (``settings.json``
     ``skill_responses``): ``verbosity`` (a level, ``DEFAULT_LEVEL`` unless
     set), and ``response`` -- a template for every level, or one for some
     (``{brief, specific, verbose}``) -- by level, the closest written for a

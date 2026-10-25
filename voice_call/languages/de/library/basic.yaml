@@ -1,5 +1,6 @@
 # Beispielbefehle für die Bibliothek der Weboberfläche (German). Adding one
-# copies it into commands.yaml, where it can be changed like any other command.
+# copies it into the home's commands, where it can be changed like any other
+# command.
 #
 # As the English library (voice_call/languages/en/library/basic.yaml): titles
 # and needs are the UI's, in English; descriptions are said in hints ("Es

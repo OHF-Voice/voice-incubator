@@ -1,11 +1,16 @@
 """Where commands, satellites and settings live.
 
-``commands.yaml`` holds the voice commands, shared names and lists. The web UI
-writes it and people may edit it by hand: it is read and written round-trip,
-so comments and order survive a save from the UI, and a hand edit is picked up
-without a restart. ``satellites.yaml``, ``settings.yaml`` and
-``wake_words.yaml`` (what the Wake words page changed, per wake word) are the
-UI's own.
+The web UI's own files, as JSON: ``commands.json`` (the voice commands,
+shared names and lists), ``satellites.json``, ``settings.json`` and
+``wake_words.json`` (what the Wake words page changed, per wake word). Only
+the UI edits them: each is read once and written whole when it changes. (They
+were YAML, read and written round-trip so that a hand edit's comments
+survived: 386 ms to read the commands and 218 ms to write them on an HA Green,
+against under a millisecond as JSON.)
+
+A data directory from before keeps its ``.yaml`` files: each is read once,
+while its JSON is not there yet, and copied to it. The YAML stays as it was
+and is not read again.
 """
 
 from __future__ import annotations
@@ -33,27 +38,22 @@ _LOGGER = logging.getLogger(__name__)
 STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings"}
 NAME_KINDS = ("entities", "areas", "floors")
 
-NEW_FILE = """\
-# Voice commands for voice_call. The web UI writes this file, and you can edit
-# it too: comments survive, and changes are picked up without a restart.
-#
-#   language:  what the commands are said in (no key: English); a command
-#              made in another language says its own (language: de). Only
-#              the app's language's are heard and shown.
-#   names:     what things are called, each pointing at one Home Assistant id;
-#              in another language than the file's under its code
-#              (kitchen: {{name: Kitchen, de: {{name: Küche}}}})
-#   lists:     value lists for slots ("red" -> red), shared by commands;
-#              besides the language's own (colors, on_off ...). A value's
-#              phrases in another language than the file's go under its
-#              code (red: {{en: [red], de: [rot]}})
-#   commands:  what is listened for, and what happens
-#   unknown:   what is said when nothing understood a sentence
-language: {language}
-names: {{}}
-lists: {{}}
-commands: {{}}
-"""
+def new_store(language: str) -> dict[str, Any]:
+    """A home's commands before it has any.
+
+    ``language``: what the commands are said in (none: English); a command
+    made in another language says its own (``language: de``), and only the
+    app's language's are heard and shown. ``names``: what things are called,
+    each pointing at one Home Assistant id; in another language than the
+    store's under its code (``kitchen: {name: Kitchen, de: {name: Küche}}``).
+    ``lists``: value lists for slots ("red" -> red), shared by commands,
+    besides the language's own (colors, on_off ...); a value's phrases in
+    another language than the store's go under its code
+    (``red: {en: [red], de: [rot]}``). ``commands``: what is listened for, and
+    what happens. ``unknown``: what is said when nothing understood a
+    sentence."""
+    return {"language": language, "names": {}, "lists": {}, "commands": {}}
+
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # Debugging: keep every call's audio and full trace on disk.
@@ -64,7 +64,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 
 def _yaml() -> YAML:
-    yaml = YAML()  # round-trip, YAML 1.2: "on" and "off" stay words
+    """For a command shown as YAML (its YAML tab), and the YAML files of
+    before. Round-trip, YAML 1.2: "on" and "off" stay words."""
+    yaml = YAML()
     yaml.default_flow_style = False
     yaml.width = 100
     yaml.indent(mapping=2, sequence=2, offset=0)
@@ -303,23 +305,23 @@ class Store:
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._mtime: float | None = None
+        self._document: dict[str, Any] | None = None
 
     @property
     def commands_path(self) -> Path:
-        return self.data_dir / "commands.yaml"
+        return self.data_dir / "commands.json"
 
     @property
     def satellites_path(self) -> Path:
-        return self.data_dir / "satellites.yaml"
+        return self.data_dir / "satellites.json"
 
     @property
     def settings_path(self) -> Path:
-        return self.data_dir / "settings.yaml"
+        return self.data_dir / "settings.json"
 
     @property
     def wake_tuning_path(self) -> Path:
-        return self.data_dir / "wake_words.yaml"
+        return self.data_dir / "wake_words.json"
 
     @property
     def calls_dir(self) -> Path:
@@ -327,55 +329,41 @@ class Store:
 
     # ------------------------------------------------------------- commands
 
-    def read_text(self) -> str:
-        if not self.commands_path.exists():
-            _write_atomic(self.commands_path, NEW_FILE.format(language=languages.current().code))
-        return self.commands_path.read_text(encoding="utf-8")
+    def document(self) -> dict[str, Any]:
+        """The commands as saved (a copy): ``language``, ``names``, ``lists``,
+        ``commands``, ``unknown``. Read from disk once."""
+        if self._document is None:
+            data = _read(self.commands_path)
+            if data is None:
+                data = new_store(languages.current().code)
+                _write_atomic(self.commands_path, _dumps(data))
+            if not isinstance(data, dict):
+                raise ConfigError("commands file: expected a mapping")
+            self._document = data
+        return plain(self._document)
 
     def load(self) -> Compiled:
-        """The commands file, validated. Raises ConfigError (or a YAML error)."""
-        text = self.read_text()
-        self._mtime = self.commands_path.stat().st_mtime
-        return compile_store(plain(self._parse(text)))
-
-    def changed_on_disk(self) -> bool:
-        try:
-            return self.commands_path.stat().st_mtime != self._mtime
-        except FileNotFoundError:
-            return False
-
-    @staticmethod
-    def _parse(text: str) -> CommentedMap:
-        data = _yaml().load(text) or CommentedMap()
-        if not isinstance(data, dict):
-            raise ConfigError("commands file: expected a mapping")
-        return data
-
-    def save_text(self, text: str) -> Compiled:
-        """Replace the whole file, after validating it."""
-        compiled = compile_store(plain(self._parse(text)))
-        self._write(text)
-        return compiled
+        """The commands, validated. Raises ConfigError."""
+        return compile_store(self.document())
 
     def update(self, edit) -> Compiled:
-        """Apply ``edit(document)`` to the round-trip document, validate the
-        result and save it. ``edit`` changes the CommentedMap in place."""
-        document = self._parse(self.read_text())
+        """Apply ``edit(document)`` to a copy of the commands, validate the
+        result and save it. ``edit`` changes the document in place (or
+        replaces its parts)."""
+        document = self.document()
         for key in ("names", "lists", "commands"):
             if document.get(key) is None:
-                document[key] = CommentedMap()
+                document[key] = {}
         edit(document)
         compiled = compile_store(plain(document))
-        stream = io.StringIO()
-        _yaml().dump(document, stream)
-        self._write(stream.getvalue())
+        self._write(document)
         return compiled
 
     def put_command(self, command_id: str, spec: dict[str, Any], old_id: str | None = None) -> Compiled:
         """Save a command. A new one is in the app's language: it says so
         (``language:``) when that is not the file's."""
 
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             commands = document["commands"]
             here, default = languages.current().code, file_language(document)
             taken = commands.get(command_id)
@@ -384,14 +372,13 @@ class Store:
             said = {**spec}
             if "language" not in said and here != default:
                 said["language"] = here
-            node = styled(said)
             if old_id and old_id != command_id and old_id in commands:
-                # Renamed: keep its place in the file.
+                # Renamed: keep its place among the commands.
                 index = list(commands).index(old_id)
                 del commands[old_id]
-                commands.insert(index, command_id, node)
+                document["commands"] = _inserted(commands, index, command_id, said)
             else:
-                commands[command_id] = node
+                commands[command_id] = said
 
         return self.update(edit)
 
@@ -401,7 +388,7 @@ class Store:
         """Copy a command, as saved, to ``new_id``, right after it: on
         ``satellite`` (its key), or the Home's (None)."""
 
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             commands = document["commands"]
             if command_id not in commands:
                 raise FileNotFoundError(f"No command {command_id}")
@@ -414,12 +401,12 @@ class Store:
                 spec["satellite"] = satellite
             else:
                 spec.pop("satellite", None)
-            commands.insert(list(commands).index(command_id) + 1, new_id, styled(spec))
+            document["commands"] = _inserted(commands, list(commands).index(command_id) + 1, new_id, spec)
 
         return self.update(edit)
 
     def delete_command(self, command_id: str) -> Compiled:
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             document["commands"].pop(command_id, None)
 
         return self.update(edit)
@@ -427,7 +414,7 @@ class Store:
     def put_fallback(self, steps: dict[str, list[str]]) -> Compiled:
         """For each fallback step given (``meaning``, ``llm``), exactly which
         commands it may run (their ``fallback`` key)."""
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             commands = document["commands"]
             for members in steps.values():
                 unknown = sorted(set(members) - set(commands))
@@ -447,7 +434,7 @@ class Store:
                 if keep == current:
                     continue
                 if keep:
-                    command["fallback"] = styled(keep)
+                    command["fallback"] = keep
                 else:
                     command.pop("fallback", None)
 
@@ -457,9 +444,9 @@ class Store:
         """What is said when nothing understood a sentence; None or empty:
         the built-in hint."""
 
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             if response:
-                document["unknown"] = styled({"response": response})
+                document["unknown"] = {"response": response}
             else:
                 document.pop("unknown", None)
 
@@ -469,10 +456,10 @@ class Store:
         if kind not in NAME_KINDS:
             raise ConfigError(f"names: unknown kind {kind!r}")
 
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             names = document["names"]
             if names.get(kind) is None:
-                names[kind] = CommentedMap()
+                names[kind] = {}
             items = names[kind]
             here, default = languages.current().code, file_language(document)
             entry = plain(items.get(item_id))
@@ -491,7 +478,7 @@ class Store:
             else:
                 kept = {**(spec or {}), **others}
             if kept:
-                items[item_id] = styled(kept)
+                items[item_id] = kept
             else:
                 items.pop(item_id, None)  # named in no language any more
 
@@ -501,7 +488,7 @@ class Store:
         """A list's values and phrases in the app's language (None: none);
         its phrases in other languages stay."""
 
-        def edit(document: CommentedMap) -> None:
+        def edit(document: dict[str, Any]) -> None:
             lists = document["lists"]
             here, default = languages.current().code, file_language(document)
             old = plain(lists.get(name))
@@ -521,39 +508,64 @@ class Store:
                     said.pop(here, None)
             kept = {v: (s[default] if set(s) == {default} else s) for v, s in current.items() if s}
             if kept:
-                lists[name] = styled(kept)
+                lists[name] = kept
             else:
                 lists.pop(name, None)  # no phrases in any language any more
 
         return self.update(edit)
 
-    def _write(self, text: str) -> None:
+    def _write(self, document: dict[str, Any]) -> None:
+        text = _dumps(document)
         _write_atomic(self.commands_path, text)
-        self._mtime = self.commands_path.stat().st_mtime
+        self._document = json.loads(text)  # its own copy: callers keep theirs
 
     # ---------------------------------------------------- satellites, settings
 
     def load_extras(self) -> None:
-        yaml = _yaml()
-        if self.satellites_path.exists():
-            self.satellites = plain(yaml.load(self.satellites_path.read_text("utf-8")) or {})
-        if self.settings_path.exists():
-            loaded = plain(yaml.load(self.settings_path.read_text("utf-8")) or {})
-            self.settings = {**DEFAULT_SETTINGS, **loaded}
-        if self.wake_tuning_path.exists():
-            self.wake_tuning = plain(yaml.load(self.wake_tuning_path.read_text("utf-8")) or {})
+        self.satellites = _read(self.satellites_path) or {}
+        self.settings = {**DEFAULT_SETTINGS, **(_read(self.settings_path) or {})}
+        self.wake_tuning = _read(self.wake_tuning_path) or {}
 
     def save_satellites(self) -> None:
-        _write_atomic(self.satellites_path, dump(self.satellites))
+        _write_atomic(self.satellites_path, _dumps(self.satellites))
 
     def save_settings(self) -> None:
-        _write_atomic(self.settings_path, dump(self.settings))
+        _write_atomic(self.settings_path, _dumps(self.settings))
 
     def save_wake_tuning(self) -> None:
-        _write_atomic(self.wake_tuning_path, dump(self.wake_tuning))
+        _write_atomic(self.wake_tuning_path, _dumps(self.wake_tuning))
 
     def satellite(self, key: str) -> dict[str, Any]:
         return self.satellites.get(key) or {}
+
+
+def _inserted(items: dict[str, Any], index: int, key: str, value: Any) -> dict[str, Any]:
+    """``items`` with ``key`` at ``index``."""
+    pairs = [(k, v) for k, v in items.items() if k != key]
+    pairs.insert(index, (key, value))
+    return dict(pairs)
+
+
+def _dumps(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def _read(path: Path) -> Any:
+    """A JSON file's data; else, the first time, the YAML file of before
+    (``commands.yaml`` for ``commands.json``), copied to it; None without
+    either."""
+    if path.exists():
+        return json.loads(path.read_text("utf-8"))
+    before = path.with_suffix(".yaml")
+    if not before.exists():
+        return None
+    try:
+        data = plain(_yaml().load(before.read_text("utf-8"))) or {}
+    except Exception as err:  # noqa: BLE001 - ruamel's errors are its own
+        raise ConfigError(f"{before.name}: {err}") from err
+    _write_atomic(path, _dumps(data))
+    _LOGGER.info("%s copied to %s; %s is no longer read", before.name, path.name, before.name)
+    return data
 
 
 def _write_atomic(path: Path, text: str) -> None:
