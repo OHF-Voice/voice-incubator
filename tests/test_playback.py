@@ -13,6 +13,8 @@ from voice_call.protocol import BYTE_RATE, Message
 class Recorder:
     """Stands in for the app: records what _play sends, and when."""
 
+    _play_stream = server.VoiceCallApp._play_stream
+
     def __init__(self):
         self.options = SimpleNamespace(drain_timeout=5.0)
         self.sent: list[tuple[float, Message, int]] = []
@@ -32,6 +34,28 @@ def test_a_stale_drained_does_not_end_the_next_playback():
         play = asyncio.ensure_future(server.VoiceCallApp._play(app, session, bytes(8192)))
         await asyncio.sleep(0.1)
         assert not play.done()  # still waiting for this playback's drain
+        session.drained.set()
+        await asyncio.wait_for(play, 1)
+
+    asyncio.run(scenario())
+
+
+def test_pieces_play_as_one_stream():
+    # A reply said a sentence at a time: each sent as it comes, one end.
+    async def scenario():
+        app, session = Recorder(), _session()
+
+        async def sentences():
+            for size in (4096, 6000, 100):
+                await asyncio.sleep(0.05)  # being synthesized
+                yield bytes(size)
+
+        play = asyncio.ensure_future(server.VoiceCallApp._play_stream(app, session, sentences()))
+        while not any(m == Message.AUDIO_OUT_END for _, m, _ in app.sent):
+            await asyncio.sleep(0.02)
+        sizes = [n for _, m, n in app.sent if m == Message.AUDIO_OUT]
+        assert sum(sizes) == 10196 and [m for _, m, _ in app.sent].count(Message.AUDIO_OUT_END) == 1
+        assert app.sent[-1][0] - app.sent[0][0] >= 0.09  # not held back until the last
         session.drained.set()
         await asyncio.wait_for(play, 1)
 

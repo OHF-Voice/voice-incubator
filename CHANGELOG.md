@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **The center button cancels a call** and what it is saying (firmware:
+  `voice_call.cancel`).
+- **Piper speaks a reply a sentence at a time**, starting with the first,
+  and without a conversation agent's markdown (`sentence-stream`): a long
+  answer read "asterisk", and began only once all of it was synthesized.
+- The thinking sound an octave higher.
 - **A thinking sound** while a reply is slow to come: when nothing has been
   said back a second after the command ended (or what is set, 0-10 s), the
   satellite plays a short sound, stopped as the reply begins. On by default

@@ -303,6 +303,11 @@ added again. A command has:
   somewhere else -- another area, a floor, a device in no area -- says what
   the **Responses** panel on the Settings page says instead: the specific
   sentence unless you change it (Home Assistant's own says the brief one).
+  The satellite's center button, pressed during a call, cancels it and what
+  it is saying (the firmware's `voice_call.cancel`). Piper says a reply a
+  sentence at a time, starting as soon as the first is ready, without the
+  markdown a conversation agent writes (`**bold**`, bullets).
+
   While a reply is slow to come -- nothing said back a second after you
   stopped speaking: Home Assistant's speech, the conversation agent, a slow
   machine -- the satellite plays a short **thinking sound**, stopped as the

@@ -712,6 +712,59 @@ async def _thinking_sound(tmp_path):
         hass_server.close()
 
 
+LONG_REPLY = (
+    "**Lights** are on. The first sentence is said while the next is made. Then a second one follows it. "
+    "A third goes on a while longer, about the weather and the garden. A fourth says nothing much at all. "
+    "A fifth is here only to be long. And a sixth, the last, which nobody should hear."
+)
+
+
+def test_the_button_cancels_a_reply(tmp_path):
+    asyncio.run(_cancelled(tmp_path))
+
+
+async def _cancelled(tmp_path):
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite_server = await serve(satellite)
+    hass.device_areas[f"device-{MAC}"] = "kitchen"
+    (tmp_path / "commands.yaml").write_text(COMMANDS.replace("response: Turned on the lights.", f"response: {json.dumps(LONG_REPLY)}", 1))
+    (tmp_path / "settings.yaml").write_text("thinking_sound: false\n")
+    app = VoiceCallApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        # Said a sentence at a time: the first is played while the rest are made.
+        satellite.audio_out.clear()
+        played, ends = satellite.played, satellite.ends
+        call = asyncio.ensure_future(satellite.call(read_call(CALLS / "call-15788.wav")))
+        await asyncio.wait_for(satellite.audio_out.wait(), 30)
+        await satellite.cancel()  # the button
+        assert await call == "cancelled"
+        await wait_for(lambda: satellite.ends > ends)  # the stream ended, so the device plays again
+        await asyncio.sleep(1.0)
+        heard = satellite.played - played
+        await asyncio.sleep(1.0)
+        assert satellite.played - played == heard  # nothing more sent
+        assert 0 < heard < 4 * 32000  # a sentence or two of the six
+        record = app.calls.recent[-1]
+        assert record.outcome == "cancelled" and record.summary == "cancelled on the satellite"
+        assert not any("**" in str(s.get("text", "")) for s in record.stages if s["stage"] == "speech")
+        # The next call is answered as ever.
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+        hass_server.close()
+
+
 def test_home_assistant_stt_and_tts(tmp_path):
     asyncio.run(_voices(tmp_path))
 

@@ -46,7 +46,15 @@ one call at a time:
    timer operation's or a script's own outcome), rendered by Home Assistant,
    is spoken with Piper (`en_US-ellie` for English); without one, the built-in
    sentence -- when done, at the command's level of verbosity (below). A
-   command with nothing to say plays `sounds/acknowledge.mp3`. A reply that
+   command with nothing to say plays `sounds/acknowledge.mp3`. What is said
+   goes through `sentence_stream` first (`tts.sentences_of`): the markdown a
+   conversation agent writes comes out ("**Lift:**" was read "asterisk"), and
+   Piper says it a sentence (or list item) at a time, each played while the
+   next is made, in one stream (`_play_stream`): a 41 s answer that took 27 s
+   to synthesize on an HA Green begins after its first sentence. The
+   satellite's button cancels a call (CALL_END `cancelled`): the reply's task
+   is cancelled, the device drops what was already sent until the app ends
+   the stream (AUDIO_OUT_END), and the call is recorded as cancelled. A reply that
    hasn't begun a second after the command ended (`thinking_delay`, 0-10 s)
    has `sounds/thinking.flac` before it (`server.Thinking`, settings.json
    `thinking_sound`, on unless false): streamed at most 0.2 s ahead of the device, so that it stops short,

@@ -12,6 +12,7 @@ import onnxruntime as ort
 import soundfile as sf
 import soxr
 from piper import PiperConfig, PiperVoice
+from sentence_stream import stream_to_sentences
 
 from adapt_ctc.runtime import session_options
 
@@ -29,6 +30,14 @@ def _to_device_pcm(samples: np.ndarray, rate: int) -> bytes:
         samples = soxr.resample(samples, rate, SAMPLE_RATE)
     clipped = np.clip(samples, -1.0, 1.0)
     return (clipped * 32767.0).astype("<i2").tobytes()
+
+
+def sentences_of(text: str) -> list[str]:
+    """What of ``text`` is said, in the pieces it is synthesized and played
+    in, one after another: its sentences, without markdown (a conversation
+    agent's **bold** and bullets, which Piper reads as "asterisk"), a list's
+    items apart."""
+    return [line.strip() for sentence in stream_to_sentences(text) for line in sentence.splitlines() if line.strip()]
 
 
 def load_voice(path: Path) -> PiperVoice:
@@ -75,7 +84,14 @@ class Speech:
         samples, rate = sf.read(path, dtype="float32", always_2d=False)
         return _to_device_pcm(samples, rate)
 
-    def _synthesize(self, text: str) -> bytes:
+    @property
+    def acknowledge(self) -> bytes:
+        """What a reply with nothing to say plays."""
+        assert self._acknowledge is not None
+        return self._acknowledge
+
+    def synthesize(self, text: str) -> bytes:
+        """``text`` (a sentence of ``sentences_of``) as device PCM."""
         assert self._voice is not None
         chunks = list(self._voice.synthesize(text))
         if not chunks:
@@ -87,12 +103,13 @@ class Speech:
         return _to_device_pcm(audio, rate)
 
     async def say(self, text: str) -> bytes:
-        """Speak ``text``, or fall back to the acknowledgement sound."""
-        if not text.strip():
-            assert self._acknowledge is not None
+        """Speak ``text`` whole (its ``sentences_of``), or fall back to the
+        acknowledgement sound."""
+        pieces = sentences_of(text)
+        if not pieces:
             _LOGGER.info("No conversation response; playing acknowledgement")
-            return self._acknowledge
-        pcm = await asyncio.to_thread(self._synthesize, text)
-        _LOGGER.info("Synthesized %r (%.2fs)", text, len(pcm) / (SAMPLE_RATE * 2))
+            return self.acknowledge
+        pcm = b"".join([await asyncio.to_thread(self.synthesize, piece) for piece in pieces])
+        _LOGGER.info("Synthesized %r (%.2fs)", " ".join(pieces), len(pcm) / (SAMPLE_RATE * 2))
         return pcm
 

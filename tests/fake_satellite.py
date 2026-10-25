@@ -50,6 +50,8 @@ class FakeSatellite:
     hangups: list[str] = field(default_factory=list)
     played: int = 0
     """Bytes of AUDIO_OUT received."""
+    ends: int = 0
+    """AUDIO_OUT_ENDs received: playback streams ended."""
     models: list[str] = field(default_factory=list)
     """Model ids loaded, in order; MODEL_CLEAR empties it."""
     clears: int = 0
@@ -70,6 +72,8 @@ class FakeSatellite:
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()
+        self.audio_out = asyncio.Event()
+        """Set by AUDIO_OUT: the app is playing something."""
         self._writer: asyncio.StreamWriter | None = None
         self._hangup = asyncio.Event()
         self._models = 0
@@ -121,7 +125,9 @@ class FakeSatellite:
                 self.ready.set()
         elif msg_type == Message.AUDIO_OUT:
             self.played += len(payload)
+            self.audio_out.set()
         elif msg_type == Message.AUDIO_OUT_END:
+            self.ends += 1
             self._writer.write(encode(Message.PLAYBACK_DRAINED))
             await self._writer.drain()
         elif msg_type == Message.EVENT:
@@ -178,6 +184,15 @@ class FakeSatellite:
         assert self._writer is not None
         self._writer.write(encode_json(Message.DEVICE_EVENT, {"type": kind}))
         await self._writer.drain()
+
+    async def cancel(self) -> None:
+        """The button during a call: the device ends it, cutting off what it
+        was playing."""
+        assert self._writer is not None
+        self._writer.write(encode_json(Message.CALL_END, {"reason": "cancelled"}))
+        await self._writer.drain()
+        self.hangups.append("cancelled")
+        self._hangup.set()
 
     async def detect(self, wake_word: str, timeout: float = 10.0) -> str:
         """A wake word model fired with nothing to say after it (\"stop\")."""

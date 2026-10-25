@@ -11,6 +11,10 @@ pysilero-vad>=3,<4
 PyYAML>=6.0
 ruamel.yaml>=0.18
 scipy>=1.11
+# Sentences, and a conversation agent's markdown taken out, for Piper. 1.4.0
+# (the markdown fixes) is staged from source by script/stage_build until it
+# is released.
+sentence-stream>=1.3,<2
 sherpa-onnx>=1.12
 soundfile>=0.12
 soxr>=0.5

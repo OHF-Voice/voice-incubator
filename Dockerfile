@@ -26,6 +26,9 @@ RUN \
 # Staged by script/stage_build: the Kaldi wake verifier and the models.
 COPY local/wyoming-wake-kaldi /usr/src/wyoming-wake-kaldi
 RUN pip3 install --no-cache-dir /usr/src/wyoming-wake-kaldi
+# sentence-stream from source (staged), until the release has its fixes.
+COPY local/sentence-stream /usr/src/sentence-stream
+RUN pip3 install --no-cache-dir --no-deps /usr/src/sentence-stream
 # Training wake words in the app: TensorFlow, and microWakeWord (staged by
 # script/stage_build) without its audio stack.
 COPY requirements-training.txt ./

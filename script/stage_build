@@ -75,6 +75,12 @@ fi
 
 mkdir -p local/wyoming-wake-kaldi
 cp -a "$KALDI_SRC/pyproject.toml" "$KALDI_SRC/wyoming_wake_kaldi" local/wyoming-wake-kaldi/
+# sentence-stream 1.4.0, until it is released: its markdown fixes ("**Lift:**"
+# was left with its asterisks, which Piper reads out).
+SENTENCE_SRC="${SENTENCE_STREAM:-$HOME/opt/sentence-stream}"
+mkdir -p local/sentence-stream
+cp -a "$SENTENCE_SRC/pyproject.toml" "$SENTENCE_SRC/setup.cfg" "$SENTENCE_SRC/README.md" "$SENTENCE_SRC/LICENSE.md" \
+      "$SENTENCE_SRC/sentence_stream" local/sentence-stream/
 # microWakeWord, to train wake words in the app (installed without its
 # dependencies: requirements-training.txt has what training needs). From its
 # working tree, which keeps its audio stack, TensorBoard and evaluation out of
@@ -96,4 +102,4 @@ if (( embedding )); then
     cp -L "$snapshot/tokenizer.json" local/models/embeddinggemma-2/
     cp -L "$snapshot"/onnx/model_q4.onnx* local/models/embeddinggemma-2/onnx/
 fi
-du -sh local/models local/wyoming-wake-kaldi local/micro-wake-word
+du -sh local/models local/wyoming-wake-kaldi local/micro-wake-word local/sentence-stream

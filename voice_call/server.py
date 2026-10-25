@@ -58,7 +58,7 @@ from .enrollment import MIN_SECONDS as ENROLL_MIN_SECONDS
 from .enrollment import Enrollment
 from .speaker import PALETTE, Identification, SpeakerId
 from .store import Compiled, Store
-from .tts import Speech
+from .tts import Speech, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
@@ -437,6 +437,9 @@ class Call:
     wake_word: str
     thinking: Thinking | None = None
     """The thinking sound, from when the command ended until the reply."""
+    responding: asyncio.Task | None = None
+    """Recognizing and answering it, from when the command ended: cancelled
+    when the device ends the call (its button)."""
     started: float = field(default_factory=time.monotonic)
     audio: bytearray = field(default_factory=bytearray)
     """The AGC capture. The command is split out of this one."""
@@ -1186,11 +1189,12 @@ class VoiceCallApp:
                 )
             await self._send_json(session, Message.MODEL_END, {"id": model.model_id})
 
-    def _spawn(self, coro) -> None:
+    def _spawn(self, coro) -> asyncio.Task:
         """Run beside the read loop, which must stay free to deliver frames."""
         task = asyncio.ensure_future(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
 
     # ------------------------------------------------------------ discovery
 
@@ -1431,12 +1435,21 @@ class VoiceCallApp:
             self._live(session, {"type": "call", "active": True, "wake_word": session.call.wake_word if session.call else None})
         elif msg_type == Message.CALL_END:
             self._live_call_ended(session)
-            _LOGGER.info("[%s] Device ended call: %s", session, info.get("reason"))
+            reason = str(info.get("reason") or "")
+            _LOGGER.info("[%s] Device ended call: %s", session, reason)
             call = session.call
             if call is not None and call.record is not None and call.record.finished is None:
-                self.calls.finish(call.record, "ended by device", str(info.get("reason") or ""))
+                cancelled = reason == "cancelled"
+                self.calls.finish(call.record, "cancelled" if cancelled else "ended by device",
+                                  "cancelled on the satellite" if cancelled else reason)
             _cancel_stt(call)
             session.call = None
+            if call is not None and call.responding is not None and not call.responding.done():
+                # Its button: no more of the reply, nor of what led to it.
+                call.responding.cancel()
+            if reason == "cancelled":
+                # The device drops what was already sent until this.
+                await self._send(session, Message.AUDIO_OUT_END)
         elif msg_type == Message.PLAYBACK_DRAINED:
             session.drained.set()
         elif msg_type == Message.DEVICE_EVENT:
@@ -1827,7 +1840,7 @@ class VoiceCallApp:
             _LOGGER.info("[%s] No speech %.1fs after the wake word; ending", session, seconds)
             self._give_up(session, call, "no speech was heard", seconds, self._timed_out(call)[1])
             return
-        self._spawn(self._respond(session, call))
+        call.responding = self._spawn(self._respond(session, call))
 
     @staticmethod
     def _timed_out(call: Call) -> tuple[str, dict[str, Any]]:
@@ -1933,7 +1946,7 @@ class VoiceCallApp:
                     "[%s] Someone other than %s talking: the command ended at their last word, %.2fs",
                     session, (call.speaker_watch or {}).get("speaker"), call.speaker_end or 0.0,
                 )
-                self._spawn(self._respond(session, call))
+                call.responding = self._spawn(self._respond(session, call))
         except Exception:  # never let the check take the call down with it
             _LOGGER.exception("[%s] Checking the speaker failed", session)
             call.speaker_ref = False
@@ -2515,7 +2528,9 @@ class VoiceCallApp:
     ) -> None:
         satellite = self.satellite(session.satellite)
         voice = satellite.voice
-        if text.strip() and voice.tts:
+        pieces = sentences_of(text)
+        text = " ".join(pieces)  # what is said: without markup
+        if text and voice.tts:
             target = voice.speak_on or satellite.device_media_player
             if target is None:
                 _LOGGER.warning("[%s] No media player of its own in Home Assistant; speaking with Piper", session)
@@ -2528,18 +2543,41 @@ class VoiceCallApp:
                     _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, voice.tts, err)
                     if record is not None:
                         record.stage("speech_failed", tts=voice.tts, on=target, error=str(err))
-        # Piper, or -- with nothing to say -- the acknowledgement sound, which
-        # stays on the satellite even when its responses are spoken elsewhere.
+        # Piper, a sentence at a time, each played while the next is made; or
+        # -- with nothing to say -- the acknowledgement sound, which stays on
+        # the satellite even when its responses are spoken elsewhere.
         started = time.perf_counter()
-        async with self._model_lock:
-            audio = await self.speech.say(text)
-        if record is not None:
-            # How long it is, and how long Piper took to say it.
-            record.stage(
-                "speech", text=text, seconds=round(len(audio) / BYTE_RATE, 3), synthesis=_seconds(time.perf_counter() - started)
-            )
-        await self._quiet(session, close=False)  # the reply follows the thinking sound
-        await self._play(session, audio, paced)
+        timing = {"seconds": 0, "synthesis": 0.0, "first": None}
+
+        async def spoken():
+            if not pieces:
+                timing["first"], timing["seconds"] = 0.0, len(self.speech.acknowledge)
+                await self._quiet(session, close=False)
+                yield self.speech.acknowledge
+                return
+            for piece in pieces:
+                begun = time.perf_counter()
+                async with self._model_lock:
+                    audio = await asyncio.to_thread(self.speech.synthesize, piece)
+                timing["synthesis"] += time.perf_counter() - begun
+                if timing["first"] is None:
+                    timing["first"] = time.perf_counter() - started
+                    await self._quiet(session, close=False)  # the reply follows the thinking sound
+                timing["seconds"] += len(audio)
+                yield audio
+
+        try:
+            await self._play_stream(session, spoken(), paced)
+        finally:
+            if record is not None:
+                # How long it is, how long Piper took to say it, and how long
+                # until it began.
+                record.stage(
+                    "speech", text=text, seconds=round(timing["seconds"] / BYTE_RATE, 3),
+                    synthesis=_seconds(timing["synthesis"]),
+                    first=_seconds(timing["first"]) if timing["first"] is not None else None,
+                    pieces=len(pieces),
+                )
 
     async def _speak(
         self, session: Session, satellite: Satellite, target: str, text: str, record: CallRecord | None
@@ -2968,7 +3006,17 @@ class VoiceCallApp:
     # ---------------------------------------------------------------- output
 
     async def _play(self, session: Session, pcm: bytes, paced: bool = False) -> None:
-        """Stream audio and wait until the device has played it out.
+        """Stream audio and wait until the device has played it out
+        (``_play_stream``)."""
+
+        async def once():
+            yield pcm
+
+        await self._play_stream(session, once(), paced)
+
+    async def _play_stream(self, session: Session, pieces, paced: bool = False) -> None:
+        """Stream audio as its pieces come (an async iterable of PCM), one
+        stream however many, and wait until the device has played it out.
 
         ``paced``: stay at most PLAY_LEAD ahead of the device's clock, for
         audio outside a call (a ringing timer). The device's buffer only
@@ -2978,16 +3026,19 @@ class VoiceCallApp:
         # The previous playback's "drained" must not answer for this one.
         session.drained.clear()
         loop = asyncio.get_running_loop()
-        started = loop.time()
+        started = None
         sent = 0
-        for offset in range(0, len(pcm), MAX_PAYLOAD):
-            chunk = pcm[offset : offset + MAX_PAYLOAD]
-            if paced:
-                ahead = sent / BYTE_RATE - (loop.time() - started)
-                if ahead > PLAY_LEAD:
-                    await asyncio.sleep(ahead - PLAY_LEAD)
-            await self._send(session, Message.AUDIO_OUT, chunk)
-            sent += len(chunk)
+        async for pcm in pieces:
+            if started is None:
+                started = loop.time()
+            for offset in range(0, len(pcm), MAX_PAYLOAD):
+                chunk = pcm[offset : offset + MAX_PAYLOAD]
+                if paced:
+                    ahead = sent / BYTE_RATE - (loop.time() - started)
+                    if ahead > PLAY_LEAD:
+                        await asyncio.sleep(ahead - PLAY_LEAD)
+                await self._send(session, Message.AUDIO_OUT, chunk)
+                sent += len(chunk)
         await self._send(session, Message.AUDIO_OUT_END)
         try:
             await asyncio.wait_for(
