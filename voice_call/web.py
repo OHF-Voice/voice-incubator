@@ -1426,14 +1426,15 @@ class Api:
         })
 
     async def train_wake_word(self, request: web.Request) -> web.Response:
-        """Train a wake word for ``{phrase, speakers?}``, with those speakers'
-        recordings of it (everyone's when not given): it runs on, the page
-        follows it."""
+        """Train a wake word for ``{phrase, speakers?, name?}``, with those
+        speakers' recordings of it (everyone's when not given), called
+        ``name`` (its phrase when not given): it runs on, the page follows
+        it."""
         body = await request.json()
         speakers = body.get("speakers")
         try:
             job = await self.app.train_wake_word(
-                body.get("phrase"), None if speakers is None else [str(n) for n in speakers]
+                body.get("phrase"), None if speakers is None else [str(n) for n in speakers], body.get("name")
             )
         except TrainingError as err:
             raise ConfigError(str(err)) from err

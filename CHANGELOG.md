@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- **A trained wake word's own name** ("Okay Nabu (Mike)"), beside others of
+  the same phrase; the phrase field suggests each recorded phrase, with
+  everyone's takes or one speaker's.
 - **GLiNER without an embedding model** is given the commands chosen for it
   first, then others to tell them from: it was given the first eight by id,
   so a command sorted after them (a shopping list) was never offered.

@@ -65,7 +65,7 @@ from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
 from .wake_recordings import TAKE_SCORE, WakeRecording, WakeTakes
 from .wake_recordings import summary as wake_summary
 from .wake_training import WakeTraining, phrase_of, word_id
-from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords, trained_from
+from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -958,7 +958,7 @@ class VoiceCallApp:
         """The second opinion's threshold unless the page sets one."""
         if self.options.wake_ratio is not None and self.options.wake_ratio >= 0:
             return self.options.wake_ratio
-        return RATIO_THRESHOLD.get(word_id) or RATIO_THRESHOLD.get(trained_from(word_id) or "", DEFAULT_RATIO)
+        return RATIO_THRESHOLD.get(word_id) or RATIO_THRESHOLD.get(self.wake_words.trained_from(word_id) or "", DEFAULT_RATIO)
 
     def ratio_threshold(self, word_id: str) -> float:
         tuned = (self.store.wake_tuning.get(word_id) or {}).get("second_opinion")
@@ -2648,13 +2648,13 @@ class VoiceCallApp:
             return []
         return [_profile_json(name, p) for name, p in sorted(self.speakers.profiles.speakers.items())]
 
-    async def train_wake_word(self, phrase: Any, speakers: list[str] | None = None):
+    async def train_wake_word(self, phrase: Any, speakers: list[str] | None = None, name: Any = None):
         """Train ``phrase``'s wake word with the recordings of ``speakers``
-        (None: everyone's)."""
+        (None: everyone's), called ``name`` (None: the phrase)."""
         recordings = {}
         if self.wake_takes is not None:
             recordings = self.wake_takes.of(word_id(phrase_of(phrase)), speakers)
-        return await self.wake_training.start(phrase, recordings)
+        return await self.wake_training.start(phrase, recordings, name)
 
     def trained_here(self, word: str) -> bool:
         found = self.wake_words.get(word)
@@ -2667,7 +2667,7 @@ class VoiceCallApp:
         first time: its confusables and pronunciations."""
         self.wake_words.forget()
         entry = dict(self.store.wake_tuning.get(word) or {})
-        base = trained_from(word)
+        base = self.wake_words.trained_from(word)
         if base is not None and word not in self.store.wake_tuning:
             shipped = self.wake.shipped_entry(base) or {}
             tuned = self.store.wake_tuning.get(base) or {}

@@ -161,11 +161,19 @@ def phrase_of(text: Any) -> str:
     return " ".join(re.sub(r"[^\w' ]+", " ", str(text or "")).split())
 
 
-def manifest(phrase: str, word: str, language: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    """ESPHome's microWakeWord manifest (version 2) for a trained word."""
+def titled(phrase: str) -> str:
+    """A phrase as a wake word's name: "okay nabu" -> "Okay Nabu"."""
+    return " ".join(w.capitalize() for w in phrase.split())
+
+
+def manifest(
+    phrase: str, word: str, language: str, extra: dict[str, Any] | None = None, name: str | None = None
+) -> dict[str, Any]:
+    """ESPHome's microWakeWord manifest (version 2) for a trained word,
+    called ``name`` (None: its phrase); the phrase is ``trained.phrase``."""
     return {
         "type": "micro",
-        "wake_word": " ".join(w.capitalize() for w in phrase.split()),
+        "wake_word": name or titled(phrase),
         "author": "Voice Call",
         "model": f"{word}.tflite",
         "trained_languages": [language],
@@ -177,7 +185,7 @@ def manifest(phrase: str, word: str, language: str, extra: dict[str, Any] | None
             "tensor_arena_size": 30000,
             "minimum_esphome_version": "2024.7.0",
         },
-        "trained": {"by": "voice_call", "at": time.strftime("%Y-%m-%dT%H:%M:%S"), **(extra or {})},
+        "trained": {"by": "voice_call", "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "phrase": phrase, **(extra or {})},
     }
 
 
@@ -188,6 +196,8 @@ class Job:
     id: str
     phrase: str
     word: str
+    name: str | None = None
+    """What it is called, when not its phrase: "Okay Nabu (Mike)"."""
     state: str = "running"
     """running, done, failed, cancelled, or interrupted (the app stopped)."""
     stage: str = "positives"
@@ -209,7 +219,8 @@ class Job:
 
     def to_json(self) -> dict[str, Any]:
         out = {
-            "id": self.id, "phrase": self.phrase, "word": self.word, "state": self.state, "stage": self.stage,
+            "id": self.id, "phrase": self.phrase, "word": self.word, "name": self.name or titled(self.phrase),
+            "state": self.state, "stage": self.stage,
             "done": self.done, "total": self.total, "started": self.started, "finished": self.finished,
             "error": self.error, "progress": self.progress, "recordings": self.recordings, "again": self.again,
         }
@@ -388,16 +399,22 @@ class WakeTraining:
 
     # ---------------------------------------------------------------- run
 
-    async def start(self, text: Any, recordings: dict[str, list[Path]] | None = None) -> Job:
-        """Train ``text``'s wake word, with ``recordings`` of it (by speaker)."""
+    async def start(self, text: Any, recordings: dict[str, list[Path]] | None = None, name: Any = None) -> Job:
+        """Train ``text``'s wake word, with ``recordings`` of it (by speaker),
+        called ``name`` (None: the phrase). Its id is its name's."""
         phrase = phrase_of(text)
-        word = word_id(phrase)
+        called = " ".join(str(name or "").split()) or None
+        word = word_id(called or phrase)
         if self.running:
             raise TrainingError("A wake word is being trained already.")
-        if len(phrase.split()) < 1 or len(word) < 3:
+        if len(phrase.split()) < 1 or len(word_id(phrase)) < 3:
             raise TrainingError("Type the wake phrase.")
         if len(phrase) > 40:
             raise TrainingError("That's too long for a wake word.")
+        if called is not None and len(word) < 3:
+            raise TrainingError("Give it a name with letters in it.")
+        if called is not None and len(called) > 60:
+            raise TrainingError("That name is too long.")
         if self.builtin(word):
             word += TRAINED_SUFFIX
         again = self.exists(word)
@@ -408,7 +425,7 @@ class WakeTraining:
             raise TrainingError(why)
         self._recordings = {name: list(paths) for name, paths in (recordings or {}).items() if paths}
         self.job = Job(
-            id=uuid.uuid4().hex[:12], phrase=phrase, word=word, again=again,
+            id=uuid.uuid4().hex[:12], phrase=phrase, word=word, name=called, again=again,
             recordings={name: len(paths) for name, paths in self._recordings.items()},
         )
         self._save_job()
@@ -555,7 +572,7 @@ class WakeTraining:
             "recordings": job.recordings,
             "room_hours": round(sum(r["hours"] for r in self.room_negatives()), 1),
         }
-        manifest_path.write_text(json.dumps(manifest(job.phrase, job.word, self.language, extra), indent=2), "utf-8")
+        manifest_path.write_text(json.dumps(manifest(job.phrase, job.word, self.language, extra, job.name), indent=2), "utf-8")
         error = self.check_model(job.word)
         if error:
             model.unlink(missing_ok=True)

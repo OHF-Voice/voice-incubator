@@ -87,13 +87,25 @@ RATIO_THRESHOLD: dict[str, float] = {
 
 TRAINED_SUFFIX = "_trained"
 """A built-in word's phrase trained here (with a household's recordings) is a
-custom word of its own beside it: okay_nabu_trained."""
+custom word of its own beside it: okay_nabu_trained, unless it is given a
+name of its own (okay_nabu_mike, "Okay Nabu (Mike)")."""
 
 
-def trained_from(word_id: str) -> str | None:
-    """The built-in word whose phrase ``word_id`` was trained from, if any."""
+def trained_from(word_id: str, manifest: dict[str, Any] | None = None) -> str | None:
+    """The built-in word whose phrase ``word_id`` was trained from, if any: by
+    the phrase its manifest says it was trained on (``trained.phrase``), else
+    -- trained before it said -- by its id (okay_nabu_trained)."""
+    phrase = trained_phrase(manifest)
+    if phrase:
+        return next((word for word, said in PHRASES.items() if said[0] == phrase), None)
     base = word_id.removesuffix(TRAINED_SUFFIX)
     return base if base != word_id and base in PHRASES else None
+
+
+def trained_phrase(manifest: dict[str, Any] | None) -> str | None:
+    """What a word trained here was trained to hear: "okay nabu" for "Okay
+    Nabu (Mike)". None for one trained before it said."""
+    return spoken(str(((manifest or {}).get("trained") or {}).get("phrase") or "")) or None
 
 
 MAX_CUTOFF = 0.99
@@ -236,8 +248,8 @@ class WakeWords:
                 cutoff=min(float(tuned), MAX_CUTOFF) if tuned is not None else default,
                 default_cutoff=default,
                 phrases=(
-                    PHRASES.get(word_id) or PHRASES.get(trained_from(word_id) or "")
-                    or ((spoken(name),) if spoken(name) else ())
+                    PHRASES.get(word_id) or PHRASES.get(trained_from(word_id, manifest) or "")
+                    or tuple(p for p in (trained_phrase(manifest) or spoken(name),) if p)
                 ),
             )
         self._words = dict(sorted(words.items(), key=lambda kv: (kv[1].custom, kv[1].name.lower())))
@@ -275,6 +287,12 @@ class WakeWords:
         if key in words or key in SPECIAL:
             return key
         return next((w.id for w in words.values() if spoken(w.name) == spoken(heard)), None)
+
+    def trained_from(self, word_id: str) -> str | None:
+        """The built-in word ``word_id`` was trained from, if any (by its
+        manifest: ``trained_from``)."""
+        word = self.get(word_id)
+        return trained_from(word_id, word.manifest if word is not None else None)
 
     def phrases(self, word_id: str) -> tuple[str, ...]:
         """How a wake word is found again in the CTC evidence."""

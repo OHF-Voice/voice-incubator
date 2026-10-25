@@ -665,6 +665,19 @@ A built-in word's phrase trains as a word of its own beside it
 (`okay_nabu_trained`), found again in the CTC evidence as the built-in one is
 and given its confusables and pronunciations, so it is verified too.
 
+A trained word may be given a name of its own ("Okay Nabu (Mike)"): its id is
+the name's (`okay_nabu_mike`), so several models of one phrase can stand side
+by side, one trained with each speaker's recordings say. Its manifest keeps
+the phrase it was trained on (`trained.phrase`), and that, not the name, is
+how it is found again in the CTC evidence, verified and given the built-in
+word's second opinion (`wake_words.trained_from`); a word trained before its
+manifest said goes by its id, as `okay_nabu_trained` did. The page's phrase
+field suggests what has been recorded: each phrase, with everyone's takes,
+and each speaker's ("okay nabu (Mike)"), which fills in their name and ticks
+theirs alone. On an HA Green, "okay nabu" with four speakers' recordings and
+36 h of a home's audio trained in 70 minutes (20 making the positives, 48
+training), the Green never below 1.9 GB available.
+
 The recipe is micro-wake-word's `notebooks/POOLING_AND_PERSONALIZATION.md`:
 the base model's 4-block MixedNet with its last layer's 17 positions
 max-pooled in fours (the head reads 4 x 64 features, not 17 x 64 tied to

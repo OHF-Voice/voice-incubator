@@ -2312,27 +2312,62 @@ function recordingsText(recordings) {
   return Object.entries(recordings || {}).map(([name, n]) => `${name} (${n})`).join(", ");
 }
 
+// A phrase as a wake word's name, as the app makes it ("okay nabu" -> "Okay Nabu").
+function titled(phrase) {
+  return String(phrase || "").split(/\s+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+
 // Training a wake word from a phrase: the form, with whose recordings of it
-// to train with, or the job running (followed until it ends), and how the
-// last one went.
+// to train with and what to call it, or the job running (followed until it
+// ends), and how the last one went. The phrase suggests what has been
+// recorded: everyone's takes, or one speaker's ("okay nabu (Mike)", which
+// fills in their name and theirs alone).
 function wakeTraining(first, reload) {
   const box = h("div");
-  const phrase = h("input", { type: "text", placeholder: "hey computer", style: "max-width:260px", "aria-label": "Wake phrase" });
+  const recordedPhrases = Object.values(first.recorded || {});
+  const own = new Map();
+  const options = recordedPhrases.flatMap(({ phrase, speakers }) => [
+    h("option", { value: phrase, label: recordingsText(speakers) }),
+    ...Object.entries(speakers).map(([speaker, n]) => {
+      own.set(`${phrase} (${speaker})`.toLowerCase(), { phrase, speaker });
+      return h("option", { value: `${phrase} (${speaker})`, label: `${n} recordings` });
+    }),
+  ]);
+  const phrase = h("input", { type: "text", list: "wake-recorded", placeholder: "hey computer", style: "max-width:260px", "aria-label": "Wake phrase" });
+  const name = h("input", { type: "text", placeholder: "Hey Computer", style: "max-width:220px", "aria-label": "Name" });
   const stages = { positives: "Saying it", preparing: "Preparing", training: "Training", converting: "Saving" };
   const whose = h("div", { class: "row small" });
   const button = h("button", { class: "primary", onclick: start }, "Train");
   let ticks = [];
+  let only = null;
+  let filled = null;  // the name a speaker's suggestion put in, until changed
   function recorded() {
-    const word = wakeWordId(phrase.value);
-    const found = (first.recorded || {})[word];
+    const picked = own.get(phrase.value.trim().toLowerCase());
+    if (picked) {
+      phrase.value = picked.phrase;
+      name.value = filled = `${titled(picked.phrase)} (${picked.speaker})`;
+      only = picked.speaker;
+    } else if (filled !== null && name.value === filled) {
+      name.value = "";
+      filled = null;
+    }
+    const said = wakeWordId(phrase.value);
+    const word = wakeWordId(name.value) || said;
+    const found = (first.recorded || {})[said];
     const trained = first.trained || [];
+    name.placeholder = titled(phrase.value) || "Hey Computer";
     button.textContent = trained.includes(word) || trained.includes(`${word}_trained`) ? "Train again" : "Train";
-    ticks = found ? Object.entries(found.speakers).map(([name, n]) => ({ name, box: h("input", { type: "checkbox", checked: true }), n })) : [];
+    ticks = found ? Object.entries(found.speakers).map(([speaker, n]) => ({ name: speaker, box: h("input", { type: "checkbox", checked: !only || speaker === only }), n })) : [];
     fill(whose, ticks.length
       ? ["With the recordings of", ticks.map((t) => h("label", {}, t.box, ` ${t.name} (${t.n})`))]
-      : word.length >= 3 ? h("span", { class: "muted" }, "Nobody has recorded it: ", h("a", { href: "#/speakers" }, "record it on the Speakers page"), " for a model that hears them better.") : null);
+      : said.length >= 3 ? h("span", { class: "muted" }, "Nobody has recorded it: ", h("a", { href: "#/speakers" }, "record it on the Speakers page"), " for a model that hears them better.") : null);
   }
-  phrase.addEventListener("input", recorded);
+  phrase.addEventListener("input", () => { only = null; recorded(); });
+  name.addEventListener("input", () => {
+    const word = wakeWordId(name.value) || wakeWordId(phrase.value);
+    const trained = first.trained || [];
+    button.textContent = trained.includes(word) || trained.includes(`${word}_trained`) ? "Train again" : "Train";
+  });
   let followed = false;
   async function poll() {
     if (!document.body.contains(box)) return;
@@ -2340,6 +2375,7 @@ function wakeTraining(first, reload) {
   }
   async function start() {
     const body = { phrase: phrase.value };
+    if (name.value.trim()) body.name = name.value.trim();
     if (ticks.length) body.speakers = ticks.filter((t) => t.box.checked).map((t) => t.name);
     try { await api("POST", "wake_training", body); poll(); }
     catch (err) { toast(err.message); }
@@ -2352,7 +2388,7 @@ function wakeTraining(first, reload) {
       const recs = Object.keys(job.recordings || {}).length ? ` · with ${recordingsText(job.recordings)}` : "";
       fill(box, h("div", { class: "row" },
         h("div", { class: "grow" },
-          h("div", {}, `${quoted(job.phrase)}: ${stages[job.stage] || job.stage}${left}${recs}`),
+          h("div", {}, `${job.name || quoted(job.phrase)}: ${stages[job.stage] || job.stage}${left}${recs}`),
           h("progress", { max: 1, value: job.progress, style: "width:100%" })),
         h("button", { onclick: async () => { try { await api("DELETE", "wake_training"); poll(); } catch (err) { toast(err.message); } } }, "Cancel")));
       setTimeout(poll, 2000);
@@ -2360,12 +2396,14 @@ function wakeTraining(first, reload) {
     }
     if (followed && job && job.state === "done") return reload(job.word);
     const last = !job ? null
-      : job.state === "done" ? h("div", { class: "notice ok" }, `Trained ${quoted(job.phrase)}${Object.keys(job.recordings || {}).length ? ` with the recordings of ${recordingsText(job.recordings)}` : ""}. `, h("a", { href: `#/wake?word=${encodeURIComponent(job.word)}` }, "Tune it"))
+      : job.state === "done" ? h("div", { class: "notice ok" }, `Trained ${job.name || quoted(job.phrase)}${Object.keys(job.recordings || {}).length ? ` with the recordings of ${recordingsText(job.recordings)}` : ""}. `, h("a", { href: `#/wake?word=${encodeURIComponent(job.word)}` }, "Tune it"))
       : job.state === "cancelled" ? null
-      : h("div", { class: "notice bad" }, `${quoted(job.phrase)}: ${job.error || job.state} `, h("a", { href: "api/wake_training/log", target: "_blank" }, "Log"));
+      : h("div", { class: "notice bad" }, `${job.name || quoted(job.phrase)}: ${job.error || job.state} `, h("a", { href: "api/wake_training/log", target: "_blank" }, "Log"));
     fill(box, last,
       status.unavailable ? h("div", { class: "muted" }, status.unavailable)
-        : [h("div", { class: "row" }, phrase, button), whose,
+        : [h("div", { class: "row" }, phrase, name,
+            hint("What it's called on this page and in the wake word lists: “Okay Nabu (Mike)” for one trained with Mike's recordings, beside the others. Its phrase's name when left empty."),
+            button), whose, h("datalist", { id: "wake-recorded" }, options),
           status.room_hours ? h("div", { class: "muted small" }, `And against ${num(status.room_hours, 0)} h of this home's own audio.`) : null]);
   }
   show(first);

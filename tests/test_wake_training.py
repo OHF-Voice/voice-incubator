@@ -208,6 +208,19 @@ def test_a_wake_word_from_its_phrase(tmp_path):
         assert sorted(p.name for p in (tmp_path / "wake_words").iterdir()) == ["hey_tester.json", "hey_tester.tflite"]
         assert installed == ["hey_tester", "hey_tester"]
 
+        # Called something of its own: a word of its own, its id the name's,
+        # the phrase what it was trained on.
+        job = await training.start("hey tester", {"Alice": takes}, name="  Hey Tester  (Alice) ")
+        assert job.word == "hey_tester_alice" and job.name == "Hey Tester (Alice)" and not job.again
+        assert job.to_json()["name"] == "Hey Tester (Alice)"
+        await asyncio.wait_for(training._task, 120)  # pylint: disable=protected-access
+        assert job.state == "done", job.error
+        saved = json.loads((tmp_path / "wake_words/hey_tester_alice.json").read_text())
+        assert saved["wake_word"] == "Hey Tester (Alice)" and saved["trained"]["phrase"] == "hey tester"
+        assert installed[-1] == "hey_tester_alice"
+        with pytest.raises(TrainingError, match="name with letters"):
+            await training.start("hey tester", name="(!)")
+
     asyncio.run(run())
 
 
@@ -255,7 +268,11 @@ def test_what_keeps_it_from_training(tmp_path):
         training.trainer_python = str(make_trainer(tmp_path, "slow"))
         training._trainer_checked = None  # pylint: disable=protected-access
         job = await training.start("okay nabu")
-        assert job.word == "okay_nabu_trained" and not job.again
+        assert job.word == "okay_nabu_trained" and not job.again and job.to_json()["name"] == "Okay Nabu"
+        await training.cancel()
+        # Named as the built-in word is, the same.
+        job = await training.start("okay nabu", name="Okay Nabu")
+        assert job.word == "okay_nabu_trained"
         await training.cancel()
 
     asyncio.run(run())

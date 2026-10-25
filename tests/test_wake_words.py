@@ -13,7 +13,7 @@ import aiohttp
 import pytest
 
 from voice_call.server import Options, VoiceCallApp
-from voice_call.wake_words import WakeWords, spoken
+from voice_call.wake_words import WakeWords, spoken, trained_from
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -51,6 +51,16 @@ def test_spoken():
 
 
 @needs_models
+def test_trained_from():
+    # By the phrase it was trained on, whatever it is called; else, trained
+    # before the manifest said, by its id.
+    mine = {"wake_word": "Okay Nabu (Mike)", "trained": {"by": "voice_call", "phrase": "Okay Nabu"}}
+    assert trained_from("okay_nabu_mike", mine) == "okay_nabu"
+    assert trained_from("hey_tester", {"trained": {"phrase": "hey tester"}}) is None
+    assert trained_from("okay_now_trained", {"trained": {"phrase": "okay now"}}) is None  # a reading, not the phrase
+    assert trained_from("okay_nabu_trained") == "okay_nabu" and trained_from("okay_nabu_mike") is None
+
+
 def test_catalog(tmp_path):
     custom = tmp_path / "wake_words"
     custom_word(custom, "hey_tater", "Hey Tater", 0.97, twin=True)
@@ -289,6 +299,19 @@ async def _per_satellite(tmp_path: Path) -> None:
             assert trained.custom and trained.verified and trained.phrases == app.wake_words.phrases("okay_nabu")
             assert "okay bamboo" in app.store.wake_tuning["okay_nabu_trained"]["confusables"]
             assert app.default_ratio("okay_nabu_trained") == 1.3
+            # Called something else ("Okay Nabu (Mike)"), it is known by the
+            # phrase it was trained on.
+            shutil.copy(ROOT / "tests/fixtures/pooled.tflite", tmp_path / "wake_words/okay_nabu_mike.tflite")
+            manifest = {"type": "micro", "wake_word": "Okay Nabu (Mike)", "model": "okay_nabu_mike.tflite",
+                        "micro": {"probability_cutoff": 0.8}, "trained": {"by": "voice_call", "phrase": "okay nabu"}}
+            (tmp_path / "wake_words/okay_nabu_mike.json").write_text(json.dumps(manifest))
+            app.wake_words.forget()
+            await app._wake_word_trained("okay_nabu_mike")  # pylint: disable=protected-access
+            mikes = app.wake_words.get("okay_nabu_mike")
+            assert mikes.name == "Okay Nabu (Mike)" and mikes.verified
+            assert mikes.phrases == app.wake_words.phrases("okay_nabu") and app.default_ratio("okay_nabu_mike") == 1.3
+            assert "okay bamboo" in app.store.wake_tuning["okay_nabu_mike"]["confusables"]
+            assert app.wake_words.resolve("Okay Nabu (Mike)") == "okay_nabu_mike"
     finally:
         runner.cancel()
         await app.stop()
