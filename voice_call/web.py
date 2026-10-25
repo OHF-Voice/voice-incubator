@@ -377,6 +377,8 @@ class Api:
                     "music_levels": music.level_examples(),
                 },
                 "verbosity": {"levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere()},
+                # The thinking sound: on, and after how long without a reply.
+                "thinking": {"on": app.thinking_sound(), "delay": app.thinking_delay()},
                 "end_of_speech": app.end_of_speech_status(),
             }
         )
@@ -1125,6 +1127,14 @@ class Api:
                 settings["thinking_sound"] = False
             else:
                 settings.pop("thinking_sound", None)  # on unless turned off
+        if "thinking_delay" in body:
+            from .server import THINKING_DELAY, THINKING_DELAYS  # pylint: disable=import-outside-toplevel
+
+            delay = _number(body["thinking_delay"], "thinking_delay", *THINKING_DELAYS)
+            if delay is None or delay == THINKING_DELAY:
+                settings.pop("thinking_delay", None)
+            else:
+                settings["thinking_delay"] = delay
         if "beep_elsewhere" in body:
             if body["beep_elsewhere"] not in VERBOSITY[1:]:
                 raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY[1:])}")

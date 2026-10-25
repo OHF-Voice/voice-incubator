@@ -439,9 +439,13 @@ function endOfSpeechPanel() {
 // What a command that beeps says when it acted out of sight.
 function responsesPanel() {
   const verbosity = (state.status && state.status.verbosity) || {};
-  const settings = (state.status && state.status.settings) || {};
-  const thinking = h("input", { type: "checkbox", checked: settings.thinking_sound !== false, onchange: async (e) => {
+  const thinkingStatus = (state.status && state.status.thinking) || { on: true, delay: 1 };
+  const thinking = h("input", { type: "checkbox", checked: thinkingStatus.on, onchange: async (e) => {
     try { await api("PUT", "settings", { thinking_sound: e.target.checked }); toast("Saved"); await refreshStatus(); }
+    catch (err) { toast(err.message); }
+  } });
+  const thinkingDelay = h("input", { type: "number", min: 0, max: 10, step: 0.1, value: thinkingStatus.delay, style: "width:80px", onchange: async (e) => {
+    try { await api("PUT", "settings", { thinking_delay: e.target.value === "" ? null : Number(e.target.value) }); toast("Saved"); await refreshStatus(); }
     catch (err) { toast(err.message); }
   } });
   const select = h("select", { onchange: async (e) => {
@@ -451,7 +455,9 @@ function responsesPanel() {
   return h("div", { class: "panel" },
     heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."),
     field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
-    h("label", {}, thinking, "Thinking sound", hint("Played on the satellite when nothing has been said back a second after the command ended — Home Assistant's speech, the conversation agent, a slow machine — and stopped as the reply begins. A quicker reply plays none.")));
+    h("div", { class: "row" },
+      h("label", {}, thinking, "Thinking sound", hint("Played on the satellite when nothing has been said back this long after the command ended — Home Assistant's speech, the conversation agent, a slow machine — and stopped as the reply begins. A quicker reply plays none.")),
+      field("After (s)", thinkingDelay)));
 }
 
 function fallbackPanel() {

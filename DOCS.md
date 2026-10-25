@@ -306,7 +306,8 @@ added again. A command has:
   While a reply is slow to come -- nothing said back a second after you
   stopped speaking: Home Assistant's speech, the conversation agent, a slow
   machine -- the satellite plays a short **thinking sound**, stopped as the
-  reply begins; a quicker reply plays none. Turn it off in the same panel.
+  reply begins; a quicker reply plays none. Turn it off in the same panel,
+  or set how long a reply may take before it plays (0 to 10 seconds).
 
   The done response can be written once, for every level, or once for each;
   a level without one says the closest written, less before more. Timers

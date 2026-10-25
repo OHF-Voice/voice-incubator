@@ -86,10 +86,12 @@ STOP_MODEL = STOP
 PLAY_LEAD = 0.3
 
 # The thinking sound (settings.json ``thinking_sound``, on unless false): played
-# when no reply has begun this long after the command ended, and none for a
-# quicker one. It runs only a little ahead of the device, so that once the
-# reply is ready it stops short, faded out.
+# when no reply has begun this long after the command ended (``thinking_delay``,
+# within THINKING_DELAYS), and none for a quicker one. It runs only a little
+# ahead of the device, so that once the reply is ready it stops short, faded
+# out.
 THINKING_DELAY = 1.0
+THINKING_DELAYS = (0.0, 10.0)
 THINKING_LEAD = 0.2
 THINKING_FADE = 0.03
 
@@ -2257,7 +2259,7 @@ class VoiceCallApp:
         answered and hung up rather than left open on the satellite. The
         thinking sound plays if the reply is slow to come."""
         if self.thinking_sound() and self.speech.thinking:
-            call.thinking = Thinking(self, session, self.speech.thinking, THINKING_DELAY)
+            call.thinking = Thinking(self, session, self.speech.thinking, self.thinking_delay())
         try:
             await self._respond_unguarded(session, call)
         except Exception as err:  # noqa: BLE001 - the satellite must hear back
@@ -3012,6 +3014,12 @@ class VoiceCallApp:
         """settings.json ``thinking_sound``: play it while a reply is slow to
         come (unless false)."""
         return self.store.settings.get("thinking_sound") is not False
+
+    def thinking_delay(self) -> float:
+        """settings.json ``thinking_delay``: how long after the command ended
+        a reply not yet begun has the thinking sound (default THINKING_DELAY)."""
+        delay = self.store.settings.get("thinking_delay")
+        return THINKING_DELAY if delay is None else min(max(float(delay), THINKING_DELAYS[0]), THINKING_DELAYS[1])
 
     async def _hang_up(self, session: Session, reason: str) -> None:
         await self._quiet(session, close=True)  # played out, not cut
