@@ -1120,6 +1120,11 @@ class Api:
                     }
                 else:
                     settings.pop("end_of_speech", None)
+        if "thinking_sound" in body:
+            if body["thinking_sound"] is False:
+                settings["thinking_sound"] = False
+            else:
+                settings.pop("thinking_sound", None)  # on unless turned off
         if "beep_elsewhere" in body:
             if body["beep_elsewhere"] not in VERBOSITY[1:]:
                 raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY[1:])}")

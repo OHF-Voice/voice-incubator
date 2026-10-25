@@ -85,6 +85,14 @@ STOP_MODEL = STOP
 # once.
 PLAY_LEAD = 0.3
 
+# The thinking sound (settings.json ``thinking_sound``, on unless false): played
+# when no reply has begun this long after the command ended, and none for a
+# quicker one. It runs only a little ahead of the device, so that once the
+# reply is ready it stops short, faded out.
+THINKING_DELAY = 1.0
+THINKING_LEAD = 0.2
+THINKING_FADE = 0.03
+
 # Home Assistant TTS on the satellite: how long until its media player starts
 # the announcement (synthesis, then fetching the URL), and plays it out.
 ANNOUNCE_START_TIMEOUT = 10.0
@@ -365,12 +373,68 @@ class Options:
     """How long a finished timer rings if nobody stops it."""
 
 
+class Thinking:
+    """The thinking sound while a call's reply is being made: from
+    THINKING_DELAY after the command ended, unless the reply is on its way by
+    then. It is left open, so a reply played on the device follows it in the
+    same stream; ``stop(close=True)`` ends the stream (and waits until it has
+    played out) for a reply spoken some other way, or none."""
+
+    def __init__(self, app: VoiceCallApp, session: Session, sound: bytes, delay: float = THINKING_DELAY) -> None:
+        self.sent = 0
+        """Bytes of it the device was sent."""
+        self._app, self._session, self._sound = app, session, sound
+        self._stop = asyncio.Event()
+        self._task = asyncio.ensure_future(self._run(delay))
+
+    async def _run(self, delay: float) -> None:
+        try:
+            await asyncio.wait_for(self._stop.wait(), delay)
+            return  # the reply came first
+        except TimeoutError:
+            pass
+        session, sound = self._session, self._sound
+        session.drained.clear()  # an earlier "drained" must not answer for this
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        chunk = MAX_PAYLOAD // 2
+        while self.sent < len(sound):
+            ahead = self.sent / BYTE_RATE - (loop.time() - started)
+            if ahead > THINKING_LEAD:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop.wait(), ahead - THINKING_LEAD)
+            if self._stop.is_set():
+                # Faded out from where it got to, rather than cut.
+                tail = np.frombuffer(sound[self.sent : self.sent + int(THINKING_FADE * BYTE_RATE) // 2 * 2], "<i2")
+                faded = (tail * np.linspace(1.0, 0.0, len(tail))).astype("<i2").tobytes()
+                if faded:
+                    await self._app._send(session, Message.AUDIO_OUT, faded)  # pylint: disable=protected-access
+                    self.sent += len(faded)
+                return
+            await self._app._send(session, Message.AUDIO_OUT, sound[self.sent : self.sent + chunk])  # pylint: disable=protected-access
+            self.sent += len(sound[self.sent : self.sent + chunk])
+
+    async def stop(self, close: bool) -> None:
+        """No more of it. ``close``: and end its stream, once played out;
+        else the caller's playback goes on in the stream, and ends it."""
+        self._stop.set()
+        with contextlib.suppress(Exception):
+            await self._task
+        sent, self.sent = self.sent, 0
+        if close and sent:
+            await self._app._send(self._session, Message.AUDIO_OUT_END)  # pylint: disable=protected-access
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._session.drained.wait(), self._app.options.drain_timeout)
+
+
 @dataclass
 class Call:
     """Audio and state for one wake-word-to-hangup session."""
 
     preroll_bytes: int
     wake_word: str
+    thinking: Thinking | None = None
+    """The thinking sound, from when the command ended until the reply."""
     started: float = field(default_factory=time.monotonic)
     audio: bytearray = field(default_factory=bytearray)
     """The AGC capture. The command is split out of this one."""
@@ -543,6 +607,7 @@ class VoiceCallApp:
             root / "models/piper" / self.language.piper,
             root / "sounds/acknowledge.mp3",
             root / "sounds/timer_finished.flac",
+            root / "sounds/thinking.flac",
         )
         speaker_model = root / "models/speaker/redimnet_b2_vox2.onnx"
         self.speakers: SpeakerId | None = None
@@ -2189,7 +2254,10 @@ class VoiceCallApp:
 
     async def _respond(self, session: Session, call: Call) -> None:
         """Recognize the command and do it. Whatever goes wrong, the call is
-        answered and hung up rather than left open on the satellite."""
+        answered and hung up rather than left open on the satellite. The
+        thinking sound plays if the reply is slow to come."""
+        if self.thinking_sound() and self.speech.thinking:
+            call.thinking = Thinking(self, session, self.speech.thinking, THINKING_DELAY)
         try:
             await self._respond_unguarded(session, call)
         except Exception as err:  # noqa: BLE001 - the satellite must hear back
@@ -2202,6 +2270,8 @@ class VoiceCallApp:
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
         finally:
+            if call.thinking is not None:
+                await call.thinking.stop(close=False)  # the call is over: nothing left to end
             release_memory()  # what recognizing and answering it used
 
     async def _respond_unguarded(self, session: Session, call: Call) -> None:
@@ -2449,6 +2519,7 @@ class VoiceCallApp:
                 _LOGGER.warning("[%s] No media player of its own in Home Assistant; speaking with Piper", session)
             else:
                 try:
+                    await self._quiet(session, close=True)
                     await self._speak(session, satellite, target, text, record)
                     return
                 except (HassError, ConnectionError, OSError, TimeoutError) as err:
@@ -2465,6 +2536,7 @@ class VoiceCallApp:
             record.stage(
                 "speech", text=text, seconds=round(len(audio) / BYTE_RATE, 3), synthesis=_seconds(time.perf_counter() - started)
             )
+        await self._quiet(session, close=False)  # the reply follows the thinking sound
         await self._play(session, audio, paced)
 
     async def _speak(
@@ -2930,7 +3002,19 @@ class VoiceCallApp:
             satellite.voice.stt, self.engine.transcriber, satellite.voice.stt_language
         )
 
+    async def _quiet(self, session: Session, close: bool) -> None:
+        """Stop the thinking sound, if it is playing (``Thinking.stop``)."""
+        call = session.call
+        if call is not None and call.thinking is not None:
+            await call.thinking.stop(close)
+
+    def thinking_sound(self) -> bool:
+        """settings.json ``thinking_sound``: play it while a reply is slow to
+        come (unless false)."""
+        return self.store.settings.get("thinking_sound") is not False
+
     async def _hang_up(self, session: Session, reason: str) -> None:
+        await self._quiet(session, close=True)  # played out, not cut
         _LOGGER.info("[%s] Hanging up: %s", session, reason)
         await self._send_json(session, Message.HANGUP, {"reason": reason})
         _cancel_stt(session.call)

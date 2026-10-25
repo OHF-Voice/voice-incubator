@@ -44,14 +44,19 @@ ALARM_PAUSE = 0.5
 
 
 class Speech:
-    def __init__(self, voice_path: Path, acknowledge_path: Path, alarm_path: Path | None = None) -> None:
+    def __init__(
+        self, voice_path: Path, acknowledge_path: Path, alarm_path: Path | None = None, thinking_path: Path | None = None
+    ) -> None:
         self.voice_path = Path(voice_path)
         self.acknowledge_path = Path(acknowledge_path)
         self.alarm_path = Path(alarm_path) if alarm_path is not None else None
+        self.thinking_path = Path(thinking_path) if thinking_path is not None else None
         self._voice: PiperVoice | None = None
         self._acknowledge: bytes | None = None
         self.alarm = b""
         """One repeat of the timer alarm, pause included."""
+        self.thinking = b""
+        """Played while a reply is slow to come (none when it isn't there)."""
 
     async def start(self) -> None:
         self._voice = await asyncio.to_thread(load_voice, self.voice_path)
@@ -61,6 +66,8 @@ class Speech:
         if self.alarm_path is not None:
             sound = await asyncio.to_thread(self._load_file, self.alarm_path)
             self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
+        if self.thinking_path is not None and self.thinking_path.is_file():
+            self.thinking = await asyncio.to_thread(self._load_file, self.thinking_path)
         _LOGGER.info("Speech ready (%s)", self.voice_path.name)
 
     @staticmethod

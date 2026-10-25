@@ -46,7 +46,12 @@ one call at a time:
    timer operation's or a script's own outcome), rendered by Home Assistant,
    is spoken with Piper (`en_US-ellie` for English); without one, the built-in
    sentence -- when done, at the command's level of verbosity (below). A
-   command with nothing to say plays `sounds/acknowledge.mp3`.
+   command with nothing to say plays `sounds/acknowledge.mp3`. A reply that
+   hasn't begun a second after the command ended has `sounds/thinking.flac`
+   before it (`server.Thinking`, settings.json `thinking_sound`, on unless
+   false): streamed at most 0.2 s ahead of the device, so that it stops short,
+   faded out over 30 ms, once the reply is ready, which follows it in the same
+   stream (Home Assistant's speech, or none, ends its stream first).
 
 Commands, names, satellites and debugging are described for users in
 [DOCS.md](DOCS.md).

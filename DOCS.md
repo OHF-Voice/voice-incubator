@@ -303,6 +303,11 @@ added again. A command has:
   somewhere else -- another area, a floor, a device in no area -- says what
   the **Responses** panel on the Settings page says instead: the specific
   sentence unless you change it (Home Assistant's own says the brief one).
+  While a reply is slow to come -- nothing said back a second after you
+  stopped speaking: Home Assistant's speech, the conversation agent, a slow
+  machine -- the satellite plays a short **thinking sound**, stopped as the
+  reply begins; a quicker reply plays none. Turn it off in the same panel.
+
   The done response can be written once, for every level, or once for each;
   a level without one says the closest written, less before more. Timers
   and music have built-in sentences for each level. Library commands come

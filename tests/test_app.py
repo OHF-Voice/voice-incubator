@@ -649,6 +649,68 @@ commands:
 """
 
 
+def test_the_thinking_sound(tmp_path, monkeypatch):
+    asyncio.run(_thinking_sound(tmp_path, monkeypatch))
+
+
+async def _thinking_sound(tmp_path, monkeypatch):
+    from voice_call import server  # pylint: disable=import-outside-toplevel
+
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite_server = await serve(satellite)
+    hass.device_areas[f"device-{MAC}"] = "kitchen"
+    (tmp_path / "commands.yaml").write_text(COMMANDS)
+    http_port = free_port()
+    app = VoiceCallApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    loop = asyncio.get_running_loop()
+
+    async def call() -> tuple[int, int, float]:
+        """What the satellite was sent (bytes), the reply's own (bytes), and
+        how long the call took."""
+        played, started = satellite.played, loop.time()
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        speech = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech")
+        return satellite.played - played, round(speech["seconds"] * 32000), loop.time() - started
+
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        assert app.thinking_sound() and app.speech.thinking
+        # A reply slower than the delay (none, here): the sound first, the
+        # reply after it in the same stream, and the call not held up by it.
+        monkeypatch.setattr(server, "THINKING_DELAY", 0.0)
+        sent, reply, seconds = await call()
+        assert reply > 0 and reply + 32 < sent <= reply + len(app.speech.thinking) + 2000
+        assert seconds < 10
+        # Turned off: the reply alone.
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            async with http.put("/api/settings", json={"thinking_sound": False}) as response:
+                assert response.status == 200
+        assert app.store.settings["thinking_sound"] is False and not app.thinking_sound()
+        sent, reply, _ = await call()
+        assert abs(sent - reply) <= 32  # the record's seconds are to the millisecond
+        # On again, and a reply quicker than the delay: none.
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            async with http.put("/api/settings", json={"thinking_sound": True}) as response:
+                assert response.status == 200
+        assert "thinking_sound" not in app.store.settings
+        monkeypatch.setattr(server, "THINKING_DELAY", 60.0)
+        sent, reply, _ = await call()
+        assert abs(sent - reply) <= 32  # the record's seconds are to the millisecond
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+        hass_server.close()
+
+
 def test_home_assistant_stt_and_tts(tmp_path):
     asyncio.run(_voices(tmp_path))
 
@@ -681,7 +743,8 @@ async def _voices(tmp_path: Path) -> None:
 
     hass.on_speak = on_speak
     (tmp_path / "commands.yaml").write_text(VOICE_COMMANDS)
-    (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\n")
+    # No thinking sound: what is streamed is counted.
+    (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\nthinking_sound: false\n")
     app = VoiceCallApp(
         Options(
             host="127.0.0.1",

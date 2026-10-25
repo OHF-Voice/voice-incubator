@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- **A thinking sound** while a reply is slow to come: when nothing has been
+  said back a second after the command ended, the satellite plays a short
+  sound, stopped as the reply begins. On by default (Settings, Responses).
 - **A trained wake word's own name** ("Okay Nabu (Mike)"), beside others of
   the same phrase; the phrase field suggests each recorded phrase, with
   everyone's takes or one speaker's.
