@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from adapt_ctc.config import ConfigError
+from adapt_ctc.runtime import release_memory
 
 from . import actions, alarms, languages, skills, timers
 from .skills import skill_response
@@ -633,6 +634,7 @@ class VoiceCallApp:
         await self.speech.start()
         if self.speakers is not None:
             await self.speakers.start()
+        release_memory()  # what loading the models needed only meanwhile
 
         self._store_watcher = asyncio.ensure_future(self._watch_store())
         from .web import start_web  # pylint: disable=import-outside-toplevel
@@ -677,6 +679,7 @@ class VoiceCallApp:
         assert self.engine is not None
         async with self._build_lock:
             await asyncio.to_thread(self.engine.build, compiled)
+            release_memory()
         self.store_error = None
         fallback = self.engine.fallback
         if fallback is not None:
@@ -747,6 +750,7 @@ class VoiceCallApp:
             return
         async with self._fallback_lock:
             await self._configure_fallback()
+            release_memory()
 
     async def _configure_fallback(self) -> None:
         assert self.engine is not None
@@ -1544,6 +1548,7 @@ class VoiceCallApp:
             enrollment.name, enrollment.profile, enrollment.state = name, _profile_json(name, profile), "done"
         except ConfigError as err:
             enrollment.state, enrollment.error = "failed", str(err)
+        release_memory()
         return enrollment.to_json()
 
     def update_speaker(self, name: str, new_name: str | None = None, color: str | None = None) -> dict[str, Any]:
@@ -2213,6 +2218,8 @@ class VoiceCallApp:
                 await self._say(session, self.language.speech.WENT_WRONG)
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
+        finally:
+            release_memory()  # what recognizing and answering it used
 
     async def _respond_unguarded(self, session: Session, call: Call) -> None:
         self._save(session, call)

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
 import numpy as np
+import onnxruntime as ort
 import soundfile as sf
 import soxr
-from piper import PiperVoice
+from piper import PiperConfig, PiperVoice
+
+from adapt_ctc.runtime import session_options
 
 from .protocol import SAMPLE_RATE
 
@@ -27,6 +31,14 @@ def _to_device_pcm(samples: np.ndarray, rate: int) -> bytes:
     return (clipped * 32767.0).astype("<i2").tobytes()
 
 
+def load_voice(path: Path) -> PiperVoice:
+    """``PiperVoice.load``, with a session that gives back what it used
+    (adapt_ctc.runtime): 87 MB after speaking rather than 146."""
+    config = json.loads(Path(f"{path}.json").read_text(encoding="utf-8"))
+    session = ort.InferenceSession(str(path), session_options(), providers=["CPUExecutionProvider"])
+    return PiperVoice(session=session, config=PiperConfig.from_dict(config))
+
+
 ALARM_PAUSE = 0.5
 """Silence between repeats of the timer alarm, as the stock VPE firmware has."""
 
@@ -42,7 +54,7 @@ class Speech:
         """One repeat of the timer alarm, pause included."""
 
     async def start(self) -> None:
-        self._voice = await asyncio.to_thread(PiperVoice.load, self.voice_path)
+        self._voice = await asyncio.to_thread(load_voice, self.voice_path)
         self._acknowledge = await asyncio.to_thread(
             self._load_file, self.acknowledge_path
         )

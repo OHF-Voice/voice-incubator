@@ -34,6 +34,8 @@ from pathlib import Path
 
 import numpy as np
 
+from adapt_ctc.runtime import session_options
+
 _LOGGER = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
@@ -110,11 +112,8 @@ class Embedder:
     def __init__(self, model_path: Path, threads: int = 2) -> None:
         import onnxruntime as ort
 
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = threads
-        options.inter_op_num_threads = 1
         self._session = ort.InferenceSession(
-            str(model_path), options, providers=["CPUExecutionProvider"]
+            str(model_path), session_options(threads), providers=["CPUExecutionProvider"]
         )
         self._input = self._session.get_inputs()[0].name
 

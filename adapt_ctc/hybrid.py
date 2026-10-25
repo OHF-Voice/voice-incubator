@@ -35,6 +35,7 @@ from pathlib import Path
 import numpy as np
 
 from .acoustic import SAMPLE_RATE, MelFeaturizer, Vocabulary
+from .runtime import session_options
 from .tdt import has_model, model_file
 
 CTC_HEAD = "ctc_head.npz"
@@ -63,9 +64,7 @@ class HybridModel:
 
         tdt_dir = Path(tdt_dir)
         self.model_dir = tdt_dir.resolve()
-        options = ort.SessionOptions()
-        options.inter_op_num_threads = 1
-        options.intra_op_num_threads = num_threads
+        options = session_options(num_threads)
 
         def session(part: str):
             return ort.InferenceSession(str(model_file(tdt_dir, part)), sess_options=options,

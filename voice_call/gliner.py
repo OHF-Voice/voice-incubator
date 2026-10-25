@@ -37,6 +37,8 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
+from adapt_ctc.runtime import session_options
+
 
 @functools.cache
 def _words() -> re.Pattern[str]:
@@ -78,9 +80,7 @@ class GlinerOnnx:
         self.settings = json.loads((model_dir / "gliner2_onnx.json").read_text())
         encoder = encoder or self.settings.get("encoder", "encoder.onnx")
         self.tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = threads
-        options.inter_op_num_threads = 1
+        options = session_options(threads)
         providers = ["CPUExecutionProvider"]
         # Constant folding precomputes parts of the encoder (DeBERTa's relative
         # positions) in full precision: ~125 MB more (measured with a 4-bit

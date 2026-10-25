@@ -2014,6 +2014,20 @@ lighter CTC model and is not one: 246 MB at its smallest, but 59.7% of the
 office-multicap commands right against Parakeet's 88.5%, and a child's 42.6%
 against 79.6%.)
 
+**Giving memory back.** onnxruntime's CPU memory arena keeps the largest
+activations a session has ever needed for the life of the process, and glibc
+keeps what the process freed. So every model's session is made without the
+arena (`adapt_ctc/runtime.py`), and the app trims the heap (`malloc_trim`)
+once it has loaded, after rebuilding its commands or loading GLiNER, after
+an enrollment and after every call. Each model on an HA Green (Cortex-A55),
+resident after a call with the defaults and now: Parakeet 590 -> 252 MB, Piper
+146 -> 87, speaker ID 112 -> 46, GLiNER 349 -> 214 -- at the same speed, there
+and on x86. (Without weight prepacking the encoder would save 86 MB more, but
+it is 55% slower on the Green; GLiNER's `low_memory` saves nothing once the
+heap is trimmed, and is slower.) The whole app on x86, started on a copy of a
+home's data and answering eight recorded calls: 1370 -> 838 MB when ready,
+1658 MB and growing -> ~930 MB flat after the calls, plus the Kaldi decoders.
+
 `--no-tdt` only drops the TDT transducer, so it barely moves the total.
 The encoder that always loads is the one to shrink:
 

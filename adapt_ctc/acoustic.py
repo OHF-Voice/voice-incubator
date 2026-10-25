@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .runtime import session_options
+
 try:  # librosa's FFT backend; numpy.fft differs from it in the last bit.
     from scipy.fft import rfft as _rfft
 except ImportError:  # pragma: no cover - exercised only without scipy
@@ -259,11 +261,8 @@ class CtcModel:
             raise FileNotFoundError(f"No .onnx model in {model_dir}")
         self.vocab = Vocabulary.from_tokens_txt(model_dir / "tokens.txt")
 
-        options = ort.SessionOptions()
-        options.inter_op_num_threads = 1
-        options.intra_op_num_threads = num_threads
         self._session = ort.InferenceSession(
-            str(onnx_files[0]), sess_options=options, providers=["CPUExecutionProvider"]
+            str(onnx_files[0]), sess_options=session_options(num_threads), providers=["CPUExecutionProvider"]
         )
         inputs = self._session.get_inputs()
         self._signal_name = inputs[0].name

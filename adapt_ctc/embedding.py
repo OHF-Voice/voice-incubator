@@ -23,6 +23,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .runtime import session_options
+
 _HUB = Path.home() / ".cache/huggingface/hub/models--onnx-community--embeddinggemma-2-ONNX/snapshots"
 
 
@@ -49,12 +51,9 @@ class Embedder:
         model_dir = Path(model_dir)
         self.model_dir = model_dir.resolve()
         self._tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
-        options = ort.SessionOptions()
-        options.inter_op_num_threads = 1
-        options.intra_op_num_threads = num_threads
         self._session = ort.InferenceSession(
             str(model_dir / "onnx" / "model_q4.onnx"),
-            sess_options=options,
+            sess_options=session_options(num_threads),
             providers=["CPUExecutionProvider"],
         )
         # The export is multimodal; text takes no image, video or audio.
