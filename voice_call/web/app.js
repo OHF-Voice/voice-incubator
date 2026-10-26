@@ -3209,6 +3209,7 @@ function renderRecognition(rec) {
     h("div", { class: "kv" },
       h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
       h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run")),
+      rec.stt && rec.stt.empty ? [h("div", {}, `${rec.stt.entity} heard`), h("div", { class: "muted" }, "nothing (no text, no error): the TDT's words instead")] : null,
       rec.stt && rec.stt.streamed && !rec.stt.asked ? [h("div", {}, `${rec.stt.entity} heard`), h("div", {}, rec.stt.text ? rec.stt.text : h("span", { class: "muted" }, rec.stt.error ? `nothing (${rec.stt.error})` : "nothing yet"), h("span", { class: "muted small" }, " · not needed"))] : null,
       rec.stt && rec.stt.streamed ? [h("div", {}, "Streamed"), h("div", { class: "small" }, `${num(rec.stt.streamed.seconds, 1)} s as you spoke`, rec.stt.streamed.after_speech !== null && rec.stt.streamed.after_speech !== undefined ? `; answered ${Math.round(rec.stt.streamed.after_speech * 1000)} ms after` : "")] : null,
       rec.stt && (rec.stt.asked || rec.stt.streamed) && rec.stt.audio ? [h("div", {}, "Sent"), h("div", {}, rec.stt.audio.channel === "aec" ? (rec.stt.audio.gain_db !== undefined ? `AEC, boosted ${num(rec.stt.audio.gain_db, 1)} dB` : "AEC") : `AGC${rec.stt.audio.why ? ` (${rec.stt.audio.why})` : ""}`,

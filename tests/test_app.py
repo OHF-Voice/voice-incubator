@@ -894,6 +894,13 @@ async def _voices(tmp_path: Path) -> None:
         assert recognition["slots"]["query"] == "album Kind of Blue"
         assert recognition["text_source"] == "stt.fake_whisper"
         assert recognition["stt"]["asked"] and hass.stt_requests[-1]["entity_id"] == "stt.fake_whisper"
+        # It heard nothing (no text, no error): the TDT head's words stand in.
+        hass.stt_text = ""
+        record = await app.try_text("please play kind of blue", MAC, speak=True)
+        recognition = next(s for s in record.stages if s["stage"] == "recognition")
+        assert recognition["command"] == "play_music" and recognition["text_source"] == "TDT"
+        assert recognition["stt"]["empty"] and recognition["recognition"]["tdt_transcript"]
+        hass.stt_text = "what time is it"
 
         # Responses on another player; the satellite doesn't wait for it.
         stored = app.store.satellites.setdefault(MAC, {})

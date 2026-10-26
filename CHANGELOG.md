@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **An STT entity that hears nothing** (no text, no error, as Home Assistant
+  Cloud now and then answers) is stood in for by the built-in TDT model, as
+  one that fails is: "lock the front door", heard by the CTC head as "move
+  offck the front door", had nothing to be matched on again.
 - **Several library commands at once**: tick them in Add, or select the
   ones in a group you have none of. Under each section of the Home page you
   have commands from, **Not added** names the rest of it ("Pause a timer"

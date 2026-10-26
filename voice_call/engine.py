@@ -624,6 +624,9 @@ class Engine:
 
         decision.recognition = to_json(recognition)
         decision.timings = dict(recognition.timings)
+        # Who wrote the transcript, once it was asked for: the TDT head stands
+        # in for an STT entity that failed or heard nothing.
+        decision.text_source = getattr(transcriber, "source", decision.text_source)
         return decision
 
     def _fall_back(self, decision: Decision, recognition: Recognition, compiled: Compiled, satellite: Satellite) -> None:

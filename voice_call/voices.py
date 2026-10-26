@@ -129,6 +129,9 @@ class HassTranscriber:
         self.seconds: float | None = None
         self.asked = False
         """The engine needed the words."""
+        self.empty = False
+        """The entity heard nothing (no text, no error): the TDT head's words
+        stand in."""
         self._text: str | None = None
         self.audio_for: Any = None
         """The audio to send in place of the command's as the engine cut it: a
@@ -148,7 +151,7 @@ class HassTranscriber:
                 self.hass.speech_to_text(self.entity_id, pcm, self.language), self.loop
             )
             try:
-                self._text = future.result(STT_TIMEOUT)
+                self._text = self._or_fallback(future.result(STT_TIMEOUT), audio)
             except Exception as err:  # noqa: BLE001 - any failure falls back
                 future.cancel()
                 self.error = str(err) or type(err).__name__
@@ -160,6 +163,17 @@ class HassTranscriber:
                     self._text = self.fallback.transcribe(audio)
             self.seconds = time.perf_counter() - started
         return self._text
+
+    def _or_fallback(self, text: str | None, audio: np.ndarray) -> str:
+        """``text``, or the TDT head's when the entity heard nothing: Home
+        Assistant Cloud now and then answers with no text and no error, which
+        leaves the engine nothing to match the keywords on again."""
+        if (text or "").strip() or self.fallback is None:
+            return text or ""
+        self.empty = True
+        self.source = "TDT"
+        _LOGGER.info("%s heard nothing; using TDT", self.entity_id)
+        return self.fallback.transcribe(audio)
 
     def transcribe_words(self, audio: np.ndarray) -> tuple[str, list | None]:
         """No word times from an STT entity: the engine finds free text by its
@@ -175,6 +189,7 @@ class HassTranscriber:
             "seconds": round(self.seconds, 3) if self.seconds is not None else None,
             "error": self.error,
             "audio": self.audio,
+            **({"empty": True} if self.empty else {}),
         }
 
 
@@ -273,7 +288,7 @@ class StreamingTranscriber(HassTranscriber):
             if text is None:
                 _LOGGER.warning("%s: no streamed transcript (%s); asking again", self.entity_id, self.error)
                 return super().transcribe(audio)
-            self._text = text
+            self._text = self._or_fallback(text, audio)
             self.seconds = self.waited
         return self._text
 

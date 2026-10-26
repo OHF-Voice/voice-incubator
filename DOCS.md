@@ -119,7 +119,8 @@ page.
   first. The STT entity writes what the built-in TDT model would otherwise:
   example sentences said word for word, free text ("play …", timer names),
   and hints. It is only asked when one of those is needed, so "turn on the
-  lights" never waits for it. Should it fail, the built-in model stands in.
+  lights" never waits for it. Should it fail, or hear nothing, the built-in
+  model stands in.
 - **Runs.** **When needed** (the default): the command is sent to the
   speech-to-text entity after you finish speaking, and only when its words
   are needed. **Always, as you speak**: it hears every command while you say
