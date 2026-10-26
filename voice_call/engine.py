@@ -13,9 +13,9 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    matches. Then keyword intents; then, when nothing matched, the TDT
    transcript against the examples, word for word.
 3. **Where it is available.** Matches are taken best first, skipping commands
-   that are not available on this satellite: another satellite's, or the
-   Home's where it doesn't take them. Of matches as good as each other, and
-   of example sentences a copy also has, the satellite's own goes first.
+   that are not on this satellite (they are on some others). Of matches as
+   good as each other, and of example sentences a copy also has, one on some
+   satellites, this one among them, goes first.
 4. **Free text** is re-read from the TDT transcript over the same stretch of
    audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
 5. **When nothing matched**, the closest command is named: from the keyword
@@ -99,8 +99,6 @@ class Satellite:
     """Home Assistant STT and TTS entities, when not the built-in models."""
     device_media_player: str | None = None
     """Its own media player in Home Assistant (ESPHome's), where TTS speaks."""
-    home: bool = True
-    """It runs the Home's commands (and skills) too, not only its own."""
     skills: frozenset[str] | None = None
     """The skills that answer here (voice_call/skills/); None: every one."""
 
@@ -115,25 +113,25 @@ class Satellite:
             "device_id": self.device_id,
             "timer_list": self.timer_list,
             "media_player": self.media_player,
-            "home": self.home,
             "skills": sorted(self.skills) if self.skills is not None else None,
         }
 
     def available(self, command: Command) -> Behavior | None:
-        """What a command does here; None where it is not available: another
-        satellite's, or the Home's where this one doesn't take them."""
-        here = command.satellite == self.key if command.satellite else self.home
+        """What a command does here; None where it is not: it is on some
+        other satellites."""
+        here = command.satellites is None or self.key in command.satellites
         return command.behavior if here else None
 
-    def own(self, command: Command) -> bool:
-        return command.satellite is not None and command.satellite == self.key
+    def picked(self, command: Command) -> bool:
+        """It is on some satellites, this one among them."""
+        return command.satellites is not None and self.key in command.satellites
 
     def first(self, commands: list[Command]) -> list[Command]:
-        """The ones available here, its own first."""
-        return sorted((c for c in commands if self.available(c) is not None), key=lambda c: not self.own(c))
+        """The ones available here, those picked for it first."""
+        return sorted((c for c in commands if self.available(c) is not None), key=lambda c: not self.picked(c))
 
     def why_unavailable(self, command: Command) -> str:
-        return "on another satellite" if command.satellite else "the Home's, which this satellite doesn't take"
+        return "not on this satellite"
 
 
 @dataclass
@@ -659,24 +657,25 @@ class Engine:
     ) -> None:
         """The first of ``recognition``'s matches this satellite may run:
         its command, behavior and slots into ``decision`` (or a refusal).
-        Of matches that cost the same, the satellite's own goes first."""
+        Of matches that cost the same, one picked for this satellite goes
+        first."""
 
         def mine_first(result) -> tuple[float, bool]:
             command = compiled.commands.get(command_of(result.intent))
-            return (result.cost, not (command is not None and satellite.own(command)))
+            return (result.cost, not (command is not None and satellite.picked(command)))
 
         for result in sorted(recognition.matches, key=mine_first):
             command = compiled.commands.get(command_of(result.intent))
             if command is None:
                 continue
             behavior = satellite.available(command)
-            if result.example and not satellite.own(command):
-                # A copy of it says the same sentence: this satellite's own,
-                # or one it may run where it may not run this one.
+            if result.example and not satellite.picked(command):
+                # A copy of it says the same sentence: one picked for this
+                # satellite, or one it may run where it may not run this one.
                 twins = [compiled.commands.get(command_of(t)) for t in compiled.twins.get(result.intent, ())]
                 twin = next(iter(satellite.first([t for t in twins if t is not None])), None)
-                if twin is not None and (behavior is None or satellite.own(twin)):
-                    why = "this satellite's own copy" if satellite.own(twin) else f"its copy {twin.id}, which runs here,"
+                if twin is not None and (behavior is None or satellite.picked(twin)):
+                    why = f"its copy {twin.id}, picked for this satellite," if satellite.picked(twin) else f"its copy {twin.id}, which runs here,"
                     result.notes.append(f"{command.id}: {why} says the same sentence")
                     command, behavior = twin, satellite.available(twin)
             if behavior is None:

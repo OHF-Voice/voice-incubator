@@ -203,24 +203,24 @@ lights in the Office" says where, which "Turned on the lights" can't).
 Home Assistant's default does the same with the brief sentence. Templates see
 `place` too (`said`: "in the Kitchen", "upstairs"; `here`; `areas`), and a
 rendered response is tidied of the gap an empty variable leaves. A copy of the
-command on a satellite can say more or less there.
+command on some satellites can say more or less there.
 
-**The Home's and a satellite's own.** A command is the Home's, or one
-satellite's (`satellite: <key>` in `commands.json`); a satellite takes the
-Home's unless `home: false` in `satellites.json` (`Satellite.available`).
-Skills the same way: the Home's (`settings.json` `skills`, each on unless
-false) and a satellite's own (`satellites.json` `skills: {id: true}`). There
-are no command groups or per-area overrides any more (either key is refused,
-saying what to do instead). A command that should do something else on one satellite is a
-copy of it there (Duplicate, on its page), and on that satellite its own goes
-first. The copy says the same example sentences, which adapt-ctc gives to one
-intent only: `commands.shared_examples` leaves each sentence to the first
-command that has it and records the later ones as its twins
+**Where it runs.** A command runs on every satellite, or on some
+(`satellites: [key, ...]` in `commands.json`; `Satellite.available`), and
+`disabled: true` turns it off. Skills the same way (`settings.json` `skills`:
+`{id: false}` for none, `{id: [key, ...]}` for some; every satellite unless
+set). Satellites have no setting of their own for it. There are no command
+groups or per-area overrides any more (either key is refused, saying what to
+do instead). A command that should do something else on one satellite is a
+copy of it on that satellite (Duplicate, on its page), and there the copy
+goes first. The copy says the same example sentences, which adapt-ctc gives
+to one intent only: `commands.shared_examples` leaves each sentence to the
+first command that has it and records the later ones as its twins
 (`Compiled.twins`), and `Engine._take` runs a twin where the first is not
-available, or where the twin is the satellite's own. Identical keywords both
-match at the same cost, and `Engine._take` takes the satellite's own first;
-so do meaning and the model step among a command's versions and copies
-(`Satellite.first`).
+available, or where the twin is picked for the satellite. Identical keywords
+both match at the same cost, and `Engine._take` takes the one picked for the
+satellite first; so do meaning and the model step among a command's versions
+and copies (`Satellite.first`).
 
 ## Layout
 

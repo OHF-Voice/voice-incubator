@@ -110,8 +110,8 @@ def test_a_copy_on_a_satellite_says_the_same_sentences(engine):
     store = {
         "commands": {
             "lights": lights,
-            "kids_lights": {**lights, "satellite": "k", "response": "Night light."},
-            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "satellite": "k", "response": "Bedtime."},
+            "kids_lights": {**lights, "satellites": ["k"], "response": "Night light."},
+            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "satellites": ["k"], "response": "Bedtime."},
             "time": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
         },
     }
@@ -122,10 +122,9 @@ def test_a_copy_on_a_satellite_says_the_same_sentences(engine):
     engine.build(compiled)
     home = Satellite("h", "Kitchen", "kitchen")
     kids = Satellite("k", "Kids", "kids")
-    alone = Satellite("k", "Kids", "kids", home=False)
     try:
         for text, satellite, command in [
-            ("lights please", home, "lights"), ("lights please", kids, "kids_lights"), ("lights please", alone, "kids_lights"),
+            ("lights please", home, "lights"), ("lights please", kids, "kids_lights"),
             ("turn the lights on", home, "lights"), ("turn the lights on", kids, "kids_lights"),
             ("what time is it", home, "time"), ("what time is it", kids, "kids_time"),
         ]:
@@ -140,7 +139,7 @@ def test_a_copy_says_the_same_templates(engine):
     # A template is every sentence it stands for: a copy's, all the first's,
     # makes it a twin.
     lights = {"description": "turn on the lights", "examples": ["(turn|switch) on the light[s]"], "response": "Lights."}
-    store = {"commands": {"lights": lights, "kids_lights": {**lights, "satellite": "k", "response": "Night light."}}}
+    store = {"commands": {"lights": lights, "kids_lights": {**lights, "satellites": ["k"], "response": "Night light."}}}
     compiled = compile_store(store)
     assert compiled.twins == {"lights": ("kids_lights",)} and "kids_lights" not in compiled.config["intents"]
     engine.build(compiled)

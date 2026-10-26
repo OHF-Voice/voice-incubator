@@ -30,10 +30,10 @@ REST API, but can't tell an unavailable device apart.
 
 ## The Home and its satellites
 
-The **Home** page starts with a tile for each satellite -- its name, area,
-wake word, and whether it takes the Home's commands -- then the Home's
-**commands and skills**, grouped by what they're for (your own first, under
-**Custom**), and the **Unknown command** at the bottom.
+The **Home** page starts with a tile for each satellite -- its name, area
+and wake words -- then the **commands and skills**, grouped by what they're
+for (your own first, under **Custom**), and the **Unknown command** at the
+bottom. Pick a satellite above the list to see only what runs there.
 
 Satellites on the network are found and connected to automatically. Click a
 satellite's tile for its page:
@@ -42,16 +42,13 @@ satellite's tile for its page:
   area of its device in Home Assistant, and can be changed in either place),
   its music player, and how it listens and speaks. The area is what "the
   lights" means there. The floor comes from the area.
-- **Commands and skills**: its own, and whether it takes the Home's too
-  (**Include the Home's**, ticked unless you untick it).
 - **Test it**: type a sentence as if said there, listen to it live, and
   debug it.
 
-A command or skill is **the Home's** -- run on every satellite that takes the
-Home's -- or **one satellite's own**. A satellite that doesn't take the
-Home's runs only its own. Where a satellite's own command and one of the
-Home's take the same sentence, its own goes first: to have a command do
-something else on one satellite, duplicate it there and change the copy.
+A command or skill **runs on** every satellite, on some, or on none (turned
+off), as set on its page. Where two take the same sentence, the one on some
+satellites goes first on them: to have a command do something else on one
+satellite, duplicate it, put the copy on that satellite and change it.
 
 ### Wake words
 
@@ -188,11 +185,10 @@ speech never ended in enough silence.
 
 ## Commands
 
-The Home page lists the Home's commands as the library has them -- Basics,
-Covers and locks, Music, Timers -- with the ones you made from scratch first,
-under **Custom**, and the skills under **Questions**; a satellite's page lists
-its own the same way. A command from the library stays in its section when
-you change it, rename it or duplicate it.
+The Home page lists the commands as the library has them -- Basics, Covers
+and locks, Music, Timers -- with the ones you made from scratch first, under
+**Custom**, and the skills under **Questions**. A command from the library
+stays in its section when you change it, rename it or duplicate it.
 
 **Add**, on the Home page or a satellite's, adds to that place: the
 library's commands and skills -- search them, or show one group (Basics,
@@ -328,15 +324,14 @@ added again. A command has:
   `{outcome: nobody_home}`. An outcome without a response of its own says the
   built-in sentence (a timer's, or the script's `speech`), never the done
   one.
-- **Where**: the Home's, or one satellite's own.
-- **Duplicate** (at the top of its page) makes a copy to change, on the Home
-  or a satellite: to have a command do something else on one satellite, put
-  the copy there. The copy says the same example sentences and keywords; on
-  that satellite its own goes first, everywhere else the Home's.
+- **Runs on**: every satellite, some (ticked), or none (turned off).
+- **Duplicate** (at the top of its page) makes a copy to change: to have a
+  command do something else on one satellite, put the copy on it. The copy
+  says the same example sentences and keywords; on that satellite the copy
+  goes first, everywhere else the first.
 
-A command another satellite has, or the Home's on a satellite that doesn't
-take them, is not run there: it says "It looks like you're trying to …, but
-that isn't set up here."
+A command that doesn't run on a satellite is not run there: it says "It
+looks like you're trying to …, but that isn't set up here."
 
 ### Intents
 
@@ -669,8 +664,8 @@ They read questions however they are written -- "What's 50°F in Celsius?",
 -- the weather, news, scores, prices, what's open -- is no skill's: it goes
 to the conversation agent, or else the Unknown command.
 
-Every skill is the Home's to begin with. Take one off the Home, or a
-satellite, on its page (opened from there); add one with **Add**.
+Every skill runs on every satellite to begin with. Its page sets where it
+**runs on**: every satellite, some, or none (turned off).
 
 A skill's page sets its **level** -- how much it says, as a command's does:
 
@@ -818,7 +813,7 @@ commands:
     response: Warming up.
   lights_on:
     description: turn on the lights
-    satellite: d83bdaa3d5f4  # only this satellite's; without it, the Home's
+    satellites: [d83bdaa3d5f4]  # only on these; without it, on every satellite
     require: [[turn on, turn ... on], [light, lights]]
     names: {area: {count: 1}, floor: {count: 1}}
     combinations: [[], [area], [floor]]  # nothing named: the satellite's area

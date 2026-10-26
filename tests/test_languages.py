@@ -43,7 +43,7 @@ def test_only_the_languages_skills(english, monkeypatch):
     assert list(skills.available()) == ["spelling", "dates", "clock", "units", "arithmetic"]
     monkeypatch.setattr(languages, "_current", replace(english, skills=("units",)))
     assert list(skills.available()) == ["units"]
-    assert skills.home_skills() == {"units"} and skills.answer("how do you spell cat") is None
+    assert skills.enabled() == {"units"} and skills.answer("how do you spell cat") is None
     assert skills.answer("how many cups are in a quart").skill == "units"
     monkeypatch.setattr(languages, "_current", replace(english, skills=()))
     assert skills.enabled() == frozenset() and skills.answer("how many cups are in a quart") is None

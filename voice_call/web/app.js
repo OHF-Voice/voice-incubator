@@ -625,10 +625,7 @@ async function pageCommand(id, prefill, query) {
   const isNew = !id;
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
-  const wanted = new URLSearchParams(query || "").get("satellite");
-  if (isNew && wanted && !spec.satellite) spec.satellite = wanted;
-  // Back to where it is: the Home, or its satellite's page.
-  const back = () => (spec.satellite && state.satellites.some((x) => x.key === spec.satellite) ? `#/satellite/${spec.satellite}` : "#/home");
+  const back = () => "#/home";
   let commandId = id || slug(spec.description) || "";
   const actionYaml = { value: await yamlDump(spec.action) };
   const errors = h("div");
@@ -1129,13 +1126,10 @@ async function pageCommand(id, prefill, query) {
           h("div", { class: "grid2 grow" },
             field("What it does", description, "A verb phrase. It's also how a near miss is described: “It looks like you're trying to turn on the lights, but…”"),
             field("Id", idInput, "Lowercase letters, digits and underscores."))),
-        h("div", { class: "row" },
-          h("label", {}, h("input", { type: "checkbox", checked: spec.disabled, onchange: (e) => { if (e.target.checked) spec.disabled = true; else delete spec.disabled; } }), "Turned off")),
-        field("Where", h("select", { onchange: (e) => { if (e.target.value) spec.satellite = e.target.value; else delete spec.satellite; } },
-          h("option", { value: "", selected: !spec.satellite }, "The Home"),
-          ...state.satellites.map((x) => h("option", { value: x.key, selected: spec.satellite === x.key }, x.name)),
-          spec.satellite && !state.satellites.some((x) => x.key === spec.satellite) ? h("option", { value: spec.satellite, selected: true }, `${spec.satellite} (not here any more)`) : null),
-          "The Home's run on every satellite that takes the Home's. One satellite's goes before the Home's commands that take the same sentence."),
+        field("Runs on", whereEditor(spec.disabled ? "none" : spec.satellites ? "some" : "every", asList(spec.satellites), (where, keys) => {
+          if (where === "none") spec.disabled = true; else delete spec.disabled;
+          if (where === "some") spec.satellites = keys; else if (where === "every") delete spec.satellites;
+        }), "Where two take the same sentence, one on some satellites goes first there."),
         field("When nothing else matches", h("div", { class: "wake-list" },
           [["meaning", "By meaning"], ["llm", "By model"]].map(([step, label]) => h("label", {},
             h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
@@ -1184,7 +1178,7 @@ async function pageCommand(id, prefill, query) {
   render();
   fill($main, 
     h("div", { class: "row" },
-      h("a", { href: back() }, `← ${spec.satellite ? placeName(spec.satellite) : "Home"}`),
+      h("a", { href: back() }, "← Home"),
       h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command" : (spec.title || spec.description || id)),
       isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
       isNew ? null : h("button", { onclick: () => duplicateDialog(id) }, "Duplicate"),
@@ -1238,32 +1232,20 @@ function openDialog(title, content, cls) {
   return close;
 }
 
-// Duplicate a command, as saved: a copy to change -- on a satellite, to do
-// something else there, where it goes before the Home's.
+// Duplicate a command, as saved: a copy to change -- on some satellites, to
+// do something else there, where it goes first.
 async function duplicateDialog(id) {
-  const [store] = await Promise.all([loadStore(), loadSatellites()]);
+  const store = await loadStore();
   const spec = store.commands[id] || {};
-  const from = (store.details[id] || {}).satellite || "";
-  const idInput = h("input", { type: "text", value: "" });
+  let copyId = `${id}_copy`;
+  for (let n = 2; store.commands[copyId]; n++) copyId = `${id}_copy_${n}`;
+  const idInput = h("input", { type: "text", value: copyId });
   const title = h("input", { type: "text", value: `${spec.title || spec.description || id} (copy)`, style: "width:100%" });
-  const place = h("select", {},
-    h("option", { value: "", selected: !from }, "The Home"),
-    ...state.satellites.map((x) => h("option", { value: x.key, selected: from === x.key }, x.name)));
   const errors = h("div");
-  // An id that says where it is: lights_on_kitchen_vpe.
-  function suggest() {
-    if (idInput.dataset.touched) return;
-    let copyId = place.value ? `${id}_${slug(placeName(place.value))}` : `${id}_copy`;
-    for (let n = 2; store.commands[copyId]; n++) copyId = `${place.value ? `${id}_${slug(placeName(place.value))}` : `${id}_copy`}_${n}`;
-    idInput.value = copyId;
-  }
-  idInput.addEventListener("input", () => { idInput.dataset.touched = "1"; });
-  place.addEventListener("change", suggest);
-  suggest();
   async function create() {
     fill(errors);
     try {
-      const result = await api("POST", `commands/${id}/duplicate`, { new_id: slug(idInput.value), title: title.value.trim(), satellite: place.value || null });
+      const result = await api("POST", `commands/${id}/duplicate`, { new_id: slug(idInput.value), title: title.value.trim() });
       close();
       toast(`Made ${result.id}`);
       refreshStatus();
@@ -1271,7 +1253,6 @@ async function duplicateDialog(id) {
     } catch (err) { errors.append(errorBox(err)); }
   }
   const close = openDialog(`Duplicate ${spec.title || spec.description || id}`, h("div", { class: "stack" },
-    field("Where", place, "On a satellite, a copy goes before the Home's commands that take the same sentence: duplicate one of the Home's there to have it do something else on that satellite."),
     h("div", { class: "grid2" }, field("Id", idInput, "Lowercase letters, digits and underscores."), field("Title", title)),
     errors,
     h("div", { class: "row" }, h("span", { class: "grow" }, ""), h("button", { type: "button", onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: create }, "Duplicate"))), "compact");
@@ -1286,24 +1267,18 @@ async function duplicateDialog(id) {
 // name, in an area or floor by name. Each version is added on its own.
 const VARIANT_ICONS = { here: "mdi:crosshairs-gps", device: "mdi:devices", place: "mdi:home-map-marker" };
 
-// `target`: where it goes -- the Home (null) or a satellite's key.
-async function newCommandDialog(target) {
+async function newCommandDialog() {
   let data, store, skillData;
   try {
-    [data, store, skillData] = await Promise.all([api("GET", "library"), loadStore(), api("GET", "skills"), loadSatellites()]);
+    [data, store, skillData] = await Promise.all([api("GET", "library"), loadStore(), api("GET", "skills")]);
   } catch (err) { toast(err.message); return; }
-  const where = target ? placeName(target) : "the Home";
-  // Added: one of the commands there has its id, or its id and a suffix (a
-  // satellite's copy: play_music_kitchen). A command whose id you changed is
-  // yours, and the library's can be added again.
-  const here = Object.keys(store.commands || {}).filter((id) => ((store.details[id] || {}).satellite || null) === (target || null));
-  const yours = { has: (libraryId) => here.some((id) => id === libraryId || id.startsWith(`${libraryId}_`)) };
-  const skillsHere = new Set(target ? (skillData.satellites[target] || []) : skillData.home);
-  // On a satellite that takes the Home's: what it has from the Home already.
-  const sat = target ? state.satellites.find((x) => x.key === target) : null;
-  const homeIds = sat && sat.home ? Object.keys(store.commands || {}).filter((id) => !(store.details[id] || {}).satellite) : [];
-  const fromHome = (libraryId) => homeIds.some((id) => id === libraryId || id.startsWith(`${libraryId}_`));
-  const homeHas = h("span", { class: "badge", style: "margin-left:8px", title: "It runs here as the Home's. Add it to change it for this satellite only." }, "the Home's has it");
+  // Added: one of your commands has its id, or its id and a suffix (a copy:
+  // play_music_2). A command whose id you changed is yours, and the
+  // library's can be added again.
+  const ids = Object.keys(store.commands || {});
+  const yours = { has: (libraryId) => ids.some((id) => id === libraryId || id.startsWith(`${libraryId}_`)) };
+  // A skill is added while it answers anywhere.
+  const skillsHere = new Set(skillData.skills.filter((sk) => sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.length)).map((sk) => sk.id));
   const QUESTIONS = "Questions";
   const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries(), [QUESTIONS, "mdi:comment-question-outline"]];
   // Each command and its versions, in the library's order.
@@ -1325,14 +1300,14 @@ async function newCommandDialog(target) {
   const chips = h("div", { class: "row filter-chips" });
   const add = async (entry) => {
     try {
-      const result = await api("POST", "library/add", { file: entry.file, id: entry.id, satellite: target, new_id: target ? `${entry.id}_${slug(where)}` : undefined });
+      const result = await api("POST", "library/add", { file: entry.file, id: entry.id });
       toast(`Added ${result.id}`);
       close();
       refreshStatus();
       location.hash = `#/command/${result.id}`;
     } catch (err) { toast(err.message); }
   };
-  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = target ? `#/command/?satellite=${target}` : "#/command/"; } },
+  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = "#/command/"; } },
     icon("mdi:pencil-plus-outline", "big"),
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
       h("span", { class: "muted small" }, "Start from scratch.")));
@@ -1348,7 +1323,7 @@ async function newCommandDialog(target) {
     return h("div", { class: `item ${added ? "added" : ""}` },
       icon(iconName, "big"),
       h("div", { class: "grow" },
-        h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : fromHome(entry.id) ? homeHas.cloneNode(true) : null),
+        h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
         h("div", { class: "muted small" }, [description, listensText(entry.spec)].filter(Boolean).join(" · ")),
         entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
         entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
@@ -1385,12 +1360,12 @@ async function newCommandDialog(target) {
       icon(skill.icon, "big"),
       h("div", { class: "grow" },
         h("div", { class: "title" }, skill.name, h("span", { class: "badge", style: "margin-left:8px" }, "skill"),
-          added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : sat && sat.home && skillData.home.includes(skill.id) ? homeHas.cloneNode(true) : null),
+          added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
         h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
-      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}${target ? `?satellite=${target}` : ""}`; } }, "Open")
+      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}`; } }, "Open")
         : h("button", { type: "button", class: "primary", onclick: async () => {
           try {
-            await api("PUT", `skills/${skill.id}`, target ? { satellites: { [target]: true } } : { home: true });
+            await api("PUT", `skills/${skill.id}`, { satellites: true });
             toast(`Added ${skill.name}`); close(); route();
           } catch (err) { toast(err.message); }
         } }, "Add"));
@@ -1414,9 +1389,9 @@ async function newCommandDialog(target) {
     shown.length || skills.length ? null : h("p", { class: "muted" }, "Nothing in the library matches. Start a custom command above."));
   }
   search.addEventListener("input", render);
-  const close = openDialog(`Add to ${where}`, [
+  const close = openDialog("Add a command", [
     custom,
-    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or from the library:", hint("Adding one copies it into your commands, where you can change anything about it. Most come in versions — on this satellite, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes.")),
+    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or from the library:", hint("Adding one copies it into your commands, where you can change anything about it. Most come in versions — on the satellite it's said to, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes.")),
     search, chips,
     h("div", { class: "dialog-list" }, list)]);
   render();
@@ -1425,17 +1400,52 @@ async function newCommandDialog(target) {
 
 async function pageLibrary() {
   location.hash = "#/home";
-  newCommandDialog(null);
+  newCommandDialog();
 }
 
 // --------------------------------------------------------------------- home
 
-// Where a command or skill is: the Home's (null), or a satellite's key.
+// A satellite's name, by its key.
 const placeName = (key) => {
-  if (!key) return "the Home";
   const s = state.satellites.find((x) => x.key === key);
   return s ? s.name : key;
 };
+
+// Where a command or skill runs, as a badge: on some satellites (their
+// names), or off; nothing when on every one.
+function whereBadge(keys, off) {
+  if (off || (keys && !keys.length)) return h("span", { class: "badge" }, "off");
+  if (!keys) return null;
+  const gone = keys.filter((k) => !state.satellites.some((s) => s.key === k));
+  return h("span", { class: `badge ${gone.length ? "warn" : ""}`, title: gone.length ? `Not here any more: ${gone.join(", ")}` : "Only on these satellites" },
+    keys.map(placeName).join(", "));
+}
+
+// Where a command or skill runs: every satellite, some (ticked), or none.
+// `onChange(where, keys)`: where is "every", "some" or "none".
+function whereEditor(where, keys, onChange) {
+  const known = state.satellites.map((s) => [s.key, s.name]);
+  for (const key of keys) if (!known.some(([k]) => k === key)) known.push([key, `${key} (not here any more)`]);
+  const boxes = h("div", { class: "wake-list" }, known.map(([key, name]) => h("label", {},
+    h("input", { type: "checkbox", checked: keys.includes(key), onchange: (e) => {
+      keys = e.target.checked ? [...keys, key] : keys.filter((k) => k !== key);
+      onChange(where, keys);
+    } }), name)));
+  const show = () => { boxes.style.display = where === "some" ? "" : "none"; };
+  show();
+  const select = h("select", { "aria-label": "Runs on", onchange: (e) => { where = e.target.value; show(); onChange(where, keys); } },
+    h("option", { value: "every", selected: where === "every" }, "Every satellite"),
+    h("option", { value: "some", selected: where === "some" }, "Some satellites"),
+    h("option", { value: "none", selected: where === "none" }, "None (turned off)"));
+  return h("div", { class: "stack" }, select, boxes);
+}
+
+// Whether a command runs on a satellite (by key).
+function runsOn(store, id, key) {
+  const spec = store.commands[id] || {};
+  const keys = (store.details[id] || {}).satellites;
+  return !spec.disabled && (!keys || keys.includes(key));
+}
 
 function satelliteIcon(s) {
   return (s && s.icon && ICONS[s.icon]) ? s.icon : "mdi:speaker";
@@ -1454,42 +1464,36 @@ function iconChooser(current, fallback, choices, onPick) {
   return box;
 }
 
-// One command, as listed on the Home or a satellite's page.
+// One command, as listed on the Home page.
 function commandItem(store, id) {
   const spec = store.commands[id] || {};
   const detail = store.details[id] || {};
-  const elsewhere = detail.satellite && !state.satellites.some((s) => s.key === detail.satellite);
   return h("div", { class: "item clickable", title: `${id}: ${spec.description || ""}`, onclick: () => { location.hash = `#/command/${id}`; } },
     icon(iconFor(spec), "big"),
     h("div", { class: "grow" },
-      h("div", { class: "title" }, spec.title || spec.description || id, spec.disabled ? h("span", { class: "badge" }, " off") : null),
+      h("div", { class: "title" }, spec.title || spec.description || id),
       h("div", { class: "muted small" }, listensText(spec) || spec.description || id)),
-    elsewhere ? h("span", { class: "badge warn", title: `Its satellite, ${detail.satellite}, isn't here: change where it is on its page` }, "satellite gone") : null,
+    whereBadge(detail.satellites, spec.disabled),
     asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
     detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
 }
 
-function skillItem(skill, place) {
-  return h("div", { class: "item clickable", title: skill.description, onclick: () => { location.hash = `#/skill/${skill.id}${place ? `?satellite=${place}` : ""}`; } },
+function skillItem(skill) {
+  return h("div", { class: "item clickable", title: skill.description, onclick: () => { location.hash = `#/skill/${skill.id}`; } },
     icon(skill.icon, "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, skill.name),
       h("div", { class: "muted small" }, skill.examples.map((e) => `“${e}”`).join(" · "))),
+    whereBadge(Array.isArray(skill.satellites) ? skill.satellites : null, skill.satellites === false),
     h("span", { class: "badge accent" }, "skill"));
 }
 
 // Commands and skills grouped by what they're for: your own (Custom)
 // first, then the library's sections, then the skills (Questions).
-// `place`: the Home (null) or a satellite's key.
+// `place`: every one (null), or those that run on a satellite (its key).
 function placedSections(store, skillData, place, emptyText) {
-  const known = new Set(state.satellites.map((s) => s.key));
-  const ids = Object.keys(store.commands || {}).filter((id) => {
-    const where = (store.details[id] || {}).satellite || null;
-    // A command whose satellite is gone is listed on the Home, to be moved.
-    return place ? where === place : (!where || !known.has(where));
-  });
-  const skillIds = new Set(place ? (skillData.satellites[place] || []) : skillData.home);
-  const skillsHere = skillData.skills.filter((s) => skillIds.has(s.id));
+  const ids = Object.keys(store.commands || {}).filter((id) => !place || runsOn(store, id, place));
+  const skillsHere = skillData.skills.filter((sk) => !place || sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.includes(place)));
   const bySection = {};
   for (const id of ids) {
     const section = (store.details[id] || {}).library || "";
@@ -1503,16 +1507,12 @@ function placedSections(store, skillData, place, emptyText) {
   for (const s of store.sections || []) {
     if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id))));
   }
-  if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map((skill) => skillItem(skill, place))));
+  if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map((skill) => skillItem(skill))));
   return out.length ? out : [h("p", { class: "muted small" }, emptyText)];
 }
 
 function satelliteTile(s, wake) {
-  const own = (s.commands || []).length + (s.skills || []).length;
-  const summary = [
-    wakeWordNames(wake, s.wake_words_used),
-    s.home ? (own ? `the Home's + ${own} of its own` : "the Home's") : `only its own (${own})`,
-  ];
+  const summary = [wakeWordNames(wake, s.wake_words_used)];
   return h("a", { class: "tile", href: `#/satellite/${s.key}`, title: `Set up and test ${s.name}` },
     h("div", { class: "row" }, icon(satelliteIcon(s), "big"), h("span", { class: "grow" }),
       h("span", { class: `dot ${s.connected ? (s.in_call ? "accent" : "ok") : ""}`, title: s.connected ? (s.in_call ? "in a call" : "connected") : "offline" })),
@@ -1534,7 +1534,8 @@ function hiddenNotice(hidden, one, many, why) {
   return h("div", { class: "muted small" }, text, hint(why));
 }
 
-async function pageHome() {
+// `query`: satellite=key, to show what runs there.
+async function pageHome(query) {
   const [store, sats, skillData, wake] = await Promise.all([
     loadStore(), loadSatellites(), api("GET", "skills"),
     api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
@@ -1546,6 +1547,16 @@ async function pageHome() {
       h("div", { class: "title" }, "Unknown command"),
       h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What's said when nothing understood a sentence.")),
     h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
+  let place = new URLSearchParams(query || "").get("satellite") || "";
+  if (!sats.some((s) => s.key === place)) place = "";
+  const sections = h("div", {}, placedSections(store, skillData, place || null, "No commands yet: press Add."));
+  const filter = h("select", { "aria-label": "Show", onchange: (e) => {
+    place = e.target.value;
+    fill(sections, placedSections(store, skillData, place || null, "Nothing runs there."));
+    history.replaceState(null, "", place ? `#/home?satellite=${place}` : "#/home");
+  } },
+    h("option", { value: "", selected: !place }, "All"),
+    sats.map((s) => h("option", { value: s.key, selected: place === s.key }, `On ${s.name}`)));
   fill($main,
     h("h1", {}, "Home"),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
@@ -1556,9 +1567,10 @@ async function pageHome() {
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
     h("div", { class: "panel" },
       h("div", { class: "row" },
-        heading("h2", "Commands and skills", "The Home's: they run on every satellite that takes the Home's — all do, unless one is set not to. A satellite's own are on its page.", { class: "grow", style: "margin:0" }),
-        h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "Add")),
-      placedSections(store, skillData, null, "No commands yet: press Add.")),
+        heading("h2", "Commands and skills", "Each runs on every satellite, or on some: set it on its page. Where two take the same sentence, one on some satellites goes first there.", { class: "grow", style: "margin:0" }),
+        sats.length ? filter : null,
+        h("button", { class: "primary", onclick: () => newCommandDialog() }, "Add")),
+      sections),
     h("div", { class: "panel" }, h("div", { class: "list" }, unknownItem)),
   );
 }
@@ -1575,16 +1587,13 @@ function settingsGroup(id, title, summary, opened, ...body) {
   return group;
 }
 
-// One satellite: what it is and how it listens and speaks, its own
-// commands and skills, and testing it. `opened`: the settings sections left
-// open (after a save).
+// One satellite: what it is and how it listens and speaks, and testing it.
+// `opened`: the settings sections left open (after a save).
 async function pageSatellite(key, opened) {
-  const [sats, voices, wake, store, skillData] = await Promise.all([
+  const [sats, voices, wake] = await Promise.all([
     loadSatellites(),
     api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
     api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
-    loadStore(),
-    api("GET", "skills"),
   ]);
   const s = sats.find((x) => x.key === key);
   if (!s) { fill($main, h("a", { href: "#/home" }, "← Home"), errorBox(`No satellite ${key}`)); return; }
@@ -1637,12 +1646,6 @@ async function pageSatellite(key, opened) {
     } catch (err) { toast(err.message); }
   };
 
-  // Its commands and skills.
-  const takesHome = h("input", { type: "checkbox", checked: s.home, onchange: async (e) => {
-    try { await api("PUT", `satellites/${s.key}`, { home: e.target.checked }); toast(e.target.checked ? "Takes the Home's" : "Only its own"); pageSatellite(key); }
-    catch (err) { toast(err.message); }
-  } });
-
   // Testing it: a sentence typed, as if said here.
   const input = h("input", { type: "text", class: "grow", placeholder: "turn on the lights" });
   const run = h("input", { type: "checkbox" });
@@ -1664,6 +1667,7 @@ async function pageSatellite(key, opened) {
       h("h1", { class: "grow", style: "margin:0" }, s.name),
       h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : "offline"),
       s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
+      h("a", { href: `#/home?satellite=${s.key}` }, "Its commands"),
       h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")),
     s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
     h("div", { class: "panel" },
@@ -1684,12 +1688,6 @@ async function pageSatellite(key, opened) {
             (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordNames(wake, s.wake_words_need_firmware)} needs newer firmware`) : null,
             " · ", h("a", { href: "#/wake" }, "change")),
           s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
-    h("div", { class: "panel" },
-      h("div", { class: "row" },
-        h("h2", { class: "grow", style: "margin:0" }, "Commands and skills"),
-        h("button", { class: "primary", onclick: () => newCommandDialog(s.key) }, "Add")),
-      h("label", {}, takesHome, "Include the Home's", hint("Its own, below, and the Home's commands and skills. Where its own and the Home's take the same sentence, its own goes first: duplicate one of the Home's here to do something else on this satellite.")),
-      placedSections(store, skillData, s.key, "None of its own yet.")),
     h("div", { class: "panel" },
       heading("h2", "Test it", "What you type is recognized like a command said here, after the wake word, as if every word had been heard exactly as typed: no speech recognition."),
       h("div", { class: "row" }, input, h("button", { class: "primary", onclick: go }, "Test")),
@@ -1870,16 +1868,16 @@ function unitsEditor(settings) {
   };
 }
 
-// A skill: what it answers, and how -- its level, and a response of your own
-// for any level. Opened from the Home or a satellite (?satellite=), it can be
-// taken off there; it's added with Add on the Home or a satellite's page.
+// A skill: where it answers, what, and how -- its level, and a response of
+// your own for any level.
 async function pageSkill(id, query) {
-  const place = new URLSearchParams(query || "").get("satellite");
   const [data] = await Promise.all([api("GET", "skills"), loadSatellites()]);
   const skill = data.skills.find((x) => x.id === id);
-  const back = place ? `#/satellite/${place}` : "#/home";
+  const back = "#/home";
   if (!skill) { fill($main, h("a", { href: back }, "← Back"), errorBox(`No skill ${id}`)); return; }
-  const there = place ? (data.satellites[place] || []).includes(id) : data.home.includes(id);
+  let satellites = skill.satellites;
+  const where = whereEditor(satellites === true ? "every" : satellites === false ? "none" : "some", Array.isArray(satellites) ? satellites : [],
+    (w, keys) => { satellites = w === "every" ? true : w === "none" ? false : keys; });
   const saved = skill.responses || {};
   let verbosity = saved.verbosity || "";
   let response = typeof saved.response === "string" || !saved.response ? (saved.response || "") : { ...saved.response };
@@ -1923,7 +1921,7 @@ async function pageSkill(id, query) {
   render();
   async function save() {
     try {
-      const body = { verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() };
+      const body = { satellites, verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() };
       if (settings) body.settings = settings.value();
       await api("PUT", `skills/${id}`, body);
       toast("Saved"); pageSkill(id, query);
@@ -1936,25 +1934,16 @@ async function pageSkill(id, query) {
       toast("Restored"); pageSkill(id, query);
     } catch (err) { toast(err.message); }
   }
-  async function takeOff() {
-    if (!confirm(`Take ${skill.name} off ${placeName(place)}?`)) return;
-    try {
-      await api("PUT", `skills/${id}`, place ? { satellites: { [place]: false } } : { home: false });
-      toast("Taken off"); location.hash = back;
-    } catch (err) { toast(err.message); }
-  }
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: back }, `← ${place ? placeName(place) : "Home"}`),
+      h("a", { href: back }, "← Home"),
       icon(skill.icon, "big"),
       h("h1", { class: "grow", style: "margin:0" }, skill.name),
-      there ? h("button", { class: "danger", onclick: takeOff }, place ? `Take off ${placeName(place)}` : "Take off the Home") : null,
       h("button", { class: "primary", onclick: save }, "Save")),
-    there ? null : h("div", { class: "notice info" }, `${skill.name} isn't on ${placeName(place)}: add it with Add on ${place ? "its page" : "the Home page"}.`),
     h("div", { class: "panel" },
       h("p", {}, skill.description),
-      h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · "), hint("A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model). How it answers is the same wherever it's added.")),
-    ),
+      h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · "), hint("A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model).")),
+      field("Runs on", where)),
     settings ? h("div", { class: "panel" }, h("h2", {}, "Settings"),
       skill.settings_error ? h("div", { class: "notice warn" }, "Yours can't be used, so the built-in ones are: ", skill.settings_error) : null,
       settings.el,
@@ -3643,7 +3632,7 @@ async function route() {
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
-    if (page === "home") await pageHome();
+    if (page === "home") await pageHome(query);
     else if (page === "command") await pageCommand(arg || null, null, query);
     else if (page === "skill") await pageSkill(arg, query);
     else if (page === "satellite") await pageSatellite(arg);

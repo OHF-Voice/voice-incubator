@@ -1,5 +1,5 @@
-"""Skills: questions answered without an LLM, at three levels, the Home's or
-a satellite's own."""
+"""Skills: questions answered without an LLM, at three levels, on every
+satellite or some."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import importlib
 import pytest
 
 from voice_call import skills
-from voice_call.skills import SKILLS, enabled, skill_response
+from voice_call.skills import SKILLS, enabled, skill_response, skill_satellites
 from voice_call.skills.common import normalize
 from voice_call.skills.live import is_live
 
@@ -160,17 +160,17 @@ def test_not_questions():
         assert skills.answer(text) is None
 
 
-def test_the_homes_and_a_satellites_own():
+def test_every_satellite_or_some():
     assert enabled() == frozenset(SKILLS)
-    # The Home's: each unless taken off it.
-    assert enabled({"units": False}) == frozenset(SKILLS) - {"units"}
-    # A satellite's own add to them; a false from before takes nothing away.
-    assert enabled({"units": False}, {"units": True, "spelling": False}) == frozenset(SKILLS)
-    # Not taking the Home's: its own only.
-    assert enabled({}, {"units": True}, takes_home=False) == {"units"}
-    assert enabled({}, None, takes_home=False) == frozenset()
-    # Only true and false count; unknown skills are ignored.
-    assert enabled({"units": "no", "nope": False}, None) == frozenset(SKILLS)
+    # Each on every satellite unless set: on none, or on some.
+    assert enabled({"units": False}, "sat1") == frozenset(SKILLS) - {"units"}
+    assert enabled({"units": ["sat1"]}, "sat1") == frozenset(SKILLS)
+    assert enabled({"units": ["sat1"]}, "sat2") == frozenset(SKILLS) - {"units"}
+    # No satellite (typed on the web page): those on every one.
+    assert enabled({"units": ["sat1"]}) == frozenset(SKILLS) - {"units"}
+    assert skill_satellites({"units": ["sat1"]}, "units") == ("sat1",) and skill_satellites({}, "units") is True
+    # Anything else counts as every satellite; unknown skills are ignored.
+    assert enabled({"units": "no", "nope": False}, "sat1") == frozenset(SKILLS)
 
 
 def test_each_skill_is_its_own_module():

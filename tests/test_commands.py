@@ -1,5 +1,5 @@
-"""Commands: parsing, presets, slots, where they are (the Home's or a
-satellite's), and the store."""
+"""Commands: parsing, presets, slots, where they run (every satellite or
+some), and the store."""
 
 import json
 
@@ -28,9 +28,9 @@ def test_everywhere_by_default():
 
 
 def test_scope_and_overrides_are_no_more():
-    # A command is the Home's or one satellite's; what it does elsewhere is a
-    # copy of it, on that satellite.
-    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*one satellite's"):
+    # A command runs on every satellite or on some; what it does elsewhere is
+    # a copy of it, on those.
+    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*satellites list"):
         command(scope={"areas": ["kitchen"]})
     with pytest.raises(ConfigError, match=r"commands\.lights\.overrides: no longer used: .*copy of the command"):
         command(overrides=[{"scope": {"areas": ["office"]}, "scene": "scene.office"}])
@@ -200,23 +200,23 @@ def test_yaml_from_before_is_copied_once(tmp_path):
         Store(tmp_path / "other").load()
 
 
-def test_the_homes_or_a_satellites():
-    home = command()
-    mine = command(satellite="sat1")
-    theirs = command(satellite="sat2")
-    assert home.satellite is None and mine.satellite == "sat1"
+def test_every_satellite_or_some():
+    everywhere = command()
+    picked = command(satellites=["sat1", "sat3", "sat1"])
+    elsewhere = command(satellites=["sat2"])
+    assert everywhere.satellites is None and picked.satellites == ("sat1", "sat3")
     kitchen = Satellite("sat1", "Kitchen", "kitchen")
-    assert kitchen.available(home) is not None and kitchen.available(mine) is not None
-    assert kitchen.available(theirs) is None and kitchen.why_unavailable(theirs) == "on another satellite"
-    # Its own go first.
-    assert kitchen.first([theirs, home, mine]) == [mine, home]
-    # One that doesn't take the Home's runs only its own.
-    alone = Satellite("sat1", "Kids", "kids_room", home=False)
-    assert alone.available(home) is None and alone.available(mine) is not None
-    assert "doesn't take" in alone.why_unavailable(home)
-    assert alone.as_dict()["home"] is False and kitchen.as_dict()["home"] is True
-    with pytest.raises(ConfigError, match="satellite's key"):
-        command(satellite=["sat1"])
+    assert kitchen.available(everywhere) is not None and kitchen.available(picked) is not None
+    assert kitchen.available(elsewhere) is None and kitchen.why_unavailable(elsewhere) == "not on this satellite"
+    # Those picked for it go first.
+    assert kitchen.first([elsewhere, everywhere, picked]) == [picked, everywhere]
+    # On none: nowhere (typed on the web page, with no satellite, too).
+    assert Satellite("sat1", "Kids").available(command(satellites=[])) is None
+    assert Satellite("", "web").available(picked) is None
+    with pytest.raises(ConfigError, match="satellites' keys"):
+        command(satellites="sat1")
+    with pytest.raises(ConfigError, match="satellite: no longer used: satellites"):
+        command(satellite="sat1")
 
 
 def test_fallback_steps_are_chosen():
@@ -257,12 +257,11 @@ def test_store_duplicates_a_command(tmp_path):
     # The Home's, right after it.
     compiled = store.duplicate_command("lights", "lights_copy", "Lights, again")
     assert list(compiled.commands) == ["lights", "lights_copy", "time"]
-    assert compiled.commands["lights_copy"].satellite is None and compiled.commands["lights_copy"].title == "Lights, again"
-    # On a satellite; a copy of it back on the Home.
-    compiled = store.duplicate_command("time", "kids_time", satellite="sat1")
-    assert compiled.commands["kids_time"].satellite == "sat1" and compiled.commands["time"].satellite is None
+    assert compiled.commands["lights_copy"].title == "Lights, again"
+    # Where it runs comes along.
+    store.put_command("kids_time", {**store.document()["commands"]["time"], "satellites": ["sat1"]})
     compiled = store.duplicate_command("kids_time", "time_again")
-    assert compiled.commands["time_again"].satellite is None
+    assert compiled.commands["time_again"].satellites == ("sat1",)
     assert list(store.document()["commands"]) == ["lights", "lights_copy", "time", "kids_time", "time_again"]
     with pytest.raises(ConfigError, match="already a command 'time'"):
         store.duplicate_command("lights", "time")

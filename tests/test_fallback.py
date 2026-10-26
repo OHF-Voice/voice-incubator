@@ -234,9 +234,10 @@ def test_the_chain():
     assert found.command.id == "what_time" and found.by == "meaning" and stub.labels == "not asked"
 
     # It picks something this satellite may not run: not run, said why.
-    limited = Satellite("sat", "Kids", "kitchen", home=False)
-    found = fallback.decide("we need milk", far, compiled, limited, everything)
+    compiled.commands["add_item"].satellites = ("elsewhere",)
+    found = fallback.decide("we need milk", far, compiled, KITCHEN, everything)
     assert found.command is None and found.trace["llm"]["command"] == "add_item" and found.trace["llm"]["problems"]
+    compiled.commands["add_item"].satellites = None
 
     # It says it is not a command: nothing.
     stub.none = 0.9

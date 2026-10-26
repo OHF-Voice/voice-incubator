@@ -27,10 +27,10 @@ from adapt_ctc.template import TemplateError, expand
 from . import languages, music, timers
 from .endpoint import parse as parse_end_of_speech
 from .enrollment import PASSAGE
-from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command
+from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command, satellite_keys
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
-from .skills import LEVELS, SKILLS, available, home_skills, own_skills
+from .skills import LEVELS, SKILLS, available, skill_satellites
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
 from .store import (
@@ -410,8 +410,8 @@ class Api:
                 command = parse_command(command_id, spec)
                 details[command_id] = {
                     "library": library_of(command_id, spec),
-                    # Its satellite's key; None: the Home's.
-                    "satellite": command.satellite,
+                    # The satellites it is on (keys); None: every one.
+                    "satellites": list(command.satellites) if command.satellites is not None else None,
                     "does": command.behavior.does,
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": needs_heard_slots(command),
@@ -424,7 +424,7 @@ class Api:
                 details[command_id] = {
                     "error": str(err),
                     "library": library_of(command_id, spec if isinstance(spec, dict) else {}),
-                    "satellite": spec.get("satellite") if isinstance(spec, dict) else None,
+                    "satellites": spec.get("satellites") if isinstance(spec, dict) else None,
                 }
         return web.json_response(
             {
@@ -475,14 +475,11 @@ class Api:
             spec = _from_form(body.get("spec") or {})
         spec = _clean(spec)
         parse_command(command_id, spec)
-        if spec.get("satellite"):
-            self._satellite_key(spec["satellite"])
         compiled = self.app.store.put_command(command_id, spec, body.get("old_id"))
         return await self._saved(compiled)
 
     async def duplicate_command(self, request: web.Request) -> web.Response:
-        """A copy of a command (``new_id``, ``title``) on ``satellite`` (its
-        key), or the Home's (null)."""
+        """A copy of a command (``new_id``, ``title``)."""
         command_id = request.match_info["id"]
         body = await _json_or_empty(request)
         new_id = str(body.get("new_id") or f"{command_id}_copy").strip()
@@ -492,7 +489,6 @@ class Api:
             command_id,
             new_id,
             str(body.get("title") or "").strip() or None,
-            self._satellite_key(body.get("satellite")),
         )
         await self.app.apply(compiled)
         return web.json_response({"ok": True, "id": new_id})
@@ -592,20 +588,20 @@ class Api:
                 item["settings_error"] = error
             found = skill_answer(skill.examples[0], frozenset({skill.id}), {skill.id: settings})
             item["example"] = found.to_json() if found is not None else None
+            # Where it answers: every satellite (true), none (false), or some (keys).
+            where = skill_satellites(store.settings.get("skills"), skill.id)
+            item["satellites"] = list(where) if isinstance(where, tuple) else where
             out.append(item)
         return web.json_response(
             {
                 "skills": out,
                 "levels": list(LEVELS),
-                "home": sorted(home_skills(store.settings.get("skills"))),
-                "satellites": {key: sorted(own_skills(entry.get("skills"))) for key, entry in store.satellites.items()},
             }
         )
 
     async def put_skill(self, request: web.Request) -> web.Response:
-        """Put a skill on the Home or take it off (``home``: true or false),
-        give it to satellites or take it from them (``satellites``:
-        ``{key: true | false}``), how it answers (``verbosity``: a level,
+        """Where a skill answers (``satellites``: true for every satellite,
+        false for none, or some satellites' keys), how it answers (``verbosity``: a level,
         null for the default; ``response``: a template for every level, or
         ``{brief, specific, verbose}``, empty for the built-in sentences),
         and its settings (``settings``: in full, as GET gives them; null for
@@ -662,43 +658,19 @@ class Api:
             if not configured:
                 store.settings.pop("skill_responses", None)
             store.save_settings()
-        if "home" in body:
-            home = store.settings.setdefault("skills", {})
-            if body["home"] is False:
-                home[skill_id] = False
+        if "satellites" in body:
+            where = body["satellites"]
+            if where is not True and where is not False:
+                where = list(satellite_keys(where, "satellites") or ())
+            placed = store.settings.setdefault("skills", {})
+            if where is True:
+                placed.pop(skill_id, None)
             else:
-                home.pop(skill_id, None)
-            if not home:
+                placed[skill_id] = where
+            if not placed:
                 store.settings.pop("skills")
             store.save_settings()
-        satellites = body.get("satellites") or {}
-        if not isinstance(satellites, dict):
-            raise ConfigError("satellites: expected {satellite: true or false}")
-        for key, on in satellites.items():
-            if on is not None and not isinstance(on, bool):
-                raise ConfigError(f"satellites.{key}: true or false")
-            entry = store.satellites.setdefault(self._satellite_key(key) or "", {})
-            own = {k: True for k in own_skills(entry.get("skills"))}
-            if on:
-                own[skill_id] = True
-            else:
-                own.pop(skill_id, None)
-            if own:
-                entry["skills"] = own
-            else:
-                entry.pop("skills", None)
-        if satellites:
-            store.save_satellites()
         return web.json_response({"ok": True})
-
-    def _satellite_key(self, value: Any) -> str | None:
-        """A satellite's key, or None (the Home)."""
-        if value in (None, "", "home"):
-            return None
-        key = str(value)
-        if key not in self.app.store.satellites and key not in self.app.sessions:
-            raise ConfigError(f"No satellite {key!r}")
-        return key
 
     # -------------------------------------------------------------- library
 
@@ -718,9 +690,6 @@ class Api:
         spec = copy.deepcopy(entry["spec"])
         spec["title"] = entry["title"]
         spec["library"] = entry["file"]
-        satellite = self._satellite_key(body.get("satellite"))
-        if satellite:
-            spec["satellite"] = satellite
         # Shared lists it uses, unless yours already has one by that name.
         compiled = self.app.store.load()
         have = compiled.data.get("lists") or {}
@@ -793,11 +762,6 @@ class Api:
     async def satellites(self, request: web.Request) -> web.Response:
         app = self.app
         keys = list(dict.fromkeys([*app.store.satellites, *app.sessions]))
-        compiled = app.engine.compiled if app.engine is not None else None
-        own_commands: dict[str, list[str]] = {}
-        for command in (compiled.commands.values() if compiled is not None else ()):
-            if command.satellite:
-                own_commands.setdefault(command.satellite, []).append(command.id)
         out = []
         for key in keys:
             stored = app.store.satellite(key)
@@ -816,12 +780,6 @@ class Api:
                     # listens for: what was pushed, or what will be.
                     "wake_words": stored.get("wake_words"),
                     "icon": stored.get("icon"),
-                    # Whether it takes the Home's commands and skills, and
-                    # its own: commands (by id) and skills.
-                    "home": satellite.home,
-                    "commands": own_commands.get(key, []),
-                    "skills": sorted(own_skills(stored.get("skills"))),
-                    "skills_used": sorted(satellite.skills or ()),
                     "wake_words_used": (
                         session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
                     ),
@@ -916,12 +874,6 @@ class Api:
                 entry["icon"] = icon
             else:
                 entry.pop("icon", None)
-        if "home" in body:
-            # Absent: it takes the Home's commands and skills.
-            if body["home"] is False:
-                entry["home"] = False
-            else:
-                entry.pop("home", None)
         if "wake_words" in body:
             # Empty: as every satellite.
             picked = self._wake_word_ids(body["wake_words"], MAX_WAKE_WORDS)
@@ -1685,10 +1637,14 @@ def _language(value: Any, option: str) -> str:
 
 def _clean(value: Any) -> Any:
     """Drop empty values the form sends for fields left blank -- but not a
-    combination of nothing said (``combinations: [[], [area]]``)."""
+    combination of nothing said (``combinations: [[], [area]]``), nor no
+    satellites (``satellites: []``: none of them)."""
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
+            if key == "satellites" and isinstance(item, list):
+                out[key] = item
+                continue
             if key == "combinations" and isinstance(item, list):
                 out[key] = [list(c) for c in item if isinstance(c, list)] or None
                 if out[key] is None:

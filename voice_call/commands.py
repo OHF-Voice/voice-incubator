@@ -60,15 +60,14 @@ says the built-in sentence::
       done: Paused.
       no_timers: There's nothing to pause.
 
-``satellite`` puts a command on one satellite (by its key); without it, the
-command is the Home's, and runs on every satellite that takes the Home's
-commands (all do unless told not to: ``home: false`` in ``satellites.json``).
-A command that should do something else on one satellite is a copy of it on
-that satellite: there, its own copy goes first::
+``satellites`` puts a command on some satellites only (by their keys);
+without it, it runs on every satellite. Where two take the same sentence, the
+one on some satellites goes first: a copy of a command on one satellite does
+something else there::
 
     commands:
       lights_on_kids:
-        satellite: d83bdaa3d5f4
+        satellites: [d83bdaa3d5f4]
 
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
@@ -140,7 +139,7 @@ COMMAND_KEYS = {
     "title",
     "icon",
     "library",
-    "satellite",
+    "satellites",
     "fallback",
     "combinations",
     *LISTEN_KEYS,
@@ -148,10 +147,11 @@ COMMAND_KEYS = {
 }
 # Keys a command no longer takes, and what to do instead.
 REMOVED_KEYS = {
-    "scope": "a command is the Home's or one satellite's (satellite: its key)",
-    "overrides": "make a copy of the command that does the other thing (Duplicate, on its page) "
-    "on the satellite it is for: there, its own copy goes first",
-    "groups": "command groups are gone: a command is the Home's, or one satellite's (satellite: its key)",
+    "scope": "a command runs on every satellite, or on those in its satellites list",
+    "satellite": "satellites: [its key]",
+    "overrides": "make a copy of the command that does the other thing (Duplicate, on its page), "
+    "on the satellites it is for: there, the copy goes first",
+    "groups": "command groups are gone: a command runs on every satellite, or on those in its satellites list",
 }
 FALLBACK_STEPS = ("meaning", "llm")
 
@@ -371,8 +371,8 @@ class Command:
     duration: bool = False
     disabled: bool = False
     title: str = ""
-    satellite: str | None = None
-    """The satellite it is on (its key); None: the Home's."""
+    satellites: tuple[str, ...] | None = None
+    """The satellites it is on (their keys); None: every one."""
     fallback: tuple[str, ...] = ()
     """The steps after keywords and examples that may run it (FALLBACK_STEPS)."""
     combinations: tuple[tuple[str, ...], ...] = ((),)
@@ -471,7 +471,7 @@ def parse_command(command_id: str, spec: Any) -> Command:
         duration,
         bool(spec.get("disabled", False)),
         str(spec.get("title") or ""),
-        _satellite(spec.get("satellite"), f"{where}.satellite"),
+        satellite_keys(spec.get("satellites"), f"{where}.satellites"),
         _fallback_steps(spec.get("fallback"), f"{where}.fallback"),
         combinations,
         intents,
@@ -596,12 +596,14 @@ def _fallback_steps(value: Any, where: str) -> tuple[str, ...]:
     return tuple(step for step in FALLBACK_STEPS if step in value)
 
 
-def _satellite(value: Any, where: str) -> str | None:
-    if value in (None, ""):
+def satellite_keys(value: Any, where: str) -> tuple[str, ...] | None:
+    """Where a command or skill runs: some satellites (their keys), or None
+    for every one."""
+    if value is None:
         return None
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"{where}: a satellite's key")
-    return value.strip()
+    if not isinstance(value, list) or not all(isinstance(k, str) and k.strip() for k in value):
+        raise ConfigError(f"{where}: a list of satellites' keys")
+    return tuple(dict.fromkeys(k.strip() for k in value))
 
 
 UNKNOWN_KEYS = {"response"}

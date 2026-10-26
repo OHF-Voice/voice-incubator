@@ -118,24 +118,26 @@ class Answer:
         return out
 
 
-def home_skills(home: Any = None) -> frozenset[str]:
-    """The Home's skills: each unless ``home`` (``settings.json``) turns it
-    off."""
-    home = home if isinstance(home, dict) else {}
-    return frozenset(skill_id for skill_id in available() if home.get(skill_id) is not False)
+def skill_satellites(settings: Any, skill_id: str) -> tuple[str, ...] | bool:
+    """Where a skill answers (``settings.json`` ``skills``): every satellite
+    (True, unless set), none (False), or some (their keys)."""
+    value = settings.get(skill_id) if isinstance(settings, dict) else None
+    if value is False:
+        return False
+    if isinstance(value, list):
+        return tuple(str(k) for k in value)
+    return True
 
 
-def own_skills(own: Any = None) -> frozenset[str]:
-    """A satellite's own skills: each its setting gives it. (False, from
-    before the Home's could be left out, takes nothing away.)"""
-    own = own if isinstance(own, dict) else {}
-    return frozenset(skill_id for skill_id in available() if own.get(skill_id) is True)
-
-
-def enabled(home: Any = None, own: Any = None, takes_home: bool = True) -> frozenset[str]:
-    """The skills that answer on a satellite: its own, and the Home's when it
-    takes them."""
-    return own_skills(own) | (home_skills(home) if takes_home else frozenset())
+def enabled(settings: Any = None, key: str | None = None) -> frozenset[str]:
+    """The skills that answer on a satellite (by its key); no key: those on
+    every satellite."""
+    out = set()
+    for skill_id in available():
+        where = skill_satellites(settings, skill_id)
+        if where is True or (where is not False and key is not None and key in where):
+            out.add(skill_id)
+    return frozenset(out)
 
 
 def answer(text: str, on: frozenset[str] | None = None, settings: dict[str, Settings] | None = None) -> Answer | None:

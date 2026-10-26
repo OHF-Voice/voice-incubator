@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **A command or skill runs on every satellite, on some, or on none**, set on
+  its page (Runs on): `satellites: [key, ...]` in `commands.json`, and
+  `skills: {id: [key, ...] | false}` in `settings.json`. A satellite no longer
+  has commands or skills of its own, nor **Include the Home's**: its page is
+  its settings and Test it. The Home page shows what runs on one satellite
+  when it is picked above the list.
 - **Several wake words per satellite**: up to five of its own (three on
   older firmware), else the home's preferred one, which is still one.
 - **`wake_word`** for actions, scripts and responses: the `id`, `name` and

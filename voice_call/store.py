@@ -382,11 +382,8 @@ class Store:
 
         return self.update(edit)
 
-    def duplicate_command(
-        self, command_id: str, new_id: str, title: str | None = None, satellite: str | None = None
-    ) -> Compiled:
-        """Copy a command, as saved, to ``new_id``, right after it: on
-        ``satellite`` (its key), or the Home's (None)."""
+    def duplicate_command(self, command_id: str, new_id: str, title: str | None = None) -> Compiled:
+        """Copy a command, as saved, to ``new_id``, right after it."""
 
         def edit(document: dict[str, Any]) -> None:
             commands = document["commands"]
@@ -397,10 +394,6 @@ class Store:
             spec = plain(commands[command_id])
             if title:
                 spec["title"] = title
-            if satellite:
-                spec["satellite"] = satellite
-            else:
-                spec.pop("satellite", None)
             document["commands"] = _inserted(commands, list(commands).index(command_id) + 1, new_id, spec)
 
         return self.update(edit)

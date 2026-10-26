@@ -928,7 +928,6 @@ class VoiceCallApp:
             "media_player": media_player,
             "voice": choose(self.store.settings, stored),
             "device_media_player": self.hass.catalog.device_media_player(key) if key else None,
-            "home": stored.get("home") is not False,
             "skills": self.satellite_skills(key),
         }
         if link is not None and link.device_id:
@@ -992,10 +991,9 @@ class VoiceCallApp:
             self.engine.skill_settings = skills.configure(self.store.settings.get("skill_settings"))
 
     def satellite_skills(self, key: str | None) -> frozenset[str]:
-        """The skills that answer on a satellite: its own, and the Home's
-        when it takes them (voice_call/skills/). No satellite: the Home's."""
-        stored = self.store.satellite(key) if key else {}
-        return skills.enabled(self.store.settings.get("skills"), stored.get("skills"), stored.get("home") is not False)
+        """The skills that answer on a satellite (voice_call/skills/). No
+        satellite: those on every one."""
+        return skills.enabled(self.store.settings.get("skills"), key)
 
     def _remember_satellite(self, session: Session) -> None:
         entry = self.store.satellites.setdefault(session.satellite, {})
