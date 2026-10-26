@@ -29,6 +29,7 @@ from .numerals import cardinal, counted, ordinal, plural
 SORRY = "Вибач, не вдалося зрозуміти."
 FAILED = "Вибач, не вийшло."
 NO_SPEAKER = "Вибач, я не знаю, хто говорить."
+NOT_ON_LIST = "У списку немає: {item}."
 WENT_WRONG = "Вибач, щось пішло не так."
 NO_COMMANDS = "Голосових команд ще немає. Додай їх у застосунку Voice Call."
 TIMERS_NEED_INTEGRATION = "Для таймерів потрібна інтеграція Voice Call у Home Assistant."

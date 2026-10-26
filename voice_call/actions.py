@@ -69,11 +69,14 @@ looks like you're trying to …, but …"; empty when nothing came close),
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from adapt_ctc.text import spoken_words
 
 from . import alarms, languages, timers
 from . import music as music_ops
@@ -283,10 +286,22 @@ async def run(
     known, theirs = (True, {}) if not behavior.mine else people_ops.mine(behavior.mine, speaker, people or {})
     if theirs:
         decision.slots = {**decision.slots, **theirs}
+    missing = None
+    for slot, entity_id in behavior.on_list.items():
+        said = str(decision.slots.get(slot) or "")
+        if said:
+            item = await _item_on(hass, entity_id, said)
+            if item is None:
+                missing = said
+            else:
+                decision.slots = {**decision.slots, slot: item}
     values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word)
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
+    if missing is not None:
+        sentence = languages.speech().NOT_ON_LIST.format(item=missing)
+        return await _say(hass, behavior, values, outcome, "not_on_list", sentence[:1].upper() + sentence[1:])
     if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
         return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     if behavior.timer:
@@ -320,6 +335,49 @@ async def run(
         speech if isinstance(speech, str) else "",
         returned,
     )
+
+
+async def _item_on(hass: HomeAssistant, entity_id: str, said: str) -> str | None:
+    """The item on a to-do list that ``said`` names (``closest_item``); None
+    when none is close. When the list can't be read, ``said`` as it is."""
+    try:
+        response = await hass.call_service(
+            "todo", "get_items", {"status": ["needs_action", "completed"]}, {"entity_id": entity_id}, return_response=True
+        )
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        _LOGGER.warning("Could not read %s: %s", entity_id, err)
+        return said
+    items = (((response or {}).get(entity_id) or {}).get("items")) or []
+    return closest_item(said, [str(i.get("summary") or "") for i in items if isinstance(i, dict)])
+
+
+ITEM_CLOSE = 0.8
+"""How alike in spelling an item must be to what was said, when none is the
+same words."""
+
+
+def closest_item(said: str, items: list[str]) -> str | None:
+    """The item ``said`` names: the same words as spoken, without a leading
+    article ("test three", "the test 3": "test 3"), else the closest in
+    spelling, at ``ITEM_CLOSE`` or more."""
+    language = languages.current().code
+    articles = set(languages.reading().ARTICLES)
+
+    def spoken(text: str) -> str:
+        spellings = spoken_words(text, language)
+        words = list(spellings[0]) if spellings else text.lower().split()
+        while words and words[0] in articles:
+            words = words[1:]
+        return " ".join(words)
+
+    wanted = spoken(said)
+    heard = [(spoken(item), item) for item in items if item.strip()]
+    for words, item in heard:
+        if words == wanted:
+            return item
+    scored = [(difflib.SequenceMatcher(None, wanted, words).ratio(), item) for words, item in heard]
+    best = max(scored, default=None)
+    return best[1] if best is not None and best[0] >= ITEM_CLOSE else None
 
 
 async def _run_intent(

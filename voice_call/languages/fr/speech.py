@@ -16,6 +16,7 @@ from typing import Any
 SORRY = "Désolé, je n'ai pas compris."
 FAILED = "Désolé, ça n'a pas marché."
 NO_SPEAKER = "Désolé, je ne sais pas qui parle."
+NOT_ON_LIST = "{item} n'est pas sur la liste."
 WENT_WRONG = "Désolé, quelque chose s'est mal passé."
 NO_COMMANDS = "Aucune commande vocale n'est encore configurée. Ajoutez-en dans l'application Voice Call."
 TIMERS_NEED_INTEGRATION = "Les minuteurs ont besoin de l'intégration Voice Call dans Home Assistant."

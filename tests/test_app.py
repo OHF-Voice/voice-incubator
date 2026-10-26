@@ -487,6 +487,22 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.delete("/api/people/Mike")).status == 200 and app.store.people == {}
             assert (await http.delete("/api/commands/todo_add_mine")).status == 200
 
+            # An item on a to-do list, as the list has it: "test three" is "test 3".
+            remove = {
+                "description": "take something off the shopping list", "require": [["remove"], ["shopping list"]],
+                "optional": [["from"]], "wildcard": {"slot": "item", "after": ["remove"], "before": ["from"], "bounded": True},
+                "on_list": {"item": "todo.shopping_list"},
+                "action": {"action": "todo.remove_item", "target": {"entity_id": "todo.shopping_list"}, "data": {"item": "{{ slots.item }}"}},
+                "response": "Took {{ slots.item }} off.",
+            }
+            assert (await http.put("/api/commands/shopping_remove", json={"yaml": json.dumps(remove)})).status == 200
+            hass.todo_items["todo.shopping_list"] = [{"summary": "Test 3", "status": "needs_action"}, {"summary": "Milk", "status": "completed"}]
+            assert await said("remove test three from the shopping list") == "Took Test 3 off."
+            assert await said("remove bread from the shopping list") == "Bread isn't on the list."
+            record = app.calls.recent[-1]
+            assert next(s for s in record.stages if s["stage"] == "action")["outcome"] == "not_on_list"
+            assert (await http.delete("/api/commands/shopping_remove")).status == 200
+
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
             template = "Sorry, I couldn't understand the sentence {{ transcript }}."

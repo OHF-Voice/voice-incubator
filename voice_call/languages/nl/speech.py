@@ -15,6 +15,7 @@ from typing import Any
 SORRY = "Sorry, dat heb ik niet begrepen."
 FAILED = "Sorry, dat is niet gelukt."
 NO_SPEAKER = "Sorry, ik weet niet wie er spreekt."
+NOT_ON_LIST = "{item} staat niet op de lijst."
 WENT_WRONG = "Sorry, er ging iets mis."
 NO_COMMANDS = "Er zijn nog geen spraakopdrachten ingesteld. Voeg ze toe in de Voice Call app."
 TIMERS_NEED_INTEGRATION = "Voor timers is de Voice Call integratie in Home Assistant nodig."

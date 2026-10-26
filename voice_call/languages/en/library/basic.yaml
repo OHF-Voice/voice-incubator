@@ -519,7 +519,7 @@ commands:
     icon: mdi:cart-minus
     description: take something off the shopping list
     # Gone from the list; checking it off (done, and kept) is Check off the
-    # shopping list.
+    # shopping list. The item said is one on the list: "test three" is "test 3".
     require: [[remove, take, delete], [shopping list, list]]
     optional: [[from, off]]
     wildcard:
@@ -528,6 +528,7 @@ commands:
       before: [from, off]
       bounded: true
       max_words: 5
+    on_list: {item: todo.shopping_list}
     action:
       action: todo.remove_item
       target:
@@ -539,6 +540,9 @@ commands:
       done:
         brief: Took it off the shopping list.
         specific: "Took {{ slots.item }} off the shopping list."
+    needs:
+      - Point it at your shopping list (todo.shopping_list here), in On list
+        (its YAML) and in what happens.
 
   shopping_list_check:
     title: Check off the shopping list
@@ -554,6 +558,7 @@ commands:
       before: [off, from, on, as done, as bought]
       bounded: true
       max_words: 5
+    on_list: {item: todo.shopping_list}
     action:
       action: todo.update_item
       target:
@@ -566,6 +571,9 @@ commands:
       done:
         brief: Checked it off.
         specific: "Checked {{ slots.item }} off the shopping list."
+    needs:
+      - Point it at your shopping list (todo.shopping_list here), in On list
+        (its YAML) and in what happens.
 
   shopping_list_items:
     title: What's on the shopping list

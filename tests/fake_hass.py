@@ -119,6 +119,8 @@ class FakeHass:
             self.states[entity_id] = ("idle", {"friendly_name": name, "volume_level": 0.5, "is_volume_muted": False})
         self.stt_text = "what time is it"
         """What the STT entity hears (over REST, see serve_rest)."""
+        self.todo_items: dict[str, list[dict]] = {}
+        """To-do lists' items (todo.get_items), by entity."""
         self.stt_requests: list[dict[str, Any]] = []
         self.voice_requests: list[dict[str, Any]] = []
         self.on_speak: Any = None
@@ -491,6 +493,9 @@ class FakeHass:
             return None
         if message["domain"] in ("music_assistant", "media_player"):
             return self._music(message)
+        if message["domain"] == "todo" and message["service"] == "get_items":
+            entity_id = message["target"]["entity_id"]
+            return {entity_id: {"items": list(self.todo_items.get(entity_id, []))}}
         if message["domain"] != "voice_timer_list":
             return None
         entity_id = message["target"]["entity_id"]

@@ -77,6 +77,13 @@ anyone has one of their own: "add … to my to-do list"::
       slots: {entity: [todo.to_do]}     # where nobody has their own
       mine: todo_list
 
+``on_list`` says a slot names an item on a to-do list: what was heard becomes
+the item as the list has it -- the same words as spoken ("test three" is
+"test 3"), or the closest -- and none close is the outcome ``not_on_list``::
+
+    shopping_list_remove:
+      on_list: {item: todo.shopping_list}
+
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
 very close to it in meaning (the model hears what was said in it), ``llm``
@@ -149,6 +156,7 @@ COMMAND_KEYS = {
     "library",
     "satellites",
     "mine",
+    "on_list",
     "fallback",
     "combinations",
     *LISTEN_KEYS,
@@ -272,6 +280,10 @@ class Behavior:
     """The speaker's own thing it acts on (people.THINGS), where anyone has
     one: it can then turn out ``no_speaker``."""
 
+    on_list: dict[str, str] = field(default_factory=dict)
+    """Slots that name an item on a to-do list, by the list: it can then turn
+    out ``not_on_list``."""
+
     def response_for(self, outcome: str, level: str | None = None) -> str | None:
         """The template for this outcome; a plain response is for ``done``.
         Written by level, done's is the one for ``level`` (the command's own,
@@ -317,7 +329,9 @@ class Behavior:
         """The outcomes a response may be given for; None when any may be
         (a script or an action can return its own)."""
         outcomes = self._outcomes()
-        return outcomes + ("no_speaker",) if outcomes is not None and self.mine else outcomes
+        if outcomes is None:
+            return None
+        return outcomes + (("no_speaker",) if self.mine else ()) + (("not_on_list",) if self.on_list else ())
 
     def _outcomes(self) -> tuple[str, ...] | None:
         if self.timer:
@@ -682,6 +696,10 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         mine = str(mine)
         if mine not in THINGS:
             raise ConfigError(f"{where}.mine: one of {', '.join(THINGS)}")
+    on_list = {str(k): str(v) for k, v in _mapping(spec.get("on_list") or {}, f"{where}.on_list").items()}
+    for slot, entity in on_list.items():
+        if not re.fullmatch(r"todo\.[a-z0-9_]+", entity):
+            raise ConfigError(f"{where}.on_list.{slot}: a to-do list (todo.…)")
     return Behavior(
         slots=_fixed_slots(spec.get("slots"), f"{where}.slots"),
         script=script,
@@ -693,6 +711,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         response=response or None,
         verbosity=verbosity,
         mine=mine,
+        on_list=on_list,
     )
 
 

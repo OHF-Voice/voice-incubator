@@ -636,7 +636,13 @@ you point them at yours):
   the store" -- the first five and how many more, with more than eight.
 - **Add to the to-do list**, and **Add to my to-do list** (People).
 
-Checking off, removing and reading are in the English library for now.
+Checking off and removing take an item that is on the list: what was heard
+is matched to it as spoken, so "test three" is the item "Test 3", "the
+milk" is "Milk", and a near spelling ("paper towel") is the closest. One
+that isn't on the list says so ("Bread isn't on the list."). A command of
+your own does the same with `on_list: {item: todo.your_list}` (its YAML
+tab). Checking off, removing and reading are in the English library for
+now.
 
 ## Covers and locks
 

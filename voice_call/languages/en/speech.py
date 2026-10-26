@@ -23,6 +23,9 @@ NO_SPEAKER = "Sorry, I don't know who's speaking."
 """A command for the speaker's own thing ("my to-do list") when nobody
 knows who is speaking."""
 
+NOT_ON_LIST = "{item} isn't on the list."
+"""A to-do list command's item that isn't on the list (``on_list``)."""
+
 WENT_WRONG = "Sorry, something went wrong."
 """The app failed while answering."""
 

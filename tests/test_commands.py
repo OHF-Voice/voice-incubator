@@ -219,6 +219,15 @@ def test_every_satellite_or_some():
         command(satellite="sat1")
 
 
+def test_an_item_on_a_list():
+    remove = command(on_list={"item": "todo.shopping_list"})
+    assert remove.behavior.on_list == {"item": "todo.shopping_list"}
+    said = command(action=None, on_list={"item": "todo.shopping_list"}, response={"done": "ok", "not_on_list": "No."})
+    assert said.behavior.outcomes() == ("done", "failed", "not_on_list")
+    with pytest.raises(ConfigError, match="on_list.item: a to-do list"):
+        command(on_list={"item": "light.kitchen"})
+
+
 def test_fallback_steps_are_chosen():
     assert command().fallback == ()
     assert command(fallback=["llm", "meaning"]).fallback == ("meaning", "llm")

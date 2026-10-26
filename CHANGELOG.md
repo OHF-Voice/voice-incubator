@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **An item on the shopping list is one the list has**: checking off and
+  taking off match what was heard to the list's items as spoken ("test
+  three" is "Test 3"), else the closest in spelling, else say it isn't on
+  the list (`on_list` on a command).
 - **Check off the shopping list** (done, and kept on it) apart from **Take
   off the shopping list** (removed), and **What's on the shopping list**,
   which says what is still to get. "Cross … off" is checking off now. In
