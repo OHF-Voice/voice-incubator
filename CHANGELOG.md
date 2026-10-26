@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **Check off the shopping list** (done, and kept on it) apart from **Take
+  off the shopping list** (removed), and **What's on the shopping list**,
+  which says what is still to get. "Cross … off" is checking off now. In
+  the English library.
 - **Find a command** on the Home page: a search box over your commands and
   skills, by title, description, example sentences or keywords.
 - **"What day is Christmas"** went to What's the date ("what day", with

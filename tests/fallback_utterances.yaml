@@ -26,10 +26,11 @@ utterances:
   - {text: don't let me forget to buy eggs, expect: shopping_list_add, slots: {item: eggs}}
   - {text: put paper towels on my shopping list, expect: shopping_list_add, slots: {item: paper towels}}
   - {text: grab bananas next time you shop, expect: shopping_list_add, slots: {item: bananas}}
-  - {text: i already got the bread, expect: shopping_list_remove, slots: {item: bread}}
+  - {text: i already got the bread, expect: shopping_list_check, slots: {item: bread}}
   - {text: take milk off the list, expect: shopping_list_remove, slots: {item: milk}}
   - {text: we don't need apples anymore, expect: shopping_list_remove, slots: {item: apples}}
-  - {text: scratch the butter from my shopping list, expect: shopping_list_remove, slots: {item: butter}}
+  - {text: scratch the butter from my shopping list, expect: shopping_list_check, slots: {item: butter}}
+  - {text: do we need anything from the store, expect: shopping_list_items}
   - {text: i need to call the plumber, expect: todo_add, slots: {item: call the plumber}}
   - {text: add renew my passport to my to do list, expect: todo_add, slots: {item: renew my passport}}
   - {text: note that i have to pay the electric bill, expect: todo_add, slots: {item: pay the electric bill}}

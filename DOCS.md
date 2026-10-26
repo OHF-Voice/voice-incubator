@@ -618,6 +618,26 @@ in an area or floor named ("dim the lights upstairs"), or a light by name
 
 These are in the English library for now.
 
+## Lists
+
+The library's **Basics** group keeps a shopping list and a to-do list
+(Home Assistant's to-do lists: `todo.shopping_list` and `todo.to_do` until
+you point them at yours):
+
+- **Add to the shopping list**: "add milk to the shopping list", "put eggs
+  on the list".
+- **Check off the shopping list**: marks it done, and keeps it on the list
+  as such -- "cross the milk off the shopping list", "check off eggs on the
+  list", "mark bread as done on the list".
+- **Take off the shopping list**: removes it -- "remove milk from the
+  shopping list", "take eggs off the list".
+- **What's on the shopping list**: says what is still to get -- "what's on
+  the shopping list", "read me the shopping list", "what do we need from
+  the store" -- the first five and how many more, with more than eight.
+- **Add to the to-do list**, and **Add to my to-do list** (People).
+
+Checking off, removing and reading are in the English library for now.
+
 ## Covers and locks
 
 The library's **Covers and locks** group opens and closes covers and locks and

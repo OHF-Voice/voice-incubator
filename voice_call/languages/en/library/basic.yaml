@@ -518,11 +518,13 @@ commands:
     title: Take off the shopping list
     icon: mdi:cart-minus
     description: take something off the shopping list
-    require: [[remove, take, delete, cross], [shopping list, list]]
+    # Gone from the list; checking it off (done, and kept) is Check off the
+    # shopping list.
+    require: [[remove, take, delete], [shopping list, list]]
     optional: [[from, off]]
     wildcard:
       slot: item
-      after: [remove, take, delete, cross]
+      after: [remove, take, delete]
       before: [from, off]
       bounded: true
       max_words: 5
@@ -537,6 +539,72 @@ commands:
       done:
         brief: Took it off the shopping list.
         specific: "Took {{ slots.item }} off the shopping list."
+
+  shopping_list_check:
+    title: Check off the shopping list
+    icon: mdi:cart-check
+    description: check something off the shopping list as bought
+    # Done, and kept on the list as such: "cross the milk off the list",
+    # "check off eggs on the shopping list", "mark bread as done on the list".
+    require: [[check, cross, tick, mark], [shopping list, list]]
+    optional: [[off], [from, on], [as done, as bought]]
+    wildcard:
+      slot: item
+      after: [check, cross, tick, mark]
+      before: [off, from, on, as done, as bought]
+      bounded: true
+      max_words: 5
+    action:
+      action: todo.update_item
+      target:
+        entity_id: todo.shopping_list
+      data:
+        item: "{{ slots.item }}"
+        status: completed
+    verbosity: specific
+    response:
+      done:
+        brief: Checked it off.
+        specific: "Checked {{ slots.item }} off the shopping list."
+
+  shopping_list_items:
+    title: What's on the shopping list
+    icon: mdi:cart-outline
+    description: say what's on the shopping list
+    # What is still to get; what was checked off is left out.
+    examples: ["what's on [the|my|our] shopping list", "what do we need from the (store|shop)", "read [me] the shopping list"]
+    require: [[what's on, what is on, read, tell me], [shopping list]]
+    optional: [[the, my, our], [me]]
+    action:
+      - variables:
+          shopping: todo.shopping_list
+      - action: todo.get_items
+        target:
+          entity_id: "{{ shopping }}"
+        data:
+          status: needs_action
+        response_variable: found
+      - variables:
+          reply:
+            listed: "{{ found[shopping]['items'] | map(attribute='summary') | list }}"
+      - stop: Read the list
+        response_variable: reply
+    response:
+      done: >-
+        {%- set listed = result.listed or [] -%}
+        {%- set count = listed | count -%}
+        {%- if count == 0 -%}
+        The shopping list is empty.
+        {%- elif count == 1 -%}
+        There's {{ listed[0] }} on the shopping list.
+        {%- elif count > 8 -%}
+        There are {{ count }} things on the shopping list: {{ listed[:5] | join(', ') }} and {{ count - 5 }} more.
+        {%- else -%}
+        On the shopping list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
+        {%- endif -%}
+    needs:
+      - Point it at your shopping list (todo.shopping_list here, at the top of
+        what happens).
 
   todo_add:
     title: Add to the to-do list
