@@ -1181,7 +1181,7 @@ async function pageCommand(id, prefill, query) {
         h("div", { class: "wake-list" }, modelBox),
         heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
         combosWrap),
-      h("div", { class: "panel" }, heading("h2", "Implied target", "What it acts on without it being said — a command made for one device, room or floor — passed to Home Assistant as if it had been heard. The words can then be anything."),
+      h("div", { class: "panel" }, heading("h2", "Implied target", "What it acts on without it being said — a command made for one device, room or floor — passed to Home Assistant as if it had been heard. The words can then be anything. A device, room or floor that is said takes the place of the implied one of its kind; a room said with an implied device, or one implied with a device said, only picks out which device."),
         targetEditor(spec)),
     );
   }

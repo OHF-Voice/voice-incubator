@@ -323,7 +323,9 @@ and can be added again. A command has:
 - **Implied target**: entities, areas or floors the command acts on without
   them being said. They reach Home Assistant as slots, as if they had been
   heard, so the phrase can be anything ("cooking mode") while the target
-  stays fixed.
+  stays fixed. A device, room or floor that is said takes the place of the
+  implied one of its kind; a room said with an implied device, or one
+  implied with a device said, only picks out which device.
 - **What happens**: only respond, run a script, activate a scene, run an
   action (Home Assistant script syntax), run an **intent** (below), a timer
   operation or a music operation (below), plus an
