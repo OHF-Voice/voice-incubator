@@ -2,6 +2,8 @@
 
 ## 0.2.0
 
+- **Find a command** on the Home page: a search box over your commands and
+  skills, by title, description, example sentences or keywords.
 - **"What day is Christmas"** went to What's the date ("what day", with
   "is Christmas" left over), whose doubtful match the transcript "agreed"
   with by leaving the same words over. A transcript's match now counts only

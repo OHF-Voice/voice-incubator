@@ -1564,10 +1564,15 @@ function skillItem(skill) {
 // first, then the library's sections, then the skills (Questions).
 // `place`: every one (null), or those that run on a satellite (its key).
 // With the `library`, a section you have commands from says which of its
-// commands you have none of, to add.
-function placedSections(store, skillData, place, emptyText, library) {
-  const ids = Object.keys(store.commands || {}).filter((id) => !place || runsOn(store, id, place));
-  const skillsHere = skillData.skills.filter((sk) => !place || sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.includes(place)));
+// commands you have none of, to add. `words`: only those that say them all
+// (in their title, description, example sentences or keywords).
+function placedSections(store, skillData, place, emptyText, library, words = []) {
+  const said = (...texts) => { const text = texts.join(" ").toLowerCase(); return words.every((w) => text.includes(w)); };
+  const sectionTitle = (id) => ((store.sections || []).find((s) => s.file === (store.details[id] || {}).library) || {}).title || "Custom";
+  const ids = Object.keys(store.commands || {}).filter((id) => (!place || runsOn(store, id, place))
+    && (!words.length || ((spec) => said(spec.title || "", spec.description || "", asList(spec.examples).join(" "), listensText(spec), sectionTitle(id)))(store.commands[id] || {})));
+  const skillsHere = skillData.skills.filter((sk) => (!place || sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.includes(place)))
+    && (!words.length || said(sk.name, sk.description, ...sk.examples, "Questions")));
   const bySection = {};
   for (const id of ids) {
     const section = (store.details[id] || {}).library || "";
@@ -1577,7 +1582,7 @@ function placedSections(store, skillData, place, emptyText, library) {
     h("h3", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(items.length))),
     h("div", { class: "list" }, items), after || null);
   const yours = Object.keys(store.commands || {});
-  const families = library && !place ? libraryFamilies(library.entries || []) : [];
+  const families = library && !place && !words.length ? libraryFamilies(library.entries || []) : [];
   const notAdded = (file) => {
     const missing = families.filter((f) => f.file === file && !f.versions.some((e) => libraryAdded(yours, e.id)));
     if (!missing.length) return null;
@@ -1632,16 +1637,26 @@ async function pageHome(query) {
       h("div", { class: "title" }, "Unknown command"),
       h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What's said when nothing understood a sentence.")),
     h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
-  let place = new URLSearchParams(query || "").get("satellite") || "";
+  const params = new URLSearchParams(query || "");
+  let place = params.get("satellite") || "";
   if (!sats.some((s) => s.key === place)) place = "";
-  const sections = h("div", {}, placedSections(store, skillData, place || null, "No commands yet: press Add.", library));
-  const filter = h("select", { "aria-label": "Show", onchange: (e) => {
-    place = e.target.value;
-    fill(sections, placedSections(store, skillData, place || null, place ? "Nothing runs there." : "No commands yet: press Add.", library));
-    history.replaceState(null, "", place ? `#/home?satellite=${place}` : "#/home");
-  } },
+  const search = h("input", { type: "search", value: params.get("q") || "", placeholder: "Find a command: lights, timer…", "aria-label": "Find a command", style: "max-width:240px" });
+  const sections = h("div");
+  // What is shown, kept in the address for coming back from a command.
+  function show() {
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const empty = words.length ? "Nothing matches." : place ? "Nothing runs there." : "No commands yet: press Add.";
+    fill(sections, placedSections(store, skillData, place || null, empty, library, words));
+    const kept = new URLSearchParams();
+    if (place) kept.set("satellite", place);
+    if (search.value.trim()) kept.set("q", search.value.trim());
+    history.replaceState(null, "", kept.toString() ? `#/home?${kept}` : "#/home");
+  }
+  search.addEventListener("input", show);
+  const filter = h("select", { "aria-label": "Show", onchange: (e) => { place = e.target.value; show(); } },
     h("option", { value: "", selected: !place }, "All"),
     sats.map((s) => h("option", { value: s.key, selected: place === s.key }, `On ${s.name}`)));
+  show();
   fill($main,
     h("h1", {}, "Home"),
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
@@ -1653,6 +1668,7 @@ async function pageHome(query) {
     h("div", { class: "panel" },
       h("div", { class: "row" },
         heading("h2", "Commands and skills", "Each runs on every satellite, or on some: set it on its page. Where two take the same sentence, one on some satellites goes first there.", { class: "grow", style: "margin:0" }),
+        search,
         sats.length ? filter : null,
         h("button", { class: "primary", onclick: () => newCommandDialog() }, "Add")),
       sections),

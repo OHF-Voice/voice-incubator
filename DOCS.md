@@ -33,7 +33,9 @@ REST API, but can't tell an unavailable device apart.
 The **Home** page starts with a tile for each satellite -- its name, area
 and wake words -- then the **commands and skills**, grouped by what they're
 for (your own first, under **Custom**), and the **Unknown command** at the
-bottom. Pick a satellite above the list to see only what runs there.
+bottom. Type in the search box above the list to find commands and skills
+by their title, description, example sentences or keywords, and pick a
+satellite to see only what runs there.
 
 Satellites on the network are found and connected to automatically. Click a
 satellite's tile for its page:
