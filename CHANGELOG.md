@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- **Several items added at once** are items of their own: "add oranges and
+  bananas to the shopping list" adds two (split at the language's "and" and
+  at commas), in every language's library.
 - **An item on the shopping list is one the list has**: checking off and
   taking off match what was heard to the list's items as spoken ("test
   three" is "Test 3"), else the closest in spelling, else say it isn't on

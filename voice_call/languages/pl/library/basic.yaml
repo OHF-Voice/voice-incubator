@@ -438,13 +438,19 @@ commands:
       after: [dodaj, dopisz, wpisz, zapisz, dodać, dopisać]
       before: [do, na]
       bounded: true
-      max_words: 5
+      max_words: 8
+    # Several at once, each an item of its own: "oranges and bananas".
     action:
-      action: todo.add_item
-      target:
-        entity_id: todo.shopping_list
-      data:
-        item: "{{ slots.item }}"
+      repeat:
+        for_each: >-
+          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:i|oraz)\\s+', '|', true)).split('|')
+          | map('trim') | reject('eq', '') | list }}
+        sequence:
+          - action: todo.add_item
+            target:
+              entity_id: todo.shopping_list
+            data:
+              item: "{{ repeat.item }}"
     verbosity: specific
     response:
       done:

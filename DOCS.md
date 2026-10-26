@@ -625,7 +625,9 @@ The library's **Basics** group keeps a shopping list and a to-do list
 you point them at yours):
 
 - **Add to the shopping list**: "add milk to the shopping list", "put eggs
-  on the list".
+  on the list". Several at once are items of their own: "add oranges and
+  bananas" is two, "eggs, milk and bread" three (split at "and" and commas,
+  in every language; "macaroni and cheese" is two as well).
 - **Check off the shopping list**: marks it done, and keeps it on the list
   as such -- "cross the milk off the shopping list", "check off eggs on the
   list", "mark bread as done on the list".
