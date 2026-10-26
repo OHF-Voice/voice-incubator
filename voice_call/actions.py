@@ -12,6 +12,9 @@ variables, which the sequence and the response template can both use:
 ``satellite``   ``id``, ``name``, ``area_id``, ``area_name``, ``floor_id``,
                 ``floor_name``, ``device_id``, ``timer_list``
 ``speaker``     ``name`` (None when not recognized) and ``score``
+``wake_word``   what started the call: ``id`` (``okay_nabu_mike``), ``name``
+                ("Okay Nabu (Mike)") and ``phrase`` ("okay nabu"); None
+                each when typed on the web page
 ``target``      ``entity_id`` from the slots (a room said with a device only
                 picks it out), else ``area_id``/``floor_id``, else the
                 satellite's area: ``target: "{{ target }}"``
@@ -53,7 +56,7 @@ automations can follow along.
 
 When nothing understood a sentence, the Unknown command's response (the
 store's ``unknown``) is said instead of the built-in one, rendered with
-``unknown_variables``: ``satellite``, ``speaker``, ``place``, ``target`` and
+``unknown_variables``: ``satellite``, ``speaker``, ``wake_word``, ``place``, ``target`` and
 ``slots`` (none) as above, and ``transcript`` (what the speech model heard),
 ``heard`` (what the keyword matcher heard), ``hint`` (the near miss, "It
 looks like you're trying to …, but …"; empty when nothing came close),
@@ -135,6 +138,7 @@ def variables(
     speaker: dict[str, Any] | None,
     text: str,
     catalog: Any = None,
+    wake_word: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target: dict[str, list[str]] = {}
     # Named devices are the target; a room said with them only picked them
@@ -150,6 +154,7 @@ def variables(
         "slots": slots,
         "satellite": satellite.as_dict(),
         "speaker": speaker or {"name": None, "score": None},
+        "wake_word": wake_word or NO_WAKE_WORD,
         "target": target,
         "command": {"id": command.id, "description": command.description, "text": text},
         "place": place(slots, satellite, catalog),
@@ -158,6 +163,9 @@ def variables(
         "exposed": sorted(exposed if exposed is not None else getattr(catalog, "entities", None) or []),
     }
 
+
+NO_WAKE_WORD = {"id": None, "name": None, "phrase": None}
+"""``wake_word`` when nothing woke the satellite (typed on the web page)."""
 
 PRIVATE = ("exposed",)
 """Variables left out of the command event and the call's record: long, and
@@ -170,6 +178,7 @@ def unknown_variables(
     speaker: dict[str, Any] | None,
     commands: dict[str, Command],
     catalog: Any = None,
+    wake_word: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """What the Unknown command's response sees: a command's variables
     where there are any, and what was heard and came close."""
@@ -184,6 +193,7 @@ def unknown_variables(
         "slots": {},
         "satellite": satellite.as_dict(),
         "speaker": speaker or {"name": None, "score": None},
+        "wake_word": wake_word or NO_WAKE_WORD,
         "target": {"area_id": [satellite.area_id]} if satellite.area_id else {},
         "place": place({}, satellite, catalog),
         "exposed": sorted(getattr(catalog, "exposed", None) or getattr(catalog, "entities", None) or []),
@@ -255,6 +265,7 @@ async def run(
     music: music_ops.Music | None = None,
     elsewhere: str = BEEP_ELSEWHERE,
     calendar: alarms.AlarmCalendar | None = None,
+    wake_word: dict[str, Any] | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
@@ -263,7 +274,7 @@ async def run(
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     catalog = getattr(hass, "catalog", None)
-    values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog)
+    values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word)
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
     if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
         return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)

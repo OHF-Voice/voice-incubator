@@ -156,6 +156,7 @@ async def _scenario(tmp_path: Path) -> None:
         assert (listed["command"], listed["said"]) == ("lights_on", "Turned on the lights.")
         assert {"split", "speaker", "recognition", "action", "speech"} <= set(stages)
         assert variables["speaker"] == {"name": None, "score": None}  # nobody enrolled
+        assert variables["wake_word"] == {"id": "okay_nabu", "name": "Okay Nabu", "phrase": "okay nabu"}  # what woke it
         split = next(s for s in record.stages if s["stage"] == "split")
         # The CTC evidence found the wake phrase again, and the command starts after it.
         assert split["phrase"] is not None

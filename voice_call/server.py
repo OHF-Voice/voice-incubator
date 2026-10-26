@@ -2393,7 +2393,9 @@ class VoiceCallApp:
                 self.calls.finish(record, "timer stopped", "stopped the timer", self._call_audio(call))
             await self._hang_up(session, "timer_stopped")
             return
-        speech, outcome, summary = await self._carry_out(decision, satellite, speaker, dry_run, record)
+        speech, outcome, summary = await self._carry_out(
+            decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word)
+        )
         answered = outcome == "answered"
         if answered:
             _LOGGER.info("[%s] Answered %r", session, decision.transcript)
@@ -2421,10 +2423,12 @@ class VoiceCallApp:
         speaker: dict[str, Any],
         dry_run: bool,
         record: CallRecord | None,
+        wake_word: dict[str, Any] | None = None,
     ) -> tuple[str | None, str, str]:
         """Run (or show) the decided command. Returns what to say (None: a
         silent command, not even the acknowledgement sound), the outcome, and
-        a one-line summary."""
+        a one-line summary. ``wake_word``: what started the call
+        (``_wake_json``), as commands see it."""
         if (
             decision.command is None
             and decision.answer is None
@@ -2437,14 +2441,14 @@ class VoiceCallApp:
                 return said, "answered", f"{decision.transcript!r}: {self.agent.agent_id}'s answer"
         if decision.command is None and decision.answer is not None and decision.answer.get("text"):
             answer = decision.answer
-            said = await self._skill_says(answer, satellite, speaker, record)
+            said = await self._skill_says(answer, satellite, speaker, record, wake_word)
             return said, "answered", f"{decision.transcript!r}: {answer.get('skill') or answer['kind']}'s answer"
         if decision.command is None:
             message = decision.message or self.language.speech.SORRY
             compiled = self.engine.compiled if self.engine is not None else None
             if compiled is not None and compiled.unknown and decision.refused is None:
                 # Nothing understood it: the Unknown command says what to say.
-                values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, self.hass.catalog)
+                values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, self.hass.catalog, wake_word)
                 started = time.perf_counter()
                 said, error = await actions.render_said(self.hass, compiled.unknown, values)
                 if record is not None:
@@ -2467,7 +2471,7 @@ class VoiceCallApp:
         started = time.perf_counter()
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
-            calendar=self.alarms,
+            calendar=self.alarms, wake_word=wake_word,
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
@@ -2475,7 +2479,8 @@ class VoiceCallApp:
         return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
 
     async def _skill_says(
-        self, answer: dict[str, Any], satellite: Satellite, speaker: dict[str, Any], record: CallRecord | None
+        self, answer: dict[str, Any], satellite: Satellite, speaker: dict[str, Any], record: CallRecord | None,
+        wake_word: dict[str, Any] | None = None,
     ) -> str:
         """A skill's answer as its page says: at its level (specific unless
         set), or that level's template of yours, rendered by Home Assistant
@@ -2492,6 +2497,7 @@ class VoiceCallApp:
                 "response": built_in,
                 "satellite": satellite.as_dict(),
                 "speaker": speaker or {"name": None, "score": None},
+                "wake_word": wake_word or actions.NO_WAKE_WORD,
             }
             started = time.perf_counter()
             rendered, error = await actions.render_said(self.hass, template, values)
@@ -2720,7 +2726,7 @@ class VoiceCallApp:
             {"name": None, "score": None},
         )
         speech, outcome, summary = await self._carry_out(
-            decision, satellite, speaker, not run_actions, record
+            decision, satellite, speaker, not run_actions, record, self._wake_json(call.wake_word)
         )
         record.stage("speech", text=speech or "", **({"silent": True} if speech is None else {}))
         self.calls.finish(record, outcome, summary, {"call": pcm})
@@ -3061,6 +3067,19 @@ class VoiceCallApp:
         call = session.call
         if call is not None and call.thinking is not None:
             await call.thinking.stop(close)
+
+    def _wake_json(self, word_id: str | None) -> dict[str, Any]:
+        """A call's wake word as commands see it (``wake_word``): its ``id``,
+        ``name`` and ``phrase`` -- the phrase it was trained on, for "Okay
+        Nabu (Mike)" "okay nabu"."""
+        if not word_id:
+            return dict(actions.NO_WAKE_WORD)
+        word = self.wake_words.get(word_id)
+        return {
+            "id": word_id,
+            "name": word.name if word is not None else None,
+            "phrase": word.phrases[0] if word is not None and word.phrases else None,
+        }
 
     def thinking_sound(self) -> bool:
         """settings.json ``thinking_sound``: play it while a reply is slow to

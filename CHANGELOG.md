@@ -4,6 +4,8 @@
 
 - **Several wake words per satellite**: up to five of its own (three on
   older firmware), else the home's preferred one, which is still one.
+- **`wake_word`** for actions, scripts and responses: the `id`, `name` and
+  `phrase` of the wake word that started the command.
 - **Embeddings kept between starts** (`embeddings.npz` in the data folder):
   with EmbeddingGemma, a start no longer embeds every example again (91 s on
   an HA Green).

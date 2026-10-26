@@ -389,6 +389,7 @@ The action, the script and the response template all see:
 | `slots` | what was heard plus the fixed target: `entity`, `area`, `floor` (lists of ids), the number (by preset name), value lists, free text |
 | `satellite` | `id`, `name`, `area_id`, `area_name`, `floor_id`, `floor_name`, `device_id`, `timer_list`, `media_player` |
 | `speaker` | `name` of the enrolled voice (or none) and `score` |
+| `wake_word` | `id`, `name` and `phrase` of the wake word that started it (none each when typed) |
 | `target` | `entity_id` from the slots (a room said with a device only picks it out), else `area_id`/`floor_id`, else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
 | `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
