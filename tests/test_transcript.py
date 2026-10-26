@@ -101,9 +101,13 @@ def test_a_doubtful_match_is_heard_again(engine):
         assert decision.doubt["command"] == "resume_music" and decision.doubt["outcome"] == "replaced"
         assert decision.doubt["why"] == "cost"
         assert decision.matched_by == "transcript" and stt.asked == 1
-        # The transcript agrees: it runs.
-        decision = decide(engine, "resume the chicken pder", CloudStt("Resume the chicken pder."))
+        # The transcript agrees, surely: it runs.
+        decision = decide(engine, "resume the chicken pder", CloudStt("Resume the music."))
         assert decision.command.id == "resume_music" and decision.doubt["outcome"] == "agrees"
+        # As unsure in the transcript: that says nothing, and nothing runs.
+        decision = decide(engine, "resume the chicken pder", CloudStt("Resume the chicken pder."))
+        assert decision.command is None and decision.doubt["outcome"] == "unconfirmed"
+        assert decision.doubt["transcript_cost"] >= 4
         # The transcript says nothing, or nothing it can run: nothing runs.
         for heard in ("", "Bake the chicken."):
             decision = decide(engine, "resume the chicken pder", CloudStt(heard))
@@ -115,6 +119,25 @@ def test_a_doubtful_match_is_heard_again(engine):
         # Typed text is its own transcript.
         decision = engine.recognize_text("resume the chicken pder", OFFICE)
         assert decision.command.id == "resume_music" and decision.doubt is None
+    finally:
+        engine.build(compile_store(STORE))
+
+
+def test_a_question_a_command_half_explains_is_a_skills(engine):
+    """"What day is Christmas" is the date's "what day", "is Christmas" left
+    over, in the audio and the transcript alike: not the date, but the dates
+    skill's question."""
+    store = {"commands": {"what_date": {
+        "description": "tell the date", "examples": ["what day is it [today]"], "require": [["date", "what day"]],
+        "optional": [["what is", "what's"], ["today"]], "response": "Today."},
+        # "is" is another command's keyword: left over, it is doubtful.
+        "is_open": {"description": "say if a door is open", "require": [["is"], ["open"]], "response": "No."}}}
+    engine.build(compile_store(store))
+    try:
+        decision = decide(engine, "what day is christmas", CloudStt("What day is Christmas?"))
+        assert decision.command is None and decision.doubt["outcome"] == "unconfirmed"
+        assert decision.answer and decision.answer["skill"] == "dates"
+        assert engine.recognize_text("what day is it today", OFFICE).command.id == "what_date"
     finally:
         engine.build(compile_store(STORE))
 

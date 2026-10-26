@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **"What day is Christmas"** went to What's the date ("what day", with
+  "is Christmas" left over), whose doubtful match the transcript "agreed"
+  with by leaving the same words over. A transcript's match now counts only
+  when it is sure; the dates skill answers, and "what day is …" a holiday
+  says the weekday and the date ("It's Friday, December 25.").
 - **Brighter, Dimmer and Set the color temperature** in the library (English),
   each in the satellite's area, in an area or floor named, or for a light by
   name: a fifth brighter or dimmer, never to off, of the lights that are on;

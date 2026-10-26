@@ -1099,7 +1099,10 @@ for this app:
   time (8.16), "we resume the chicken pder" as resuming the music (5.5,
   "chicken" left over) -- and so did two right ones, whose transcripts
   agreed. None below it was wrong. Typed text is its own transcript and is
-  not heard again.
+  not heard again. The transcript's match counts only when it is sure
+  (below that cost): "what day is Christmas" is the date's "what day" with
+  "is Christmas" left over in the audio and the transcript alike, and so
+  goes on to the dates skill (`transcript_cost` in the trace).
 - **A name is stronger evidence than none** (`Engine._may_name`). A match
   that named nothing, with a word left over, of a command with a version
   here that takes a device, area or floor (the same description: a library

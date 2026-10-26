@@ -744,7 +744,8 @@ class Engine:
         as resuming it, "cancel the timer" as the time -- and the
         transcripts said so. A match that named nothing (``unnamed``) gives
         way only to a version of it the transcript names a device, area or
-        floor for."""
+        floor for. The transcript's match counts only when it is sure: as
+        doubtful there, it says nothing."""
         if recognition.tdt_transcript is None:
             started = time.perf_counter()
             recognition.tdt_transcript = transcriber.transcribe(command_audio)
@@ -758,6 +759,12 @@ class Engine:
         decision.transcript_pass = again.transcript_pass
         decision.doubt = {"why": why, **doubt}
         doubt = decision.doubt
+        if again.command is not None and again.intent is not None and again.intent.cost >= recognizer.config.settings.unexplained_important_cost:
+            # The transcript's match is as unsure: it says nothing ("what
+            # day is Christmas" is the date's "what day", "is Christmas" left
+            # over, in the transcript too -- and the dates skill's).
+            doubt["transcript_cost"] = round(float(again.intent.cost), 2)
+            again = Decision(recognition={})
         if why == "unnamed":
             versions = {c.id for c in kin(compiled, decision.command)}
             if again.command is not None and again.command.id in versions and _named(again):

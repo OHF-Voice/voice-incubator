@@ -201,6 +201,7 @@ def sentence(answer: str | None) -> str | None:
     answer = answer.strip()
     if answer in ("Yes", "No"):
         return answer + "."
-    if answer[:1].isdigit() or answer[:1] == "-" or answer.split(" ")[0] in calendar.month_name or answer in calendar.day_name:
+    first = answer.split(" ")[0].rstrip(",")
+    if answer[:1].isdigit() or answer[:1] == "-" or first in calendar.month_name or first in calendar.day_name:
         return f"It's {answer}."
     return answer if answer.endswith(".") else answer + "."

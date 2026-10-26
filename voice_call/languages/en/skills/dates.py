@@ -185,15 +185,19 @@ def solve(q, settings):
         return {("months", "year"): "12", ("weeks", "year"): "52", ("days", "week"): "7", ("days", "year"): "365"}.get((a, b))
     if m := re.fullmatch(r"(?:what|which) day (of the week )?(?:is|was|will be|(does)) (.+?)(?: fall on| be| land on)?", s):
         d = parse_date(m.group(3))
-        # A holiday's weekday, next time; "what day is Christmas" is its date.
+        # A holiday's weekday, next time; "what day is Christmas" is below.
         if d is None and (m.group(1) or m.group(2)) and (holiday := settings.holiday(m.group(3))) is not None:
             d = holiday.next(shared.today())
         if d:
             return calendar.day_name[d.weekday()]
-    if m := re.fullmatch(r"(?:what|which) (?:date|day) is (.+)|when is (.+)", s):
-        holiday = settings.holiday(m.group(1) or m.group(2))
+    if m := re.fullmatch(r"(?:what|which) (date|day) is (.+)|when is (.+)", s):
+        holiday = settings.holiday(m.group(2) or m.group(3))
         if holiday is not None:
             found, today = holiday.date, shared.today()
+            if m.group(1) == "day":
+                # "What day" may be either: the weekday and the date, next time.
+                date = found.on(found.year) if found.year is not None else holiday.next(today)
+                return f"{calendar.day_name[date.weekday()]}, {_said(date, today, year=found.year is not None)}" if date else None
             if found.fixed:
                 return f"{calendar.month_name[found.fixed[0]]} {found.fixed[1]}"
             if found.year is not None:

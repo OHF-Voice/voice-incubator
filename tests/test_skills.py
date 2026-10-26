@@ -25,7 +25,7 @@ from voice_call.skills.live import is_live
         ("what is 5 miles in kilometers", "It's 8.047 kilometers.", "units"),
         # An ounce beside a volume is a fluid ounce.
         ("how many ounces are in a cup", "It's 8.", "units"),
-        ("what day is christmas", "It's December 25.", "dates"),
+        ("what date is christmas", "It's December 25.", "dates"),
         ("Is 2024 a leap year?", "Yes.", "dates"),
         ("What is the last month of the year?", "It's December.", "dates"),
         ("what time is 45 minutes after 3 pm", "It's 3:45 PM.", "clock"),
@@ -349,6 +349,10 @@ def test_holidays(monkeypatch):
     assert answered("when is memorial day") == "It's May 31, 2027."
     assert answered("when is good friday") == "It's March 26, 2027."
     assert answered("what day of the week is christmas") == "It's Friday."
+    # "What day" may be either: both.
+    assert answered("what day is christmas") == "It's Friday, December 25."
+    assert answered("what day is thanksgiving") == "It's Thursday, November 26."
+    assert answered("what date is christmas") == "It's December 25."
     assert answered("how many days until the fourth of july") == "It's 262 days."
     page = dates.Settings().to_json()
     assert {"name": "Thanksgiving", "when": "fourth Thursday of November", "also": ["Thanksgiving Day"],

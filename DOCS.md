@@ -650,8 +650,9 @@ In order, each only when the one before found nothing:
    weak. A doubtful match in the audio -- one that left a word it heard as
    something else unexplained ("resume the chicken ..." as resuming the
    music), or was heard only poorly -- runs only when the transcript says the
-   same command; when it says another, that one runs, and when it says none,
-   nothing does. A name counts for more than none: when the audio matched a
+   same command, surely; when it says another, that one runs, and when it
+   says none, or is as unsure ("what day is Christmas" as What's the date),
+   nothing does, and the steps below go on. A name counts for more than none: when the audio matched a
    command naming nothing, with a word left over, and the transcript names
    a device, area or floor for another version of it, that version runs
    ("set bed light to green"). A session's Recognition step says so. Typed text (a
