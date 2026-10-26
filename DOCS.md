@@ -248,19 +248,17 @@ Each version is a command of its own (`play_music_here`,
 `play_music_device`, `play_music_place`): add the ones you want, and a
 sentence goes to the one that takes what was said in it. Adding one from the
 library copies it into your commands (the value lists it uses are the
-language's own: see Value lists); one you already have is marked **added**, by its
-id, so a command you renamed counts as your own and the library's can be
-added again. A command has:
+language's own: see Value lists); one you already have is marked **added**,
+and can be added again. A command has:
 
 - **Icon**: to tell commands apart at a glance; by default, one for what it
   does (a timer, music, a script ...).
 
-- **What it does**: a verb phrase, "turn on the lights". It is also how a near
+- **Description**: a verb phrase, "turn on the lights". It is also how a near
   miss is described: "It looks like you're trying to turn on the lights, but I
-  didn't hear which room."
-- **Target**: entities, areas or floors the command acts on. They reach Home
-  Assistant as slots, as if they had been heard, so the phrase can be anything
-  ("cooking mode") while the target stays fixed.
+  didn't hear which room." Meaning and the model (When nothing matches) tell
+  commands apart by it. Its id is made from it, and never shown.
+- **Runs on**: every satellite, some, or none (turned off).
 - **Listen for**:
   - **Example sentences**, said word for word. An example always matches when
     it is heard, ahead of keyword matches -- but only as all that was said:
@@ -271,6 +269,8 @@ added again. A command has:
     word. The editor shows what each template stands for. Examples have no
     placeholders (`{area}`): slots come from keywords. Each sentence costs a
     little on every call, so a template may stand for 512 at most.
+    **Also sentences that mean the same**, under them, lets meaning run it
+    when nothing else matched (When nothing matches).
   - **Keywords**: groups that must be heard (any one alternative of each), in
     any order, plus optional groups and words that must not be heard ("is",
     so "the door is locked" isn't "lock the door"). Write `turn ... on` for
@@ -293,7 +293,10 @@ added again. A command has:
   - **Free text**, kept bounded so it can be heard reliably: between two
     keywords ("add … to the shopping list"), from a keyword to the end
     ("remind me to …"), or right before or after a keyword ("the … timer").
-    It is spelled from the TDT transcript.
+    It is spelled from the TDT transcript. **Also when the model hears its
+    free text or values**, under it, lets the model run it when nothing else
+    matched (When nothing matches); it is offered on a command with free text
+    or a value list.
   - **A device in a room**: "turn on the fan in the office" picks the Fan
     that Home Assistant puts in the office -- names may repeat, one Fan per
     room. When none is there, nothing runs and the satellite says so ("…but
@@ -317,6 +320,10 @@ added again. A command has:
     command never runs with something you said left out: "turn off the
     lights in the bedroom" is the area combination, never the satellite's
     own area.
+- **Implied target**: entities, areas or floors the command acts on without
+  them being said. They reach Home Assistant as slots, as if they had been
+  heard, so the phrase can be anything ("cooking mode") while the target
+  stays fixed.
 - **What happens**: only respond, run a script, activate a scene, run an
   action (Home Assistant script syntax), run an **intent** (below), a timer
   operation or a music operation (below), plus an
@@ -622,7 +629,9 @@ In order, each only when the one before found nothing:
 5. **The conversation agent** (Settings page), when there is one.
 6. **The Unknown command** (below).
 
-Choose commands for meaning and the model on the command's page, or many at
+Choose a command for meaning on its page with **Also sentences that mean the
+same** (under its example sentences), and for the model with **Also when the
+model hears its free text or values** (under its free text), or many at
 once with **Choose commands** under "When nothing matches" on the
 **Settings** page, where each step can also be turned off for every command
 (a command's page then says "off in Settings", and a call's trace says why
@@ -631,7 +640,10 @@ choose them.
 
 - **Meaning** picks the chosen command a sentence is very close to -- its
   example sentences and description: "kill the lights in the office" for
-  "turn off the lights". What was said in it -- the room, a number, a name --
+  "turn off the lights". Example sentences match far better: on the
+  benchmark's sentences, the right command scored 0.86 against one of its
+  examples, and 0.80 against its description, where meaning runs a command
+  at 0.80. What was said in it -- the room, a number, a name --
   the model below hears, and that picks the way of saying it (the office, or
   nothing named: the satellite's area). A command that hears nothing runs at
   once. With the model turned off, meaning runs only commands that hear

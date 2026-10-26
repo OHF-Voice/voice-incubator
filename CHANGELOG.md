@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **The command page**, most changed first: description and where it runs,
+  example sentences, what happens, keywords, then the **implied target**
+  (was Target). "What it does" is **Description**, and the id is no longer
+  shown: a new command's is made from its description. Meaning and the
+  model are chosen where they apply: **Also sentences that mean the same**
+  under the example sentences, **Also when the model hears its free text or
+  values** under the free text, offered only with free text or a value list.
 - **People** (the Speakers page, renamed): someone with things of their own,
   a voice, or both. Their own to-do list, calendar and playlist are what "my"
   means when they speak -- **Add to my to-do list**, **Remind me**, **What's

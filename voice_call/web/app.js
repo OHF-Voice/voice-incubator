@@ -481,10 +481,10 @@ function fallbackPanel() {
   return h("div", { class: "panel" },
     h("div", { class: "row" }, heading("h2", "When nothing matches", "Keywords and example sentences come first. When they find nothing, these may run a command — only one chosen for it, here or on the command's page.", { class: "grow", style: "margin:0" }),
       h("button", { onclick: () => { location.hash = "#/fallback"; } }, "Choose commands")),
-    h("label", {}, meaning, "By meaning", hint("Runs the command a sentence is very close to in meaning (“kill the lights in the office”); the model hears what was said in it, such as the room."),
+    h("label", {}, meaning, "By meaning", hint("Runs the command a sentence is very close to in meaning: one of its example sentences (best), or its description (“kill the lights in the office”); the model hears what was said in it, such as the room."),
       h("span", { class: "badge" }, count(status.meaning_commands)),
       status.meaning_available === false ? h("span", { class: "badge" }, "needs the embedding model") : null),
-    h("label", {}, llm, "By model", hint("GLiNER picks a command and hears what it needs (“I'm in the mood for jazz”)."),
+    h("label", {}, llm, "By model", hint("GLiNER picks a command with free text or values and hears them (“I'm in the mood for jazz”)."),
       h("span", { class: "badge" }, count(status.llm_commands)),
       h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
@@ -504,13 +504,13 @@ async function pageFallback() {
     const needsSaid = !!(store.details[cid] || {}).needs_said;
     const meaning = h("input", { type: "checkbox", checked: steps.includes("meaning"),
       title: needsSaid ? "Meaning picks it; the model hears what was said in it (a name, number, value or text)" : "" });
-    // GLiNER picks only commands that hear something: meaning takes the rest.
-    const glinerSkips = !needsSaid;
-    const llm = h("input", { type: "checkbox", checked: steps.includes("llm"), disabled: glinerSkips && !steps.includes("llm"),
-      title: glinerSkips ? "It hears nothing: GLiNER leaves it to meaning" : "" });
+    // The model is for free text and values: meaning takes the rest.
+    const hears = !!(spec && (spec.wildcard || Object.keys(spec.lists || {}).length));
+    const llm = h("input", { type: "checkbox", checked: steps.includes("llm"), disabled: !hears && !steps.includes("llm"),
+      title: hears ? "" : "No free text or values for the model to hear" });
     const row = h("div", { class: "item" }, icon(iconFor(spec || {}), "big"),
       h("div", { class: "grow" }, h("div", { class: "title" }, (spec && (spec.title || spec.description)) || cid),
-        h("div", { class: "muted small" }, cid, needsSaid ? " · hears something" : "")),
+        h("div", { class: "muted small" }, [spec && spec.title ? spec.description : null, hears ? "free text or values" : null].filter(Boolean).join(" · "))),
       h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
     return { cid, spec, meaning, llm, row };
   });
@@ -533,7 +533,7 @@ async function pageFallback() {
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
     h("div", { class: "panel" },
-      h("div", { class: "row" }, heading("h2", "Commands", "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to (the model hears the names, numbers or text said in it), and “model” lets GLiNER pick it and hear what it needs (only a command that hears something). A command not chosen is never run by them.", { class: "grow", style: "margin:0" }), filter,
+      h("div", { class: "row" }, heading("h2", "Commands", "When keywords and example sentences find nothing, “meaning” may run a command a sentence is very close to — its example sentences (best) or description; the model hears the names, numbers or text said in it — and “model” lets GLiNER pick a command with free text or values and hear them. A command not chosen is never run by them.", { class: "grow", style: "margin:0" }), filter,
         h("button", { onclick: () => all("meaning", true) }, "All by meaning"), h("button", { onclick: () => all("llm", true) }, "All by model"),
         h("button", { onclick: () => { all("meaning", false); all("llm", false); } }, "None")),
       h("div", { class: "list" }, rows.map((r) => r.row))),
@@ -626,7 +626,14 @@ async function pageCommand(id, prefill, query) {
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
   const back = () => "#/home";
-  let commandId = id || slug(spec.description) || "";
+  // A new command's id, from its description: unique, never shown.
+  const commandId = () => {
+    if (id) return id;
+    const base = slug(spec.description) || "command";
+    let candidate = base;
+    for (let n = 2; state.store.commands[candidate]; n++) candidate = `${base}_${n}`;
+    return candidate;
+  };
   const actionYaml = { value: await yamlDump(spec.action) };
   const errors = h("div");
   let tab = "form";
@@ -645,7 +652,7 @@ async function pageCommand(id, prefill, query) {
   async function syncFromForm() {
     const form = formSpec();
     try {
-      const checked = await api("POST", "commands/check", { id: commandId || "draft", spec: form });
+      const checked = await api("POST", "commands/check", { id: commandId(), spec: form });
       yamlText = checked.yaml;
     } catch (_) {
       yamlText = await yamlDump(form);
@@ -660,24 +667,25 @@ async function pageCommand(id, prefill, query) {
 
   async function save() {
     fill(errors, );
-    if (!commandId) { errors.append(errorBox("Give the command an id")); return; }
+    if (tab !== "yaml" && !String(spec.description || "").trim()) { errors.append(errorBox("Give the command a description")); return; }
+    const saving = commandId();
     try {
       if (tab === "yaml") {
-        await api("PUT", `commands/${commandId}`, { yaml: yamlText, old_id: id || undefined });
+        await api("PUT", `commands/${saving}`, { yaml: yamlText });
       } else {
-        await api("PUT", `commands/${commandId}`, { spec: formSpec(), old_id: id || undefined });
+        await api("PUT", `commands/${saving}`, { spec: formSpec() });
       }
       toast("Saved");
       refreshStatus();
-      if (commandId !== id) location.hash = `#/command/${commandId}`;
-      else pageCommand(commandId);
+      if (saving !== id) location.hash = `#/command/${saving}`;
+      else pageCommand(saving);
     } catch (err) {
       errors.append(errorBox(err));
     }
   }
 
   async function remove() {
-    if (!confirm(`Delete the command ${id}?`)) return;
+    if (!confirm(`Delete ${spec.title || spec.description || id}?`)) return;
     await api("DELETE", `commands/${id}`);
     toast("Deleted");
     location.hash = back();
@@ -1082,6 +1090,7 @@ async function pageCommand(id, prefill, query) {
     }
     knownSlots = slots;
     renderCombos();
+    renderModelBox();
   }
   function renderCombos() {
     const slots = heardSlots();
@@ -1107,10 +1116,34 @@ async function pageCommand(id, prefill, query) {
   }
   renderCombos();
 
+  // Whether a fallback step may run it: chosen for it, with a note when
+  // the step is turned off for every command.
+  function fallbackBox(step, label, help) {
+    return h("label", {},
+      h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
+        const now = asList(spec.fallback).filter((x) => x !== step);
+        if (e.target.checked) now.push(step);
+        const ordered = ["meaning", "llm"].filter((x) => now.includes(x));
+        if (ordered.length) spec.fallback = ordered; else delete spec.fallback;
+      } }), label, hint(help),
+      // Turned off for every command: ticked here, it still won't run.
+      ((state.status || {}).fallback || {})[step] === false
+        ? h("a", { class: "badge warn", href: "#/settings", title: "Turned off for every command under “When nothing matches” on the Settings page" }, "off in Settings") : null);
+  }
+  // The model hears free text and values: offered where it has some (or is
+  // chosen already), as they come and go.
+  const modelBox = h("div");
+  function renderModelBox() {
+    const hears = !!(spec.wildcard || Object.keys(spec.lists || {}).length);
+    fill(modelBox, hears || asList(spec.fallback).includes("llm")
+      ? fallbackBox("llm", "Also when the model hears its free text or values",
+        "When nothing else matched, a small model (GLiNER) may pick this command out of a sentence and hear its free text or values in it: “we're out of milk” adds milk to the shopping list.")
+      : null);
+  }
+  renderModelBox();
+
   function renderForm() {
-    const idInput = h("input", { type: "text", value: commandId, placeholder: "turn_on_the_lights", oninput: (e) => { commandId = slug(e.target.value); } });
-    const description = h("input", { type: "text", value: spec.description || "", style: "width:100%", placeholder: "turn on the lights", oninput: (e) => { spec.description = e.target.value; if (isNew && !idInput.dataset.touched) { commandId = slug(e.target.value); idInput.value = commandId; } } });
-    idInput.addEventListener("input", () => { idInput.dataset.touched = "1"; });
+    const description = h("input", { type: "text", value: spec.description || "", style: "width:100%", placeholder: "turn on the lights", oninput: (e) => { spec.description = e.target.value; } });
     const iconBox = h("div");
     const drawIcon = (open) => {
       const current = h("button", { type: "button", class: "icon-button", title: "Change the icon", onclick: () => drawIcon(!open) }, icon(iconFor(spec), "big"));
@@ -1123,34 +1156,21 @@ async function pageCommand(id, prefill, query) {
       h("div", { class: "panel" },
         h("div", { class: "row", style: "align-items:flex-start" },
           field("Icon", iconBox),
-          h("div", { class: "grid2 grow" },
-            field("What it does", description, "A verb phrase. It's also how a near miss is described: “It looks like you're trying to turn on the lights, but…”"),
-            field("Id", idInput, "Lowercase letters, digits and underscores."))),
+          h("div", { class: "grow" },
+            field("Description", description, "What it does, as a verb phrase: “turn on the lights”. A near miss is described with it (“It looks like you're trying to turn on the lights, but…”), and meaning and the model tell commands apart by it."))),
         field("Runs on", whereEditor(spec.disabled ? "none" : spec.satellites ? "some" : "every", asList(spec.satellites), (where, keys) => {
           if (where === "none") spec.disabled = true; else delete spec.disabled;
           if (where === "some") spec.satellites = keys; else if (where === "every") delete spec.satellites;
-        }), "Where two take the same sentence, one on some satellites goes first there."),
-        field("When nothing else matches", h("div", { class: "wake-list" },
-          [["meaning", "By meaning"], ["llm", "By model"]].map(([step, label]) => h("label", {},
-            h("input", { type: "checkbox", checked: asList(spec.fallback).includes(step), onchange: (e) => {
-              const now = asList(spec.fallback).filter((x) => x !== step);
-              if (e.target.checked) now.push(step);
-              const ordered = ["meaning", "llm"].filter((x) => now.includes(x));
-              if (ordered.length) spec.fallback = ordered; else delete spec.fallback;
-            } }), label,
-            // Turned off for every command: ticked here, it still won't run.
-            ((state.status || {}).fallback || {})[step] === false
-              ? h("a", { class: "badge warn", href: "#/settings", title: "Turned off for every command under “When nothing matches” on the Settings page" }, "off in Settings") : null))),
-          (id && ((state.store.details || {})[id] || {}).needs_said)
-            ? "It hears something (a name, number, value or text): meaning picks the command, and the model hears what was said in it."
-            : "Only after keywords and example sentences found nothing. See “When nothing matches” on the Settings page.")),
-      h("div", { class: "panel" }, heading("h2", "Target", "What the command acts on, passed to Home Assistant as slots as if it had been heard. The phrase can then be anything."),
-        targetEditor(spec)),
-      h("div", { class: "panel" }, h("h2", {}, "Listen for"),
-        ((info) => field("Example sentences", h("div", {},
-          chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box),
-          "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."))(examplesInfo(spec.examples || [])),
-        heading("h3", "Keywords", "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
+        }), "Where two take the same sentence, one on some satellites goes first there.")),
+      h("div", { class: "panel" },
+        ((info) => h("div", {},
+            heading("h2", "Example sentences", "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."),
+            chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box))(examplesInfo(spec.examples || [])),
+        h("div", { class: "wake-list" }, fallbackBox("meaning", "Also sentences that mean the same",
+          "When nothing else matched, a sentence very close in meaning to one of these, or to the description, runs it: “got the time?” for “what time is it”. Example sentences match far better than the description."))),
+      h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml)),
+      h("div", { class: "panel" },
+        heading("h2", "Keywords", "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
         field("Required", groupsEditor(spec.require, (v) => { spec.require = v; }, "Add a required group")),
         field("Optional", groupsEditor(spec.optional, (v) => { spec.optional = v; }, "Add an optional group"), "Words that may be said and should not count against the match."),
         field("Must not hear", chipsInput(spec.exclude || [], (v) => { spec.exclude = v; }, "is, are"), "A statement is not a command: “the door is locked”."),
@@ -1158,9 +1178,11 @@ async function pageCommand(id, prefill, query) {
         h("h3", {}, "Number"), numberEditor(),
         h("h3", {}, "Value lists"), listsEditor(),
         heading("h3", "Free text", "Re-read from the TDT transcript for spelling. Keep it bounded: the fewer words it may take, the fewer mishearings it swallows."), wildcardEditor(),
+        h("div", { class: "wake-list" }, modelBox),
         heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
         combosWrap),
-      h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml)),
+      h("div", { class: "panel" }, heading("h2", "Implied target", "What it acts on without it being said — a command made for one device, room or floor — passed to Home Assistant as if it had been heard. The words can then be anything."),
+        targetEditor(spec)),
     );
   }
 
@@ -1239,24 +1261,23 @@ async function duplicateDialog(id) {
   const spec = store.commands[id] || {};
   let copyId = `${id}_copy`;
   for (let n = 2; store.commands[copyId]; n++) copyId = `${id}_copy_${n}`;
-  const idInput = h("input", { type: "text", value: copyId });
   const title = h("input", { type: "text", value: `${spec.title || spec.description || id} (copy)`, style: "width:100%" });
   const errors = h("div");
   async function create() {
     fill(errors);
     try {
-      const result = await api("POST", `commands/${id}/duplicate`, { new_id: slug(idInput.value), title: title.value.trim() });
+      const result = await api("POST", `commands/${id}/duplicate`, { new_id: copyId, title: title.value.trim() });
       close();
-      toast(`Made ${result.id}`);
+      toast("Duplicated");
       refreshStatus();
       location.hash = `#/command/${result.id}`;
     } catch (err) { errors.append(errorBox(err)); }
   }
   const close = openDialog(`Duplicate ${spec.title || spec.description || id}`, h("div", { class: "stack" },
-    h("div", { class: "grid2" }, field("Id", idInput, "Lowercase letters, digits and underscores."), field("Title", title)),
+    field("Title", title),
     errors,
     h("div", { class: "row" }, h("span", { class: "grow" }, ""), h("button", { type: "button", onclick: () => close() }, "Cancel"), h("button", { class: "primary", onclick: create }, "Duplicate"))), "compact");
-  idInput.focus();
+  title.focus();
 }
 
 // ------------------------------------------------------------- new command
@@ -1301,7 +1322,7 @@ async function newCommandDialog() {
   const add = async (entry) => {
     try {
       const result = await api("POST", "library/add", { file: entry.file, id: entry.id });
-      toast(`Added ${result.id}`);
+      toast(`Added ${entry.title}`);
       close();
       refreshStatus();
       location.hash = `#/command/${result.id}`;
