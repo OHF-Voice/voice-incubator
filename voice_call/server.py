@@ -690,6 +690,7 @@ class VoiceCallApp:
             self.tdt_dir(),
             self.options.embedding_dir,
             self.options.threads,
+            self.store.data_dir / "embeddings.npz",  # kept for the next start
         )
         self.engine.entity_area = self._entity_area
         self.configure_skills()

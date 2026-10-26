@@ -2,6 +2,9 @@
 
 ## 0.2.0
 
+- **Embeddings kept between starts** (`embeddings.npz` in the data folder):
+  with EmbeddingGemma, a start no longer embeds every example again (91 s on
+  an HA Green).
 - **The center button cancels a call** and what it is saying (firmware:
   `voice_call.cancel`).
 - **Piper speaks a reply a sentence at a time**, starting with the first,

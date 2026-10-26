@@ -232,11 +232,19 @@ class Split:
 
 class CachedEmbedder:
     """Embeds documents (examples, descriptions, everyday requests) once.
-    Rebuilding after an edit then costs only the new sentences."""
+    Rebuilding after an edit then costs only the new sentences; with
+    ``path``, kept there for the next start too, as long as the model is the
+    same (91 s for 25 commands on an HA Green, every start, without it)."""
 
-    def __init__(self, embedder) -> None:
+    def __init__(self, embedder, path: Path | None = None) -> None:
         self._embedder = embedder
         self._cache: dict[str, np.ndarray] = {}
+        self._used: set[str] = set()
+        self._added = False
+        self._path = Path(path) if path is not None else None
+        self._model = _model_of(embedder)
+        if self._path is not None and self._path.is_file():
+            self._load(self._path)
 
     def embed(self, texts: list[str], document: bool = False) -> np.ndarray:
         if not document:
@@ -245,9 +253,48 @@ class CachedEmbedder:
         if missing:
             for text, vector in zip(missing, self._embedder.embed(missing, True)):
                 self._cache[text] = vector
+            self._added = True
+        self._used.update(texts)
         if not texts:
             return np.zeros((0, 768), dtype=np.float32)
         return np.stack([self._cache[t] for t in texts])
+
+    def _load(self, path: Path) -> None:
+        try:
+            with np.load(path, allow_pickle=False) as saved:
+                if str(saved["model"]) != self._model:
+                    _LOGGER.info("%s is another model's; embedding anew", path.name)
+                    return
+                for text, vector in zip(saved["texts"].tolist(), saved["vectors"]):
+                    self._cache[str(text)] = vector
+        except (OSError, KeyError, ValueError) as err:
+            _LOGGER.warning("Could not read %s (%s); embedding anew", path, err)
+            return
+        _LOGGER.info("%d embedded sentences from %s", len(self._cache), path.name)
+
+    def save(self) -> None:
+        """Keep what the builds since starting used, if anything changed:
+        sentences no command says any more are left out."""
+        if self._path is None or not self._used or (not self._added and self._used >= set(self._cache)):
+            return
+        texts = [t for t in self._cache if t in self._used]
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self._path.with_name(f".{self._path.name}.tmp")
+        with open(temp, "wb") as out:
+            np.savez(out, model=np.array(self._model), texts=np.array(texts), vectors=np.stack([self._cache[t] for t in texts]))
+        temp.replace(self._path)
+        self._cache = {t: self._cache[t] for t in texts}
+        self._added = False
+
+
+def _model_of(embedder) -> str:
+    """What a saved embedding was made with: the model's files and sizes,
+    and how documents are prompted."""
+    from adapt_ctc.embedding import DOCUMENT_PROMPT  # pylint: disable=import-outside-toplevel
+
+    model_dir = Path(getattr(embedder, "model_dir", "") or ".")
+    files = sorted((p.name, p.stat().st_size) for p in model_dir.rglob("*.onnx*")) if model_dir.is_dir() else []
+    return f"{model_dir.name} {files} {DOCUMENT_PROMPT!r}"
 
 
 class Engine:
@@ -257,6 +304,7 @@ class Engine:
         tdt_dir: Path | None = None,
         embedding_dir: Path | None = None,
         threads: int = 2,
+        embedding_cache: Path | None = None,
     ) -> None:
         self.threads = threads
         shared = self._shared(model_dir, tdt_dir)
@@ -268,7 +316,7 @@ class Engine:
             try:
                 from adapt_ctc.embedding import Embedder  # pylint: disable=import-outside-toplevel
 
-                self.embedder = CachedEmbedder(Embedder(embedding_dir, threads))
+                self.embedder = CachedEmbedder(Embedder(embedding_dir, threads), embedding_cache)
             except ImportError:
                 _LOGGER.warning("tokenizers is not installed; no hints by meaning")
         elif embedding_dir is not None:
@@ -361,6 +409,11 @@ class Engine:
             self.compiled = compiled
             self.recognizer = recognizer
             self.unspeakable = list(recognizer.unspeakable) if recognizer else []
+        if isinstance(self.embedder, CachedEmbedder):
+            try:
+                self.embedder.save()
+            except OSError as err:
+                _LOGGER.warning("Could not keep the embeddings: %s", err)
         self.build_seconds = time.perf_counter() - started
         _LOGGER.info(
             "Recognizing %d command(s); built in %.0f ms%s",

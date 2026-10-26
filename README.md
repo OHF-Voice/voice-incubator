@@ -142,7 +142,10 @@ A command is one adapt-ctc intent (examples, keywords, names, a number, value
 lists, free text) plus where it is available and what it does. All of them
 compile into one graph: rebuilding after an edit takes 50-150 ms, plus the
 first embedding of any new example or description when EmbeddingGemma is
-loaded. Scope is applied after recognition, best match first, so a command
+loaded. Those embeddings are kept for the next start (`embeddings.npz` in the
+data folder, `engine.CachedEmbedder`), as long as the model is the same:
+without it, every start embedded every example again, 91 s for 25 commands on
+an HA Green, before any satellite was served. Scope is applied after recognition, best match first, so a command
 unavailable on this satellite is passed over (and named, if nothing else
 matched) rather than changing what the others compete with.
 
