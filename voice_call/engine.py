@@ -16,7 +16,11 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    left unexplained ("we resume the chicken pder" as resuming the music,
    "chicken" left over) runs only when the TDT or STT transcript agrees: the
    same matcher on the transcript finds the same command. A command it finds
-   instead runs in its place; finding none, nothing runs.
+   instead runs in its place; finding none, nothing runs. And a name is
+   stronger evidence than its absence: a match that named nothing, with a
+   word left over, of a command with a version that takes a device, area or
+   floor, gives way to that version when the transcript names one ("set bed
+   light to green", heard as "set and light to green").
 4. **Where it is available.** Matches are taken best first, skipping commands
    that are not on this satellite (they are on some others). Of matches as
    good as each other, and of example sentences a copy also has, one on some
@@ -54,8 +58,8 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 from adapt_ctc.config import ConfigError, _phrase
 
 from . import languages, skills
-from .commands import DYNAMIC_LISTS, Behavior, Command, base_config, command_of, match_slots
-from .fallback import label_of
+from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots
+from .fallback import kin, label_of
 from .store import Compiled
 from .voices import TypedText, VoiceChoice
 
@@ -176,10 +180,13 @@ class Decision:
     """Nothing matched in the audio, or what did was doubtful: what the
     keyword matcher made of the transcript."""
     doubt: dict[str, Any] | None = None
-    """A match that cost as much as a word it left unexplained: the command,
-    its cost, the transcript, and what came of hearing it again: it
+    """A match heard again with the transcript (``why``): it cost as much as
+    a word it left unexplained (``cost``) -- and then the transcript
     ``agrees``, another command ``replaced`` it, one was ``refused`` as said,
-    or none was found (``unconfirmed``)."""
+    or none was found (``unconfirmed``) -- or it named nothing where a
+    version of it takes a name (``unnamed``), and then the transcript
+    ``named`` one, or it was ``kept``. With the command, its cost and the
+    transcript."""
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
@@ -577,14 +584,11 @@ class Engine:
         decision = Decision(recognition={}, text_source=getattr(transcriber, "source", "TDT"))
 
         self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
-        if (
-            decision.command is not None
-            and not typed
-            and transcriber is not None
-            and decision.intent is not None
-            and decision.intent.cost >= recognizer.config.settings.unexplained_important_cost
-        ):
-            self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber)
+        if decision.command is not None and not typed and transcriber is not None and decision.intent is not None:
+            if decision.intent.cost >= recognizer.config.settings.unexplained_important_cost:
+                self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber, "cost")
+            elif decision.intent.unexplained and self._may_name(decision, compiled, satellite):
+                self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber, "unnamed")
 
         if decision.command is None and decision.refused is None and decision.doubt is None:
             if transcriber is not None and recognition.tdt_transcript is None:
@@ -731,12 +735,16 @@ class Engine:
         satellite: Satellite,
         command_audio: np.ndarray,
         transcriber: Any,
+        why: str,
     ) -> None:
-        """A doubtful match runs only when the transcript agrees (the same
-        command); one the transcript finds instead runs in its place, and
-        none means nothing runs. In sessions, every wrong command run on
-        keywords cost this much -- "pause the chicken timer" as resuming it,
-        "cancel the timer" as the time -- and the transcripts said so."""
+        """A doubtful match (``why``: ``cost``) runs only when the transcript
+        agrees (the same command); one the transcript finds instead runs in
+        its place, and none means nothing runs. In sessions, every wrong
+        command run on keywords cost this much -- "pause the chicken timer"
+        as resuming it, "cancel the timer" as the time -- and the
+        transcripts said so. A match that named nothing (``unnamed``) gives
+        way only to a version of it the transcript names a device, area or
+        floor for."""
         if recognition.tdt_transcript is None:
             started = time.perf_counter()
             recognition.tdt_transcript = transcriber.transcribe(command_audio)
@@ -748,7 +756,18 @@ class Engine:
         if text.strip():
             self._match_transcript(again, text, compiled, recognizer, satellite)
         decision.transcript_pass = again.transcript_pass
-        decision.doubt = doubt
+        decision.doubt = {"why": why, **doubt}
+        doubt = decision.doubt
+        if why == "unnamed":
+            versions = {c.id for c in kin(compiled, decision.command)}
+            if again.command is not None and again.command.id in versions and _named(again):
+                doubt["outcome"] = "named"
+                decision.command, decision.behavior, decision.intent = again.command, again.behavior, again.intent
+                decision.slots, decision.text_from_tdt = again.slots, again.text_from_tdt
+                decision.matched_by = "transcript"
+            else:
+                doubt["outcome"] = "kept"
+            return
         if again.command is not None and again.command.id == decision.command.id:
             doubt["outcome"] = "agrees"
         elif again.command is not None or again.refused is not None:
@@ -759,6 +778,18 @@ class Engine:
         else:
             doubt["outcome"] = "unconfirmed"
             decision.command, decision.behavior, decision.intent, decision.slots = None, None, None, {}
+
+    @staticmethod
+    def _may_name(decision: Decision, compiled: Compiled, satellite: Satellite) -> bool:
+        """Whether a match named nothing where a version of it, here, takes
+        a device, area or floor by name."""
+        assert decision.command is not None
+        if _named(decision):
+            return False
+        return any(
+            c.id != decision.command.id and c.intent.get("names") and satellite.available(c) is not None
+            for c in kin(compiled, decision.command)
+        )
 
     def _match_transcript(
         self, decision: Decision, transcript: str, compiled: Compiled, recognizer: Recognizer, satellite: Satellite
@@ -1079,6 +1110,13 @@ def model_note(fallback: dict[str, Any] | None) -> str | None:
         picked = f"{by} picked {step['command']}" if step.get("command") else f"{by}'s pick"
         return f"{picked}, not run: {'; '.join(step['problems'])}"
     return f"{by}: {step.get('said') or 'not a command'}"
+
+
+def _named(decision: Decision) -> bool:
+    """Whether a decision heard a device, area or floor named (not one its
+    command implies)."""
+    fixed = decision.behavior.slots if decision.behavior is not None else {}
+    return any(decision.slots.get(slot) and decision.slots.get(slot) != fixed.get(slot) for slot in NAME_SLOTS)
 
 
 def _took(timings: dict[str, float], key: str, started: float) -> None:

@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **A name heard counts for more than none**: a match that named nothing,
+  with a word left over, gives way to the version of it that takes a
+  device, area or floor when the transcript names one. "Set bed light to
+  green", heard as "set and light to green", turned the satellite's area
+  green.
 - **An STT entity that hears nothing** (no text, no error, as Home Assistant
   Cloud now and then answers) is stood in for by the built-in TDT model, as
   one that fails is: "lock the front door", heard by the CTC head as "move

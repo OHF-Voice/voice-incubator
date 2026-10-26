@@ -3221,7 +3221,10 @@ function renderRecognition(rec) {
     rec.text_from_tdt && Object.keys(rec.text_from_tdt).length ? h("div", { class: "small muted" }, "Free text re-read from TDT; the CTC head heard ", JSON.stringify(rec.text_from_tdt)) : null,
     rec.answer ? h("div", { class: "notice info" }, rec.answer.text || "(no answer)",
       h("div", { class: "small muted" }, rec.answer.kind === "exact" ? `answered exactly (${rec.answer.skill || rec.answer.solver})` : `answered (${rec.answer.kind})`)) : null,
-    rec.doubt ? h("div", { class: `notice ${rec.doubt.outcome === "agrees" ? "info" : "warn"}` }, `Doubtful in the audio: ${rec.doubt.command} (cost ${rec.doubt.cost}). `,
+    rec.doubt && rec.doubt.why === "unnamed" ? h("div", { class: "notice info" }, `${rec.doubt.command} named nothing, with a word left over. `,
+      rec.doubt.outcome === "named" ? `The transcript, “${rec.doubt.transcript}”, names what ${rec.command} takes, which ran instead.`
+        : `The transcript${rec.doubt.transcript ? `, “${rec.doubt.transcript}”,` : ""} names nothing for it either.`) : null,
+    rec.doubt && rec.doubt.why !== "unnamed" ? h("div", { class: `notice ${rec.doubt.outcome === "agrees" ? "info" : "warn"}` }, `Doubtful in the audio: ${rec.doubt.command} (cost ${rec.doubt.cost}). `,
       rec.doubt.transcript ? `The transcript, “${rec.doubt.transcript}”, ` : "The transcript was empty, so it ",
       { agrees: "agrees.", replaced: `is ${rec.command}, which ran instead.`, refused: "says something that can't be done as said.", unconfirmed: rec.doubt.transcript ? "doesn't say it: nothing ran." : "couldn't confirm it: nothing ran." }[rec.doubt.outcome] || rec.doubt.outcome) : null,
     rec.matched_by === "transcript" && !rec.doubt ? h("div", { class: "notice info" }, `Found by keywords in the ${rec.text_source && rec.text_source !== "TDT" ? `transcript from ${rec.text_source}` : "TDT transcript"}: the audio's own evidence wasn't enough.`) : null,

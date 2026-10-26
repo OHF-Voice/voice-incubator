@@ -1100,6 +1100,15 @@ for this app:
   "chicken" left over) -- and so did two right ones, whose transcripts
   agreed. None below it was wrong. Typed text is its own transcript and is
   not heard again.
+- **A name is stronger evidence than none** (`Engine._may_name`). A match
+  that named nothing, with a word left over, of a command with a version
+  here that takes a device, area or floor (the same description: a library
+  family) is heard again too, and gives way to that version when the
+  transcript names one (`doubt.why: unnamed`, `named` or `kept`). "Set bed
+  light to green", heard as "is the set and light to green", set the
+  satellite's area green at cost 3.47 while Home Assistant Cloud had it
+  word for word. A match with every word explained leaves no room for a
+  missed name, and isn't asked.
 - **Rooms must fit** (`settings.places_must_fit`, on). An area or floor name
   heard that a match leaves unexplained rejects an intent that takes no name
   of that type -- keyword matches and example sentences alike. Before, a

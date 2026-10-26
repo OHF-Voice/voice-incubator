@@ -631,7 +631,10 @@ In order, each only when the one before found nothing:
    something else unexplained ("resume the chicken ..." as resuming the
    music), or was heard only poorly -- runs only when the transcript says the
    same command; when it says another, that one runs, and when it says none,
-   nothing does. A session's Recognition step says so. Typed text (a
+   nothing does. A name counts for more than none: when the audio matched a
+   command naming nothing, with a word left over, and the transcript names
+   a device, area or floor for another version of it, that version runs
+   ("set bed light to green"). A session's Recognition step says so. Typed text (a
    satellite's Test it) is read as said, word for word.
 2. **Skills** (Questions, on the Home page or a satellite's): spelling,
    dates, the clock, units and arithmetic answer exactly ("what's twelve

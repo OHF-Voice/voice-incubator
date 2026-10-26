@@ -99,6 +99,7 @@ def test_a_doubtful_match_is_heard_again(engine):
         decision = decide(engine, "resume the chicken pder", stt)
         assert decision.command.id == "resume_timer" and decision.slots == {"timer_name": "chicken"}
         assert decision.doubt["command"] == "resume_music" and decision.doubt["outcome"] == "replaced"
+        assert decision.doubt["why"] == "cost"
         assert decision.matched_by == "transcript" and stt.asked == 1
         # The transcript agrees: it runs.
         decision = decide(engine, "resume the chicken pder", CloudStt("Resume the chicken pder."))
@@ -114,6 +115,31 @@ def test_a_doubtful_match_is_heard_again(engine):
         # Typed text is its own transcript.
         decision = engine.recognize_text("resume the chicken pder", OFFICE)
         assert decision.command.id == "resume_music" and decision.doubt is None
+    finally:
+        engine.build(compile_store(STORE))
+
+
+def test_a_name_in_the_transcript_beats_none_in_the_audio(engine):
+    """A match that named nothing, with a word left over, gives way to a
+    version of it the transcript names a device for."""
+    color = {"description": "change the color of the lights", "optional": [["to"], ["the"]],
+             "lists": {"color": {"values": {"green": "green", "red": "red"}}}, "response": "Done."}
+    store = {"names": {"entities": {"light.bed": {"name": "Bed Light"}}}, "commands": {
+        "color_here": {**color, "require": [["set"], ["light", "lights"]]},
+        "color_device": {**color, "require": [["set"]], "names": {"entity": {"count": 1}}},
+    }}
+    engine.build(compile_store(store))
+    try:
+        # "bed" heard as "and": here, unless the transcript names the light.
+        decision = decide(engine, "set and light to green", CloudStt("Set bed light to green."))
+        assert decision.command.id == "color_device" and decision.slots == {"entity": ["light.bed"], "color": "green"}
+        assert decision.doubt["why"] == "unnamed" and decision.doubt["outcome"] == "named"
+        decision = decide(engine, "set and light to green", CloudStt("Set the light to green."))
+        assert decision.command.id == "color_here" and decision.doubt["outcome"] == "kept"
+        # Every word explained: no name was missed, and it isn't asked.
+        stt = CloudStt("Set bed light to green.")
+        decision = decide(engine, "set the light to green", stt)
+        assert decision.command.id == "color_here" and decision.doubt is None and stt.asked == 0
     finally:
         engine.build(compile_store(STORE))
 
