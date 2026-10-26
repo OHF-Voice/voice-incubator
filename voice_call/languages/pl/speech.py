@@ -27,6 +27,7 @@ from .skills.numbers import count, fold, ordinal, plural, spell
 
 SORRY = "Przepraszam, nie rozumiem."
 FAILED = "Przepraszam, to się nie udało."
+NO_SPEAKER = "Przepraszam, nie wiem, kto mówi."
 WENT_WRONG = "Przepraszam, coś poszło nie tak."
 NO_COMMANDS = "Nie ma jeszcze żadnych poleceń głosowych. Dodaj je w aplikacji Voice Call."
 TIMERS_NEED_INTEGRATION = "Minutniki wymagają integracji Voice Call w Home Assistant."

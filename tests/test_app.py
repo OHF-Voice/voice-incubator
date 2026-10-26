@@ -15,6 +15,7 @@ import aiohttp
 import numpy as np
 import pytest
 
+from voice_call import people as people_mod
 from voice_call.server import Options, VoiceCallApp
 from voice_call.store import styled
 
@@ -154,8 +155,10 @@ async def _scenario(tmp_path: Path) -> None:
         listed = app.calls.list()[0]
         assert "lights" in listed["heard"]
         assert (listed["command"], listed["said"]) == ("lights_on", "Turned on the lights.")
-        assert {"split", "speaker", "recognition", "action", "speech"} <= set(stages)
-        assert variables["speaker"] == {"name": None, "score": None}  # nobody enrolled
+        assert {"split", "recognition", "action", "speech"} <= set(stages)
+        # Nobody in the home: no voice to identify, and nobody speaking.
+        assert "speaker" not in stages
+        assert variables["speaker"] == {"name": None, "score": None, "by": None, "todo_list": None, "calendar": None, "playlist": None}
         assert variables["wake_word"] == {"id": "okay_nabu", "name": "Okay Nabu", "phrase": "okay nabu"}  # what woke it
         split = next(s for s in record.stages if s["stage"] == "split")
         # The CTC evidence found the wake phrase again, and the command starts after it.
@@ -164,7 +167,7 @@ async def _scenario(tmp_path: Path) -> None:
         # How long each step took.
         by_stage = {s["stage"]: s for s in record.stages}
         assert by_stage["wake_kaldi"]["decode_ms"] > 0
-        assert split["seconds"] > 0 and by_stage["speaker"]["seconds"] > 0
+        assert split["seconds"] > 0
         assert by_stage["recognition"]["timings"] and by_stage["action"]["seconds"] > 0
         assert by_stage["speech"]["synthesis"] > 0 and by_stage["speech"]["seconds"] > 0  # Piper's
         assert not record.kept  # no debugging: no audio on disk
@@ -436,6 +439,53 @@ async def _scenario(tmp_path: Path) -> None:
             assert await said("what time is 45 minutes after 3 pm") == "It's 3:45 PM."
             del app.store.settings["skill_settings"]
             app.configure_skills()
+
+            # People, and "my": the speaker's own to-do list, where anyone has one.
+            mine = {
+                "description": "add something to my to-do list", "require": [["add"], ["my to do list"]], "optional": [["to"]],
+                "wildcard": {"slot": "item", "after": ["add"], "before": ["to"], "bounded": True},
+                "slots": {"entity": ["todo.to_do"]}, "mine": "todo_list",
+                "action": {"action": "todo.add_item", "target": {"entity_id": "{{ slots.entity }}"}, "data": {"item": "{{ slots.item }}"}},
+                "response": {"done": "Added {{ slots.item }} to {{ slots.entity[0] }}.", "no_speaker": "Who's asking?"},
+            }
+            assert (await http.put("/api/commands/todo_add_mine", json={"yaml": json.dumps(mine)})).status == 200
+            # Nobody has one of their own: the command's own, whoever speaks.
+            assert await said("add milk to my to do list") == "Added milk to todo.to_do."
+            # One person: it's them, without a voice.
+            made = await (await http.put("/api/people/mike", json={"own": {"todo_list": "todo.mike"}})).json()
+            assert made["name"] == "Mike" and app.store.people == {"Mike": {"todo_list": "todo.mike"}}
+            assert json.loads((tmp_path / "people.json").read_text()) == {"Mike": {"todo_list": "todo.mike"}}
+            assert await said("add milk to my to do list") == "Added milk to todo.mike."
+            record = app.calls.recent[-1]
+            action = next(s for s in record.stages if s["stage"] == "action")
+            assert action["variables"]["speaker"] == {
+                "name": "Mike", "score": None, "by": "only_person", "todo_list": "todo.mike", "calendar": None, "playlist": None,
+            }
+            assert not app.identifies()
+            # Two: someone must be known -- by their wake word, here.
+            assert (await http.put("/api/people/Anna", json={"own": {"wake_words": ["okay_nabu"]}})).status == 200
+            assert await said("add milk to my to do list") == "Who's asking?"
+            anna = app.speaking(None, "okay_nabu")
+            assert (anna.name, anna.by) == ("Anna", "wake_word") and app.speaking(None, "hey_jarvis").name is None
+            people = (await (await http.get("/api/speakers")).json())["people"]
+            assert [(p["name"], p["own"], p["voice"]) for p in people] == [
+                ("Anna", {"wake_words": ["okay_nabu"]}, None), ("Mike", {"todo_list": "todo.mike"}, None),
+            ]
+            # Their voice for replies; the satellite's otherwise.
+            assert (await http.put("/api/people/Anna", json={"own": {"tts": "tts.cloud", "tts_voice": "JennyNeural"}})).status == 200
+            kitchen = app.satellite(MAC)
+            assert app.voice_for(kitchen, app.speaking(None, None)).voice == kitchen.voice  # nobody known
+            voiced = app.voice_for(kitchen, people_mod.speaking(app.store.people, [], "Anna")).voice
+            assert (voiced.tts, voiced.tts_voice, voiced.tts_language) == ("tts.cloud", "JennyNeural", None)
+            # Renamed, their things go with them; refused things say why.
+            assert (await http.put("/api/people/anna", json={"own": {}, "name": "Ann"})).status == 200
+            assert set(app.store.people) == {"Mike", "Ann"} and app.store.people["Ann"] == {}
+            response = await http.put("/api/people/Ann", json={"own": {"todo_list": "calendar.ann"}})
+            assert response.status == 400 and "todo entity" in (await response.json())["error"]
+            assert (await http.delete("/api/people/Ann")).status == 200
+            assert (await http.delete("/api/people/Ann")).status == 404
+            assert (await http.delete("/api/people/Mike")).status == 200 and app.store.people == {}
+            assert (await http.delete("/api/commands/todo_add_mine")).status == 200
 
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."

@@ -1,8 +1,9 @@
 """Where commands, satellites and settings live.
 
 The web UI's own files, as JSON: ``commands.json`` (the voice commands,
-shared names and lists), ``satellites.json``, ``settings.json`` and
-``wake_words.json`` (what the Wake words page changed, per wake word). Only
+shared names and lists), ``satellites.json``, ``settings.json``,
+``wake_words.json`` (what the Wake words page changed, per wake word) and
+``people.json`` (each person's own things: voice_call/people.py). Only
 the UI edits them: each is read once and written whole when it changes. (They
 were YAML, read and written round-trip so that a hand edit's comments
 survived: 386 ms to read the commands and 218 ms to write them on an HA Green,
@@ -301,6 +302,8 @@ class Store:
     wake_tuning: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Per wake word: its cutoff, confusables, pronunciations and thresholds,
     where the Wake words page changed them."""
+    people: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """Each person's own things, by name (voice_call/people.py)."""
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
@@ -322,6 +325,10 @@ class Store:
     @property
     def wake_tuning_path(self) -> Path:
         return self.data_dir / "wake_words.json"
+
+    @property
+    def people_path(self) -> Path:
+        return self.data_dir / "people.json"
 
     @property
     def calls_dir(self) -> Path:
@@ -518,6 +525,7 @@ class Store:
         self.satellites = _read(self.satellites_path) or {}
         self.settings = {**DEFAULT_SETTINGS, **(_read(self.settings_path) or {})}
         self.wake_tuning = _read(self.wake_tuning_path) or {}
+        self.people = _read(self.people_path) or {}
 
     def save_satellites(self) -> None:
         _write_atomic(self.satellites_path, _dumps(self.satellites))
@@ -527,6 +535,9 @@ class Store:
 
     def save_wake_tuning(self) -> None:
         _write_atomic(self.wake_tuning_path, _dumps(self.wake_tuning))
+
+    def save_people(self) -> None:
+        _write_atomic(self.people_path, _dumps(self.people))
 
     def satellite(self, key: str) -> dict[str, Any]:
         return self.satellites.get(key) or {}

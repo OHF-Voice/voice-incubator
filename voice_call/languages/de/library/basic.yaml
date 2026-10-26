@@ -437,10 +437,14 @@ commands:
       after: [daran, an, erinnere mich, erinner mich]
       to_end: true
       max_words: 10
+    # The speaker's own to-do list, when anyone has one (People page).
+    slots:
+      entity: [todo.reminders]
+    mine: todo_list
     action:
       action: todo.add_item
       target:
-        entity_id: todo.reminders
+        entity_id: "{{ slots.entity }}"
       data:
         item: "{{ slots.reminder }}"
     verbosity: specific
@@ -449,7 +453,9 @@ commands:
         brief: Ich erinnere dich.
         specific: "Ich erinnere dich daran: {{ slots.reminder }}."
     needs:
-      - Point it at a to-do list (todo.reminders here).
+      - Point it at a to-do list (todo.reminders here). Where someone has a
+        to-do list of their own (People page), theirs, and they must be
+        recognized.
 
   scene:
     title: Activate a scene

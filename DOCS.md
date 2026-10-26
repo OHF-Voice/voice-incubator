@@ -77,7 +77,7 @@ come from. It takes about 20 minutes on a Raspberry Pi 5, every core of it
 and about 2 GB of memory (a Pi without a fan slows down by a third or more),
 and about 70 minutes on a Home Assistant Green; the app goes on answering
 meanwhile, more slowly. The phrase field suggests what has been recorded on
-the Speakers page -- everyone's takes of a phrase, or one person's ("okay nabu
+the People page -- everyone's takes of a phrase, or one person's ("okay nabu
 (Mike)") -- and a name of its own ("Okay Nabu (Mike)") keeps it apart from the
 others of the same phrase; without one, it is called by its phrase. The new word is added as a
 custom one, at a cutoff of 0.8 and not checked a second time. How well it
@@ -182,6 +182,45 @@ A session's **End of speech** step says which detector ended it, and with
 what. A session that reaches the longest command says why: the audio stopped
 arriving, the wake word was still being checked, no speech was heard, or
 speech never ended in enough silence.
+
+## People
+
+The **People** page lists who lives here: someone with things of their own,
+an enrolled voice, or both. Add someone by name; their page sets:
+
+- **Their own**: a to-do list, a calendar and a Music Assistant playlist.
+  They are what "my" means when they speak: **Add to my to-do list** ("add
+  call mom to my to-do list"), **Remind me**, **What's on my calendar** and
+  **Play my playlist** act on the speaker's own. Where nobody has one of
+  their own, those act on the command's own (the to-do list it was given);
+  where someone does, the speaker must be known -- "Sorry, I don't know
+  who's speaking." otherwise -- and someone without one gets the command's
+  own. "The to-do list" and "the shopping list" are always the command's.
+- **Replies**: the text-to-speech entity and voice replies to them are said
+  in, in place of the satellite's.
+- **Wake words**: wake words that are theirs, such as one trained on their
+  recordings ("Okay Nabu (Mike)").
+- **Voice**: enrolled on the People page, as below.
+
+**Who is speaking**: the person their voice is recognized as; else the one
+whose wake word started it; else, when the home has only one person, them --
+unless their voice was heard and it wasn't theirs. With one person, no voice
+is needed: enroll it to tell guests apart.
+A session's Speaker step says who it was and how.
+
+A command of your own acts on the speaker's own with `mine` (`todo_list`,
+`calendar` or `playlist`; its YAML tab): their to-do list or calendar
+replaces its `slots.entity`, their playlist its `slots.query`. Its response
+may say something of its own when nobody is known (`no_speaker`). The "my"
+commands are in the English library for now; **Remind me** is personal in
+every language.
+
+**Voices**: on the People page, pick a name and a satellite and read the
+passage aloud in your normal voice, walking slowly around the room, for about
+a minute; the ring blinks red while it listens. Enrolling again on another
+satellite adds to the same voice. Each voice has a ring color, shown while
+its commands are processed. Someone enrolled can also record a wake phrase
+there, for training a wake word that hears them better.
 
 ## Commands
 
@@ -383,7 +422,7 @@ The action, the script and the response template all see:
 |---|---|
 | `slots` | what was heard plus the fixed target: `entity`, `area`, `floor` (lists of ids), the number (by preset name), value lists, free text |
 | `satellite` | `id`, `name`, `area_id`, `area_name`, `floor_id`, `floor_name`, `device_id`, `timer_list`, `media_player` |
-| `speaker` | `name` of the enrolled voice (or none) and `score` |
+| `speaker` | who is speaking (People): `name` (or none), `score` (by their voice), `by` (`voice`, `wake_word`, `only_person`), and their own `todo_list`, `calendar` and `playlist` |
 | `wake_word` | `id`, `name` and `phrase` of the wake word that started it (none each when typed) |
 | `target` | `entity_id` from the slots (a room said with a device only picks it out), else `area_id`/`floor_id`, else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
@@ -776,8 +815,8 @@ names:
   you hear what would have been said. Kept sessions show their
   waveform with the wake word, the cut and the recognized words marked, and
   can be **replayed** through today's commands.
-- **Who spoke**: a kept session's voice can be added to a speaker's -- one
-  already known, or a new one -- from its Speaker step, so they are
+- **Who spoke**: a kept session's voice can be added to a person's -- one
+  already known, or someone new -- from its Speaker step, so they are
   recognized better from then on (and their name reaches commands as
   `speaker`).
 
@@ -785,7 +824,8 @@ names:
 
 Everything the UI edits is in `/data`, as JSON the UI alone reads and writes:
 `commands.json` (commands, names and value lists), `satellites.json`,
-`settings.json` and `wake_words.json`. They are not for editing by hand.
+`settings.json`, `wake_words.json` and `people.json` (each person's own
+things). They are not for editing by hand.
 Files from before this version (`commands.yaml` and the others) are copied
 to JSON once, and left as they were. The commands, written as YAML, look like
 this; a command's YAML tab shows and takes one of them (what is under its id

@@ -407,7 +407,7 @@ function endOfSpeechPanel() {
   // On, with nobody to tell apart: it does nothing until someone is enrolled.
   const noVoices = () => !others.checked ? null
     : status.voices === null ? h("div", { class: "notice warn" }, "Speaker identification is turned off, so this does nothing.")
-    : status.voices === 0 ? h("div", { class: "notice warn" }, "No voices are enrolled, so this does nothing yet: ", h("a", { href: "#/speakers" }, "enroll one on the Speakers page"), ".")
+    : status.voices === 0 ? h("div", { class: "notice warn" }, "No voices are enrolled, so this does nothing yet: ", h("a", { href: "#/people" }, "enroll one on the People page"), ".")
     : null;
   const note = h("div", {}, noVoices());
   others.addEventListener("change", () => fill(note, noVoices()));
@@ -2368,7 +2368,7 @@ function wakeTraining(first, reload) {
     ticks = found ? Object.entries(found.speakers).map(([speaker, n]) => ({ name: speaker, box: h("input", { type: "checkbox", checked: !only || speaker === only }), n })) : [];
     fill(whose, ticks.length
       ? ["With the recordings of", ticks.map((t) => h("label", {}, t.box, ` ${t.name} (${t.n})`))]
-      : said.length >= 3 ? h("span", { class: "muted" }, "Nobody has recorded it: ", h("a", { href: "#/speakers" }, "record it on the Speakers page"), " for a model that hears them better.") : null);
+      : said.length >= 3 ? h("span", { class: "muted" }, "Nobody has recorded it: ", h("a", { href: "#/people" }, "record it on the People page"), " for a model that hears them better.") : null);
   }
   phrase.addEventListener("input", () => { only = null; recorded(); });
   name.addEventListener("input", () => {
@@ -2416,7 +2416,7 @@ function wakeTraining(first, reload) {
   }
   show(first);
   return h("div", { class: "panel" },
-    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. Speakers' own recordings of it (the Speakers page) are trained with too: several people's help everyone, and a built-in phrase trained so is a word of its own beside the built-in one. It is added unverified, at its own cutoff; try it before relying on it. Training a word trained here again replaces it when done.`),
+    heading("h2", "Train", `Type a wake phrase. Piper says it ${first.clips.toLocaleString()} ways and a model learns it against speech, music and noise: about 20 minutes on a Raspberry Pi 5, using all of it. People's own recordings of it (the People page) are trained with too: several people's help everyone, and a built-in phrase trained so is a word of its own beside the built-in one. It is added unverified, at its own cutoff; try it before relying on it. Training a word trained here again replaces it when done.`),
     box);
 }
 
@@ -2572,59 +2572,143 @@ function wakeTitle(wake) {
   return wake && wake.probability !== undefined ? `window average ${prob(wake.probability)}, highest ${prob(wake.max_probability)}, cutoff ${prob(wake.cutoff)}` : null;
 }
 
-// Speakers: the voices commands are attributed to, enrolling one from a
-// satellite (they read the passage aloud while it listens), and their own
-// wake words, recorded there for training.
-async function pageSpeakers(preset, recordFor) {
+// People: who lives here -- their own things (what "my" means when they
+// speak) and their voice -- enrolling a voice from a satellite (they read the
+// passage aloud while it listens), and their wake words, recorded there for
+// training.
+async function pagePeople(preset, recordFor) {
   const data = await api("GET", "speakers");
-  if (!data.enabled) {
-    fill($main, h("h1", {}, "Speakers"), h("div", { class: "panel muted" }, "Speaker identification is turned off (--no-speaker-id)."));
-    return;
-  }
   const rgb = (c) => (c ? `rgb(${c.join(",")})` : "var(--line)");
   const list = h("div", { class: "list" });
-  for (const sp of data.speakers) {
-    const color = h("select", { "aria-label": `${sp.name}'s ring color`, style: "max-width:130px" },
-      data.palette.map((p) => h("option", { value: p.name, selected: p.name === sp.color_name || null }, p.name)));
-    color.addEventListener("change", async () => {
-      try { await api("PATCH", `speakers/${encodeURIComponent(sp.name)}`, { color: color.value }); pageSpeakers(); }
+  for (const person of data.people) {
+    const sp = person.voice;
+    const own = person.own || {};
+    const color = sp ? h("select", { "aria-label": `${person.name}'s ring color`, style: "max-width:130px", onclick: (e) => e.stopPropagation() },
+      data.palette.map((p) => h("option", { value: p.name, selected: p.name === sp.color_name || null }, p.name))) : null;
+    if (color) color.addEventListener("change", async () => {
+      try { await api("PATCH", `speakers/${encodeURIComponent(sp.name)}`, { color: color.value }); pagePeople(); }
       catch (err) { toast(err.message); }
     });
-    const enrolled = (sp.enrolled || []).map((e) => e.satellite);
-    const where = [...new Set(enrolled)];
-    list.append(h("div", { class: "item" },
-      h("span", { class: "dot", style: `background:${rgb(sp.color)}; width:14px; height:14px` }),
+    const where = sp ? [...new Set((sp.enrolled || []).map((e) => e.satellite))] : [];
+    const theirs = [own.todo_list && "to-do list", own.calendar && "calendar", own.playlist && "playlist", own.tts && "voice for replies",
+      (own.wake_words || []).length && `${own.wake_words.length} wake word${own.wake_words.length === 1 ? "" : "s"}`].filter(Boolean);
+    list.append(h("div", { class: "item clickable", onclick: () => { location.hash = `#/person/${encodeURIComponent(person.name)}`; } },
+      h("span", { class: "dot", style: `background:${rgb(sp && sp.color)}; width:14px; height:14px` }),
       h("div", { class: "grow" },
-        h("div", { class: "title" }, sp.name),
+        h("div", { class: "title" }, person.name),
         h("div", { class: "muted small" }, [
-          `${num(sp.seconds, 0)} s of speech`,
+          sp ? `${num(sp.seconds, 0)} s of speech` : data.enabled ? "no voice yet" : null,
           where.length ? `enrolled on ${where.join(", ")}` : null,
-          sp.learned ? `learned from ${sp.learned} command${sp.learned === 1 ? "" : "s"}` : null,
+          sp && sp.learned ? `learned from ${sp.learned} command${sp.learned === 1 ? "" : "s"}` : null,
+          theirs.length ? `their own ${theirs.join(", ")}` : null,
         ].filter(Boolean).join(" · "))),
       color,
-      h("button", { onclick: () => pageSpeakers(sp.name) }, "Add more"),
-      h("button", { onclick: () => pageSpeakers(null, sp.name) }, "Wake word"),
-      h("button", { onclick: async () => {
-        const name = prompt(`Rename ${sp.name} to`, sp.name);
-        if (!name || name === sp.name) return;
-        try { await api("PATCH", `speakers/${encodeURIComponent(sp.name)}`, { name }); pageSpeakers(); }
-        catch (err) { toast(err.message); }
-      } }, "Rename"),
-      h("button", { class: "danger", onclick: async () => {
-        if (!confirm(`Forget ${sp.name}'s voice?`)) return;
-        try { await api("DELETE", `speakers/${encodeURIComponent(sp.name)}`); pageSpeakers(); }
-        catch (err) { toast(err.message); }
-      } }, "Delete")));
-    if ((sp.wake || []).length) list.append(h("div", { class: "wake-takes" }, sp.wake.map((w) => wakeTakes(sp, w))));
+      data.enabled ? h("button", { onclick: (e) => { e.stopPropagation(); pagePeople(person.name); } }, sp ? "Add more" : "Enroll") : null,
+      sp ? h("button", { onclick: (e) => { e.stopPropagation(); pagePeople(null, person.name); } }, "Wake word") : null));
+    if (sp && (sp.wake || []).length) list.append(h("div", { class: "wake-takes" }, sp.wake.map((w) => wakeTakes(sp, w))));
   }
+  const newName = h("input", { type: "text", placeholder: "Name", "aria-label": "Name", style: "max-width:220px" });
+  const add = async () => {
+    try {
+      const made = await api("PUT", `people/${encodeURIComponent(newName.value.trim())}`, { own: {} });
+      location.hash = `#/person/${encodeURIComponent(made.name)}`;
+    } catch (err) { toast(err.message); }
+  };
+  newName.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+  const voices = data.speakers.length;
   fill($main,
-    h("h1", {}, "Speakers"),
+    heading("h1", "People", "Who is speaking: the person their voice is recognized as; else the one whose wake word it was; else, with only one person, them (unless their voice was heard and it wasn't theirs). Their own to-do list, calendar and playlist are what “my” means when they speak. With one person, no voice is needed."),
     h("div", { class: "panel" },
-      heading("h2", "Voices", `A command is attributed to the closest voice scoring ${num(data.threshold, 2)} or more, and the ring takes their color. Once someone is identified, someone else starting to talk ends their command (Settings, End of speech). Voices also learn from commands they clearly win.`),
-      data.speakers.length ? list : h("div", { class: "muted" }, "No voices yet: enroll one below, or add a session's from its page.")),
-    enrollPanel(data, preset),
-    data.speakers.length ? wakeRecordPanel(data, recordFor) : null);
+      data.enabled ? null : h("p", { class: "muted small" }, "Voices aren't recognized (--no-speaker-id)."),
+      data.people.length ? list : h("p", { class: "muted small" }, "Nobody yet."),
+      h("div", { class: "row" }, newName, h("button", { class: "primary", onclick: add }, "Add a person"))),
+    data.enabled ? enrollPanel(data, preset) : null,
+    data.enabled && voices ? wakeRecordPanel(data, recordFor) : null);
   if (recordFor) $main.lastChild.scrollIntoView({ block: "start" });
+}
+
+// One entity of a domain, picked or typed: shown as a chip to remove.
+function entityField(domain, value, onChange) {
+  const box = h("div");
+  const draw = () => fill(box, value
+    ? h("div", { class: "chips" }, h("span", { class: "chip" }, value,
+      h("button", { type: "button", "aria-label": `Remove ${value}`, onclick: () => { value = null; onChange(null); draw(); } }, "×")))
+    : hassPicker("entity", (item) => { value = item.id; onChange(value); draw(); }, { domain }));
+  draw();
+  return box;
+}
+
+// One person: their own things, the voice replies to them are in, their
+// wake words, and their voice.
+async function pagePerson(name) {
+  const [data, voices, wake] = await Promise.all([
+    api("GET", "speakers"),
+    api("GET", "voices").catch(() => ({ tts: [] })),
+    api("GET", "wake_words").catch(() => ({ wake_words: [] })),
+  ]);
+  const person = data.people.find((p) => p.name === name);
+  if (!person) { fill($main, h("a", { href: "#/people" }, "← People"), errorBox(`Nobody called ${name}`)); return; }
+  const own = { ...(person.own || {}) };
+  const sp = person.voice;
+  const rename = h("input", { type: "text", value: person.name });
+  const playlist = h("input", { type: "text", value: own.playlist || "", placeholder: "Mike's Mix" });
+  const tts = voiceSelect("tts", voices.tts || [], own.tts, "the satellite's");
+  const ttsLanguage = languagePicker(voices.tts || [], tts, own.tts_language);
+  const voice = voicePicker(tts, own.tts_voice, undefined, ttsLanguage);
+  const words = new Set(own.wake_words || []);
+  const save = async () => {
+    const body = {
+      ...own, playlist: playlist.value.trim(),
+      tts: tts.value || null, tts_language: tts.value && tts.value !== "builtin" ? languageValue(ttsLanguage, false) : null,
+      tts_voice: tts.value && tts.value !== "builtin" && voice.value && voice.value !== "default" ? voice.value : null,
+      wake_words: [...words],
+    };
+    try {
+      const saved = await api("PUT", `people/${encodeURIComponent(person.name)}`, { own: body, name: rename.value.trim() });
+      toast("Saved");
+      location.hash = `#/person/${encodeURIComponent(saved.name)}`;
+      if (saved.name === person.name) pagePerson(saved.name);
+    } catch (err) { toast(err.message); }
+  };
+  const remove = async () => {
+    if (!confirm(`Forget ${person.name}: their own things${sp ? " and their voice" : ""}?`)) return;
+    try { await api("DELETE", `people/${encodeURIComponent(person.name)}`); location.hash = "#/people"; }
+    catch (err) { toast(err.message); }
+  };
+  const forgetVoice = async () => {
+    if (!confirm(`Forget ${person.name}'s voice?`)) return;
+    try { await api("DELETE", `speakers/${encodeURIComponent(person.name)}`); pagePerson(person.name); }
+    catch (err) { toast(err.message); }
+  };
+  const wakeBoxes = h("div", { class: "wake-list" }, (wake.wake_words || []).map((w) => h("label", {},
+    h("input", { type: "checkbox", checked: words.has(w.id), onchange: (e) => { if (e.target.checked) words.add(w.id); else words.delete(w.id); } }),
+    wakeWordLabel(w))));
+  fill($main,
+    h("div", { class: "row" },
+      h("a", { href: "#/people" }, "← People"),
+      h("h1", { class: "grow", style: "margin:0" }, person.name),
+      h("button", { class: "danger", onclick: remove }, "Delete"),
+      h("button", { class: "primary", onclick: save }, "Save")),
+    h("div", { class: "panel" },
+      heading("h2", "Their own", "What “my” means when they speak: “add … to my to-do list”, “remind me …”, “what's on my calendar”, “play my playlist”. Left empty: the command's own."),
+      field("Name", rename),
+      h("div", { class: "grid2" },
+        field("To-do list", entityField("todo", own.todo_list, (v) => { own.todo_list = v; })),
+        field("Calendar", entityField("calendar", own.calendar, (v) => { own.calendar = v; }))),
+      field("Playlist", playlist, "A Music Assistant playlist, by its name.")),
+    h("div", { class: "panel" },
+      heading("h2", "Replies", "Said in this voice when they're speaking."),
+      h("div", { class: "row" }, field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice))),
+    h("div", { class: "panel" },
+      heading("h2", "Wake words", "Theirs: it's them when their voice isn't recognized. One trained on their recordings (“Okay Nabu (Mike)”) hears them best."),
+      (wake.wake_words || []).length ? wakeBoxes : h("p", { class: "muted small" }, "No wake words.")),
+    data.enabled ? h("div", { class: "panel" },
+      h("h2", {}, "Voice"),
+      sp ? h("p", { class: "small" }, `${num(sp.seconds, 0)} s of speech`, sp.learned ? `, learned from ${sp.learned} command${sp.learned === 1 ? "" : "s"}` : "", ".")
+        : h("p", { class: "muted small" }, "Not enrolled."),
+      h("div", { class: "row" },
+        h("a", { class: "button", href: `#/people?enroll=${encodeURIComponent(person.name)}` }, sp ? "Add more" : "Enroll"),
+        sp ? h("button", { class: "danger", onclick: forgetVoice }, "Forget their voice") : null)) : null);
 }
 
 // One speaker's takes of a wake word: how many, whether the satellite heard
@@ -2633,7 +2717,7 @@ function wakeTakes(sp, w) {
   const base = `speakers/${encodeURIComponent(sp.name)}/wake/${encodeURIComponent(w.word)}`;
   const remove = async (take) => {
     if (!take && !confirm(`Delete ${sp.name}'s ${w.count} recordings of ${quoted(w.phrase)}?`)) return;
-    try { await api("DELETE", take ? `${base}/${take.id}` : base); pageSpeakers(); }
+    try { await api("DELETE", take ? `${base}/${take.id}` : base); pagePeople(); }
     catch (err) { toast(err.message); }
   };
   const heard = w.checked ? ` · the satellite heard ${w.heard} of ${w.checked}` : "";
@@ -2680,7 +2764,7 @@ function wakeRecordPanel(data, preset) {
     catch (err) { toast(err.message); }
   }
   async function finish() {
-    try { await api("DELETE", "speakers/recording"); pageSpeakers(null, speaker.value); } catch (err) { toast(err.message); }
+    try { await api("DELETE", "speakers/recording"); pagePeople(null, speaker.value); } catch (err) { toast(err.message); }
   }
   let view = null;
   function listening(r) {
@@ -2751,11 +2835,11 @@ function enrollPanel(data, preset) {
     catch (err) { toast(err.message); }
   }
   async function save() {
-    try { await api("POST", "speakers/enrollment/save"); toast("Saved"); pageSpeakers(); }
+    try { await api("POST", "speakers/enrollment/save"); toast("Saved"); pagePeople(); }
     catch (err) { toast(err.message); refresh(); }
   }
   async function cancel() {
-    try { await api("DELETE", "speakers/enrollment"); pageSpeakers(); } catch (err) { toast(err.message); }
+    try { await api("DELETE", "speakers/enrollment"); pagePeople(); } catch (err) { toast(err.message); }
   }
   // While it listens: built once, then updated in place (a rebuild every
   // half second would lose clicks).
@@ -3121,6 +3205,9 @@ function speechTime(d) {
   return "";
 }
 
+// How a speaker was known, when not by their voice.
+const SPEAKER_BY = { wake_word: "their wake word", only_person: "the only person" };
+
 function stepGlance(stage) {
   const d = stage;
   switch (stage.stage) {
@@ -3135,7 +3222,7 @@ function stepGlance(stage) {
     case "endpoint":
       return { title: "End of speech", status: "", line: `${num(d.command_seconds, 1)} s of command${d.vad ? ` · ${VAD_NAMES[d.vad] || d.vad}` : ""}${d.others && d.others.at !== undefined ? " · someone else cut in" : ""}` };
     case "speaker":
-      return { title: "Speaker", status: d.name ? "ok" : "", line: `${d.name ? `${d.name} (${num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized"}${inTime(d.seconds)}` };
+      return { title: "Speaker", status: d.name ? "ok" : "", line: `${d.name ? `${d.name} (${SPEAKER_BY[d.by] || num(d.score, 2)})` : d.best ? `not sure; closest ${d.best}` : "not recognized"}${inTime(d.seconds)}` };
     case "split":
       return { title: "Command starts", status: "", line: `at ${num(d.cut, 2)} s${d.phrase ? `, after “${d.phrase}”` : ""}${inTime(d.seconds)}` };
     case "typed":
@@ -3244,7 +3331,7 @@ function stepDetails(stage) {
         `${data.speech_started ? "" : " (it never started)"}`) : h("div", { class: "muted" }, "Not listening for the command yet."));
   }
   if (name === "replay_of") return h("div", { class: "small" }, "Replays ", h("a", { href: `#/session/${data.call}` }, data.call), " with today's commands.");
-  if (name === "speaker") return h("div", { class: "small" }, data.name || "not recognized", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "", data.margin !== null && data.margin !== undefined ? ` · margin ${num(data.margin)}` : "");
+  if (name === "speaker") return h("div", { class: "small" }, data.name || "not recognized", data.by ? ` · ${SPEAKER_BY[data.by] || data.by}` : "", data.score !== null && data.score !== undefined ? ` · score ${num(data.score)}` : "", data.best ? ` · closest ${data.best}` : "", data.margin !== null && data.margin !== undefined ? ` · margin ${num(data.margin)}` : "");
   return Object.keys(data).length ? h("div", { class: "small muted" }, Object.entries(data).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")) : null;
 }
 
@@ -3628,7 +3715,7 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", session: "sessions" }[page];
+    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", session: "sessions", person: "people" }[page];
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
@@ -3641,7 +3728,9 @@ async function route() {
     else if (page === "library") await pageLibrary();
     else if (page === "names") await pageNames();
     else if (page === "wake") await pageWakeWords(query);
-    else if (page === "speakers") await pageSpeakers();
+    else if (page === "people") await pagePeople(new URLSearchParams(query || "").get("enroll"));
+    else if (page === "person") await pagePerson(decodeURIComponent(arg));
+    else if (page === "speakers") location.hash = "#/people";
     else if (page === "sessions") await pageSessions(query);
     else if (page === "session") await pageSession(arg);
     // Old links: the Commands, Skills, Satellites and Test pages (now the

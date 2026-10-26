@@ -19,6 +19,10 @@ SORRY = "Sorry, I didn't understand that."
 FAILED = "Sorry, that didn't work."
 """A command's action failed."""
 
+NO_SPEAKER = "Sorry, I don't know who's speaking."
+"""A command for the speaker's own thing ("my to-do list") when nobody
+knows who is speaking."""
+
 WENT_WRONG = "Sorry, something went wrong."
 """The app failed while answering."""
 

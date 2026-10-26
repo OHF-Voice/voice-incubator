@@ -426,6 +426,71 @@ commands:
     needs:
       - Point it at your to-do list (todo.to_do here).
 
+  todo_add_mine:
+    title: Add to my to-do list
+    icon: mdi:account-check-outline
+    description: add something to my to-do list
+    # The speaker's own (People page); where nobody has one, this one.
+    require: [[add, put], [my to do list, my to do]]
+    optional: [[to, on]]
+    wildcard:
+      slot: item
+      after: [add, put]
+      before: [to, on]
+      bounded: true
+      max_words: 8
+    slots:
+      entity: [todo.to_do]
+    mine: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Added it to your to-do list.
+        specific: "Added {{ slots.item }} to your to-do list."
+    needs:
+      - Give each person their to-do list (People page). Where nobody has one,
+        it adds to this one (todo.to_do here).
+
+  my_calendar:
+    title: What's on my calendar
+    icon: mdi:calendar-account
+    description: say what's on my calendar today
+    # The rest of today on the speaker's own calendar (People page); where
+    # nobody has one, this one.
+    examples: ["what's on my calendar [today]", "what's on my schedule [today]", "what do i have today"]
+    require: [[my calendar, my schedule, my agenda]]
+    optional: [[what, whats, what's, what is], [on, in], [today, for today]]
+    slots:
+      entity: [calendar.family]
+    mine: calendar
+    action:
+      - action: calendar.get_events
+        target:
+          entity_id: "{{ slots.entity }}"
+        data:
+          end_date_time: "{{ today_at('23:59:59').isoformat() }}"
+        response_variable: found
+      - variables:
+          reply:
+            events: "{{ found[slots.entity[0]].events | map(attribute='summary') | list }}"
+      - stop: Read the calendar
+        response_variable: reply
+    response:
+      done: >-
+        {% set events = result.events or [] %}
+        {% if not events %}There's nothing on your calendar for the rest of today.
+        {% elif events | count == 1 %}You have {{ events[0] }} today.
+        {% else %}You have {{ events[:-1] | join(', ') }} and {{ events[-1] }} today.{% endif %}
+    needs:
+      - Give each person their calendar (People page). Where nobody has one,
+        it reads this one (calendar.family here).
+
   remind_me:
     title: Remind me
     icon: mdi:calendar-clock
@@ -442,10 +507,14 @@ commands:
       max_words: 16
     slots:
       entity: [todo.reminders]
+    # The speaker's own to-do list, when anyone has one (People page).
+    mine: todo_list
     timer: reminder
     verbosity: specific
     needs:
-      - Point it at a to-do list (todo.reminders here) for reminders without a time.
+      - Point it at a to-do list (todo.reminders here) for reminders without a
+        time. Where someone has a to-do list of their own (People page), theirs,
+        and they must be recognized.
 
   cancel_reminder:
     title: Cancel a reminder

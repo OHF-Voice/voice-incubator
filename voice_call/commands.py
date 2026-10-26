@@ -69,6 +69,14 @@ something else there::
       lights_on_kids:
         satellites: [d83bdaa3d5f4]
 
+``mine`` makes it act on the speaker's own -- ``todo_list``, ``calendar`` or
+``playlist`` (voice_call/people.py) -- in place of its fixed target, where
+anyone has one of their own: "add … to my to-do list"::
+
+    todo_add_mine:
+      slots: {entity: [todo.to_do]}     # where nobody has their own
+      mine: todo_list
+
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
 very close to it in meaning (the model hears what was said in it), ``llm``
@@ -140,6 +148,7 @@ COMMAND_KEYS = {
     "icon",
     "library",
     "satellites",
+    "mine",
     "fallback",
     "combinations",
     *LISTEN_KEYS,
@@ -259,6 +268,10 @@ class Behavior:
     verbosity: str | None = None
     """How much it says when done (VERBOSITY); None: ``default_verbosity``."""
 
+    mine: str | None = None
+    """The speaker's own thing it acts on (people.THINGS), where anyone has
+    one: it can then turn out ``no_speaker``."""
+
     def response_for(self, outcome: str, level: str | None = None) -> str | None:
         """The template for this outcome; a plain response is for ``done``.
         Written by level, done's is the one for ``level`` (the command's own,
@@ -303,6 +316,10 @@ class Behavior:
     def outcomes(self) -> tuple[str, ...] | None:
         """The outcomes a response may be given for; None when any may be
         (a script or an action can return its own)."""
+        outcomes = self._outcomes()
+        return outcomes + ("no_speaker",) if outcomes is not None and self.mine else outcomes
+
+    def _outcomes(self) -> tuple[str, ...] | None:
         if self.timer:
             from .timers import OUTCOMES  # pylint: disable=import-outside-toplevel
 
@@ -658,6 +675,13 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
     response = _response(spec.get("response"), f"{where}.response")
     verbosity = _verbosity(spec.get("verbosity"), f"{where}.verbosity")
     intent = _intent(spec["intent"], f"{where}.intent") if spec.get("intent") else None
+    mine = spec.get("mine")
+    if mine is not None:
+        from .people import THINGS  # pylint: disable=import-outside-toplevel
+
+        mine = str(mine)
+        if mine not in THINGS:
+            raise ConfigError(f"{where}.mine: one of {', '.join(THINGS)}")
     return Behavior(
         slots=_fixed_slots(spec.get("slots"), f"{where}.slots"),
         script=script,
@@ -668,6 +692,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         music=music,
         response=response or None,
         verbosity=verbosity,
+        mine=mine,
     )
 
 

@@ -27,6 +27,7 @@ from .numerals import cardinal, ordinal, plural
 
 SORRY = "Извините, я не понимаю."
 FAILED = "Извините, не получилось."
+NO_SPEAKER = "Извините, я не знаю, кто говорит."
 WENT_WRONG = "Извините, что-то пошло не так."
 NO_COMMANDS = "Голосовые команды ещё не настроены. Добавьте их в приложении Voice Call."
 TIMERS_NEED_INTEGRATION = "Для таймеров нужна интеграция Voice Call в Home Assistant."

@@ -18,6 +18,7 @@ from typing import Any
 
 SORRY = "Scusa, non ho capito."
 FAILED = "Scusa, non ha funzionato."
+NO_SPEAKER = "Scusa, non so chi sta parlando."
 WENT_WRONG = "Scusa, qualcosa è andato storto."
 NO_COMMANDS = "Non ci sono ancora comandi vocali. Aggiungine qualcuno nell'app Voice Call."
 TIMERS_NEED_INTEGRATION = "I timer hanno bisogno dell'integrazione Voice Call in Home Assistant."

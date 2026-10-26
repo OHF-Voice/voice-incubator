@@ -71,6 +71,7 @@ VOICE_DOMAINS = (
     "weather",
     "todo",
     "shopping_list",
+    "calendar",
 )
 
 CONNECT_WAIT = 5.0

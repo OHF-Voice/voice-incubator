@@ -247,6 +247,7 @@ and copies (`Satellite.first`).
 | `voice_call/tts.py` | Piper, and the acknowledgement fallback |
 | `voice_call/server.py` | the call state machine |
 | `voice_call/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_call.speaker` |
+| `voice_call/people.py` | people: who is speaking, and their own to-do list, calendar, playlist and voice ("my") |
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
 | `voice_call/alarms.py` | alarms and timed reminders on the "Voice Call" Local Calendar in Home Assistant: made if missing, followed, rung on the satellite that set them (in a language with a `calendar.py`, English for now) |
 | `voice_call/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
@@ -670,7 +671,7 @@ The manifests' cutoffs run from 0.02 to 1.0; 415 are 0.97.
 On the Wake words page, a typed phrase becomes a custom word
 (`voice_call/wake_training.py`): Piper's `en_US-libritts_r-medium` (2,306
 speakers) says it 2,000 ways, each in a room with noise behind it, joined by
-the recordings of whichever speakers are ticked (Speakers page, above), and a
+the recordings of whichever speakers are ticked (People page, above), and a
 model learns it against the kit's negatives (`scripts/make_wake_training_kit.py`:
 5,000 random spectrograms of each set) and the home's own audio, when it has
 some (below). A word trained here can be trained
@@ -918,7 +919,13 @@ stock path in a real room.
 
 Every command is attributed to an enrolled household member, or to `unknown`,
 and the satellite's LED ring takes that person's color while the command is
-processed. [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
+processed, once someone's voice is enrolled. Who is speaking
+(`people.speaking`): their voice, else whose wake word it was --
+`people.json`'s `wake_words` -- else the only person, unless a voice was heard
+and matched nobody's. Each person's own
+to-do list, calendar and playlist (`people.json`, the People page) are what
+a command with `mine` acts on (`people.mine`, in `actions.run`), and their
+own text-to-speech voice is the reply's (`VoiceCallApp.voice_for`). [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
 inside the graph) embeds the AEC capture from 1.2 s before the end of the wake
 word to the end of the command -- "okay nabu" plus the command -- and the
 closest profile wins if its cosine clears `--speaker-threshold` (0.45).
@@ -935,7 +942,7 @@ Benchmarked on recorded VPE audio of four speakers (whosaidit): ~1% EER on AGC,
 ~0.5% on AEC; at 0.45, about 98% of household commands are accepted while 0.5%
 of an un-enrolled speaker's in the same room get through.
 
-**Enrolling.** On the Speakers page: pick a name (new, or someone to add
+**Enrolling.** On the People page: pick a name (new, or someone to add
 to) and a satellite, and read the passage it shows aloud in a normal voice,
 walking slowly around the room -- close to the satellite, across the room,
 facing away now and then -- for about a minute (45 s of speech; 10 s at
@@ -947,12 +954,12 @@ app's own: commands as they will be said to a satellite, then plain sentences.
 Walking matters more than the words: a far-field speaker embedding learns the
 room and the distance as much as the voice, and identification happens across
 the room. A kept session's page (Sessions) can also add its voice to a
-speaker, and so can recordings on the command line (below). The Speakers page
+speaker, and so can recordings on the command line (below). The People page
 renames, recolors and forgets them. Colors come from a fixed list of hues that
 stay distinct on the ring, skipping red (error) and the default cyan (nobody
 recognized).
 
-**Their wake words.** Also on the Speakers page, everyone enrolled says a
+**Their wake words.** Also on the People page, everyone enrolled says a
 wake phrase at a satellite, pausing between, 25 times
 (`voice_call/wake_recordings.py`). The satellite streams as for enrolling,
 and while monitored a wake word starts no command. Silero cuts the stream into
@@ -979,7 +986,7 @@ from the speaker's to the other voice's, half a window back, or a pause near
 it. The session's End of speech step shows it. Nobody identified: nothing is
 checked, as before. It is on by default: "End when someone else talks" on the
 Settings page (`end_of_speech: {end_on_other_voice: false}` turns it off),
-which says so, with a link to the Speakers page, while no voice is enrolled.
+which says so, with a link to the People page, while no voice is enrolled.
 
 Windows, not stretches between pauses, because people start talking with no
 pause at all: three recorded sessions where someone else did so, or after a
@@ -1280,7 +1287,7 @@ sliding window's mean (what meets the cutoff), and the wake words detected
 browser plays the audio through Web Audio (a fifth of a second behind, for
 the network's jitter) and draws the level, the last six seconds, and a strip
 per model with its cutoff and its detections. A speaker being enrolled from a
-satellite (the Speakers page) keeps it monitored too, and firmware that says
+satellite (the People page) keeps it monitored too, and firmware that says
 `"monitor_aec": true` in HELLO also streams the second capture meanwhile, as
 `AUDIO_MONITOR_AEC` (0x0C): what speakers are identified on.
 

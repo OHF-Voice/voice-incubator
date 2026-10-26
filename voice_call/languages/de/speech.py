@@ -17,6 +17,7 @@ from typing import Any
 
 SORRY = "Entschuldigung, das habe ich nicht verstanden."
 FAILED = "Entschuldigung, das hat nicht geklappt."
+NO_SPEAKER = "Entschuldigung, ich weiß nicht, wer spricht."
 WENT_WRONG = "Entschuldigung, da ist etwas schiefgelaufen."
 NO_COMMANDS = "Es sind noch keine Sprachbefehle eingerichtet. Füge welche in der Voice Call App hinzu."
 TIMERS_NEED_INTEGRATION = "Für Timer braucht es die Voice Call Integration in Home Assistant."

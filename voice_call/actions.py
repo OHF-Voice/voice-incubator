@@ -11,7 +11,10 @@ variables, which the sequence and the response template can both use:
                 lists, free text
 ``satellite``   ``id``, ``name``, ``area_id``, ``area_name``, ``floor_id``,
                 ``floor_name``, ``device_id``, ``timer_list``
-``speaker``     ``name`` (None when not recognized) and ``score``
+``speaker``     who is speaking (voice_call/people.py): ``name`` (None when
+                nobody knows), ``score`` (by their voice), ``by`` (``voice``,
+                ``wake_word``, ``only_person``), and their own
+                ``todo_list``, ``calendar`` and ``playlist``
 ``wake_word``   what started the call: ``id`` (``okay_nabu_mike``), ``name``
                 ("Okay Nabu (Mike)") and ``phrase`` ("okay nabu"); None
                 each when typed on the web page
@@ -74,6 +77,7 @@ from typing import Any
 
 from . import alarms, languages, timers
 from . import music as music_ops
+from . import people as people_ops
 from .commands import QUIET, SPOKEN, Behavior, Command, closest_text
 from .engine import Decision, Satellite
 from .hass import HassError, HomeAssistant
@@ -153,7 +157,7 @@ def variables(
     return {
         "slots": slots,
         "satellite": satellite.as_dict(),
-        "speaker": speaker or {"name": None, "score": None},
+        "speaker": speaker or people_ops.Speaker().as_dict(),
         "wake_word": wake_word or NO_WAKE_WORD,
         "target": target,
         "command": {"id": command.id, "description": command.description, "text": text},
@@ -192,7 +196,7 @@ def unknown_variables(
         "response": decision.message or languages.speech().SORRY,
         "slots": {},
         "satellite": satellite.as_dict(),
-        "speaker": speaker or {"name": None, "score": None},
+        "speaker": speaker or people_ops.Speaker().as_dict(),
         "wake_word": wake_word or NO_WAKE_WORD,
         "target": {"area_id": [satellite.area_id]} if satellite.area_id else {},
         "place": place({}, satellite, catalog),
@@ -266,16 +270,23 @@ async def run(
     elsewhere: str = BEEP_ELSEWHERE,
     calendar: alarms.AlarmCalendar | None = None,
     wake_word: dict[str, Any] | None = None,
+    people: dict[str, Any] | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
     of the satellite's area. ``calendar``: where alarms and reminders are, in
-    a language that keeps them there."""
+    a language that keeps them there. ``people``: everyone's own things, for
+    a command on the speaker's (``mine``)."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     catalog = getattr(hass, "catalog", None)
+    known, theirs = (True, {}) if not behavior.mine else people_ops.mine(behavior.mine, speaker, people or {})
+    if theirs:
+        decision.slots = {**decision.slots, **theirs}
     values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word)
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
+    if not known:
+        return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
     if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
         return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     if behavior.timer:

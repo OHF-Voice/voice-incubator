@@ -126,8 +126,9 @@ in any of these cases:
 
 At the same cost, the match that names more comes first: a word heard as both
 a keyword and a name ("stell die Heizung auf 21 Grad", a thermostat named
-Heizung) is the thing named. Matches within `ambiguity_margin` of the best
-are flagged ambiguous.
+Heizung) is the thing named. Then the one whose keywords say more of it: "my
+to do list" as one keyword, over "to do list" with "my" a filler. Matches
+within `ambiguity_margin` of the best are flagged ambiguous.
 
 ## Configuration
 

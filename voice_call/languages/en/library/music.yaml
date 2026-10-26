@@ -59,6 +59,18 @@ commands:
         title: Play music in an area or floor
         combinations: [[area, query], [floor, query]]
 
+  play_my_playlist:
+    title: Play my playlist
+    icon: mdi:playlist-star
+    description: play my playlist
+    # The speaker's own (People page), on this satellite's player.
+    examples: ["play my playlist", "play my music", "put on my playlist", "put on my music"]
+    music: play
+    mine: playlist
+    verbosity: specific
+    needs:
+      - Give each person their playlist (People page), as Music Assistant names it.
+
   add_to_queue:
     title: Add to the queue
     icon: mdi:playlist-plus

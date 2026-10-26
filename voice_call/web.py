@@ -44,6 +44,7 @@ from .store import (
     names_in,
     plain,
 )
+from .people import find as people_find
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
 from .voices import language_code
@@ -156,6 +157,8 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.delete("/api/speakers/{name}/wake/{word}", api.delete_wake_takes),
             web.patch("/api/speakers/{name}", api.update_speaker),
             web.delete("/api/speakers/{name}", api.delete_speaker),
+            web.put("/api/people/{name}", api.put_person),
+            web.delete("/api/people/{name}", api.delete_person),
             web.post("/api/try", api.try_text),
         ]
     )
@@ -1443,9 +1446,11 @@ class Api:
         return web.json_response({"ok": True, **added})
 
     async def speakers(self, request: web.Request) -> web.Response:
-        """The speakers, and what the Speakers page needs to enroll one: the
-        satellites (which can), the ring colors, the passage, and an
-        enrollment going on."""
+        """The People page: everyone (``people``: their own things, and
+        their voice), the voices (``speakers``), and what it needs to enroll
+        one: the satellites (which can), the ring colors, the passage, and an
+        enrollment going on. ``enabled``: whether voices can be identified;
+        ``identifies``: whether they are (someone's is enrolled)."""
         satellites = []
         for key, session in self.app.sessions.items():
             if session.writer is None or not session.satellite:
@@ -1457,8 +1462,19 @@ class Api:
                 "enroll": bool(session.hello.get("monitor_aec")),
                 "wake_word": next((w.name for w in words if w is not None), None),
             })
+        voices = {sp["name"]: sp for sp in self.app.speaker_list()}
+        everyone = [
+            {
+                "name": name,
+                "own": self.app.store.people.get(people_find(self.app.store.people, name) or name) or {},
+                "voice": voices.get(name),
+            }
+            for name in self.app.people_names()
+        ]
         return web.json_response({
             "enabled": self.app.speakers is not None,
+            "identifies": self.app.identifies(),
+            "people": everyone,
             "speakers": self.app.speaker_list(),
             "threshold": self.app.speakers.threshold if self.app.speakers is not None else None,
             "palette": [{"name": name, "rgb": list(rgb)} for name, rgb in PALETTE],
@@ -1528,6 +1544,20 @@ class Api:
 
     async def delete_speaker(self, request: web.Request) -> web.Response:
         self.app.delete_speaker(request.match_info["name"])
+        return web.json_response({"ok": True})
+
+    async def put_person(self, request: web.Request) -> web.Response:
+        """``{own, name?}``: someone's things (people.KEYS, in full), and a
+        new name; someone new when nobody has the name."""
+        body = await request.json()
+        name = self.app.put_person(
+            request.match_info["name"], body.get("own") or {},
+            None if body.get("name") is None else str(body["name"]),
+        )
+        return web.json_response({"ok": True, "name": name})
+
+    async def delete_person(self, request: web.Request) -> web.Response:
+        self.app.delete_person(request.match_info["name"])
         return web.json_response({"ok": True})
 
     async def replay(self, request: web.Request) -> web.Response:

@@ -227,6 +227,11 @@ def _named(result: IntentResult) -> int:
     return sum(len(ids) for kind, ids in result.slots.items() if kind in NAME_TYPES and isinstance(ids, list))
 
 
+def _keyworded(result: IntentResult) -> int:
+    """How many words a match's keywords explain (not its fillers)."""
+    return sum(len(span.meaning.phrase.split()) for span in result.spans if span.role in ("require", "optional"))
+
+
 COMPOUND_GAP = 8
 """Frames a compound's tail may start after its place name ends: its pieces
 follow on, with blanks between -- five in Dutch's "begane gronduit" (0.4 s).
@@ -765,8 +770,9 @@ class Recognizer:
         ]
         # At the same cost, the one that names more: a word heard as both a
         # keyword and a name ("stell die Heizung auf 21 Grad", a thermostat
-        # named Heizung) is the thing named.
-        matches = sorted((r for r in results if r.matched), key=lambda r: (r.cost, -_named(r)))
+        # named Heizung) is the thing named. Then the one whose keywords say
+        # more of it: "my to do list" over "to do list" with "my" a filler.
+        matches = sorted((r for r in results if r.matched), key=lambda r: (r.cost, -_named(r), -_keyworded(r)))
         rejected = [r for r in results if not r.matched]
         if matches:
             best = matches[0]

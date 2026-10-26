@@ -11,7 +11,7 @@ import re
 import socket
 import time
 import wave
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,7 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
-from . import actions, alarms, languages, skills, timers
+from . import actions, alarms, languages, people, skills, timers
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
@@ -41,7 +41,7 @@ from .engine import Decision, Engine, Satellite, model_note
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
-from .voices import HassTranscriber, TypedText, Voices, choose
+from .voices import BUILTIN, HassTranscriber, TypedText, Voices, choose
 from .mixednet import WakeModel
 from .protocol import (
     BYTE_RATE,
@@ -990,6 +990,99 @@ class VoiceCallApp:
         if self.engine is not None:
             self.engine.skill_settings = skills.configure(self.store.settings.get("skill_settings"))
 
+    # --------------------------------------------------------------- people
+
+    def voice_names(self) -> list[str]:
+        """Everyone with an enrolled voice."""
+        return list(self.speakers.profiles.speakers) if self.speakers is not None else []
+
+    def people_names(self) -> list[str]:
+        """Everyone: with things of their own, a voice, or both."""
+        return people.names(self.store.people, self.voice_names())
+
+    def wake_owner(self, word_id: str | None) -> str | None:
+        """Whose wake word it is (their page), if anyone's."""
+        return people.owner(self.store.people, word_id)
+
+    def identifies(self) -> bool:
+        """Whether voices are identified: someone has one enrolled."""
+        return self.speakers is not None and bool(self.voice_names())
+
+    def speaking(self, ident: Identification | None = None, wake_word: str | None = None) -> people.Speaker:
+        """Who is speaking (people.speaking): their voice, else whose wake
+        word it was, else the only person -- unless a voice was heard and
+        was nobody's."""
+        named = ident is not None and ident.name is not None
+        return people.speaking(
+            self.store.people, self.voice_names(),
+            ident.name if named else None, round(float(ident.score), 4) if named else None,
+            self.wake_owner(wake_word),
+            refused=ident is not None and ident.utterance is not None and not named,
+        )
+
+    def voice_for(self, satellite: Satellite, who: people.Speaker) -> Satellite:
+        """The satellite as replies to them are said: in their voice, when
+        they have one of their own."""
+        if not who.own.get("tts"):
+            return satellite
+        tts = None if who.own["tts"] == BUILTIN else who.own["tts"]
+        voice = replace(
+            satellite.voice,
+            tts=tts,
+            tts_language=who.own.get("tts_language") if tts else None,
+            tts_voice=who.own.get("tts_voice") if tts else None,
+            speak_on=satellite.voice.speak_on if tts else None,
+        )
+        return replace(satellite, voice=voice)
+
+    def put_person(self, name: str, own: dict[str, Any], new_name: str | None = None) -> str:
+        """``name``'s things (all of them, as the People page has them), and
+        maybe a new name. A new person when nobody has the name."""
+        key = people.find(self.store.people, name) or people.find(dict.fromkeys(self.voice_names()), name)
+        if key is None:
+            key = people.person_name(name)
+            if key is None:
+                raise ConfigError("Give the person a name")
+        try:
+            things = people.clean(own)
+        except ValueError as err:
+            raise ConfigError(str(err)) from err
+        self.store.people.pop(people.find(self.store.people, key) or key, None)
+        self.store.people[key] = things
+        self.store.save_people()
+        if new_name is not None and new_name != key:
+            renamed = people.person_name(new_name)
+            if renamed is None:
+                raise ConfigError("Give the person a name")
+            if people.find(self.store.people, renamed) not in (None, key):
+                raise ConfigError(f"There is already someone called {renamed}")
+            if self.speakers is not None and self.speakers.profiles.find(key) is not None:
+                self.update_speaker(key, new_name=renamed)
+            else:
+                self._renamed(key, renamed)
+            key = renamed
+        return key
+
+    def delete_person(self, name: str) -> None:
+        """Forget someone: their things (their wake words among them) and
+        their voice."""
+        found = people.find(self.store.people, name)
+        voiced = self.speakers is not None and self.speakers.profiles.find(name) is not None
+        if found is None and not voiced:
+            raise FileNotFoundError(f"Nobody called {name}")
+        if voiced:
+            self.delete_speaker(name)
+        if found is not None:
+            del self.store.people[found]
+            self.store.save_people()
+
+    def _renamed(self, old: str, new: str) -> None:
+        """Someone's things follow them to a new name."""
+        found = people.find(self.store.people, old)
+        if found is not None:
+            self.store.people[new] = self.store.people.pop(found)
+            self.store.save_people()
+
     def satellite_skills(self, key: str | None) -> frozenset[str]:
         """The skills that answer on a satellite (voice_call/skills/). No
         satellite: those on every one."""
@@ -1562,7 +1655,7 @@ class VoiceCallApp:
         """Collect a speaker's voice from a satellite while they read aloud."""
         if self.speakers is None:
             raise ConfigError("Speaker identification is turned off")
-        speaker = _speaker_name(name)
+        speaker = people.person_name(name)
         if speaker is None:
             raise ConfigError("Give the speaker a name")
         session = self.sessions.get(key)
@@ -1622,13 +1715,14 @@ class VoiceCallApp:
         if key is None:
             raise FileNotFoundError(f"No speaker {name}")
         if new_name is not None:
-            renamed = _speaker_name(new_name)
+            renamed = people.person_name(new_name)
             if renamed is None:
                 raise ConfigError("Give the speaker a name")
             try:
                 key = profiles.rename(key, renamed)
             except ValueError as err:
                 raise ConfigError(str(err)) from err
+            self._renamed(name, key)
         if color is not None:
             rgb = dict(PALETTE).get(color)
             if rgb is None:
@@ -2128,11 +2222,7 @@ class VoiceCallApp:
         call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(wake), warm=wake)
         # Someone else talking ends the command, once the speaker is
         # identified: when that is on, with profiles to identify them by.
-        call.endpointer.watch(
-            call.endpointer.settings.end_on_other_voice
-            and self.speakers is not None
-            and bool(self.speakers.profiles.speakers)
-        )
+        call.endpointer.watch(call.endpointer.settings.end_on_other_voice and self.identifies())
         if call.in_null:
             call.endpoint_pos = call.split_bytes
             call.command += _aec_since(call)
@@ -2318,12 +2408,16 @@ class VoiceCallApp:
 
         # Speaker ID runs beside recognition -- its own lock and threads -- and
         # sends the processing event the moment it knows, so the ring takes the
-        # speaker's color while the command is still being recognized.
-        if self.speakers is not None:
+        # speaker's color while the command is still being recognized. With
+        # no voice enrolled, there is nothing to identify.
+        if self.identifies():
             speaker_task = asyncio.ensure_future(self._identify(session, call))
         else:
             speaker_task = None
-            await self._event(session, "processing", speaker="unknown")
+            who = self.speaking(None, call.wake_word)
+            if who.name is not None and record is not None:
+                record.stage("speaker", name=who.name, by=who.by)
+            await self._event(session, "processing", **self._speaker_event(who))
 
         satellite = self.satellite(session.satellite)
         transcriber = call.stt
@@ -2376,7 +2470,9 @@ class VoiceCallApp:
         ident = await speaker_task if speaker_task is not None else None
 
         self._after_identify(session, ident)
-        speaker = _speaker_json(ident)
+        who = self.speaking(ident, call.wake_word)
+        speaker = who.as_dict()
+        satellite = self.voice_for(satellite, who)
         dry_run = bool(record is not None and record.debug_session and record.dry_run)
 
         if call.interrupted_ring and (
@@ -2469,7 +2565,7 @@ class VoiceCallApp:
         started = time.perf_counter()
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
-            calendar=self.alarms, wake_word=wake_word,
+            calendar=self.alarms, wake_word=wake_word, people=self.store.people,
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
@@ -2494,7 +2590,7 @@ class VoiceCallApp:
                 "question": answer.get("question"),
                 "response": built_in,
                 "satellite": satellite.as_dict(),
-                "speaker": speaker or {"name": None, "score": None},
+                "speaker": speaker or people.Speaker().as_dict(),
                 "wake_word": wake_word or actions.NO_WAKE_WORD,
             }
             started = time.perf_counter()
@@ -2648,9 +2744,8 @@ class VoiceCallApp:
             async with self._model_lock:
                 decision = await asyncio.to_thread(self.engine.recognize_text, text, satellite)
         record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
-        speech, outcome, summary = await self._carry_out(
-            decision, satellite, {"name": None, "score": None}, not run_actions, record
-        )
+        who = self.speaking()
+        speech, outcome, summary = await self._carry_out(decision, self.voice_for(satellite, who), who.as_dict(), not run_actions, record)
         record.stage("speech", text=speech or "", **({"silent": True} if speech is None else {}))
         self.calls.finish(record, outcome, summary, {"command": pcm} if pcm else None)
         return record
@@ -2715,16 +2810,12 @@ class VoiceCallApp:
             record.marks["wake_start"] = split.wake_start
             record.marks["wake_end"] = split.wake_end
         record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
-        speaker = next(
-            (
-                {k: s.get(k) for k in ("name", "score")}
-                for s in old.stages
-                if s.get("stage") == "speaker"
-            ),
-            {"name": None, "score": None},
-        )
+        heard_by = next((s for s in old.stages if s.get("stage") == "speaker" and s.get("name")), None)
+        who = self.speaking(None, call.wake_word)
+        if heard_by is not None and not heard_by.get("by"):
+            who = people.speaking(self.store.people, self.voice_names(), heard_by["name"], heard_by.get("score"))
         speech, outcome, summary = await self._carry_out(
-            decision, satellite, speaker, not run_actions, record, self._wake_json(call.wake_word)
+            decision, self.voice_for(satellite, who), who.as_dict(), not run_actions, record, self._wake_json(call.wake_word)
         )
         record.stage("speech", text=speech or "", **({"silent": True} if speech is None else {}))
         self.calls.finish(record, outcome, summary, {"call": pcm})
@@ -2736,7 +2827,7 @@ class VoiceCallApp:
         capture speakers are identified on, as a call is."""
         if self.speakers is None:
             raise ConfigError("Speaker identification is turned off")
-        speaker = _speaker_name(name)
+        speaker = people.person_name(name)
         if speaker is None:
             raise ConfigError("Give the speaker a name")
         record = self.calls.get(call_id)
@@ -2971,10 +3062,7 @@ class VoiceCallApp:
                     peak,
                 )
 
-        fields: dict[str, Any] = {"speaker": "unknown"}
-        if ident is not None and ident.name is not None:
-            fields = {"speaker": ident.name, "score": round(ident.score, 3)}
-            fields.update(_rgb(self.speakers.profiles.color(ident.name)))
+        who = self.speaking(ident, call.wake_word)
         if ident is None or ident.utterance is None:
             _LOGGER.info("[%s] Speaker: too little speech to identify", session)
         else:
@@ -2991,15 +3079,28 @@ class VoiceCallApp:
         if call.record is not None:
             call.record.stage(
                 "speaker",
-                name=ident.name if ident else None,
+                name=who.name,
+                **({"by": who.by} if who.by and who.by != "voice" else {}),
                 score=round(float(ident.score), 4) if ident and ident.utterance else None,
                 best=ident.best if ident else None,
                 # No margin with one speaker enrolled: nobody is second.
                 margin=round(float(ident.margin), 4) if ident and ident.utterance and math.isfinite(ident.margin) else None,
                 seconds=round(time.perf_counter() - started, 3),
             )
-        await self._event(session, "processing", **fields)
+        await self._event(session, "processing", **self._speaker_event(who))
         return ident
+
+    def _speaker_event(self, who: people.Speaker) -> dict[str, Any]:
+        """The processing event's speaker: their name (and score, by voice),
+        and their ring color when they have a voice."""
+        if who.name is None:
+            return {"speaker": "unknown"}
+        fields: dict[str, Any] = {"speaker": who.name}
+        if who.score is not None:
+            fields["score"] = round(who.score, 3)
+        if self.speakers is not None:
+            fields.update(_rgb(self.speakers.profiles.color(self.speakers.profiles.find(who.name))))
+        return fields
 
     def _after_identify(self, session: Session, ident: Identification | None) -> None:
         """Learn from a confident call: its voice into the speaker's profile."""
@@ -3140,12 +3241,3 @@ def _profile_json(name: str, profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _speaker_name(text: Any) -> str | None:
-    name = re.sub(r"[^\w' -]+", "", str(text or "")).strip()
-    return " ".join(word.capitalize() for word in name.split()) or None
-
-
-def _speaker_json(ident: Identification | None) -> dict[str, Any]:
-    if ident is None or ident.name is None:
-        return {"name": None, "score": None}
-    return {"name": ident.name, "score": round(float(ident.score), 4)}

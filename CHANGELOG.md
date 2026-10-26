@@ -2,6 +2,19 @@
 
 ## 0.2.0
 
+- **People** (the Speakers page, renamed): someone with things of their own,
+  a voice, or both. Their own to-do list, calendar and playlist are what "my"
+  means when they speak -- **Add to my to-do list**, **Remind me**, **What's
+  on my calendar**, **Play my playlist** (`mine` on a command) -- and replies
+  to them can be in a voice of their own. Where nobody has their own, the
+  command's own; where someone does, the speaker must be known ("Sorry, I
+  don't know who's speaking."). The new commands are in English for now.
+- **Who is speaking**: their voice, else whose wake word started it (a wake
+  word can be someone's), else the only person -- unless a voice was heard
+  and it was nobody's. With one person, no voice is needed. `speaker` says
+  how (`by`).
+- adapt-ctc: at the same cost, the match whose keywords say more of it comes
+  first ("my to do list" over "to do list" with "my" a filler).
 - **A command or skill runs on every satellite, on some, or on none**, set on
   its page (Runs on): `satellites: [key, ...]` in `commands.json`, and
   `skills: {id: [key, ...] | false}` in `settings.json`. A satellite no longer
