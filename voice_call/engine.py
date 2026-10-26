@@ -12,13 +12,18 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    CTC evidence on every call, and one said word for word wins over keyword
    matches. Then keyword intents; then, when nothing matched, the TDT
    transcript against the examples, word for word.
-3. **Where it is available.** Matches are taken best first, skipping commands
+3. **A doubtful match is heard again.** One that costs as much as a word it
+   left unexplained ("we resume the chicken pder" as resuming the music,
+   "chicken" left over) runs only when the TDT or STT transcript agrees: the
+   same matcher on the transcript finds the same command. A command it finds
+   instead runs in its place; finding none, nothing runs.
+4. **Where it is available.** Matches are taken best first, skipping commands
    that are not on this satellite (they are on some others). Of matches as
    good as each other, and of example sentences a copy also has, one on some
    satellites, this one among them, goes first.
-4. **Free text** is re-read from the TDT transcript over the same stretch of
+5. **Free text** is re-read from the TDT transcript over the same stretch of
    audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
-5. **When nothing matched**, the closest command is named: from the keyword
+6. **When nothing matched**, the closest command is named: from the keyword
    evidence (what was heard, and what was missing), or else by meaning, with
    EmbeddingGemma against the commands' descriptions and examples. That is
    only ever a hint; the embedding never runs a command.
@@ -168,8 +173,13 @@ class Decision:
     same matcher on the TDT or STT transcript (``transcript``), or the
     fallback (``meaning``, ``gliner``)."""
     transcript_pass: dict[str, Any] | None = None
-    """Nothing matched in the audio: what the keyword matcher made of the
-    transcript."""
+    """Nothing matched in the audio, or what did was doubtful: what the
+    keyword matcher made of the transcript."""
+    doubt: dict[str, Any] | None = None
+    """A match that cost as much as a word it left unexplained: the command,
+    its cost, the transcript, and what came of hearing it again: it
+    ``agrees``, another command ``replaced`` it, one was ``refused`` as said,
+    or none was found (``unconfirmed``)."""
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_call/fallback.py)."""
 
@@ -192,6 +202,7 @@ class Decision:
             "matched_by": self.matched_by if self.command else None,
             "fallback": self.fallback,
             "transcript_pass": self.transcript_pass,
+            "doubt": self.doubt,
             "answer": self.answer,
             "hint": self.hint,
             "message": self.message,
@@ -566,8 +577,16 @@ class Engine:
         decision = Decision(recognition={}, text_source=getattr(transcriber, "source", "TDT"))
 
         self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
+        if (
+            decision.command is not None
+            and not typed
+            and transcriber is not None
+            and decision.intent is not None
+            and decision.intent.cost >= recognizer.config.settings.unexplained_important_cost
+        ):
+            self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber)
 
-        if decision.command is None and decision.refused is None:
+        if decision.command is None and decision.refused is None and decision.doubt is None:
             if transcriber is not None and recognition.tdt_transcript is None:
                 started = time.perf_counter()
                 recognition.tdt_transcript = transcriber.transcribe(command_audio)
@@ -699,6 +718,44 @@ class Engine:
                     heard_intent["wildcard"], transcriber,
                 )
             return
+
+    def _hear_again(
+        self,
+        decision: Decision,
+        recognition: Recognition,
+        compiled: Compiled,
+        recognizer: Recognizer,
+        satellite: Satellite,
+        command_audio: np.ndarray,
+        transcriber: Any,
+    ) -> None:
+        """A doubtful match runs only when the transcript agrees (the same
+        command); one the transcript finds instead runs in its place, and
+        none means nothing runs. In sessions, every wrong command run on
+        keywords cost this much -- "pause the chicken timer" as resuming it,
+        "cancel the timer" as the time -- and the transcripts said so."""
+        if recognition.tdt_transcript is None:
+            started = time.perf_counter()
+            recognition.tdt_transcript = transcriber.transcribe(command_audio)
+            _took(recognition.timings, _timing(transcriber), started)
+        text = recognition.tdt_transcript or ""
+        assert decision.command is not None and decision.intent is not None
+        doubt: dict[str, Any] = {"command": decision.command.id, "cost": round(float(decision.intent.cost), 2), "transcript": text}
+        again = Decision(recognition={}, text_source=decision.text_source)
+        if text.strip():
+            self._match_transcript(again, text, compiled, recognizer, satellite)
+        decision.transcript_pass = again.transcript_pass
+        decision.doubt = doubt
+        if again.command is not None and again.command.id == decision.command.id:
+            doubt["outcome"] = "agrees"
+        elif again.command is not None or again.refused is not None:
+            doubt["outcome"] = "replaced" if again.command is not None else "refused"
+            decision.command, decision.behavior, decision.intent = again.command, again.behavior, again.intent
+            decision.slots, decision.refused, decision.text_from_tdt = again.slots, again.refused, again.text_from_tdt
+            decision.matched_by = "transcript"
+        else:
+            doubt["outcome"] = "unconfirmed"
+            decision.command, decision.behavior, decision.intent, decision.slots = None, None, None, {}
 
     def _match_transcript(
         self, decision: Decision, transcript: str, compiled: Compiled, recognizer: Recognizer, satellite: Satellite

@@ -1088,6 +1088,18 @@ for this app:
   *next* time you shop" ran next_track until example search was left out of
   this pass; `recognize_log_probs(examples=False)`). `matched_by:
   transcript`; the call trace keeps what the pass found (`transcript_pass`).
+- **A doubtful match is heard again** (`Engine._hear_again`). A match that
+  costs at least as much as one word it left unexplained
+  (`unexplained_important_cost`, 4) runs only when the same pass on the
+  transcript finds the same command; one it finds instead runs in its place,
+  and none means nothing runs (`doubt` in the trace: `agrees`, `replaced`,
+  `refused`, `unconfirmed`). Of 31 recent sessions on a VPE, the three wrong
+  commands run on keywords all cost that much -- "pause the chicken timer"
+  as resuming it (9.94: "un pause" for "pause"), "cancel the timer" as the
+  time (8.16), "we resume the chicken pder" as resuming the music (5.5,
+  "chicken" left over) -- and so did two right ones, whose transcripts
+  agreed. None below it was wrong. Typed text is its own transcript and is
+  not heard again.
 - **Rooms must fit** (`settings.places_must_fit`, on). An area or floor name
   heard that a match leaves unexplained rejects an intent that takes no name
   of that type -- keyword matches and example sentences alike. Before, a

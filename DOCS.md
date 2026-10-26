@@ -622,7 +622,12 @@ In order, each only when the one before found nothing:
    matched there -- in the transcript the speech model wrote (the built-in
    TDT, or your Home Assistant STT), so "unlock the front door" heard plainly
    by the speech model runs even when the keyword evidence in the audio was
-   weak. Typed text (a satellite's Test it) is read as said, word for word.
+   weak. A doubtful match in the audio -- one that left a word it heard as
+   something else unexplained ("resume the chicken ..." as resuming the
+   music), or was heard only poorly -- runs only when the transcript says the
+   same command; when it says another, that one runs, and when it says none,
+   nothing does. A session's Recognition step says so. Typed text (a
+   satellite's Test it) is read as said, word for word.
 2. **Skills** (Questions, on the Home page or a satellite's): spelling,
    dates, the clock, units and arithmetic answer exactly ("what's twelve
    times eight").

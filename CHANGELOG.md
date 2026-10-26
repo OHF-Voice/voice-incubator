@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **A doubtful match is heard again**: one that cost as much as a word it
+  left unexplained runs only when the speech model's transcript says the
+  same command (or the one the transcript says runs instead; none, nothing).
+  "Resume the chicken timer", heard as "we resume the chicken pder", resumed
+  the music; "pause the chicken timer" resumed it.
 - **The command page**, most changed first: description and where it runs,
   example sentences, what happens, keywords, then the **implied target**
   (was Target). "What it does" is **Description**, and the id is no longer

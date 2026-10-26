@@ -81,6 +81,43 @@ def test_the_transcript_is_matched_when_the_audio_was_not(engine):
     assert decision.command is None and decision.transcript_pass["command"] is None
 
 
+def test_a_doubtful_match_is_heard_again(engine):
+    """A match that costs as much as a word it left unexplained runs only
+    when the transcript agrees; the transcript's own command runs instead,
+    and with none, nothing does."""
+    store = {"commands": {
+        "resume_music": {"description": "resume the music", "require": [["resume"]], "optional": [["the"], ["music"]], "response": "Music."},
+        "resume_timer": {"description": "resume a timer", "require": [["resume"], ["timer"]], "optional": [["the"]],
+                         "lists": {"timer_name": {"values": {"chicken": "chicken"}}}, "combinations": [["timer_name"]],
+                         "response": "Timer."},
+        "cancel_timer": {"description": "cancel a timer", "require": [["cancel"], ["timer"]], "response": "Cancelled."},
+    }}
+    engine.build(compile_store(store))
+    try:
+        # "timer" misheard: resuming the music, "chicken" left over.
+        stt = CloudStt("Resume the chicken timer.")
+        decision = decide(engine, "resume the chicken pder", stt)
+        assert decision.command.id == "resume_timer" and decision.slots == {"timer_name": "chicken"}
+        assert decision.doubt["command"] == "resume_music" and decision.doubt["outcome"] == "replaced"
+        assert decision.matched_by == "transcript" and stt.asked == 1
+        # The transcript agrees: it runs.
+        decision = decide(engine, "resume the chicken pder", CloudStt("Resume the chicken pder."))
+        assert decision.command.id == "resume_music" and decision.doubt["outcome"] == "agrees"
+        # The transcript says nothing, or nothing it can run: nothing runs.
+        for heard in ("", "Bake the chicken."):
+            decision = decide(engine, "resume the chicken pder", CloudStt(heard))
+            assert decision.command is None and decision.doubt["outcome"] == "unconfirmed", heard
+        # A match that leaves nothing out isn't asked about.
+        stt = CloudStt("Something else entirely.")
+        decision = decide(engine, "resume the music", stt)
+        assert decision.command.id == "resume_music" and decision.doubt is None and stt.asked == 0
+        # Typed text is its own transcript.
+        decision = engine.recognize_text("resume the chicken pder", OFFICE)
+        assert decision.command.id == "resume_music" and decision.doubt is None
+    finally:
+        engine.build(compile_store(STORE))
+
+
 def test_typed_text_takes_an_example_only_typed_whole(engine):
     """The Try page: an example typed word for word wins, as one said does;
     a short one with words around it is no example ("grab bananas *next*
