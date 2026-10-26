@@ -289,7 +289,8 @@ all. A command has:
   - **Value lists**: "set the lights to red" gives `slots.color: red`. A
     value may be said several ways (`red: red, crimson`); lists can be shared.
     Every home has its language's own -- `colors` (red, orange, yellow, green,
-    blue, purple, pink, white, turquoise, magenta), `on_off`, `open_closed`,
+    blue, purple, pink, white, turquoise, magenta), `color_temperatures`
+    (English: warm white and the rest, in kelvin), `on_off`, `open_closed`,
     `locked_unlocked`, `cover_classes` and `hvac_modes` (heat, cool,
     heat_cool, auto, dry, fan_only, off) -- and editing one on the Names
     page makes it yours, in the app's language. A value's phrases in another
@@ -595,6 +596,25 @@ the music `source` (the player it came from).
 
 On the satellite, music is turned down while it listens to you or a timer
 rings, never paused, and the center button pauses and resumes it.
+
+## Lights
+
+The library's **Basics** group turns lights on and off and sets their
+brightness and color, each in the satellite's area ("turn on the lights"),
+in an area or floor named ("dim the lights upstairs"), or a light by name
+("set the bed light to red"):
+
+- **Brighter** and **Dimmer**: a fifth at a time ("make the lights
+  brighter", "turn the lights down", "dim the bed light", "brighter"),
+  never down to off. In an area, only the lights that are on change, of
+  those exposed to Assist; a light by name that is off comes on to be
+  brightened. With none on, the satellite says so.
+- **Set the color temperature**: the white a light shines, by name -- warm
+  white, soft white, neutral white, cool white, daylight ("set the lights to
+  warm white"). They are the `color_temperatures` list, in kelvin (2700 to
+  6500): change it on the Names page to name others.
+
+These are in the English library for now.
 
 ## Covers and locks
 

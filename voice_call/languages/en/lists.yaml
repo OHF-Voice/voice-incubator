@@ -32,6 +32,12 @@ open_closed:
 locked_unlocked:
   locked: [locked]
   unlocked: [unlocked]
+color_temperatures:
+  "2700": [warm white, warm]
+  "3000": [soft white]
+  "4000": [neutral white, natural white, neutral]
+  "5000": [cool white, cold white, cool]
+  "6500": [daylight]
 hvac_modes:
   "off": ["off"]
   heat: [heat, heating]

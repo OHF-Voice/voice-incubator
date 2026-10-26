@@ -36,6 +36,40 @@ shared:
     combinations: [[area], [floor]]
     needs:
       - Add names for the areas and floors it may act in (Names page).
+  # A fifth brighter or dimmer (slots.step), never to off: the lights that
+  # are on here, or in an area or floor named, of those exposed to Assist --
+  # no intent changes brightness by a step -- or a light by name, which
+  # comes on to be brightened.
+  brightness_step: &brightness_step
+    - variables:
+        none_on: {outcome: no_lights}
+        lights: >-
+          {%- if slots.entity -%}
+          {{ (slots.entity | select('is_state', 'on') | list) if slots.step | int < 0 else slots.entity }}
+          {%- else -%}
+          {%- set ns = namespace(ids=[]) -%}
+          {%- for s in states.light if s.entity_id in exposed and area_id(s.entity_id) in place.areas and s.state == 'on' -%}
+          {%- set ns.ids = ns.ids + [s.entity_id] -%}
+          {%- endfor -%}
+          {{ ns.ids }}
+          {%- endif -%}
+    - if: "{{ not lights }}"
+      then:
+        - stop: No lights to change
+          response_variable: none_on
+    - repeat:
+        for_each: "{{ lights }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ repeat.item }}"
+            data:
+              brightness_pct: >-
+                {{ [[((state_attr(repeat.item, 'brightness') or 0) / 2.55) | round(0) + slots.step | int, 1] | max, 100] | min | int }}
+  brightness_said: &brightness_said
+    no_lights: >-
+      {{ (state_attr(slots.entity[0], 'friendly_name') ~ ' is off.') if slots.entity
+      else 'No lights are on ' ~ place.said ~ '.' }}
 
 commands:
   what_time:
@@ -299,6 +333,110 @@ commands:
         <<: *place
         title: Set the light color in an area or floor
         combinations: [[area, color], [floor, color]]
+
+  brighter:
+    title: Brighter
+    icon: mdi:brightness-7
+    description: make the lights brighter
+    require: [[brighter, brighten, turn up, turn ... up, raise, increase], [light, lights, brightness]]
+    optional: [[make], [a bit, a little], [in, on], [the]]
+    slots: {step: 20}
+    action: *brightness_step
+    verbosity: beep
+    response:
+      <<: *brightness_said
+      done:
+        brief: Brighter.
+        specific: >-
+          Turned up {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the lights ' ~ place.said }}.
+    variants:
+      here:
+        title: Brighter in this satellite's area
+        examples: ["[make it] [a (bit|little)] brighter [in here]"]
+      device:
+        <<: *device
+        title: Brighten a light by name
+        require: [[brighter, brighten, turn up, turn ... up, raise, increase]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        needs:
+          - Add names for the lights it may brighten (Names page).
+      place:
+        <<: *place
+        title: Brighter in an area or floor
+
+  dimmer:
+    title: Dimmer
+    icon: mdi:brightness-4
+    description: make the lights dimmer
+    require: [[dimmer, dim, darker, turn down, turn ... down, lower, decrease], [light, lights, brightness]]
+    optional: [[make], [a bit, a little], [in, on], [the]]
+    slots: {step: -20}
+    action: *brightness_step
+    verbosity: beep
+    response:
+      <<: *brightness_said
+      done:
+        brief: Dimmer.
+        specific: >-
+          Turned down {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the lights ' ~ place.said }}.
+    variants:
+      here:
+        title: Dimmer in this satellite's area
+        examples: ["[make it] [a (bit|little)] (dimmer|darker) [in here]"]
+      device:
+        <<: *device
+        title: Dim a light by name
+        require: [[dimmer, dim, darker, turn down, turn ... down, lower, decrease]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        needs:
+          - Add names for the lights it may dim (Names page).
+      place:
+        <<: *place
+        title: Dimmer in an area or floor
+
+  light_temperature:
+    title: Set the color temperature
+    icon: mdi:white-balance-sunny
+    description: change the color temperature of the lights
+    # By what the white is called: warm, soft, neutral, cool, daylight (the
+    # color_temperatures list, in kelvin).
+    require: [[set, make, turn], [light, lights]]
+    optional: [[color temperature, temperature], [to], [in, on], [the]]
+    lists:
+      color_temperature: {list: color_temperatures}
+    intent:
+      name: HassLightSet
+      slots: {temperature: "{{ slots.color_temperature }}"}
+    verbosity: beep
+    response:
+      done:
+        brief: Changed the white.
+        specific: >-
+          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the lights ' ~ place.said }} to {{ slots.color_temperature }} kelvin.
+    variants:
+      here:
+        title: Set the color temperature in this satellite's area
+      device:
+        <<: *device
+        title: Set the color temperature of a light by name
+        require: [[set, make, turn]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, color_temperature], [entity, area, color_temperature]]
+        needs:
+          - Add names for the lights it may change (Names page).
+      place:
+        <<: *place
+        title: Set the color temperature in an area or floor
+        combinations: [[area, color_temperature], [floor, color_temperature]]
 
   set_temperature:
     title: Set the temperature

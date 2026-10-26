@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **Brighter, Dimmer and Set the color temperature** in the library (English),
+  each in the satellite's area, in an area or floor named, or for a light by
+  name: a fifth brighter or dimmer, never to off, of the lights that are on;
+  and warm white, soft white, neutral white, cool white or daylight (a new
+  `color_temperatures` list, in kelvin).
 - **A name heard counts for more than none**: a match that named nothing,
   with a word left over, gives way to the version of it that takes a
   device, area or floor when the transcript names one. "Set bed light to
