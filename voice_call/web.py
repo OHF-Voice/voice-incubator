@@ -682,34 +682,44 @@ class Api:
         return web.json_response({"entries": entries})
 
     async def library_add(self, request: web.Request) -> web.Response:
+        """Library commands into yours: one (``file``, ``id``; ``new_id`` to
+        name it), or several at once (``entries``: ``[{file, id}]``), with
+        the commands rebuilt once."""
         body = await request.json()
-        entries = await asyncio.to_thread(_library, languages.current().code)
-        entry = next(
-            (e for e in entries if e["file"] == body.get("file") and e["id"] == body.get("id")),
-            None,
-        )
-        if entry is None:
-            raise FileNotFoundError("No such library command")
-        spec = copy.deepcopy(entry["spec"])
-        spec["title"] = entry["title"]
-        spec["library"] = entry["file"]
-        # Shared lists it uses, unless yours already has one by that name.
+        library = await asyncio.to_thread(_library, languages.current().code)
+        wanted = body.get("entries") if body.get("entries") is not None else [body]
+        if not isinstance(wanted, list) or not wanted:
+            raise ConfigError("entries: a list of {file, id}")
+        found = []
+        for item in wanted:
+            item = item if isinstance(item, dict) else {}
+            entry = next((e for e in library if e["file"] == item.get("file") and e["id"] == item.get("id")), None)
+            if entry is None:
+                raise FileNotFoundError(f"No library command {item.get('id')!r}")
+            found.append(entry)
         compiled = self.app.store.load()
-        have = compiled.data.get("lists") or {}
-        for name, values in entry["lists"].items():
-            if name not in have:
-                compiled = self.app.store.put_list(name, copy.deepcopy(values))
-        # Every command's id, in any language: another's keeps its own.
-        existing = {*compiled.commands, *compiled.hidden}
-        base = SAFE_ID.sub("_", str(body.get("new_id") or entry["id"]).lower()).strip("_") or "command"
-        if base in compiled.hidden:
-            base = f"{base}_{languages.current().code}"  # turn_on_here_de, beside English's turn_on_here
-        command_id, n = base, 2
-        while command_id in existing:
-            command_id, n = f"{base}_{n}", n + 1
-        compiled = self.app.store.put_command(command_id, spec)
+        ids = []
+        for entry in found:
+            spec = copy.deepcopy(entry["spec"])
+            spec["title"] = entry["title"]
+            spec["library"] = entry["file"]
+            # Shared lists it uses, unless yours already has one by that name.
+            have = compiled.data.get("lists") or {}
+            for name, values in entry["lists"].items():
+                if name not in have:
+                    compiled = self.app.store.put_list(name, copy.deepcopy(values))
+            # Every command's id, in any language: another's keeps its own.
+            existing = {*compiled.commands, *compiled.hidden}
+            base = SAFE_ID.sub("_", str(body.get("new_id") or entry["id"]).lower()).strip("_") or "command"
+            if base in compiled.hidden:
+                base = f"{base}_{languages.current().code}"  # turn_on_here_de, beside English's turn_on_here
+            command_id, n = base, 2
+            while command_id in existing:
+                command_id, n = f"{base}_{n}", n + 1
+            compiled = self.app.store.put_command(command_id, spec)
+            ids.append(command_id)
         await self.app.apply(compiled)
-        return web.json_response({"ok": True, "id": command_id})
+        return web.json_response({"ok": True, "id": ids[0], "ids": ids})
 
     # ------------------------------------------------------- home assistant
 

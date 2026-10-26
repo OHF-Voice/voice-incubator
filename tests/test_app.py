@@ -517,12 +517,20 @@ async def _scenario(tmp_path: Path) -> None:
             assert [(e["id"], e["variant"]) for e in play] == [
                 ("play_music_here", "here"), ("play_music_device", "device"), ("play_music_place", "place")]
             added = await (await http.post("/api/library/add", json={"file": "music", "id": "play_music_device"})).json()
-            assert added == {"ok": True, "id": "play_music_device"}
+            assert added == {"ok": True, "id": "play_music_device", "ids": ["play_music_device"]}
             spec = (await (await http.get("/api/store")).json())["commands"]["play_music_device"]
             assert spec["title"] == "Play music on a different device" and spec["library"] == "music"
             assert spec["combinations"] == [["entity", "query"]] and spec["names"] == {"entity": {"count": 1, "domains": ["media_player"]}}
             assert not {"needs", "variants", "formerly"} & set(spec)
             assert (await http.delete("/api/commands/play_music_device")).status == 200
+            # Several at once, rebuilt once; a copy of one you have gets a number.
+            batch = [{"file": "timers", "id": "pause_timer"}, {"file": "timers", "id": "timer_status"}, {"file": "basic", "id": "what_time"}]
+            added = await (await http.post("/api/library/add", json={"entries": batch})).json()
+            assert added["ids"] == ["pause_timer", "timer_status", "what_time_2"]
+            assert {"pause_timer", "timer_status", "what_time_2"} <= set(app.engine.compiled.commands)
+            assert (await http.post("/api/library/add", json={"entries": [{"file": "timers", "id": "nope"}]})).status == 404
+            for gone in added["ids"]:
+                assert (await http.delete(f"/api/commands/{gone}")).status == 200
 
             # A command in another language: kept, not shown, its id its own.
             def german(document):
@@ -534,7 +542,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert "play_music_device" not in listed["commands"] and "play_music_device" not in listed["details"]
             assert listed["hidden"] == [{"code": "de", "name": "German", "count": 1}]
             added = await (await http.post("/api/library/add", json={"file": "music", "id": "play_music_device"})).json()
-            assert added == {"ok": True, "id": "play_music_device_en"}
+            assert added["id"] == "play_music_device_en"
             for gone in ("play_music_device_en", "play_music_device"):
                 assert (await http.delete(f"/api/commands/{gone}")).status == 200
 

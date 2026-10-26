@@ -313,6 +313,8 @@ a.tile:hover { border-color: var(--accent); text-decoration: none; }
 .dot.accent { background: var(--accent); }
 .section + .section { margin-top: 10px; }
 .section h3 { gap: 8px; color: var(--muted); }
+.not-added { margin: 6px 2px 0; line-height: 1.6; }
+.not-added button.link { padding: 0; font-size: inherit; }
 .panel.inset { background: var(--bg); margin-top: 10px; }
 
 /* A hint: "?" beside a label or heading; its text on hover, focus or click. */

@@ -249,7 +249,11 @@ Each version is a command of its own (`play_music_here`,
 sentence goes to the one that takes what was said in it. Adding one from the
 library copies it into your commands (the value lists it uses are the
 language's own: see Value lists); one you already have is marked **added**,
-and can be added again. A command has:
+and can be added again. Tick several to add them together; in a group,
+**Select the … not added** ticks each command you have no version of (the
+version for the satellite it's said to). Under each section of the Home page
+you have commands from, **Not added** names the rest of it, to add one or
+all. A command has:
 
 - **Icon**: to tell commands apart at a glance; by default, one for what it
   does (a timer, music, a script ...).

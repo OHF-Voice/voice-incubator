@@ -1288,32 +1288,58 @@ async function duplicateDialog(id) {
 // name, in an area or floor by name. Each version is added on its own.
 const VARIANT_ICONS = { here: "mdi:crosshairs-gps", device: "mdi:devices", place: "mdi:home-map-marker" };
 
-async function newCommandDialog() {
-  let data, store, skillData;
-  try {
-    [data, store, skillData] = await Promise.all([api("GET", "library"), loadStore(), api("GET", "skills")]);
-  } catch (err) { toast(err.message); return; }
-  // Added: one of your commands has its id, or its id and a suffix (a copy:
-  // play_music_2). A command whose id you changed is yours, and the
-  // library's can be added again.
-  const ids = Object.keys(store.commands || {});
-  const yours = { has: (libraryId) => ids.some((id) => id === libraryId || id.startsWith(`${libraryId}_`)) };
-  // A skill is added while it answers anywhere.
-  const skillsHere = new Set(skillData.skills.filter((sk) => sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.length)).map((sk) => sk.id));
-  const QUESTIONS = "Questions";
-  const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries(), [QUESTIONS, "mdi:comment-question-outline"]];
-  // Each command and its versions, in the library's order.
+// Whether a library command is among yours: by its id, or a copy of it
+// (play_music_here_2, turn_on_here_de, what_time_copy). A command whose id
+// you changed is yours, and the library's can be added again.
+function libraryAdded(ids, libraryId) {
+  const copy = new RegExp(`^${libraryId}_(\\d+|[a-z]{2}|copy(_\\d+)?)$`);
+  return ids.some((id) => id === libraryId || copy.test(id));
+}
+
+// The library's commands, each with its versions, in the library's order.
+function libraryFamilies(entries) {
   const families = [];
   const byKey = new Map();
-  for (const entry of data.entries) {
+  for (const entry of entries) {
     const key = `${entry.file}/${entry.family}`;
     if (!byKey.has(key)) {
-      const family = { key, group: entry.group, title: entry.family_title, icon: entry.family_icon, versions: [] };
+      const family = { key, file: entry.file, group: entry.group, title: entry.family_title, icon: entry.family_icon, versions: [] };
       byKey.set(key, family);
       families.push(family);
     }
     byKey.get(key).versions.push(entry);
   }
+  return families;
+}
+
+// The version added when a whole command is: the one for the satellite
+// it's said to, else its only (or first) one.
+const defaultVersion = (family) => family.versions.find((e) => e.variant === "here") || family.versions[0];
+
+// Library commands into yours, several at once (one rebuild).
+async function addFromLibrary(entries) {
+  const result = await api("POST", "library/add", { entries: entries.map((e) => ({ file: e.file, id: e.id })) });
+  toast(entries.length === 1 ? `Added ${entries[0].title}` : `Added ${entries.length} commands`);
+  refreshStatus();
+  return result;
+}
+
+async function newCommandDialog() {
+  let data, store, skillData;
+  try {
+    [data, store, skillData] = await Promise.all([api("GET", "library"), loadStore(), api("GET", "skills")]);
+  } catch (err) { toast(err.message); return; }
+  const ids = Object.keys(store.commands || {});
+  const yours = { has: (libraryId) => libraryAdded(ids, libraryId) };
+  // A skill is added while it answers anywhere.
+  const skillsHere = new Set(skillData.skills.filter((sk) => sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.length)).map((sk) => sk.id));
+  const QUESTIONS = "Questions";
+  const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries(), [QUESTIONS, "mdi:comment-question-outline"]];
+  const families = libraryFamilies(data.entries);
+  // Ticked to add together: by file and id.
+  const selected = new Map();
+  const keyOf = (entry) => `${entry.file}/${entry.id}`;
+  const footer = h("div", { class: "row" });
   const opened = new Set();
   let group = "";
   const search = h("input", { type: "search", placeholder: "Search the library: lights, timer, play…", "aria-label": "Search the library" });
@@ -1321,13 +1347,26 @@ async function newCommandDialog() {
   const chips = h("div", { class: "row filter-chips" });
   const add = async (entry) => {
     try {
-      const result = await api("POST", "library/add", { file: entry.file, id: entry.id });
-      toast(`Added ${entry.title}`);
+      const result = await addFromLibrary([entry]);
       close();
-      refreshStatus();
       location.hash = `#/command/${result.id}`;
     } catch (err) { toast(err.message); }
   };
+  const addSelected = async () => {
+    try {
+      await addFromLibrary([...selected.values()]);
+      close();
+      route();
+    } catch (err) { toast(err.message); }
+  };
+  function renderFooter() {
+    const n = selected.size;
+    fill(footer, n ? [
+      h("span", { class: "grow muted small" }, `${n} selected`),
+      h("button", { type: "button", class: "link", onclick: () => { selected.clear(); render(); } }, "Clear"),
+      h("button", { type: "button", class: "primary", onclick: addSelected }, n === 1 ? "Add 1 command" : `Add ${n} commands`),
+    ] : null);
+  }
   const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = "#/command/"; } },
     icon("mdi:pencil-plus-outline", "big"),
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
@@ -1341,7 +1380,10 @@ async function newCommandDialog() {
   const row = (entry, iconName) => {
     const added = yours.has(entry.id);
     const description = entry.variant && entry.description === entry.family_description ? "" : entry.description;
+    const tick = added ? null : h("input", { type: "checkbox", checked: selected.has(keyOf(entry)), "aria-label": `Select ${entry.title}`,
+      onchange: (e) => { if (e.target.checked) selected.set(keyOf(entry), entry); else selected.delete(keyOf(entry)); renderFooter(); } });
     return h("div", { class: `item ${added ? "added" : ""}` },
+      tick,
       icon(iconName, "big"),
       h("div", { class: "grow" },
         h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
@@ -1396,25 +1438,34 @@ async function newCommandDialog() {
     const shown = families.filter((f) => !group || f.group === group)
       .map((f) => [f, f.versions.filter((e) => matches(e, words))]).filter(([, versions]) => versions.length);
     const skills = !group || group === QUESTIONS ? skillData.skills.filter((sk) => skillMatches(sk, words)) : [];
+    // In one group: tick each command shown that you have no version of.
+    const missing = group && group !== QUESTIONS
+      ? shown.map(([family]) => family).filter((family) => !family.versions.some((e) => yours.has(e.id))) : [];
     fill(chips, ...[["", null, "All"], ...groups.map(([g, i]) => [g, i, g])].map(([value, ic, label]) => {
       const count = value === QUESTIONS ? skillData.skills.filter((sk) => skillMatches(sk, words)).length
         : families.filter((f) => (!value || f.group === value) && f.versions.some((e) => matches(e, words))).length
           + (value ? 0 : skillData.skills.filter((sk) => skillMatches(sk, words)).length);
       return h("button", { type: "button", class: `filter-chip ${group === value ? "on" : ""}`, "aria-pressed": String(group === value),
         onclick: () => { group = value; render(); } }, ic ? icon(ic) : null, `${label} (${count})`);
-    }));
+    }),
+    missing.length ? h("button", { type: "button", class: "link", onclick: () => {
+      for (const family of missing) { const entry = defaultVersion(family); selected.set(keyOf(entry), entry); }
+      render();
+    } }, `Select the ${missing.length} not added`) : null);
     fill(list, ...shown.map(([family, versions]) => (family.versions.length === 1 && !family.versions[0].variant
       ? row(versions[0], iconFor(versions[0].spec))
       : familyRow(family, versions, words.length > 0))),
     ...skills.map(skillRow),
     shown.length || skills.length ? null : h("p", { class: "muted" }, "Nothing in the library matches. Start a custom command above."));
+    renderFooter();
   }
   search.addEventListener("input", render);
   const close = openDialog("Add a command", [
     custom,
-    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or from the library:", hint("Adding one copies it into your commands, where you can change anything about it. Most come in versions — on the satellite it's said to, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes.")),
+    h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or from the library:", hint("Adding one copies it into your commands, where you can change anything about it. Tick several to add them together; in a group, select the ones you have none of (each for the satellite it's said to). Most come in versions — on the satellite it's said to, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes.")),
     search, chips,
-    h("div", { class: "dialog-list" }, list)]);
+    h("div", { class: "dialog-list" }, list),
+    footer]);
   render();
   search.focus();
 }
@@ -1512,7 +1563,9 @@ function skillItem(skill) {
 // Commands and skills grouped by what they're for: your own (Custom)
 // first, then the library's sections, then the skills (Questions).
 // `place`: every one (null), or those that run on a satellite (its key).
-function placedSections(store, skillData, place, emptyText) {
+// With the `library`, a section you have commands from says which of its
+// commands you have none of, to add.
+function placedSections(store, skillData, place, emptyText, library) {
   const ids = Object.keys(store.commands || {}).filter((id) => !place || runsOn(store, id, place));
   const skillsHere = skillData.skills.filter((sk) => !place || sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.includes(place)));
   const bySection = {};
@@ -1520,13 +1573,23 @@ function placedSections(store, skillData, place, emptyText) {
     const section = (store.details[id] || {}).library || "";
     (bySection[section] = bySection[section] || []).push(id);
   }
-  const section = (title, iconName, items) => h("div", { class: "section" },
+  const section = (title, iconName, items, after) => h("div", { class: "section" },
     h("h3", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(items.length))),
-    h("div", { class: "list" }, items));
+    h("div", { class: "list" }, items), after || null);
+  const yours = Object.keys(store.commands || {});
+  const families = library && !place ? libraryFamilies(library.entries || []) : [];
+  const notAdded = (file) => {
+    const missing = families.filter((f) => f.file === file && !f.versions.some((e) => libraryAdded(yours, e.id)));
+    if (!missing.length) return null;
+    const add = async (entries) => { try { await addFromLibrary(entries); route(); } catch (err) { toast(err.message); } };
+    return h("div", { class: "not-added small muted" }, "Not added: ",
+      missing.map((f, i) => [i ? ", " : "", h("button", { type: "button", class: "link", title: `Add ${f.title}`, onclick: () => add([defaultVersion(f)]) }, f.title)]),
+      missing.length > 1 ? [" · ", h("button", { type: "button", class: "link", onclick: () => add(missing.map(defaultVersion)) }, "add all")] : null);
+  };
   const out = [];
   if ((bySection[""] || []).length) out.push(section("Custom", "mdi:pencil-outline", bySection[""].map((id) => commandItem(store, id))));
   for (const s of store.sections || []) {
-    if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id))));
+    if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id)), notAdded(s.file)));
   }
   if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map((skill) => skillItem(skill))));
   return out.length ? out : [h("p", { class: "muted small" }, emptyText)];
@@ -1557,9 +1620,10 @@ function hiddenNotice(hidden, one, many, why) {
 
 // `query`: satellite=key, to show what runs there.
 async function pageHome(query) {
-  const [store, sats, skillData, wake] = await Promise.all([
+  const [store, sats, skillData, wake, library] = await Promise.all([
     loadStore(), loadSatellites(), api("GET", "skills"),
     api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
+    api("GET", "library").catch(() => ({ entries: [] })),
   ]);
   const unknown = (store.unknown || {}).response;
   const unknownItem = h("div", { class: "item clickable", onclick: () => { location.hash = "#/unknown"; } },
@@ -1570,10 +1634,10 @@ async function pageHome(query) {
     h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
   let place = new URLSearchParams(query || "").get("satellite") || "";
   if (!sats.some((s) => s.key === place)) place = "";
-  const sections = h("div", {}, placedSections(store, skillData, place || null, "No commands yet: press Add."));
+  const sections = h("div", {}, placedSections(store, skillData, place || null, "No commands yet: press Add.", library));
   const filter = h("select", { "aria-label": "Show", onchange: (e) => {
     place = e.target.value;
-    fill(sections, placedSections(store, skillData, place || null, "Nothing runs there."));
+    fill(sections, placedSections(store, skillData, place || null, place ? "Nothing runs there." : "No commands yet: press Add.", library));
     history.replaceState(null, "", place ? `#/home?satellite=${place}` : "#/home");
   } },
     h("option", { value: "", selected: !place }, "All"),

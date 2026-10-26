@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **Several library commands at once**: tick them in Add, or select the
+  ones in a group you have none of. Under each section of the Home page you
+  have commands from, **Not added** names the rest of it ("Pause a timer"
+  beside Resume a timer), to add one or all.
 - **A doubtful match is heard again**: one that cost as much as a word it
   left unexplained runs only when the speech model's transcript says the
   same command (or the one the transcript says runs instead; none, nothing).
