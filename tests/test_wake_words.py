@@ -96,12 +96,16 @@ def test_catalog(tmp_path):
     assert words.resolve("Hey Tater") == "hey_tater"
     assert words.resolve("nothing") is None
 
-    # A satellite's own pick, else the preferred one, else the default: one.
+    # A satellite's own (up to five), else the home's preferred one, else
+    # the default.
     assert words.chosen({}, {}, ("okay_nabu",)) == ["okay_nabu"]
     assert words.chosen({"wake_words": ["hey_jarvis", "gone"]}, {}, ("okay_nabu",)) == ["hey_jarvis"]
+    assert words.chosen({"wake_words": ["hey_jarvis", "okay_nabu"]}, {}, ()) == ["hey_jarvis"]  # one preferred
     assert words.chosen({"wake_words": ["hey_jarvis"]}, {"wake_words": ["hey_tater"]}, ()) == ["hey_tater"]
     assert words.chosen({}, {"wake_words": ["gone"]}, ("okay_nabu",)) == ["okay_nabu"]
-    assert words.chosen({}, {"wake_words": ["gone", "hey_tater", "okay_nabu"]}, ()) == ["hey_tater"]
+    assert words.chosen({}, {"wake_words": ["gone", "hey_tater", "okay_nabu"]}, ()) == ["hey_tater", "okay_nabu"]
+    six = ["okay_nabu", "hey_jarvis", "hey_mycroft", "hey_tater", "okay_nabu", "hey_jarvis"]
+    assert words.chosen({}, {"wake_words": six}, ()) == ["okay_nabu", "hey_jarvis", "hey_mycroft", "hey_tater"]
 
     # The override moves verified words only.
     override = WakeWords(BUILTIN, custom, lambda w: w == "okay_nabu", cutoff_override=0.4)
@@ -139,7 +143,7 @@ async def _per_satellite(tmp_path: Path) -> None:
     satellite_port = satellite_server.sockets[0].getsockname()[1]
     custom_word(tmp_path / "wake_words", "hey_tater", "Hey Tater", 0.97)
     (tmp_path / "commands.yaml").write_text(COMMANDS)
-    # Picked when a satellite could have two: the first is used.
+    # Two of its own: both listened for.
     (tmp_path / "satellites.yaml").write_text(f"{MAC}: {{name: Kitchen VPE, wake_words: [hey_mycroft, hey_tater]}}\n")
     (tmp_path / "settings.yaml").write_text("wake_words: [hey_jarvis]\n")
     http_port = free_port()
@@ -161,8 +165,8 @@ async def _per_satellite(tmp_path: Path) -> None:
     base = f"http://127.0.0.1:{http_port}/api"
     try:
         await asyncio.wait_for(satellite.ready.wait(), 30)
-        # Its own pick (and no VAD gate).
-        await wait_for(lambda: satellite.models == ["hey_mycroft"])
+        # Its own picks (and no VAD gate).
+        await wait_for(lambda: satellite.models == ["hey_mycroft", "hey_tater"])
         assert satellite.model_headers["hey_mycroft"]["probability_cutoff"] == 0.7
         await wait_for(lambda: "hey_mycroft" in app.wake.started)
 
@@ -234,7 +238,16 @@ async def _per_satellite(tmp_path: Path) -> None:
                 assert response.status == 200
             assert "okay_nabu" not in app.store.wake_tuning and app.wake_ratios["okay_nabu"].threshold == 1.3
 
-            # Back to the preferred one; one at a time.
+            # Several of its own: each one pushed. Six are refused.
+            async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": ["hey_tater", "okay_nabu"]}) as response:
+                assert response.status == 200
+            await wait_for(lambda: satellite.models == ["hey_tater", "okay_nabu"])
+            assert app.store.satellites[MAC]["wake_words"] == ["hey_tater", "okay_nabu"]
+            async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": ["hey_tater", "okay_nabu", "hey_jarvis", "hey_mycroft", "hey_pooled", "hey_extra"]}) as response:
+                assert response.status == 400
+            assert app.store.satellites[MAC]["wake_words"] == ["hey_tater", "okay_nabu"]
+
+            # Back to the preferred one; the home has one.
             async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": None}) as response:
                 assert response.status == 200
             await wait_for(lambda: satellite.models == ["hey_jarvis"])

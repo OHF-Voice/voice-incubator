@@ -506,11 +506,10 @@ what `--wake-cutoff 0.5` is for.
 
 ## Wake words
 
-Each satellite listens for one wake word: its own (Wake words page,
-`satellites.json`: `wake_words: [id]`), else the home's preferred one
-(`settings.json`), else `--wake-model` (default `okay_nabu`). Only the first
-of a list is used (`MAX_WAKE_WORDS`), and the API refuses two: the device has
-room for more, but the UI offers one for now. The app pushes the wake word's
+Each satellite listens for its own wake words (Wake words page,
+`satellites.json`: `wake_words: [id, ...]`, up to `MAX_WAKE_WORDS`, five),
+else the home's preferred one (`settings.json`, one: the API refuses two),
+else `--wake-model` (default `okay_nabu`). The app pushes the wake words'
 model on `HELLO`, clearing whatever the device held first, and again when the
 pick or its cutoff changes -- never during a call, since clearing stops the
 detector's microphone. The firmware has six model slots and says so in

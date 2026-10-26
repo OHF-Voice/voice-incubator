@@ -41,10 +41,10 @@ STOP = "stop"
 SPECIAL = frozenset({VAD, STOP})
 DEFAULT_WAKE_WORDS = ("okay_nabu",)
 
-MAX_WAKE_WORDS = 1
-"""Wake words a satellite listens for at once. The device has room for more
-(``model_slots``), but for now each satellite has one: the home's preferred
-wake word, or its own."""
+MAX_WAKE_WORDS = 5
+"""Wake words a satellite listens for at once, of its own: the firmware's six
+model slots, one kept for "stop" (older firmware has room for three, and is
+given the first three). The home has one preferred wake word."""
 
 PHRASES: dict[str, tuple[str, ...]] = {
     # How Parakeet writes them. Placement only -- the verifier has already
@@ -302,16 +302,16 @@ class WakeWords:
         return PHRASES.get(word_id) or PHRASES[DEFAULT_WAKE_WORDS[0]]
 
     def chosen(self, settings: dict[str, Any], stored: dict[str, Any], default: tuple[str, ...]) -> list[str]:
-        """A satellite's wake words: its own, else the home's preferred one,
-        else the app's default. Unknown ids are left out, and only the first
-        ``MAX_WAKE_WORDS`` are kept."""
+        """A satellite's wake words: its own (up to ``MAX_WAKE_WORDS``), else
+        the home's preferred one, else the app's default. Unknown ids are left
+        out."""
         words = self.scan()
-        for source in (stored.get("wake_words"), settings.get("wake_words"), default):
+        for source, most in ((stored.get("wake_words"), MAX_WAKE_WORDS), (settings.get("wake_words"), 1), (default, 1)):
             if source:
                 picked = [w for w in dict.fromkeys(source) if w in words]
                 if picked:
-                    return picked[:MAX_WAKE_WORDS]
-        return ([w for w in DEFAULT_WAKE_WORDS if w in words] or list(words))[:MAX_WAKE_WORDS]
+                    return picked[:most]
+        return ([w for w in DEFAULT_WAKE_WORDS if w in words] or list(words))[:1]
 
     # -------------------------------------------------------------- models
 

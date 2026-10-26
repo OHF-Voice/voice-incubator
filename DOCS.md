@@ -55,9 +55,9 @@ something else on one satellite, duplicate it there and change the copy.
 
 ### Wake words
 
-Each satellite listens for one wake word: the home's **preferred** one, or
-one of its own. Both are picked on the **Wake words** page, which is also
-where each wake word is tuned.
+Each satellite listens for the home's **preferred** wake word, or for up to
+five of its own (three on older firmware). Both are picked on the **Wake
+words** page, which is also where each wake word is tuned.
 
 - **Okay Nabu, Hey Jarvis, Hey Mycroft** are built in. Every time the
   satellite thinks it heard one, the app checks again against **confusables**

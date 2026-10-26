@@ -1510,7 +1510,7 @@ function placedSections(store, skillData, place, emptyText) {
 function satelliteTile(s, wake) {
   const own = (s.commands || []).length + (s.skills || []).length;
   const summary = [
-    wakeWordName(wake, (s.wake_words_used || [])[0]),
+    wakeWordNames(wake, s.wake_words_used),
     s.home ? (own ? `the Home's + ${own} of its own` : "the Home's") : `only its own (${own})`,
   ];
   return h("a", { class: "tile", href: `#/satellite/${s.key}`, title: `Set up and test ${s.name}` },
@@ -1680,8 +1680,8 @@ async function pageSatellite(key, opened) {
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Call integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Wake word"), h("div", {}, wakeWordName(wake, (s.wake_words_used || [])[0]), s.wake_words ? " (its own)" : " (the preferred one)",
-            (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordName(wake, s.wake_words_need_firmware[0])} needs newer firmware`) : null,
+          h("div", {}, "Wake words"), h("div", {}, wakeWordNames(wake, s.wake_words_used), s.wake_words ? " (its own)" : " (the preferred one)",
+            (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordNames(wake, s.wake_words_need_firmware)} needs newer firmware`) : null,
             " · ", h("a", { href: "#/wake" }, "change")),
           s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
     h("div", { class: "panel" },
@@ -2180,6 +2180,13 @@ function wakeWordName(wake, id) {
   return word ? wakeWordLabel(word) : id;
 }
 
+// The wake words a satellite listens for, by name: "Okay Nabu, Hey Jarvis".
+function wakeWordNames(wake, ids) {
+  return (ids || []).length ? ids.map((id) => wakeWordName(wake, id)).join(", ") : "none";
+}
+
+const MAX_WAKE_WORDS = 5;  // a satellite's own; the home has one preferred
+
 // A wake word as picked: a custom one says so, since one trained here from a
 // built-in phrase has the built-in one's name.
 function wakeWordLabel(word) {
@@ -2436,17 +2443,28 @@ async function pageWakeWords(query) {
   };
 
   const preferred = h("select", { style: "max-width:320px", "aria-label": "Preferred wake word" }, runs.map((w) => option(w, w.id === wake.preferred)));
+  // A satellite's own wake words, as chips, and one more to add; none: the
+  // preferred one.
   const satRows = sats.map((s) => {
-    const own = (s.wake_words || [])[0];
-    const select = h("select", {},
-      h("option", { value: "", selected: !own || null }, `The preferred one (${wakeWordName(wake, wake.preferred)})`),
-      runs.map((w) => option(w, w.id === own)));
-    return { s, select };
+    const row = { s, own: [...(s.wake_words || [])], box: h("div", { class: "row" }) };
+    const render = () => {
+      const add = h("select", { "aria-label": `Add a wake word to ${s.name}`, disabled: row.own.length >= MAX_WAKE_WORDS || null, onchange: (e) => {
+        if (e.target.value) { row.own.push(e.target.value); render(); }
+      } },
+        h("option", { value: "" }, row.own.length ? "Add a wake word…" : `The preferred one (${wakeWordName(wake, wake.preferred)})`),
+        runs.filter((w) => !row.own.includes(w.id)).map((w) => option(w, false)));
+      fill(row.box,
+        row.own.length ? h("div", { class: "chips" }, row.own.map((id, i) => h("span", { class: "chip" }, wakeWordName(wake, id),
+          h("button", { type: "button", title: "remove", onclick: () => { row.own.splice(i, 1); render(); } }, "×")))) : null,
+        add);
+    };
+    render();
+    return row;
   });
 
   // Built-in words, the ones in use or changed, and custom ones that match
   // the filter: hundreds of custom words make a long page.
-  const using = (id) => sats.filter((s) => ((s.wake_words || [])[0] || wake.preferred) === id);
+  const using = (id) => sats.filter((s) => ((s.wake_words || []).length ? s.wake_words : [wake.preferred]).includes(id));
   const opened = new Set(params.get("word") ? [params.get("word")] : []);
   const filter = wake.wake_words.length > 12 ? h("input", { type: "search", placeholder: `Filter ${wake.wake_words.length} wake words`, style: "max-width:260px" }) : null;
   const list = h("div", { class: "list" });
@@ -2492,7 +2510,7 @@ async function pageWakeWords(query) {
 
   const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
   fill($main,
-    heading("h1", "Wake words", "What a satellite listens for before a command. Each listens for one: the preferred wake word, or one of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly."),
+    heading("h1", "Wake words", `What a satellite listens for before a command: the preferred wake word, or up to ${MAX_WAKE_WORDS} of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly.`),
     wake.error ? h("div", { class: "notice warn" }, wake.error) : null,
     h("div", { class: "panel" },
       heading("h2", "Preferred", "Every satellite listens for this one, unless given its own below."),
@@ -2502,16 +2520,15 @@ async function pageWakeWords(query) {
       } }, "Save"))),
     sats.length ? h("div", { class: "panel" },
       h("h2", {}, "Satellites"),
-      h("div", { class: "kv", style: "align-items:center" }, satRows.flatMap(({ s, select }) => [
+      h("div", { class: "kv", style: "align-items:center" }, satRows.flatMap(({ s, box }) => [
         h("div", {}, s.name, s.connected ? null : h("span", { class: "muted small" }, " (offline)")),
-        h("div", { class: "row" }, select,
-          s.connected && (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordName(wake, s.wake_words_need_firmware[0])} needs newer firmware`)
-            : s.connected && (s.wake_words_used || []).length ? h("span", { class: "muted small" }, `listening for ${wakeWordName(wake, s.wake_words_used[0])}`) : null)])),
+        h("div", { class: "row" }, box,
+          s.connected && (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordNames(wake, s.wake_words_need_firmware)} needs newer firmware`)
+            : s.connected && (s.wake_words_used || []).length ? h("span", { class: "muted small" }, `listening for ${wakeWordNames(wake, s.wake_words_used)}`) : null)])),
       h("div", { class: "row", style: "margin-top:10px" }, h("button", { class: "primary", onclick: async () => {
         try {
-          for (const { s, select } of satRows) {
-            const own = (s.wake_words || [])[0] || "";
-            if (select.value !== own) await api("PUT", `satellites/${s.key}`, { wake_words: select.value ? [select.value] : null });
+          for (const { s, own } of satRows) {
+            if (own.join(" ") !== (s.wake_words || []).join(" ")) await api("PUT", `satellites/${s.key}`, { wake_words: own.length ? own : null });
           }
           toast("Saved"); reload();
         } catch (err) { toast(err.message); }

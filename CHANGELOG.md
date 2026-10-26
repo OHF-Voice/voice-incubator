@@ -2,6 +2,8 @@
 
 ## 0.2.0
 
+- **Several wake words per satellite**: up to five of its own (three on
+  older firmware), else the home's preferred one, which is still one.
 - **Embeddings kept between starts** (`embeddings.npz` in the data folder):
   with EmbeddingGemma, a start no longer embeds every example again (91 s on
   an HA Green).

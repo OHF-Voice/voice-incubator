@@ -924,7 +924,7 @@ class Api:
                 entry.pop("home", None)
         if "wake_words" in body:
             # Empty: as every satellite.
-            picked = self._wake_word_ids(body["wake_words"])
+            picked = self._wake_word_ids(body["wake_words"], MAX_WAKE_WORDS)
             if picked:
                 entry["wake_words"] = picked
             else:
@@ -1174,7 +1174,7 @@ class Api:
             # Loading takes a while; the UI follows it in the status.
             asyncio.ensure_future(self.app.change_tdt())
         if "wake_words" in body:
-            picked = self._wake_word_ids(body["wake_words"])
+            picked = self._wake_word_ids(body["wake_words"], 1)  # the home's preferred one
             if picked:
                 settings["wake_words"] = picked
             else:
@@ -1185,7 +1185,7 @@ class Api:
 
     # ----------------------------------------------------------- wake words
 
-    def _wake_word_ids(self, value: Any) -> list[str]:
+    def _wake_word_ids(self, value: Any, most: int) -> list[str]:
         if not value:
             return []
         if not isinstance(value, list):
@@ -1195,8 +1195,8 @@ class Api:
         if unknown:
             raise ConfigError(f"wake_words: unknown {unknown}")
         picked = list(dict.fromkeys(str(v) for v in value))
-        if len(picked) > MAX_WAKE_WORDS:
-            raise ConfigError("wake_words: one wake word at a time")
+        if len(picked) > most:
+            raise ConfigError("wake_words: one preferred wake word" if most == 1 else f"wake_words: at most {most}")
         return picked
 
     async def wake_words(self, request: web.Request) -> web.Response:
