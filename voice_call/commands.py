@@ -77,6 +77,13 @@ anyone has one of their own: "add … to my to-do list"::
       slots: {entity: [todo.to_do]}     # where nobody has their own
       mine: todo_list
 
+``home`` makes it act on the home's own -- ``weather``, set on the Settings
+page -- unless it has an implied target of its own; with neither, the
+outcome is ``not_set``::
+
+    weather:
+      home: weather
+
 ``on_list`` says a slot names an item on a to-do list -- one by id, or the
 one in ``entity`` (its implied target): what was heard becomes the item as
 the list has it -- the same words as spoken ("test three" is "test 3"), or
@@ -158,6 +165,7 @@ COMMAND_KEYS = {
     "library",
     "satellites",
     "mine",
+    "home",
     "on_list",
     "fallback",
     "combinations",
@@ -173,6 +181,8 @@ REMOVED_KEYS = {
     "groups": "command groups are gone: a command runs on every satellite, or on those in its satellites list",
 }
 FALLBACK_STEPS = ("meaning", "llm")
+HOME_THINGS = {"weather": "weather"}
+"""What the home has one of (Settings, ``home``), and its entities' domain."""
 
 # Shared settings for every home, whatever its language: examples that win
 # when said word for word. The embedding names the closest command when
@@ -282,6 +292,10 @@ class Behavior:
     """The speaker's own thing it acts on (people.THINGS), where anyone has
     one: it can then turn out ``no_speaker``."""
 
+    home: str | None = None
+    """The home's own thing it acts on without an implied target of its own
+    (HOME_THINGS): it can then turn out ``not_set``."""
+
     on_list: dict[str, str] = field(default_factory=dict)
     """Slots that name an item on a to-do list, by the list: it can then turn
     out ``not_on_list``."""
@@ -333,7 +347,12 @@ class Behavior:
         outcomes = self._outcomes()
         if outcomes is None:
             return None
-        return outcomes + (("no_speaker",) if self.mine else ()) + (("not_on_list",) if self.on_list else ())
+        return (
+            outcomes
+            + (("no_speaker",) if self.mine else ())
+            + (("not_set",) if self.home else ())
+            + (("not_on_list",) if self.on_list else ())
+        )
 
     def _outcomes(self) -> tuple[str, ...] | None:
         if self.timer:
@@ -698,6 +717,11 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         mine = str(mine)
         if mine not in THINGS:
             raise ConfigError(f"{where}.mine: one of {', '.join(THINGS)}")
+    home = spec.get("home")
+    if home is not None:
+        home = str(home)
+        if home not in HOME_THINGS:
+            raise ConfigError(f"{where}.home: one of {', '.join(HOME_THINGS)}")
     on_list = {str(k): str(v) for k, v in _mapping(spec.get("on_list") or {}, f"{where}.on_list").items()}
     for slot, entity in on_list.items():
         if entity != "entity" and not re.fullmatch(r"todo\.[a-z0-9_]+", entity):
@@ -713,6 +737,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         response=response or None,
         verbosity=verbosity,
         mine=mine,
+        home=home,
         on_list=on_list,
     )
 

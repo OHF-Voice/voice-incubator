@@ -26,7 +26,17 @@ from adapt_ctc.template import TemplateError, expand
 from . import languages, music, timers
 from .endpoint import parse as parse_end_of_speech
 from .enrollment import PASSAGE
-from .commands import COMMAND_ID, DYNAMIC_LISTS, FALLBACK_STEPS, ICON, NUMBER_PRESETS, VERBOSITY, parse_command, satellite_keys
+from .commands import (
+    COMMAND_ID,
+    DYNAMIC_LISTS,
+    FALLBACK_STEPS,
+    HOME_THINGS,
+    ICON,
+    NUMBER_PRESETS,
+    VERBOSITY,
+    parse_command,
+    satellite_keys,
+)
 from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .skills import LEVELS, SKILLS, available, skill_satellites
@@ -312,6 +322,8 @@ class Api:
                 ],
                 # What is said when nothing understood a sentence.
                 "unknown": data.get("unknown") or {},
+                # The home's own things (Settings), for commands on them without their own.
+                "home": self.app.store.settings.get("home") or {},
                 # Commands in other languages, by language: how many.
                 "hidden": [{"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden.items())],
                 "error": error,
@@ -863,6 +875,18 @@ class Api:
         settings = self.app.store.settings
         if "keep_audio" in body:
             settings["keep_audio"] = bool(body["keep_audio"])
+        if "home" in body:
+            # What commands on the home's own use without an implied target.
+            home = dict(settings.get("home") or {})
+            for thing, value in _home(body["home"]).items():
+                if value:
+                    home[thing] = value
+                else:
+                    home.pop(thing, None)
+            if home:
+                settings["home"] = home
+            else:
+                settings.pop("home", None)
         if "max_saved_calls" in body:
             settings["max_saved_calls"] = max(1, int(body["max_saved_calls"]))
         # Home Assistant STT and TTS for every satellite: an entity, or none
@@ -1506,6 +1530,23 @@ def _number(value: Any, name: str, low: float, high: float) -> float | None:
     if not low <= number <= high or math.isnan(number):
         raise ConfigError(f"{name}: a number from {low} to {high}")
     return number
+
+
+def _home(value: Any) -> dict[str, str | None]:
+    """The home's own things as the Settings page sends them: an entity of
+    its kind for each, or none. Raises ConfigError."""
+    if not isinstance(value, dict):
+        raise ConfigError("home: expected a mapping")
+    out: dict[str, str | None] = {}
+    for thing, entity_id in value.items():
+        domain = HOME_THINGS.get(str(thing))
+        if domain is None:
+            raise ConfigError(f"home: unknown {thing!r} (one of {', '.join(HOME_THINGS)})")
+        entity_id = str(entity_id or "").strip()
+        if entity_id and not re.fullmatch(rf"{domain}\.[a-z0-9_]+", entity_id):
+            raise ConfigError(f"home.{thing}: a {domain} entity, like {domain}.home")
+        out[str(thing)] = entity_id or None
+    return out
 
 
 def _stt_always(value: Any) -> bool | None:

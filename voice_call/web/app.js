@@ -257,7 +257,7 @@ const ENTITY_ID = /^[a-z0-9_]+\.[a-z0-9_]+$/;
 // the voice domains only, so any entity id may also be typed in full.
 function hassPicker(kind, onPick, opts = {}) {
   const plural = { entity: "entities", area: "areas", floor: "floors" }[kind] || `${kind}s`;
-  const hint = kind === "entity" ? `Search Home Assistant ${opts.domain ? `${opts.domain}s` : plural}, or type an entity id…` : `Search Home Assistant ${plural}…`;
+  const hint = kind === "entity" ? `Search Home Assistant ${opts.domain ? `${opts.domain} entities` : plural}, or type an entity id…` : `Search Home Assistant ${plural}…`;
   const input = h("input", { type: "search", placeholder: opts.placeholder || hint });
   const results = h("div", { class: "results hidden" });
   let timer = null;
@@ -500,6 +500,23 @@ function responsesPanel() {
     h("div", { class: "row" },
       h("label", {}, thinking, "Thinking sound", hint("Played on the satellite when nothing has been said back this long after the command ended — Home Assistant's speech, the conversation agent, a slow machine — and stopped as the reply begins. A quicker reply plays none.")),
       field("After (s)", thinkingDelay)));
+}
+
+// The home's own things: what commands on them use without their own.
+function homePanel() {
+  const panel = h("div", { class: "panel" }, heading("h2", "Home"), h("p", { class: "muted small" }, "Loading…"));
+  api("GET", "settings").then((settings) => {
+    const home = settings.home || {};
+    const save = async (thing, value) => {
+      try { await api("PUT", "settings", { home: { [thing]: value } }); toast("Saved"); }
+      catch (err) { toast(err.message); }
+    };
+    fill(panel,
+      heading("h2", "Home", "What commands use where they have no implied target of their own."),
+      field("Weather", entityField("weather", home.weather || null, (value) => save("weather", value)),
+        "The weather commands' entity. Their forecasts need its daily ones."));
+  }).catch((err) => fill(panel, heading("h2", "Home"), errorBox(err)));
+  return panel;
 }
 
 function fallbackPanel() {
@@ -1232,8 +1249,16 @@ async function pageCommand(id, prefill, query) {
           heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
           combosWrap)),
       h("div", { class: "panel" }, heading("h2", "Implied target", "What it acts on without it being said — a command made for one device, room or floor — passed to Home Assistant as if it had been heard. The words can then be anything. A device, room or floor that is said takes the place of the implied one of its kind; a room said with an implied device, or one implied with a device said, only picks out which device."),
-        targetEditor(spec)),
+        targetEditor(spec), homeNote()),
     );
+  }
+
+  // What it acts on without an implied target of its own: the home's.
+  function homeNote() {
+    if (!spec.home) return null;
+    const theirs = (state.store.home || {})[spec.home];
+    return h("p", { class: "muted small" }, `Without its own entity: the home's ${spec.home}, `,
+      theirs ? h("code", {}, theirs) : "not set yet", " (", h("a", { href: "#/settings" }, "Settings"), ").");
   }
 
   function render() {
@@ -3863,6 +3888,7 @@ async function pageSettings() {
   await Promise.all([refreshStatus(), loadSatellites()]);
   fill($main,
     h("h1", {}, "Settings"),
+    homePanel(),
     speechPanel(),
     endOfSpeechPanel(),
     fallbackPanel(),

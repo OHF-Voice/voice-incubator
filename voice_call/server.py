@@ -2566,6 +2566,7 @@ class VoiceCallApp:
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
+            home=self.store.settings.get("home"),
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))

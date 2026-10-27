@@ -351,8 +351,7 @@ commands:
     require: [[tiempo, llover, lluvia, previsión, pronóstico]]
     # Not a timer's time: "cuánto tiempo queda".
     exclude: [queda, quedan, falta, faltan, temporizador, cuánto]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set tiempo = {'clear-night': 'despejado', 'cloudy': 'nublado', 'exceptional': 'un tiempo excepcional',
         'fog': 'con niebla', 'hail': 'granizando', 'lightning': 'con tormenta', 'lightning-rainy': 'con tormenta y lluvia',
@@ -363,7 +362,8 @@ commands:
       Está {{ tiempo.get(state, state) }} y hace
       {{ state_attr(slots.entity[0], 'temperature') | round }} grados.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

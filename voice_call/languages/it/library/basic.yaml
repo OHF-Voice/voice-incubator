@@ -344,8 +344,7 @@ commands:
     examples: ["che tempo fa [oggi]", "pioverà [oggi]", "com'è il meteo"]
     require: [[meteo, che tempo, pioverà, previsioni]]
     exclude: [manca, mancano, timer, quanto]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set meteo = {'clear-night': 'sereno', 'cloudy': 'nuvoloso', 'exceptional': 'eccezionale',
         'fog': 'nebbia', 'hail': 'grandine', 'lightning': 'temporale', 'lightning-rainy': 'temporale con pioggia',
@@ -356,7 +355,8 @@ commands:
       Tempo: {{ meteo.get(state, state) }}, con
       {{ state_attr(slots.entity[0], 'temperature') | round }} gradi.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

@@ -274,18 +274,27 @@ async def run(
     calendar: alarms.AlarmCalendar | None = None,
     wake_word: dict[str, Any] | None = None,
     people: dict[str, Any] | None = None,
+    home: dict[str, Any] | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
     of the satellite's area. ``calendar``: where alarms and reminders are, in
     a language that keeps them there. ``people``: everyone's own things, for
-    a command on the speaker's (``mine``)."""
+    a command on the speaker's (``mine``); ``home``: the home's (Settings),
+    for one on the home's without its own (``home``)."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     catalog = getattr(hass, "catalog", None)
     known, theirs = (True, {}) if not behavior.mine else people_ops.mine(behavior.mine, speaker, people or {})
     if theirs:
         decision.slots = {**decision.slots, **theirs}
+    unset = False
+    if behavior.home and not decision.slots.get("entity"):
+        entity_id = (home or {}).get(behavior.home)
+        if entity_id:
+            decision.slots = {**decision.slots, "entity": [entity_id]}
+        else:
+            unset = True
     missing = None
     for slot, entity_id in behavior.on_list.items():
         said = str(decision.slots.get(slot) or "")
@@ -301,6 +310,8 @@ async def run(
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
+    if unset:
+        return await _say(hass, behavior, values, outcome, "not_set", languages.speech().NOT_SET)
     if missing is not None:
         sentence = languages.speech().NOT_ON_LIST.format(item=missing)
         return await _say(hass, behavior, values, outcome, "not_on_list", sentence[:1].upper() + sentence[1:])

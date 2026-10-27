@@ -26,6 +26,10 @@ knows who is speaking."""
 NOT_ON_LIST = "{item} isn't on the list."
 """A to-do list command's item that isn't on the list (``on_list``)."""
 
+NOT_SET = "That isn't set up yet."
+"""A command on the home's own thing (``home``: its weather) when neither it
+nor the home has one set."""
+
 WENT_WRONG = "Sorry, something went wrong."
 """The app failed while answering."""
 

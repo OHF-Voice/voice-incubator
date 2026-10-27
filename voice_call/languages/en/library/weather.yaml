@@ -1,6 +1,6 @@
-# The weather, from a Home Assistant weather entity (the implied target:
-# weather.home here): now, on a day, this week, and whether it will rain or
-# snow. The forecasts are its daily ones (weather.get_forecasts), so it must
+# The weather, from the home's weather entity (the Settings page), or one a
+# command is given (its implied target): now, on a day, this week, and
+# whether it will rain or snow. The forecasts are its daily ones (weather.get_forecasts), so it must
 # have them. A day is said from the forecast_days list: today, tomorrow, the
 # day after tomorrow, a day of the week (the next one), this weekend; what
 # falls from weather_kinds: rain (or an umbrella), snow.
@@ -23,8 +23,8 @@ shared:
     - stop: Read the forecast
       response_variable: reply
   needs: &needs
-    - Point it at your weather entity (its implied target, weather.home here). It
-      needs daily forecasts.
+    - Set the home's weather entity on the Settings page, or give it one of its
+      own (its implied target). It needs daily forecasts.
 
 commands:
   weather:
@@ -34,8 +34,7 @@ commands:
     examples: ["what's the weather [like] [today|right now|outside]", "how's the weather [today|outside]"]
     require: [[weather]]
     optional: [[now, right now, outside, like]]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set said = {'clear-night': 'clear', 'exceptional': 'unusual', 'fog': 'foggy', 'lightning': 'stormy',
         'lightning-rainy': 'stormy', 'partlycloudy': 'partly cloudy', 'pouring': 'pouring', 'snowy-rainy': 'sleeting',
@@ -49,20 +48,22 @@ commands:
     icon: mdi:weather-cloudy-clock
     description: tell the weather forecast for a day
     # "What's the weather tomorrow", "the forecast for Saturday", "what will
-    # the weather be like this weekend" (both days).
+    # the weather be like this weekend" (both days). No day said, as its
+    # examples: today's ("what will the weather be like").
+    examples: ["(what|how) will the (weather|forecast) be [like]", "(what's|what is|how's) the weather going to be [like]",
+               "(what's|what is) the [weather] forecast"]
     require: [[weather, forecast]]
     optional: [[what, whats, what's, what is, how, how's, how is, how does], [for, on, be, like, will, going to, look, looking]]
     lists:
       day: {list: forecast_days}
-    slots:
-      entity: [weather.home]
+    home: weather
     action: *forecast
     response: >-
       {%- set looks = {'clear-night': 'clear', 'cloudy': 'cloudy', 'exceptional': 'unusual', 'fog': 'foggy',
         'hail': 'stormy', 'lightning': 'stormy', 'lightning-rainy': 'stormy', 'partlycloudy': 'partly cloudy',
         'pouring': 'very rainy', 'rainy': 'rainy', 'snowy': 'snowy', 'snowy-rainy': 'sleety', 'sunny': 'sunny',
         'windy': 'windy', 'windy-variant': 'windy'} -%}
-      {%- set day = slots.day | default('tomorrow') -%}
+      {%- set day = slots.day | default('today') -%}
       {%- set names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
       {%- set today = now().date() -%}
       {%- if day == 'weekend' -%}
@@ -100,8 +101,7 @@ commands:
     examples: ["what's the (weather|forecast) [for] [this|the] week", "what's the weather (like|looking) for the next few days"]
     require: [[weather, forecast], [week, next few days, coming days]]
     optional: [[what, whats, what's, what is, how, how's, how is, how does], [for, this, the, like, look, looking, next, coming]]
-    slots:
-      entity: [weather.home]
+    home: weather
     action: *forecast
     response: >-
       {%- set looks = {'clear-night': 'clear', 'cloudy': 'cloudy', 'exceptional': 'unusual', 'fog': 'foggy',
@@ -145,8 +145,7 @@ commands:
       what: {list: weather_kinds}
       day: {list: forecast_days}
     combinations: [[what], [what, day]]
-    slots:
-      entity: [weather.home]
+    home: weather
     action: *forecast
     response: >-
       {%- set looks = {'clear-night': 'clear', 'cloudy': 'cloudy', 'exceptional': 'unusual', 'fog': 'foggy',

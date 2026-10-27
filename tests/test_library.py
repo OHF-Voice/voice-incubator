@@ -34,6 +34,13 @@ def test_every_library_command_is_valid(language):
     assert not [(e["id"], n) for e in entries for n in e["needs"] if not isinstance(n, str)]
 
 
+def test_the_weather_is_the_homes(language):
+    """The weather commands use the home's weather entity (Settings) where
+    they aren't given their own."""
+    weather = [e for e in load_library() if e["id"] in ("weather", "weather_day", "weather_week", "will_it_rain")]
+    assert weather and all(e["spec"]["home"] == "weather" and "slots" not in e["spec"] for e in weather)
+
+
 def test_ids_are_unique_across_files(language):
     # The library page marks a command added by its id; the Commands page
     # lists one by the file its id (or its family's, or a former one) is in.

@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **The home's weather entity**, on the Settings page (Home): the weather
+  commands use it unless one is given its own implied target (`home:
+  weather` on a command), in every language. With neither, the satellite
+  says "That isn't set up yet." (`not_set`). The library no longer assumes
+  `weather.home`.
+- **Today's forecast with no day said**: "what will the weather be like",
+  "what's the forecast".
 - **GLiNER picks among the commands chosen for it**, with the others close
   in meaning there to tell them apart; before, a likelier command not chosen
   refused the sentence. "I need cookies to be on the shopping list" was

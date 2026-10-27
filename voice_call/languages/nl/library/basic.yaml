@@ -335,8 +335,7 @@ commands:
     description: het weer weten
     examples: ["hoe is het weer [vandaag]", "gaat het [vandaag] regenen", "wat voor weer wordt het"]
     require: [[weer, regenen, weersvoorspelling, voorspelling]]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set weer = {'clear-night': 'helder', 'cloudy': 'bewolkt', 'exceptional': 'uitzonderlijk',
         'fog': 'mistig', 'hail': 'hagel', 'lightning': 'onweer', 'lightning-rainy': 'onweer met regen',
@@ -347,7 +346,8 @@ commands:
       Het is {{ weer.get(state, state) }} bij
       {{ state_attr(slots.entity[0], 'temperature') | round }} graden.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

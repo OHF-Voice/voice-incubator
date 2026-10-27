@@ -503,6 +503,30 @@ async def _scenario(tmp_path: Path) -> None:
             assert next(s for s in record.stages if s["stage"] == "action")["outcome"] == "not_on_list"
             assert (await http.delete("/api/commands/shopping_remove")).status == 200
 
+            # The home's weather (Settings): what a command on it uses without its own.
+            report = {
+                "description": "tell the weather now", "require": [["weather"], ["report"]], "home": "weather",
+                "response": "From {{ slots.entity[0] }}.",
+            }
+            assert (await http.put("/api/commands/weather_report", json={"spec": report})).status == 200
+            assert await said("weather report") == "That isn't set up yet."
+            record = app.calls.recent[-1]
+            assert next(s for s in record.stages if s["stage"] == "action")["outcome"] == "not_set"
+            assert (await http.put("/api/settings", json={"home": {"weather": "weather.home"}})).status == 200
+            assert app.store.settings["home"] == {"weather": "weather.home"}
+            assert (await (await http.get("/api/store")).json())["home"] == {"weather": "weather.home"}
+            assert await said("weather report") == "From weather.home."
+            # Its own implied target goes first.
+            own = {**report, "slots": {"entity": ["weather.cabin"]}}
+            assert (await http.put("/api/commands/weather_report", json={"spec": own})).status == 200
+            assert await said("weather report") == "From weather.cabin."
+            for wrong, why in (({"weather": "sensor.outside"}, "a weather entity"), ({"rain": "weather.home"}, "unknown 'rain'")):
+                response = await http.put("/api/settings", json={"home": wrong})
+                assert response.status == 400 and why in (await response.json())["error"]
+            assert (await http.put("/api/settings", json={"home": {"weather": None}})).status == 200
+            assert "home" not in app.store.settings
+            assert (await http.delete("/api/commands/weather_report")).status == 200
+
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
             template = "Sorry, I couldn't understand the sentence {{ transcript }}."

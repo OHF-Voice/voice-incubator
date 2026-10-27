@@ -339,8 +339,7 @@ commands:
     description: savoir le temps qu'il fait
     examples: ["quel temps fait il [aujourd'hui]", "est ce qu'il va pleuvoir [aujourd'hui]", "quelle est la météo"]
     require: [[météo, pleuvoir, prévisions, quel temps]]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set meteo = {'clear-night': 'dégagé', 'cloudy': 'nuageux', 'exceptional': 'exceptionnel',
         'fog': 'brumeux', 'hail': 'de la grêle', 'lightning': 'orageux', 'lightning-rainy': 'orageux et pluvieux',
@@ -351,7 +350,8 @@ commands:
       Le temps est {{ meteo.get(state, state) }}, avec
       {{ state_attr(slots.entity[0], 'temperature') | round }} degrés.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

@@ -337,8 +337,7 @@ commands:
     description: das Wetter wissen
     examples: ["wie ist das wetter [heute]", "wird es [heute] regnen", "wie wird das wetter"]
     require: [[wetter, regnen, wettervorhersage, vorhersage]]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set wetter = {'clear-night': 'klar', 'cloudy': 'bewölkt', 'exceptional': 'ungewöhnlich',
         'fog': 'neblig', 'hail': 'Hagel', 'lightning': 'Gewitter', 'lightning-rainy': 'Gewitter mit Regen',
@@ -349,7 +348,8 @@ commands:
       Es ist {{ wetter.get(state, state) }} bei
       {{ state_attr(slots.entity[0], 'temperature') | round }} Grad.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

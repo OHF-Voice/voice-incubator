@@ -410,8 +410,7 @@ commands:
     require: [[погода, погоду, погоди, погодою, прогноз, дощ, дощу]]
     # Not a timer's time: "скільки часу залишилось".
     exclude: [залишилось, залишилося, таймер, будильник, скільки]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set words = {'clear-night': 'ясно', 'cloudy': 'хмарно', 'exceptional': 'незвичайна погода',
         'fog': 'туман', 'hail': 'град', 'lightning': 'гроза', 'lightning-rainy': 'гроза з дощем',
@@ -423,7 +422,8 @@ commands:
       Зараз {{ words.get(state, state) }}, {{ t }} {{ 'градус' if n % 10 == 1 and n % 100 != 11 else ('градуси'
         if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'градусів') }}.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

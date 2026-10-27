@@ -47,6 +47,9 @@ satellite's tile for its page:
 - **Test it**: type a sentence as if said there, listen to it live, and
   debug it.
 
+The home's **weather entity** is on the **Settings** page (Home): the
+weather commands use it unless one is given its own implied target.
+
 A command or skill **runs on** every satellite, on some, or on none (turned
 off), as set on its page. Where two take the same sentence, the one on some
 satellites goes first on them: to have a command do something else on one
@@ -657,14 +660,18 @@ reading are in the English library for now.
 
 ## Weather
 
-The library's **Weather** group answers from a Home Assistant weather entity
-(its implied target; `weather.home` until you point it at yours), with its
-daily forecast:
+The library's **Weather** group answers from the home's weather entity --
+set it on the **Settings** page, under Home -- with its daily forecast. A
+command given its own implied target uses that one instead (`home: weather`
+on a command: the home's, where it has none of its own). With neither, the
+satellite says "That isn't set up yet." (`not_set`).
 
 - **What's the weather**: now -- "It's partly cloudy and 15 degrees."
-- **The weather on a day**: "what's the weather tomorrow", "the forecast for
-  Saturday", "the day after tomorrow", "this weekend" (both days) -- "Saturday
-  looks cloudy, with a high of 18 and a low of 10, and a 20% chance of rain."
+- **The weather on a day**: "what's the weather tomorrow", "what will be the
+  weather tomorrow", "the forecast for Saturday", "the day after tomorrow",
+  "this weekend" (both days) -- "Saturday looks cloudy, with a high of 18 and
+  a low of 10, and a 20% chance of rain." With no day, today's: "what will the
+  weather be like", "what's the forecast".
 - **The weather this week**: "what's the forecast for the week", "for the
   next few days" -- "Mostly sunny, with highs from 15 to 21 degrees. Rain is
   likely on Thursday."

@@ -412,8 +412,7 @@ commands:
     require: [[pogoda, pogody, pogodę, prognoza, prognozę, padać, deszcz]]
     # Not a timer's time: "ile czasu zostało".
     exclude: [zostało, minutnik, minutniku, ile]
-    slots:
-      entity: [weather.home]
+    home: weather
     response: >-
       {%- set pogoda = {'clear-night': 'Jest pogodnie', 'cloudy': 'Jest pochmurno', 'exceptional': 'Pogoda jest wyjątkowa',
         'fog': 'Jest mgła', 'hail': 'Pada grad', 'lightning': 'Jest burza', 'lightning-rainy': 'Jest burza z deszczem',
@@ -425,7 +424,8 @@ commands:
       {%- set unit = 'stopień' if t | abs == 1 else ('stopnie' if t | abs % 10 in [2, 3, 4] and t | abs % 100 not in [12, 13, 14] else 'stopni') -%}
       {{ pogoda.get(state, 'Pogoda: ' ~ state) }}, {{ t }} {{ unit }}.
     needs:
-      - Point it at your weather entity (its implied target, weather.home here).
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_add:
     title: Add to the shopping list

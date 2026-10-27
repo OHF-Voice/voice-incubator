@@ -228,6 +228,14 @@ def test_an_item_on_a_list():
         command(on_list={"item": "light.kitchen"})
 
 
+def test_the_homes_own():
+    weather = command(action=None, home="weather", response={"done": "ok", "not_set": "Set it up."})
+    assert weather.behavior.home == "weather"
+    assert weather.behavior.outcomes() == ("done", "failed", "not_set")
+    with pytest.raises(ConfigError, match="home: one of weather"):
+        command(home="calendar")
+
+
 def test_fallback_steps_are_chosen():
     assert command().fallback == ()
     assert command(fallback=["llm", "meaning"]).fallback == ("meaning", "llm")
