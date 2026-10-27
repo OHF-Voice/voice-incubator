@@ -47,8 +47,11 @@ satellite's tile for its page:
 - **Test it**: type a sentence as if said there, listen to it live, and
   debug it.
 
-The home's **weather entity** is on the **Settings** page (Home): the
-weather commands use it unless one is given its own implied target.
+The home's **weather entity**, **thermostat**, **shopping list** and
+**to-do list** are on the **Settings** page (Home): the library's commands
+for them use these unless one is given its own implied target (`home:
+weather`, `climate`, `shopping_list` or `todo_list` on a command). With
+neither, the satellite says "That isn't set up yet." (`not_set`).
 
 A command or skill **runs on** every satellite, on some, or on none (turned
 off), as set on its page. Where two take the same sentence, the one on some
@@ -216,7 +219,8 @@ A session's Speaker step says who it was and how.
 
 The library's "my" commands act on the speaker's own with `mine`
 (`todo_list`, `calendar` or `playlist`): their to-do list or calendar
-replaces its `slots.entity`, their playlist its `slots.query`. Its response
+replaces its `slots.entity` (else the command's own, else the home's), their
+playlist its `slots.query`. Its response
 may say something of its own when nobody is known (`no_speaker`). The "my"
 commands are in the English library for now; **Remind me** is personal in
 every language.
@@ -633,9 +637,9 @@ These are in the English library for now.
 
 ## Lists
 
-The library's **Basics** group keeps a shopping list and a to-do list
-(Home Assistant's to-do lists: `todo.shopping_list` and `todo.to_do` until
-you point them at yours):
+The library's **Basics** group keeps a shopping list and a to-do list: the
+home's (Settings page), or the to-do list a command is given as its implied
+target:
 
 - **Add to the shopping list**: "add milk to the shopping list", "put eggs
   on the list". Several at once are items of their own: "add oranges and
@@ -654,17 +658,14 @@ you point them at yours):
 Checking off and removing take an item that is on the list: what was heard
 is matched to it as spoken, so "test three" is the item "Test 3", "the
 milk" is "Milk", and a near spelling ("paper towel") is the closest. One
-that isn't on the list says so ("Bread isn't on the list."). Which list is
-their implied target: point them at yours there. Checking off, removing and
-reading are in the English library for now.
+that isn't on the list says so ("Bread isn't on the list."). Checking off,
+removing and reading are in the English library for now.
 
 ## Weather
 
 The library's **Weather** group answers from the home's weather entity --
 set it on the **Settings** page, under Home -- with its daily forecast. A
-command given its own implied target uses that one instead (`home: weather`
-on a command: the home's, where it has none of its own). With neither, the
-satellite says "That isn't set up yet." (`not_set`).
+command given its own implied target uses that one instead.
 
 - **What's the weather**: now -- "It's partly cloudy and 15 degrees."
 - **The weather on a day**: "what's the weather tomorrow", "what will be the
@@ -684,6 +685,30 @@ satellite says "That isn't set up yet." (`not_set`).
 A day is today, tomorrow, the day after tomorrow, a day of the week (the
 next one) or this weekend: the `forecast_days` list. The forecast is in
 English for now.
+
+## Climate
+
+The library's **Climate** group (English) asks and sets the home's
+thermostat -- set it on the **Settings** page, under Home -- or one a command
+is given as its implied target:
+
+- **Ask the thermostat**: "what's the thermostat set to", "what's the
+  temperature inside", "how warm is it in the house" -- "It's 68 degrees
+  inside. The thermostat is set to 70." (or the two it keeps between, in heat
+  and cool mode).
+- **Set the thermostat**: "set the thermostat to 70", "turn the thermostat
+  up to 72". In heat and cool mode the thermostat keeps two temperatures, and
+  Home Assistant refuses one alone.
+- **Ask the thermostat's fan**: "what's the fan mode" -- "The thermostat's
+  fan is on auto."
+- **Set the thermostat's fan**: "set the fan mode to auto", "turn the
+  thermostat fan on". A fan alone is a fan's ("turn on the fan"). The modes
+  are the `fan_modes` list's -- auto, on, off, low, medium, high, circulate,
+  Home Assistant's words for them; add a thermostat's others there (Names
+  page).
+
+A thermostat by name or in an area is **Set the temperature** (Basics),
+through Home Assistant's intent.
 
 ## Covers and locks
 

@@ -68,7 +68,7 @@ def test_copies_from_before_follow_the_library():
     assert commands["start_timer_2"] == {"from": "timers/start_timer"}
     assert commands["gone"]["library"] == "basic" and commands["mine"]["response"] == "Noon."  # left as they were
     compiled = compile_store(document)
-    assert compiled.commands["shopping_list_add"].behavior.slots == {"entity": ["todo.shopping_list"]}
+    assert compiled.commands["shopping_list_add"].behavior.home == "shopping_list"
     assert compiled.hidden == {"what_time_de": "de"}
 
 

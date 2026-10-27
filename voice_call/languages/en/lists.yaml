@@ -53,6 +53,14 @@ forecast_days:
 weather_kinds:
   rain: [rain, raining, rainy, umbrella, wet]
   snow: [snow, snowing, snowy]
+fan_modes:
+  auto: [auto, automatic]
+  "on": ["on", always on]
+  "off": ["off"]
+  low: [low]
+  medium: [medium, mid]
+  high: [high]
+  circulate: [circulate, circulation]
 hvac_modes:
   "off": ["off"]
   heat: [heat, heating]

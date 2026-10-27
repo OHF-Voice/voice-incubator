@@ -526,6 +526,21 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/settings", json={"home": {"weather": None}})).status == 200
             assert "home" not in app.store.settings
             assert (await http.delete("/api/commands/weather_report")).status == 200
+            # "My" to-do list: the speaker's own, else the home's.
+            mine = {
+                "description": "add something to my to-do list", "require": [["add"], ["my to do list"]], "optional": [["to"]],
+                "wildcard": {"slot": "item", "after": ["add"], "before": ["to"], "bounded": True},
+                "home": "todo_list", "mine": "todo_list", "response": "Added {{ slots.item }} to {{ slots.entity[0] }}.",
+            }
+            assert (await http.put("/api/commands/todo_add_mine", json={"spec": mine})).status == 200
+            assert (await http.put("/api/settings", json={"home": {"todo_list": "todo.house", "shopping_list": "todo.groceries"}})).status == 200
+            assert app.store.settings["home"] == {"todo_list": "todo.house", "shopping_list": "todo.groceries"}
+            assert await said("add milk to my to do list") == "Added milk to todo.house."
+            assert (await http.put("/api/people/mike", json={"own": {"todo_list": "todo.mike"}})).status == 200
+            assert await said("add milk to my to do list") == "Added milk to todo.mike."
+            assert (await http.delete("/api/people/Mike")).status == 200
+            assert (await http.put("/api/settings", json={"home": {"todo_list": None, "shopping_list": None}})).status == 200
+            assert (await http.delete("/api/commands/todo_add_mine")).status == 200
 
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."

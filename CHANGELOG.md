@@ -2,11 +2,16 @@
 
 ## 0.2.0
 
-- **The home's weather entity**, on the Settings page (Home): the weather
-  commands use it unless one is given its own implied target (`home:
-  weather` on a command), in every language. With neither, the satellite
-  says "That isn't set up yet." (`not_set`). The library no longer assumes
-  `weather.home`.
+- **The home's weather entity, thermostat, shopping list and to-do list**,
+  on the Settings page (Home): the library's commands for them use these
+  unless one is given its own implied target (`home: weather`, `climate`,
+  `shopping_list` or `todo_list` on a command), in every language. With
+  neither, the satellite says "That isn't set up yet." (`not_set`). The
+  library no longer assumes `weather.home`, `todo.shopping_list` or
+  `todo.to_do`; "my" to-do list is the speaker's, else the home's.
+- **Climate** (English): ask the thermostat ("what's the temperature
+  inside"), set it ("set the thermostat to 70"), and ask and set its fan
+  ("set the fan mode to auto"). New list: `fan_modes`.
 - **Today's forecast with no day said**: "what will the weather be like",
   "what's the forecast".
 - **GLiNER picks among the commands chosen for it**, with the others close

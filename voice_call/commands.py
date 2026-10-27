@@ -77,9 +77,10 @@ anyone has one of their own: "add … to my to-do list"::
       slots: {entity: [todo.to_do]}     # where nobody has their own
       mine: todo_list
 
-``home`` makes it act on the home's own -- ``weather``, set on the Settings
-page -- unless it has an implied target of its own; with neither, the
-outcome is ``not_set``::
+``home`` makes it act on the home's own -- ``weather``, ``climate`` (its
+thermostat), ``shopping_list`` or ``todo_list``, set on the Settings page --
+unless it has an implied target of its own; with neither, the outcome is
+``not_set``. With ``mine`` too, the speaker's own goes first::
 
     weather:
       home: weather
@@ -181,7 +182,7 @@ REMOVED_KEYS = {
     "groups": "command groups are gone: a command runs on every satellite, or on those in its satellites list",
 }
 FALLBACK_STEPS = ("meaning", "llm")
-HOME_THINGS = {"weather": "weather"}
+HOME_THINGS = {"weather": "weather", "climate": "climate", "shopping_list": "todo", "todo_list": "todo"}
 """What the home has one of (Settings, ``home``), and its entities' domain."""
 
 # Shared settings for every home, whatever its language: examples that win

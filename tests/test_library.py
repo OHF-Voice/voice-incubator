@@ -34,11 +34,19 @@ def test_every_library_command_is_valid(language):
     assert not [(e["id"], n) for e in entries for n in e["needs"] if not isinstance(n, str)]
 
 
-def test_the_weather_is_the_homes(language):
-    """The weather commands use the home's weather entity (Settings) where
-    they aren't given their own."""
-    weather = [e for e in load_library() if e["id"] in ("weather", "weather_day", "weather_week", "will_it_rain")]
-    assert weather and all(e["spec"]["home"] == "weather" and "slots" not in e["spec"] for e in weather)
+def test_the_homes_own(language):
+    """The weather, thermostat, shopping list and to-do list commands use the
+    home's (Settings) where they aren't given their own."""
+    entries = {e["id"]: e for e in load_library()}
+    homes = {"weather": "weather", "weather_day": "weather", "weather_week": "weather", "will_it_rain": "weather",
+             "thermostat": "climate", "set_thermostat": "climate", "thermostat_fan": "climate",
+             "set_thermostat_fan": "climate", "shopping_list_add": "shopping_list", "shopping_list_remove": "shopping_list",
+             "shopping_list_check": "shopping_list", "shopping_list_items": "shopping_list", "todo_add": "todo_list",
+             "todo_add_mine": "todo_list"}
+    found = {i: entries[i]["spec"] for i in homes if i in entries}
+    assert {"weather", "shopping_list_add", "todo_add"} <= set(found)
+    assert {i: s.get("home") for i, s in found.items()} == {i: homes[i] for i in found}
+    assert not [i for i, s in found.items() if (s.get("slots") or {}).get("entity")]
 
 
 def test_ids_are_unique_across_files(language):
@@ -113,7 +121,7 @@ def test_commands_are_listed_by_library_section():
     from voice_call.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
 
     sections, _ids = library_sections()
-    assert [s["file"] for s in sections] == ["basic", "home", "music", "timers", "weather"] and sections[0]["title"] == "Basics"
+    assert [s["file"] for s in sections] == ["basic", "climate", "home", "music", "timers", "weather"] and sections[0]["title"] == "Basics"
     # Added from the library (library: music), else by id -- a numbered or
     # copied one too; made from scratch: none (Custom).
     assert library_of("anything", {"library": "music"}) == "music"
@@ -152,7 +160,8 @@ def test_every_response_template_renders(language):
 
     env.globals.update(
         now=dt.datetime.now, timedelta=dt.timedelta, as_datetime=dt.datetime.fromisoformat,
-        states=States(), state_attr=lambda e, a: 21 if a == "temperature" else "Ceiling",
+        states=States(),
+        state_attr=lambda e, a: 21 if a.endswith("temperature") or a.startswith("target_temp") else "auto" if a == "fan_mode" else "Ceiling",
         is_state=lambda e, s: False, area_entities=lambda a: ["light.ceiling", "light.lamp", "switch.kettle"],
         area_name=lambda a: "Kitchen", floor_name=lambda f: "Upstairs", floor_areas=lambda f: ["kitchen"],
         area_id=lambda e: "kitchen",

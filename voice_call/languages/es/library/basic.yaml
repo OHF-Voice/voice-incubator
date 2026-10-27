@@ -377,8 +377,7 @@ commands:
       before: [a, en]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     # Several at once, each an item of its own: "oranges and bananas".
     action:
       repeat:
@@ -409,8 +408,7 @@ commands:
       before: [de, del]
       bounded: true
       max_words: 5
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     action:
       action: todo.remove_item
       target:
@@ -435,8 +433,7 @@ commands:
       before: [a, en]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.to_do]
+    home: todo_list
     action:
       action: todo.add_item
       target:
@@ -449,7 +446,8 @@ commands:
         brief: Añadido a la lista de tareas.
         specific: "He añadido {{ slots.item }} a la lista de tareas."
     needs:
-      - Point it at your to-do list (todo.to_do here).
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).
 
   remind_me:
     title: Remember something

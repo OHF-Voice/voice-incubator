@@ -489,8 +489,7 @@ commands:
       before: [to, on]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     # Several at once, each an item of its own: "oranges and bananas".
     action:
       repeat:
@@ -524,8 +523,7 @@ commands:
       bounded: true
       max_words: 5
     on_list: {item: entity}
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     action:
       action: todo.remove_item
       target:
@@ -538,7 +536,8 @@ commands:
         brief: Took it off the shopping list.
         specific: "Took {{ slots.item }} off the shopping list."
     needs:
-      - Point it at your shopping list (its implied target, todo.shopping_list here).
+      - Set the home's shopping list on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_check:
     title: Check off the shopping list
@@ -555,8 +554,7 @@ commands:
       bounded: true
       max_words: 5
     on_list: {item: entity}
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     action:
       action: todo.update_item
       target:
@@ -570,7 +568,8 @@ commands:
         brief: Checked it off.
         specific: "Checked {{ slots.item }} off the shopping list."
     needs:
-      - Point it at your shopping list (its implied target, todo.shopping_list here).
+      - Set the home's shopping list on the Settings page, or give it one of its
+        own (its implied target).
 
   shopping_list_items:
     title: What's on the shopping list
@@ -580,8 +579,7 @@ commands:
     examples: ["what's on [the|my|our] shopping list", "what do we need from the (store|shop)", "read [me] the shopping list"]
     require: [[what's on, what is on, read, tell me], [shopping list]]
     optional: [[the, my, our], [me]]
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     action:
       - variables:
           shopping: "{{ slots.entity[0] }}"
@@ -610,7 +608,8 @@ commands:
         On the shopping list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
         {%- endif -%}
     needs:
-      - Point it at your shopping list (its implied target, todo.shopping_list here).
+      - Set the home's shopping list on the Settings page, or give it one of its
+        own (its implied target).
 
   todo_add:
     title: Add to the to-do list
@@ -624,8 +623,7 @@ commands:
       before: [to, on]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.to_do]
+    home: todo_list
     action:
       action: todo.add_item
       target:
@@ -638,7 +636,8 @@ commands:
         brief: Added it to the to-do list.
         specific: "Added {{ slots.item }} to the to-do list."
     needs:
-      - Point it at your to-do list (its implied target, todo.to_do here).
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).
 
   todo_add_mine:
     title: Add to my to-do list
@@ -653,8 +652,7 @@ commands:
       before: [to, on]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.to_do]
+    home: todo_list
     mine: todo_list
     action:
       action: todo.add_item
@@ -669,7 +667,7 @@ commands:
         specific: "Added {{ slots.item }} to your to-do list."
     needs:
       - Give each person their to-do list (People page). Where nobody has one,
-        it adds to this one (todo.to_do here).
+        it adds to the home's (Settings page).
 
   my_calendar:
     title: What's on my calendar

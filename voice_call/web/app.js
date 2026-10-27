@@ -502,6 +502,15 @@ function responsesPanel() {
       field("After (s)", thinkingDelay)));
 }
 
+// The home's own things (a command's home), by the entity domain they are:
+// label, what it's called in a sentence, and a hint.
+const HOME_THINGS = {
+  weather: ["weather", "Weather", "weather entity", "The weather commands'. Their forecasts need its daily ones."],
+  climate: ["climate", "Thermostat", "thermostat", "The thermostat and its fan, asked about and set."],
+  shopping_list: ["todo", "Shopping list", "shopping list", "Adding to it, checking off, taking off and reading it."],
+  todo_list: ["todo", "To-do list", "to-do list", "Adding to it, and “my” to-do list where nobody has their own (People page)."],
+};
+
 // The home's own things: what commands on them use without their own.
 function homePanel() {
   const panel = h("div", { class: "panel" }, heading("h2", "Home"), h("p", { class: "muted small" }, "Loading…"));
@@ -513,8 +522,8 @@ function homePanel() {
     };
     fill(panel,
       heading("h2", "Home", "What commands use where they have no implied target of their own."),
-      field("Weather", entityField("weather", home.weather || null, (value) => save("weather", value)),
-        "The weather commands' entity. Their forecasts need its daily ones."));
+      h("div", { class: "grid2" }, Object.entries(HOME_THINGS).map(([thing, [domain, label, , help]]) =>
+        field(label, entityField(domain, home[thing] || null, (value) => save(thing, value)), help))));
   }).catch((err) => fill(panel, heading("h2", "Home"), errorBox(err)));
   return panel;
 }
@@ -1257,7 +1266,8 @@ async function pageCommand(id, prefill, query) {
   function homeNote() {
     if (!spec.home) return null;
     const theirs = (state.store.home || {})[spec.home];
-    return h("p", { class: "muted small" }, `Without its own entity: the home's ${spec.home}, `,
+    const called = (HOME_THINGS[spec.home] || [])[2] || spec.home;
+    return h("p", { class: "muted small" }, `Without its own entity: the home's ${called}, `,
       theirs ? h("code", {}, theirs) : "not set yet", " (", h("a", { href: "#/settings" }, "Settings"), ").");
   }
 

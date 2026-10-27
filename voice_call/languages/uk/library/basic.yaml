@@ -438,8 +438,7 @@ commands:
       before: [до, в, у, на]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     # Several at once, each an item of its own: "oranges and bananas".
     action:
       repeat:
@@ -471,8 +470,7 @@ commands:
       before: [зі, з, із]
       bounded: true
       max_words: 5
-    slots:
-      entity: [todo.shopping_list]
+    home: shopping_list
     action:
       action: todo.remove_item
       target:
@@ -498,8 +496,7 @@ commands:
       before: [до, в, у]
       bounded: true
       max_words: 8
-    slots:
-      entity: [todo.to_do]
+    home: todo_list
     action:
       action: todo.add_item
       target:
@@ -512,7 +509,8 @@ commands:
         brief: Додано до списку справ.
         specific: "Додано {{ slots.item }} до списку справ."
     needs:
-      - Point it at your to-do list (todo.to_do here).
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).
 
   remind_me:
     title: Remember something
