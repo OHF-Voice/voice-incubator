@@ -18,6 +18,9 @@
   umbrella", "will it rain tomorrow"), from the weather entity's daily
   forecast. New lists: `forecast_days`, `weather_kinds`. A command that
   follows the library finds one moved to another section by its id.
+  Asked as a question too: "what will be the weather tomorrow", "what is the
+  weather going to be like on Friday", "how does the weather look this week"
+  ("what" was left over, so it was heard twice and not run).
 - **Commands follow the library**, as Home Assistant automations follow
   their blueprints: one added from it is saved as a reference with what you
   set (where it runs, how much it says, the steps when nothing matches, your

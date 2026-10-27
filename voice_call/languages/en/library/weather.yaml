@@ -51,7 +51,7 @@ commands:
     # "What's the weather tomorrow", "the forecast for Saturday", "what will
     # the weather be like this weekend" (both days).
     require: [[weather, forecast]]
-    optional: [[for, on, be, like, will]]
+    optional: [[what, whats, what's, what is, how, how's, how is, how does], [for, on, be, like, will, going to, look, looking]]
     lists:
       day: {list: forecast_days}
     slots:
@@ -99,7 +99,7 @@ commands:
     description: tell the weather forecast for the week
     examples: ["what's the (weather|forecast) [for] [this|the] week", "what's the weather (like|looking) for the next few days"]
     require: [[weather, forecast], [week, next few days, coming days]]
-    optional: [[for, this, the, like, looking, next, coming]]
+    optional: [[what, whats, what's, what is, how, how's, how is, how does], [for, this, the, like, look, looking, next, coming]]
     slots:
       entity: [weather.home]
     action: *forecast
