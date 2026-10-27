@@ -272,6 +272,7 @@ commands:
     supports: brightness
     require: [[brightness, percent]]
     optional: [[set, change, make], [light, lights], [to], [in, on], [the], [brightness], [percent]]
+    exclude: [volume]
     number: percentage
     intent:
       name: HassLightSet
@@ -490,6 +491,7 @@ commands:
     description: add something to the shopping list
     require: [[add, put], [shopping list, list]]
     optional: [[to, on]]
+    exclude: ["to do", todo]
     wildcard:
       slot: item
       after: [add, put]
@@ -525,6 +527,7 @@ commands:
     # that.
     require: [[remove, take, delete], [shopping list, list]]
     optional: [[from, off]]
+    exclude: ["to do", todo]
     wildcard:
       slot: item
       after: [remove, take, delete]
@@ -557,6 +560,7 @@ commands:
     # "check apples and bananas off the shopping list" (each of the items).
     require: [[check, cross, tick, mark], [shopping list, list]]
     optional: [[off], [from, on], [as done, as bought]]
+    exclude: ["to do", todo]
     wildcard:
       slot: item
       after: [check, cross, tick, mark]
@@ -630,6 +634,7 @@ commands:
     description: add something to the to-do list
     require: [[add, put], [to do list, to do]]
     optional: [[to, on]]
+    exclude: [my]
     wildcard:
       slot: item
       after: [add, put]

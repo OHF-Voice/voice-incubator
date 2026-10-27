@@ -436,6 +436,7 @@ commands:
     description: dodać coś do listy zakupów
     require: [[dodaj, dopisz, wpisz, zapisz, dodać, dopisać], [listy zakupów, listę zakupów, lista zakupów, zakupów, listy, listę]]
     optional: [[do, na]]
+    exclude: [zadań, do zrobienia]
     wildcard:
       slot: item
       after: [dodaj, dopisz, wpisz, zapisz, dodać, dopisać]
@@ -467,6 +468,7 @@ commands:
     description: usunąć coś z listy zakupów
     require: [[usuń, skreśl, wykreśl, wyrzuć, usunąć, skreślić, wykreślić], [listy zakupów, zakupów, listy]]
     optional: [[z, ze]]
+    exclude: [zadań, do zrobienia]
     wildcard:
       slot: item
       after: [usuń, skreśl, wykreśl, wyrzuć, usunąć, skreślić, wykreślić]

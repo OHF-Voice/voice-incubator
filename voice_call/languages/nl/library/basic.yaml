@@ -226,6 +226,7 @@ commands:
     supports: brightness
     require: [[helderheid, procent]]
     optional: [[zet, maak, dim, dimmen, verander], [licht, lichten, lamp, lampen], [op], [helderheid], [procent]]
+    exclude: [volume]
     number: percentage
     intent:
       name: HassLightSet

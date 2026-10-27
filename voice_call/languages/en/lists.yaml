@@ -75,13 +75,13 @@ fan_modes:
   on_high: [on high]
 binary_states:
   # What a binary sensor is asked to be ("is the front door open"): the words
-  # for each of its device classes' two states (Sensors library group).
+  # for each of its device classes' two states (Sensors library group). Not
+  # locked or unlocked: "is the front door locked" is the lock's (Covers and
+  # locks), which asks a binary sensor of the lock class too.
   "on": ["on"]
   "off": ["off"]
   open: [open]
   closed: [closed, shut]
-  locked: [locked]
-  unlocked: [unlocked]
   wet: [wet, leaking]
   dry: [dry]
   occupied: [occupied]

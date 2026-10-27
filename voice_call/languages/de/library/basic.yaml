@@ -228,6 +228,7 @@ commands:
     supports: brightness
     require: [[helligkeit, prozent]]
     optional: [[stelle, stell, setze, setz, mach, mache, dimme, dimm], [licht, lichter, lampe, lampen], [auf], [helligkeit], [prozent]]
+    exclude: [lautstärke]
     number: percentage
     intent:
       name: HassLightSet

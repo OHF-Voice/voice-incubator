@@ -238,7 +238,7 @@ commands:
     require: [[brillo, por ciento]]
     optional: [[pon, sube, baja, ajusta, cambia, regula], [luz, luces, lámpara, lámparas], [brillo], [por ciento]]
     # A question: "cuánto es el 15 por ciento de 80".
-    exclude: [cuánto, cuánta, qué, cuál, es, son, calcula]
+    exclude: [cuánto, cuánta, qué, cuál, es, son, calcula, volumen]
     number: percentage
     intent:
       name: HassLightSet
@@ -374,6 +374,7 @@ commands:
     description: añadir algo a la lista de la compra
     require: [[añade, agrega, pon, apunta, mete], [lista de la compra, lista de compras, lista]]
     optional: [[a, en]]
+    exclude: [tareas, pendientes]
     wildcard:
       slot: item
       after: [añade, agrega, pon, apunta, mete]
@@ -405,6 +406,7 @@ commands:
     description: quitar algo de la lista de la compra
     require: [[quita, borra, elimina, tacha, saca], [lista de la compra, lista de compras, lista]]
     optional: [[de, del]]
+    exclude: [tareas, pendientes]
     wildcard:
       slot: item
       after: [quita, borra, elimina, tacha, saca]
