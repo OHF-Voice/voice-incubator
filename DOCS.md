@@ -847,9 +847,10 @@ satellites:
   satellite in a call, ringing a timer or on the intercom says it once that is
   over, within a minute; a call started meanwhile cuts it off.
 - **Intercom**: "connect to the kitchen", "call the bedroom voice assistant",
-  "drop in on the office". This satellite says "Connecting to the Kitchen.",
+  "connect to the voice assistant in the office", "drop in on the office". This satellite says "Connecting to the Kitchen.",
   and once its call ends, both play a tone and what is said at each is heard
-  at the other. Neither answers its wake words meanwhile, and both rings
+  at the other -- as a speakerphone does: the voice's band only, and while one
+  side speaks, the other turned down, so the two can't squeal. Neither answers its wake words meanwhile, and both rings
   blink. The **button on either** ends it on both (another tone); so does
   either disconnecting, a timer finishing on either, or half an hour. The
   satellite in the area named is the first of them by name; one already in a

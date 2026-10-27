@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 
+import numpy as np
+
 from voice_call import tones
 from voice_call.discover import Device
 from voice_call.server import Options, VoiceCallApp
@@ -100,7 +102,8 @@ async def _scenario(tmp_path) -> None:
         await wait_for(lambda: kitchen.intercom[-1:] == [True] and bedroom.intercom[-1:] == [True])
         await wait_for(lambda: len(bedroom.heard) > len(tones.CONNECTED) + 8 * len(hum))
         assert bytes(bedroom.heard).startswith(tones.CONNECTED)
-        assert hum in bytes(bedroom.heard)[len(tones.CONNECTED):]  # the kitchen, heard in the bedroom
+        relayed = np.frombuffer(bytes(bedroom.heard)[len(tones.CONNECTED):], dtype="<i2")
+        assert np.abs(relayed).max() > 1000  # the kitchen, heard in the bedroom (filtered: Duplex)
         await wait_for(lambda: len(kitchen.heard) > len(tones.CONNECTED) + 4096)  # and the other way
         assert app.intercom_problem(KITCHEN, BEDROOM) == "busy"
         # Busy meanwhile: an announcement waits for it.

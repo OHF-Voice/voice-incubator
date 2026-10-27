@@ -13,7 +13,8 @@
 - **Intercom** (English): "connect to the kitchen" joins this satellite and
   the kitchen's: each one's microphone on the other's speaker, wake words off,
   both rings blinking, until the button on either is pressed (or half an
-  hour). Needs the new firmware (MONITOR's `intercom`, `voice_call.end_intercom`,
+  hour). Half duplex, as a speakerphone: the voice's band only, and the side
+  not speaking turned down, so the two satellites don't squeal. Needs the new firmware (MONITOR's `intercom`, `voice_call.end_intercom`,
   `voice_call.is_intercom`).
 - **Several items checked off or removed at once**: "check apples and
   bananas off the shopping list", "remove eggs milk and bread from the list"

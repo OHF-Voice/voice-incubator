@@ -36,9 +36,10 @@ commands:
     icon: mdi:phone-in-talk
     description: talk with another room through its satellite
     # "Connect to the kitchen", "intercom the kitchen", "call the kitchen
-    # voice assistant", "drop in on the bedroom".
+    # voice assistant", "connect to the voice assistant in the office", "drop
+    # in on the bedroom".
     require: [[connect, intercom, call, drop in]]
-    optional: [[to, with, on], [the], [voice assistant, satellite]]
+    optional: [[to, with, on], [the], [voice assistant, satellite], [in]]
     names:
       area: {count: 1}
     intercom: connect

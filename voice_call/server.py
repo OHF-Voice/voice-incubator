@@ -21,6 +21,7 @@ from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
 from . import actions, alarms, languages, people, skills, timers, tones
+from .duplex import Duplex
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
@@ -584,6 +585,8 @@ class Intercom:
     record: CallRecord | None = None
     limit: asyncio.Task | None = None
     ended: bool = False
+    duplex: Duplex = field(default_factory=Duplex)
+    """What each sends the other: no squeal (voice_call/duplex.py)."""
 
     def peer(self, key: str) -> str:
         return self.b if key == self.a else self.a
@@ -3181,12 +3184,14 @@ class VoiceCallApp:
         await self.end_intercom(intercom, "its time limit")
 
     def _to_peer(self, session: Session, chunk: bytes) -> None:
-        """One satellite's microphone, now, on the other's speaker: dropped
-        rather than queued when the other can't keep up."""
+        """One satellite's microphone, now, on the other's speaker -- the
+        voice's band, and turned down while the other speaks (Duplex) --
+        dropped rather than queued when the other can't keep up."""
         intercom = session.intercom
         peer = self.sessions.get(intercom.peer(session.satellite)) if intercom is not None else None
         if peer is None or peer.writer is None or peer.intercom is not intercom:
             return
+        chunk = intercom.duplex.relay(session.satellite, peer.satellite, chunk)
         if peer.writer.transport.get_write_buffer_size() < INTERCOM_BACKLOG:
             peer.writer.write(encode(Message.AUDIO_OUT, chunk))
 
