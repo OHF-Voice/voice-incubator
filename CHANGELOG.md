@@ -8,7 +8,9 @@
   "make it cozy", "movie time", "good night" -- in place of a fixed scene and
   script to take control of. One in each room may share a name: "make it
   cozy" is the satellite's area's, "make it cozy in the bedroom" the
-  bedroom's. A near miss asks which scene or script, not which device.
+  bedroom's. A near miss asks which scene or script, not which device. Run a
+  script says the speech the script returns (a mapping: `{speech: ...}`),
+  else plays the acknowledgement sound, not "Done.".
 - **Commands act only on what can do it** (`supports` on a command:
   brightness, color, color_temp, position, tilt, temperature, fan_mode,
   hvac_mode). A device named that can't is told ("Desk Lamp can't change

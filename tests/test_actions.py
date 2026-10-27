@@ -455,3 +455,15 @@ def test_a_mode_as_the_device_has_it():
     # One it doesn't have.
     gone = said("circulate")
     assert (gone.name, gone.speech) == ("not_supported", "HVAC can't set its fan to circulate.")
+
+
+def test_a_script_says_its_speech_or_plays_the_sound():
+    """Without a response of its own, a script command says the speech the
+    script returned; with none, nothing: the acknowledgement sound."""
+    hass = StubHass()
+    hass.script_response = {"speech": "Good night. Sleep well."}
+    said = run({"script": "script.good_night"}, hass)
+    assert (said.name, said.speech, said.silent) == ("done", "Good night. Sleep well.", False)
+    hass.script_response = {}
+    sound = run({"script": "script.good_night"}, hass)
+    assert (sound.name, sound.speech, sound.silent) == ("done", "", False)

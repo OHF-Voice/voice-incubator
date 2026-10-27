@@ -507,10 +507,8 @@ commands:
       area: {count: 1}
     combinations: [[entity], [entity, area]]
     script: heard
-    response: >-
-      {{ result.speech if result and result.speech else "C'est fait." }}
     needs:
       - Add names for the scripts it may run (Names page). A script gets slots,
         satellite, speaker and target as variables. To have something said, it
         ends with stop and a response_variable holding a mapping with speech
-        in it; text alone fails.
+        in it (text alone fails); without, the acknowledgement sound.

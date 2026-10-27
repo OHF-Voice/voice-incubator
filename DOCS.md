@@ -508,8 +508,9 @@ The action, the script and the response template all see:
 
 A script is called with these as its data, so its fields see them. What it
 returns is a mapping -- Home Assistant refuses anything else, text included --
-and its `speech` is spoken when the command has no response of its own (the
-library's Run a script says it too):
+and its `speech` is spoken when the command has no response of its own, as
+the library's Run a script has none; with no `speech`, the acknowledgement
+sound plays:
 
 ```yaml
 sequence:
