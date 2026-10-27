@@ -30,6 +30,8 @@ MUSIC_LEADING = re.compile(r"^(?:un peu de |de la |du |des |un peu d')+")
 MUSIC_TRAILING = re.compile(r"(?: s'il te plaît| s'il vous plaît| pour moi| sur music assistant)+$")
 
 BY = "par"
+AND = ("et",)
+"""What joins items said together ("apples and bananas"): a word of its own."""
 """Between a title and its artist: "so what par miles davis" ("de" is too
 common to split on)."""
 

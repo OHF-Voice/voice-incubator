@@ -41,6 +41,8 @@ MUSIC_LEADING = re.compile(r"^(?:мне |нам |пожалуйста |немн�
 MUSIC_TRAILING = re.compile(r"(?: пожалуйста| для меня| для нас| в music assistant)+$")
 
 BY = "в исполнении"
+AND = ("и",)
+"""What joins items said together ("apples and bananas"): a word of its own."""
 """Between a title and its artist: "кукушка в исполнении кино"."""
 
 # ------------------------------------------------------------------- clock

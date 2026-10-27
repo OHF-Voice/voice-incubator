@@ -28,7 +28,12 @@ from .numerals import cardinal, ordinal, plural
 SORRY = "Извините, я не понимаю."
 FAILED = "Извините, не получилось."
 NO_SPEAKER = "Извините, я не знаю, кто говорит."
-NOT_ON_LIST = "В списке нет: {item}."
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    return f"В списке нет: {join(items)}."
+
+
 NOT_SET = "Это ещё не настроено."
 WENT_WRONG = "Извините, что-то пошло не так."
 NO_COMMANDS = "Голосовые команды ещё не настроены. Добавьте их в приложении Voice Call."

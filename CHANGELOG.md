@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **Several items checked off or removed at once**: "check apples and
+  bananas off the shopping list", "remove eggs milk and bread from the list"
+  -- each one on the list, unless one item is called that whole ("mac and
+  cheese"); one that isn't there is said after doing the others ("Kiwis
+  isn't on the list."). Commands see them as `items`. New: **Check off the
+  to-do list** and **Take off the to-do list** (English).
 - **Play a genre** (English): "play some jazz music", "play the jazz genre".
   Music Assistant plays it by name; one it doesn't have is searched for
   like anything else. "Skip to the next track" and "go back to the previous

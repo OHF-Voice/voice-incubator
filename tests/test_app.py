@@ -501,6 +501,20 @@ async def _scenario(tmp_path: Path) -> None:
             assert await said("remove bread from the shopping list") == "Bread isn't on the list."
             record = app.calls.recent[-1]
             assert next(s for s in record.stages if s["stage"] == "action")["outcome"] == "not_on_list"
+            # Several at once: each one on the list (the action sees them as
+            # items); what isn't there is said too.
+            hass.todo_items["todo.shopping_list"] += [{"summary": "Apples", "status": "needs_action"},
+                                                      {"summary": "Bananas", "status": "needs_action"},
+                                                      {"summary": "Mac and Cheese", "status": "needs_action"}]
+            remove["action"] = {"action": "todo.remove_item", "target": {"entity_id": "todo.shopping_list"}, "data": {"item": "{{ items }}"}}
+            assert (await http.put("/api/commands/shopping_remove", json={"spec": remove})).status == 200
+            assert await said("remove apples and bananas from the shopping list") == "Took Apples and Bananas off."
+            action = next(s for s in app.calls.recent[-1].stages if s["stage"] == "action")
+            assert action["variables"]["items"] == ["Apples", "Bananas"]
+            assert await said("remove mac and cheese from the shopping list") == "Took Mac and Cheese off."
+            assert await said("remove apples bananas from the shopping list") == "Took Apples and Bananas off."
+            assert await said("remove apples and kiwis from the shopping list") == "Took Apples off. Kiwis isn't on the list."
+            assert await said("remove kiwis and figs from the shopping list") == "Kiwis and figs aren't on the list."
             assert (await http.delete("/api/commands/shopping_remove")).status == 200
 
             # The home's weather (Settings): what a command on it uses without its own.

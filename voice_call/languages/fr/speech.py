@@ -16,7 +16,13 @@ from typing import Any
 SORRY = "Désolé, je n'ai pas compris."
 FAILED = "Désolé, ça n'a pas marché."
 NO_SPEAKER = "Désolé, je ne sais pas qui parle."
-NOT_ON_LIST = "{item} n'est pas sur la liste."
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    verb = "n'est pas" if len(items) == 1 else "ne sont pas"
+    return f"{join(items)} {verb} sur la liste."
+
+
 NOT_SET = "Ce n'est pas encore configuré."
 WENT_WRONG = "Désolé, quelque chose s'est mal passé."
 NO_COMMANDS = "Aucune commande vocale n'est encore configurée. Ajoutez-en dans l'application Voice Call."

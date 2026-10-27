@@ -28,7 +28,12 @@ from .skills.numbers import count, fold, ordinal, plural, spell
 SORRY = "Przepraszam, nie rozumiem."
 FAILED = "Przepraszam, to się nie udało."
 NO_SPEAKER = "Przepraszam, nie wiem, kto mówi."
-NOT_ON_LIST = "Na liście nie ma: {item}."
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    return f"Na liście nie ma: {join(items)}."
+
+
 NOT_SET = "To nie jest jeszcze skonfigurowane."
 WENT_WRONG = "Przepraszam, coś poszło nie tak."
 NO_COMMANDS = "Nie ma jeszcze żadnych poleceń głosowych. Dodaj je w aplikacji Voice Call."

@@ -23,8 +23,12 @@ NO_SPEAKER = "Sorry, I don't know who's speaking."
 """A command for the speaker's own thing ("my to-do list") when nobody
 knows who is speaking."""
 
-NOT_ON_LIST = "{item} isn't on the list."
-"""A to-do list command's item that isn't on the list (``on_list``)."""
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    verb = "isn't" if len(items) == 1 else "aren't"
+    return f"{join(items)} {verb} on the list."
+
 
 NOT_SET = "That isn't set up yet."
 """A command on the home's own thing (``home``: its weather, thermostat,
@@ -86,7 +90,6 @@ def none_can(place: str, capability: str | None) -> str:
     """Nothing of the kind ``place`` can: "Nothing in the Kitchen can change color."."""
     what = _CAN.get(capability, _CAN[None])
     return f"Nothing {place} can {what}." if place else f"Nothing can {what}."
-
 
 
 EXAMPLE_NAMES = {

@@ -715,12 +715,19 @@ target:
   the shopping list", "read me the shopping list", "what do we need from
   the store" -- the first five and how many more, with more than eight.
 - **Add to the to-do list**, and **Add to my to-do list** (People).
+- **Check off the to-do list** and **Take off the to-do list**: "check off
+  call the plumber on the to-do list", "remove the dentist from the to do
+  list".
 
-Checking off and removing take an item that is on the list: what was heard
-is matched to it as spoken, so "test three" is the item "Test 3", "the
-milk" is "Milk", and a near spelling ("paper towel") is the closest. One
-that isn't on the list says so ("Bread isn't on the list."). Checking off,
-removing and reading are in the English library for now.
+Checking off and removing take items that are on the list: what was heard
+is matched to them as spoken, so "test three" is the item "Test 3", "the
+milk" is "Milk", and a near spelling ("paper towel") is the closest. Several
+at once are each one: "check apples and bananas off the shopping list",
+"remove eggs milk and bread from the list" -- unless one item is called that
+whole ("mac and cheese"). One that isn't on the list says so ("Bread isn't on
+the list."), after doing the others. A command of your own sees them as
+`items`, and its slot as them all, said ("Apples and Bananas"). Checking
+off, removing and reading are in the English library for now.
 
 ## Weather
 

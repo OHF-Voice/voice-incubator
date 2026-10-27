@@ -520,7 +520,9 @@ commands:
     icon: mdi:cart-minus
     description: take something off the shopping list
     # Gone from the list; checking it off (done, and kept) is Check off the
-    # shopping list. The item said is one on the list: "test three" is "test 3".
+    # shopping list. The items said are ones on the list: "test three" is
+    # "test 3"; "apples and bananas" two of them (items), unless one is called
+    # that.
     require: [[remove, take, delete], [shopping list, list]]
     optional: [[from, off]]
     wildcard:
@@ -528,7 +530,7 @@ commands:
       after: [remove, take, delete]
       before: [from, off]
       bounded: true
-      max_words: 5
+      max_words: 8
     on_list: {item: entity}
     home: shopping_list
     action:
@@ -536,11 +538,11 @@ commands:
       target:
         entity_id: "{{ slots.entity }}"
       data:
-        item: "{{ slots.item }}"
+        item: "{{ items }}"
     verbosity: specific
     response:
       done:
-        brief: Took it off the shopping list.
+        brief: "{{ 'Took it off the shopping list.' if items | count < 2 else 'Took them off the shopping list.' }}"
         specific: "Took {{ slots.item }} off the shopping list."
     needs:
       - Set the home's shopping list on the Settings page, or give it one of its
@@ -551,7 +553,8 @@ commands:
     icon: mdi:cart-check
     description: check something off the shopping list as bought
     # Done, and kept on the list as such: "cross the milk off the list",
-    # "check off eggs on the shopping list", "mark bread as done on the list".
+    # "check off eggs on the shopping list", "mark bread as done on the list",
+    # "check apples and bananas off the shopping list" (each of the items).
     require: [[check, cross, tick, mark], [shopping list, list]]
     optional: [[off], [from, on], [as done, as bought]]
     wildcard:
@@ -559,20 +562,23 @@ commands:
       after: [check, cross, tick, mark]
       before: [off, from, on, as done, as bought]
       bounded: true
-      max_words: 5
+      max_words: 8
     on_list: {item: entity}
     home: shopping_list
     action:
-      action: todo.update_item
-      target:
-        entity_id: "{{ slots.entity }}"
-      data:
-        item: "{{ slots.item }}"
-        status: completed
+      repeat:
+        for_each: "{{ items }}"
+        sequence:
+          - action: todo.update_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+              status: completed
     verbosity: specific
     response:
       done:
-        brief: Checked it off.
+        brief: "{{ 'Checked it off.' if items | count < 2 else 'Checked them off.' }}"
         specific: "Checked {{ slots.item }} off the shopping list."
     needs:
       - Set the home's shopping list on the Settings page, or give it one of its
@@ -642,6 +648,73 @@ commands:
       done:
         brief: Added it to the to-do list.
         specific: "Added {{ slots.item }} to the to-do list."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).
+
+  todo_remove:
+    title: Take off the to-do list
+    icon: mdi:playlist-remove
+    description: take something off the to-do list
+    # Gone from the list; checking it off (done, and kept) is Check off the
+    # to-do list. The items said are ones on the list, as for the shopping
+    # list's.
+    require: [[remove, take, delete], [to do list, to do]]
+    optional: [[from, off]]
+    wildcard:
+      slot: item
+      after: [remove, take, delete]
+      before: [from, off]
+      bounded: true
+      max_words: 8
+    on_list: {item: entity}
+    home: todo_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ items }}"
+    verbosity: specific
+    response:
+      done:
+        brief: "{{ 'Took it off the to-do list.' if items | count < 2 else 'Took them off the to-do list.' }}"
+        specific: "Took {{ slots.item }} off the to-do list."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).
+
+  todo_check:
+    title: Check off the to-do list
+    icon: mdi:playlist-check
+    description: check something off the to-do list as done
+    # Done, and kept on the list as such: "check off call the plumber on the
+    # to-do list", "mark taxes and laundry as done on the to do list".
+    require: [[check, cross, tick, mark], [to do list, to do]]
+    optional: [[off], [from, on], [as done, as complete]]
+    wildcard:
+      slot: item
+      after: [check, cross, tick, mark]
+      before: [off, from, on, as done, as complete]
+      bounded: true
+      max_words: 8
+    on_list: {item: entity}
+    home: todo_list
+    action:
+      repeat:
+        for_each: "{{ items }}"
+        sequence:
+          - action: todo.update_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+              status: completed
+    verbosity: specific
+    response:
+      done:
+        brief: "{{ 'Checked it off.' if items | count < 2 else 'Checked them off.' }}"
+        specific: "Checked {{ slots.item }} off the to-do list."
     needs:
       - Set the home's to-do list on the Settings page, or give it one of its
         own (its implied target).

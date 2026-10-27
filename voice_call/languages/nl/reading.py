@@ -35,6 +35,8 @@ MUSIC_LEADING = re.compile(r"^(?:wat |een beetje |iets )+")
 MUSIC_TRAILING = re.compile(r"(?: alsjeblieft| alstublieft| af| voor mij| op music assistant)+$")
 
 BY = "van"
+AND = ("en",)
+"""What joins items said together ("apples and bananas"): a word of its own."""
 
 # ------------------------------------------------------------------- clock
 

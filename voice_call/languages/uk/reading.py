@@ -46,6 +46,8 @@ MUSIC_LEADING = re.compile(r"^(?:мені |нам |трохи |якусь |як�
 MUSIC_TRAILING = re.compile(r"(?: будь ласка| мені| для мене| для нас| (?:у|в) music assistant)+$")
 
 BY = "від"
+AND = ("і", "й", "та")
+"""What joins items said together ("apples and bananas"): a word of its own."""
 """Between a title and its artist, as said: "so what від miles davis"."""
 
 # ------------------------------------------------------------------- clock

@@ -18,7 +18,12 @@ from typing import Any
 SORRY = "Entschuldigung, das habe ich nicht verstanden."
 FAILED = "Entschuldigung, das hat nicht geklappt."
 NO_SPEAKER = "Entschuldigung, ich weiß nicht, wer spricht."
-NOT_ON_LIST = "{item} steht nicht auf der Liste."
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    return f"{join(items)} {'steht' if len(items) == 1 else 'stehen'} nicht auf der Liste."
+
+
 NOT_SET = "Das ist noch nicht eingerichtet."
 WENT_WRONG = "Entschuldigung, da ist etwas schiefgelaufen."
 NO_COMMANDS = "Es sind noch keine Sprachbefehle eingerichtet. Füge welche in der Voice Call App hinzu."
@@ -83,7 +88,6 @@ def none_can(place: str, capability: str | None) -> str:
     """Nothing of the kind ``place`` can: "Nichts in der Küche kann die Farbe ändern."."""
     what = _CAN.get(capability, _CAN[None])
     return f"Nichts {place} kann {what}." if place else f"Nichts kann {what}."
-
 
 
 EXAMPLE_NAMES = {

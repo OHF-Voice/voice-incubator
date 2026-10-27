@@ -52,6 +52,8 @@ MUSIC_TRAILING = re.compile(r"(?: please| for me| for us| on music assistant)+$"
 """Politeness around what to play (lowercase, without punctuation)."""
 
 BY = "by"
+AND = ("and",)
+"""What joins items said together ("apples and bananas"): a word of its own."""
 """Between a title and its artist: "so what by miles davis"."""
 
 # ------------------------------------------------------------------- clock

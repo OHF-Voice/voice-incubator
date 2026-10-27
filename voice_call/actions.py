@@ -30,6 +30,9 @@ variables, which the sequence and the response template can both use:
                 response); ``error`` when it failed
 ``timer``       for a timer command, in the response only: the timer it was
                 about; ``timers``: the ones it listed
+``items``       for a command on a to-do list's items (``on_list``): each
+                item said, as the list has it; the slot is them all, said
+                ("Apples and Bananas")
 ==============  ============================================================
 
 A timer command (``timer: cancel`` ...) is carried out by the app on the
@@ -130,6 +133,10 @@ class Outcome:
 
     skipped_said: str = ""
     """That, said: at the verbose level, after what was done."""
+
+    also_said: str = ""
+    """Said after what was done at any level (but silent): what of what was
+    asked for it couldn't find."""
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -310,26 +317,31 @@ async def run(
     if behavior.supports and known and not unset:
         checked = await _supports(hass, behavior, decision.slots, satellite, catalog)
         decision.slots = checked.slots
-    missing = None
+    missing: list[str] = []
+    found: list[str] = []
     for slot, entity_id in behavior.on_list.items():
         said = str(decision.slots.get(slot) or "")
         if entity_id == "entity":  # the command's to-do list: its target
             entity_id = str((decision.slots.get("entity") or [""])[0])
         if said and entity_id:
-            item = await _item_on(hass, entity_id, said)
-            if item is None:
-                missing = said
-            else:
-                decision.slots = {**decision.slots, slot: item}
+            items, lost = await _items_on(hass, entity_id, said)
+            found, missing = found + items, missing + lost
+            if items:
+                decision.slots = {**decision.slots, slot: languages.speech().join(items)}
     values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word)
+    if behavior.on_list:
+        values["items"] = found
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
     if unset:
         return await _say(hass, behavior, values, outcome, "not_set", languages.speech().NOT_SET)
-    if missing is not None:
-        sentence = languages.speech().NOT_ON_LIST.format(item=missing)
-        return await _say(hass, behavior, values, outcome, "not_on_list", sentence[:1].upper() + sentence[1:])
+    if missing:
+        sentence = _capital(languages.speech().not_on_list(missing))
+        if not found:
+            return await _say(hass, behavior, values, outcome, "not_on_list", sentence)
+        # Done on the others, and said, however little it says.
+        outcome.also_said = sentence
     if checked.cannot:
         named = bool(decision.slots.get("entity"))
         capability, value = _lacking(behavior.supports, checked.cannot[0], decision.slots, catalog)
@@ -381,18 +393,50 @@ async def run(
     )
 
 
-async def _item_on(hass: HomeAssistant, entity_id: str, said: str) -> str | None:
-    """The item on a to-do list that ``said`` names (``closest_item``); None
-    when none is close. When the list can't be read, ``said`` as it is."""
+async def _items_on(hass: HomeAssistant, entity_id: str, said: str) -> tuple[list[str], list[str]]:
+    """The items on a to-do list that ``said`` names (``closest_item``), and
+    what names none: the whole of it ("macaroni and cheese"), else each part
+    ("apples and bananas"). When the list can't be read, each part as it is."""
     try:
         response = await hass.call_service(
             "todo", "get_items", {"status": ["needs_action", "completed"]}, {"entity_id": entity_id}, return_response=True
         )
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         _LOGGER.warning("Could not read %s: %s", entity_id, err)
-        return said
-    items = (((response or {}).get(entity_id) or {}).get("items")) or []
-    return closest_item(said, [str(i.get("summary") or "") for i in items if isinstance(i, dict)])
+        return split_items(said) or [said], []
+    listed = (((response or {}).get(entity_id) or {}).get("items")) or []
+    names = [str(i.get("summary") or "") for i in listed if isinstance(i, dict)]
+    whole = closest_item(said, names)
+    if whole is not None:
+        return [whole], []
+    found, missing = [], []
+    for part in split_items(said):
+        # Said without a pause between them, several in a row: "eggs milk".
+        items = [item] if (item := closest_item(part, names)) is not None else _in_a_row(part, names)
+        if not items:
+            missing.append(part)
+        found += [i for i in items if i not in found]
+    return found, missing
+
+
+def _in_a_row(said: str, names: list[str]) -> list[str]:
+    """Items said one after another ("eggs milk"), the longest first at each
+    word; none unless every word is one's."""
+    words, items, start = said.split(), [], 0
+    while start < len(words):
+        end = next((end for end in range(len(words), start, -1) if closest_item(" ".join(words[start:end]), names)), None)
+        if end is None:
+            return []
+        items.append(closest_item(" ".join(words[start:end]), names))
+        start = end
+    return items if len(items) > 1 else []
+
+
+def split_items(said: str) -> list[str]:
+    """Items said together: "apples, bananas and pears" (the language's
+    AND)."""
+    joins = "|".join(re.escape(word) for word in languages.reading().AND)
+    return [part.strip() for part in re.split(rf"\s*,\s*|\s+(?:{joins})\s+", said) if part.strip()]
 
 
 ITEM_CLOSE = 0.8
@@ -1009,6 +1053,8 @@ async def _say(
         outcome.speech = default
     if level == "verbose" and outcome.skipped_said and "skipped" not in (template or ""):
         outcome.speech = f"{outcome.speech} {outcome.skipped_said}".strip()
+    if outcome.also_said and not outcome.silent:
+        outcome.speech = f"{outcome.speech} {outcome.also_said}".strip()
     if not outcome.dry_run:
         try:
             event = {k: v for k, v in values.items() if k not in PRIVATE}

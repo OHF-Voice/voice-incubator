@@ -34,6 +34,8 @@ filler the free text lost."""
 MUSIC_TRAILING = re.compile(r"(?: per favore| per piacere| per me| su music assistant)+$")
 
 BY = "di"
+AND = ("e", "ed")
+"""What joins items said together ("apples and bananas"): a word of its own."""
 """Between a title and its artist: "kind of blue di miles davis"."""
 
 # ------------------------------------------------------------------- clock

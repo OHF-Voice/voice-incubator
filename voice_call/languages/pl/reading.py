@@ -43,6 +43,8 @@ MUSIC_LEADING = re.compile(r"^(?:mi |nam |trochę |jakąś |jakieś |coś z )+")
 MUSIC_TRAILING = re.compile(r"(?: proszę| dla mnie| dla nas| na music assistant| w music assistant)+$")
 
 BY = "od"
+AND = ("i", "oraz")
+"""What joins items said together ("apples and bananas"): a word of its own."""
 
 # ------------------------------------------------------------------- clock
 

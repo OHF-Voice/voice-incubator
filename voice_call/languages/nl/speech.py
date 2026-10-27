@@ -15,7 +15,12 @@ from typing import Any
 SORRY = "Sorry, dat heb ik niet begrepen."
 FAILED = "Sorry, dat is niet gelukt."
 NO_SPEAKER = "Sorry, ik weet niet wie er spreekt."
-NOT_ON_LIST = "{item} staat niet op de lijst."
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    return f"{join(items)} {'staat' if len(items) == 1 else 'staan'} niet op de lijst."
+
+
 NOT_SET = "Dat is nog niet ingesteld."
 WENT_WRONG = "Sorry, er ging iets mis."
 NO_COMMANDS = "Er zijn nog geen spraakopdrachten ingesteld. Voeg ze toe in de Voice Call app."

@@ -36,6 +36,8 @@ MUSIC_LEADING = re.compile(r"^(?:mir |uns |etwas |ein bisschen )+")
 MUSIC_TRAILING = re.compile(r"(?: bitte| für mich| für uns| ab| auf music assistant)+$")
 
 BY = "von"
+AND = ("und",)
+"""What joins items said together ("apples and bananas"): a word of its own."""
 
 # ------------------------------------------------------------------- clock
 

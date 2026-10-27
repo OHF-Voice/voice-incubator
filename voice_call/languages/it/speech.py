@@ -19,7 +19,12 @@ from typing import Any
 SORRY = "Scusa, non ho capito."
 FAILED = "Scusa, non ha funzionato."
 NO_SPEAKER = "Scusa, non so chi sta parlando."
-NOT_ON_LIST = "{item} non è nella lista."
+
+def not_on_list(items: list[str]) -> str:
+    """A to-do list command's items that aren't on the list (``on_list``)."""
+    return f"{join(items)} {'non è' if len(items) == 1 else 'non sono'} nella lista."
+
+
 NOT_SET = "Non è ancora configurato."
 WENT_WRONG = "Scusa, qualcosa è andato storto."
 NO_COMMANDS = "Non ci sono ancora comandi vocali. Aggiungine qualcuno nell'app Voice Call."
