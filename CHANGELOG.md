@@ -10,8 +10,10 @@
   library no longer assumes `weather.home`, `todo.shopping_list` or
   `todo.to_do`; "my" to-do list is the speaker's, else the home's.
 - **Climate** (English): ask the thermostat ("what's the temperature
-  inside"), set it ("set the thermostat to 70"), and ask and set its fan
-  ("set the fan mode to auto"). New list: `fan_modes`.
+  inside"), set it ("set the thermostat to 70"), ask and set its mode ("set
+  the thermostat to heat", "what is the thermostat doing"), and ask and set
+  its fan ("set the fan mode to auto"). New list: `fan_modes`; fan only, in
+  `hvac_modes`, is "fan only" (a fan alone is the thermostat's fan).
 - **Today's forecast with no day said**: "what will the weather be like",
   "what's the forecast".
 - **GLiNER picks among the commands chosen for it**, with the others close

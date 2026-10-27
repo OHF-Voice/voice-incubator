@@ -40,7 +40,8 @@ def test_the_homes_own(language):
     entries = {e["id"]: e for e in load_library()}
     homes = {"weather": "weather", "weather_day": "weather", "weather_week": "weather", "will_it_rain": "weather",
              "thermostat": "climate", "set_thermostat": "climate", "thermostat_fan": "climate",
-             "set_thermostat_fan": "climate", "shopping_list_add": "shopping_list", "shopping_list_remove": "shopping_list",
+             "set_thermostat_fan": "climate", "thermostat_mode": "climate", "set_thermostat_mode": "climate",
+             "shopping_list_add": "shopping_list", "shopping_list_remove": "shopping_list",
              "shopping_list_check": "shopping_list", "shopping_list_items": "shopping_list", "todo_add": "todo_list",
              "todo_add_mine": "todo_list"}
     found = {i: entries[i]["spec"] for i in homes if i in entries}

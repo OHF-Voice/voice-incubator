@@ -1,12 +1,12 @@
 # The home's thermostat (the Settings page), or one a command is given (its
 # implied target): what it's set to and how warm it is inside, setting it,
-# and its fan. A thermostat by name, or in an area, is Set the temperature
+# its mode (heat, cool, off ...), and its fan. A thermostat by name, or in an area, is Set the temperature
 # (Basics), through Home Assistant's intent.
 #
 # Setting the temperature sets the one the thermostat keeps: in heat and cool
-# mode it keeps two, and Home Assistant refuses one alone. Fan modes are the
-# fan_modes list's, Home Assistant's words for them; a thermostat with others
-# needs them added there (Names page).
+# mode it keeps two, and Home Assistant refuses one alone. Modes are the
+# hvac_modes list's and fan modes the fan_modes list's, Home Assistant's words
+# for them; a thermostat with others needs them added there (Names page).
 title: Climate
 icon: mdi:thermostat
 
@@ -63,6 +63,55 @@ commands:
       done:
         brief: Set the thermostat.
         specific: Set the thermostat to {{ slots.temperature }} degrees.
+    needs: *needs
+
+  thermostat_mode:
+    title: Ask the thermostat's mode
+    icon: mdi:thermostat
+    description: say what mode the thermostat is in and what it's doing
+    examples: ["what mode is the thermostat (in|on|set to)", "(what's|what is) the thermostat (mode|doing)",
+               "is the thermostat (heating|cooling|running)"]
+    require: [[thermostat], [mode, doing, heating, cooling, running]]
+    optional: [[what, whats, what's, what is], [is, the, in, on, set, to]]
+    home: climate
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- set modes = {'heat_cool': 'heat and cool', 'fan_only': 'fan only'} -%}
+      {%- set doing = {'fan': 'running its fan', 'preheating': 'warming up', 'defrosting': 'defrosting'} -%}
+      {%- set mode = states(e) -%}
+      {%- set action = state_attr(e, 'hvac_action') -%}
+      {%- if mode == 'off' -%}The thermostat is off.
+      {%- else -%}The thermostat is set to {{ modes.get(mode, mode | replace('_', ' ')) }}.
+      {%- if action and action != 'off' %} It's {{ doing.get(action, action | replace('_', ' ')) }} now.{% endif -%}
+      {%- endif -%}
+    needs: *needs
+
+  set_thermostat_mode:
+    title: Set the thermostat's mode
+    icon: mdi:thermostat
+    description: set the thermostat to heat, cool, auto or off
+    # "Set the thermostat to heat", "turn the thermostat off", "switch the
+    # thermostat to air conditioning".
+    require: [[thermostat]]
+    optional: [[set, turn, switch, change, put], [the], [mode], [to]]
+    exclude: [what, "what's", is]
+    lists:
+      mode: {list: hvac_modes}
+    home: climate
+    action:
+      - action: climate.set_hvac_mode
+        target:
+          entity_id: "{{ slots.entity }}"
+        data:
+          hvac_mode: "{{ slots.mode }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Set the thermostat.
+        specific: >-
+          {%- if slots.mode == 'off' -%}Turned off the thermostat.
+          {%- else -%}Set the thermostat to {{ {'heat_cool': 'heat and cool', 'fan_only': 'fan only'}.get(slots.mode, slots.mode) }}.
+          {%- endif -%}
     needs: *needs
 
   thermostat_fan:

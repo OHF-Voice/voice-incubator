@@ -699,6 +699,11 @@ is given as its implied target:
 - **Set the thermostat**: "set the thermostat to 70", "turn the thermostat
   up to 72". In heat and cool mode the thermostat keeps two temperatures, and
   Home Assistant refuses one alone.
+- **Ask the thermostat's mode**: "what mode is the thermostat in", "what is
+  the thermostat doing" -- "The thermostat is set to heat. It's heating now."
+- **Set the thermostat's mode**: "set the thermostat to heat", "switch the
+  thermostat to air conditioning", "turn off the thermostat". The modes are
+  the `hvac_modes` list's: off, heat, cool, heat and cool, auto, dry, fan only.
 - **Ask the thermostat's fan**: "what's the fan mode" -- "The thermostat's
   fan is on auto."
 - **Set the thermostat's fan**: "set the fan mode to auto", "turn the

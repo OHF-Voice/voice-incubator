@@ -68,4 +68,4 @@ hvac_modes:
   heat_cool: [heat and cool, heat cool]
   auto: [auto, automatic]
   dry: [dry, dehumidify]
-  fan_only: [fan, fan only]
+  fan_only: [fan only, just the fan]
