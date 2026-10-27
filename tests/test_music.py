@@ -102,6 +102,8 @@ def test_controls():
         ("songs by Miles Davis.", [Query("miles davis", "miles davis", None, ["artist"])]),
         ("my chill playlist please", [Query("chill", "chill", None, ["playlist"])]),
         ("some jazz", [Query("jazz", "jazz")]),
+        ("some jazz music", [Query("jazz", "jazz", None, ["genre"])]),
+        ("the jazz genre", [Query("jazz", "jazz", None, ["genre"])]),
         (
             "so what by miles davis",
             [
@@ -242,6 +244,35 @@ def test_guessing_a_satellites_player():
     assert catalog.music_player_for("aabbccddeeff", "kitchen-vpe") == "media_player.b"
     catalog.device_models["d1"] = ("ESPHome", "voice-call-vpe")
     assert catalog.music_player_for("aabbccddeeff", "voice-call-vpe") is None  # two alike: no guess
+
+
+def test_a_genre_by_name_or_else_anything_by_it():
+    """A genre is played by its name, which Music Assistant looks up; one it
+    can't find is the closest of anything by that name."""
+    async def scenario():
+        fake, server, hass = await _hass()
+        try:
+            helper = music.Music(hass)
+            outcome = await _run(hass, {"music": "play"}, {"query": "some jazz music"}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("done", "Playing jazz music.")
+            plays = [m["service_data"] for m in fake.services if m["service"] == "play_media"]
+            assert plays == [{"media_id": "jazz", "media_type": "genre"}]
+            assert not [m for m in fake.services if m["service"] == "search"]
+            # No such genre: the Chill playlist, by its name.
+            outcome = await _run(hass, {"music": "play"}, {"query": "chill music"}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("done", "Playing the Chill playlist.")
+            plays = [m["service_data"] for m in fake.services if m["service"] == "play_media"]
+            assert plays[-2:] == [{"media_id": "chill", "media_type": "genre"},
+                                  {"media_id": "library://playlist/1", "media_type": "playlist"}]
+            assert "Could not resolve" in outcome.music["genre"]["error"]
+            # Nor anything else.
+            outcome = await _run(hass, {"music": "play"}, {"query": "polka music"}, helper=helper)
+            assert (outcome.name, outcome.speech) == ("not_found", "I couldn't find polka.")
+        finally:
+            await hass.stop()
+            server.close()
+
+    asyncio.run(scenario())
 
 
 def test_search_through_the_player_when_music_assistant_search_fails():

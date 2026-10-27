@@ -20,7 +20,10 @@ Playing searches Music Assistant (``music_assistant.search``) for what was
 heard, picks the result closest to it, and plays that
 (``music_assistant.play_media``), so what is said names what was found. Cues
 in what was heard pick a type: "the album …", "songs by …", "my … playlist",
-"the … station", "… by …".
+"the … station", "… by …". A genre ("jazz music", "the jazz genre") is
+played by its name, which Music Assistant looks up itself -- Home
+Assistant's search leaves genres out -- and one it can't find is searched for
+as anything else would be ("the Jazz Classics playlist").
 
 Every operation has outcomes, like timers (see OUTCOMES), so a command can say
 something else for each. Controls say nothing when done: a short sound. What
@@ -103,6 +106,8 @@ PAUSED_FOR = 6 * 3600
 was sent for what follows it."""
 
 SEARCH_TYPES = ["artist", "album", "track", "playlist", "radio"]
+GENRE = "genre"
+"""Played by name: Home Assistant's search doesn't return genres."""
 # A small preference between results as close to what was heard: an artist's
 # name is more often asked for than a track that happens to share it.
 TYPE_PRIOR = {"artist": 0.03, "playlist": 0.02, "album": 0.01, "track": 0.0, "radio": 0.0}
@@ -406,7 +411,7 @@ def queries(text: Any, media_type: str | None = None) -> list[Query]:
         return []
     read = languages.reading()
     by = f" {read.BY} "
-    types = [media_type] if media_type in SEARCH_TYPES else None
+    types = [media_type] if media_type in (*SEARCH_TYPES, GENRE) else None
     if types is None:
         for pattern, kind in read.MUSIC_CUES:
             match = pattern.match(value)
@@ -560,6 +565,9 @@ class Music:
         album's ``favorite`` empty), ``player``'s ``media_player.search_media``
         is used from then on."""
         readings = queries(text, media_type)
+        if readings and readings[0].media_types == [GENRE]:
+            # By name, for Music Assistant to look up (see genre_instead).
+            return Item(readings[0].name, readings[0].name, GENRE)
         if not self._search_media:
             try:
                 return best(list(await asyncio.gather(*(self._search(q) for q in readings))))
@@ -571,6 +579,11 @@ class Music:
         if player is None:
             raise LookupError("No music player to search with")
         return best(list(await asyncio.gather(*(self._search_player(q, player) for q in readings))))
+
+    async def instead(self, genre: Item, player: str | None = None) -> Item | None:
+        """What a genre Music Assistant couldn't play may be instead: the
+        closest of anything by its name."""
+        return await self.find(genre.name, None, player) if genre.name else None
 
     async def _search(self, query: Query) -> tuple[Query, list[Item]]:
         entry_id = await self.entry_id()

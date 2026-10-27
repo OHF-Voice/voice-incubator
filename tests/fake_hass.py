@@ -96,6 +96,8 @@ MUSIC_LIBRARY = {
     "playlists": [{"media_type": "playlist", "uri": "library://playlist/1", "name": "Chill"}],
     "radio": [{"media_type": "radio", "uri": "library://radio/1", "name": "KEXP"}],
 }
+MUSIC_GENRES = ["Jazz"]
+"""Genres Music Assistant plays by name (Home Assistant's search leaves them out)."""
 
 
 class FakeHass:
@@ -391,6 +393,11 @@ class FakeHass:
             self.services.append(message)
             if self.broken_search and message["domain"] == "music_assistant" and message["service"] == "search":
                 await result(success=False, error="invalid_format: expected bool at 'albums[0].favorite'")
+                return
+            data = message.get("service_data") or {}
+            if (message["domain"], message["service"], data.get("media_type")) == ("music_assistant", "play_media", "genre") \
+                    and str(data.get("media_id")).lower() not in {g.lower() for g in MUSIC_GENRES}:
+                await result(success=False, error=f"home_assistant_error: Could not resolve ['{data.get('media_id')}'] to playable media item")
                 return
             response = await self._call_service(message)
             await result({"context": {"id": "x"}, **({"response": response} if message.get("return_response") else {})})

@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **Play a genre** (English): "play some jazz music", "play the jazz genre".
+  Music Assistant plays it by name; one it doesn't have is searched for
+  like anything else. "Skip to the next track" and "go back to the previous
+  track" match (the "to" was left over).
 - **Scenes and scripts by name**: a command may listen for a scene name or a
   script name (Names page) and activate or run the one heard. The library's
   Activate a scene and Run a script are by name now, in every language --

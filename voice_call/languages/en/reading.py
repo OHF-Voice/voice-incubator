@@ -40,9 +40,12 @@ MUSIC_CUES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^(?:the |my )?(?P<q>.+) playlist$"), "playlist"),
     (re.compile(r"^(?:the )?(?:radio station|station) (?P<q>.+)$"), "radio"),
     (re.compile(r"^(?:the )?(?P<q>.+) (?:radio station|station)$"), "radio"),
+    (re.compile(r"^(?:the )?genre (?P<q>.+)$"), "genre"),
+    (re.compile(r"^(?:the )?(?P<q>.+) genre$"), "genre"),
+    (re.compile(r"^(?P<q>.+) music$"), "genre"),
 ]
 """What to play, with a cue to its type: "the album …", "songs by …", "my …
-playlist"; group ``q`` is what is searched for."""
+playlist", "… music" (a genre); group ``q`` is what is searched for."""
 
 MUSIC_LEADING = re.compile(r"^(?:me |us |some )+")
 MUSIC_TRAILING = re.compile(r"(?: please| for me| for us| on music assistant)+$")

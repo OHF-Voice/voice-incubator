@@ -633,6 +633,11 @@ library's **Music** group:
   playlist", "play So What by Miles Davis": Music Assistant is searched for
   what was heard and the closest match plays ("Playing Kind of Blue by Miles
   Davis."). "Add … to the queue", "play more like this".
+- A genre: "play some jazz music", "play the jazz genre" (English). Music
+  Assistant looks the genre up by name -- Home Assistant's search leaves
+  genres out -- and one it doesn't have is searched for like anything else
+  ("play chill music" may be the Chill playlist). "Play some jazz", without
+  "music", is a search: the closest name wins.
 - "pause", "resume", "stop the music", "next", "go back", "louder", "set the
   volume to 30 percent", "mute", "shuffle", "repeat", "what's playing".
 - "move the music to the kitchen", "move the music upstairs", "send the music

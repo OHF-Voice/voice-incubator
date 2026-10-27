@@ -789,13 +789,8 @@ async def _run_music(
                     return await _say(hass, behavior, values, outcome, "not_found", languages.speech().not_found(music_ops.clean(query)))
             trace["found"] = {**item.as_dict(), "score": round(item.score, 3)}
             values = {**values, "media": item.as_dict()}
-            data: dict[str, Any] = {"media_id": item.uri, "media_type": item.media_type}
-            if operation == "add":
-                data["enqueue"] = "add"
-            elif operation == "radio":
-                data["radio_mode"] = True
             speech: str | dict[str, str] = music_ops.found_said(operation, item, chosen)
-            calls = [("music_assistant", "play_media", data)]
+            calls = [("music_assistant", "play_media", _play_data(operation, item))]
             name = "done"
         else:
             controls, speech, name = music_ops.control(operation, slots, chosen)
@@ -818,9 +813,25 @@ async def _run_music(
     outcome.sequence = [{"action": f"{d}.{s}", "target": target, "data": data} for d, s, data in calls]
     if not outcome.dry_run:
         try:
-            for domain, service, data in calls:
-                await hass.call_service(domain, service, data, target)
-        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            try:
+                for domain, service, data in calls:
+                    await hass.call_service(domain, service, data, target)
+            except HassError as err:
+                genre = (values.get("media") or {}) if operation in music_ops.FIND else {}
+                if genre.get("media_type") != music_ops.GENRE:
+                    raise
+                # No genre by that name: the closest of anything by it.
+                trace["genre"] = {"name": genre["name"], "error": str(err)}
+                item = await music.instead(music_ops.Item(genre["name"], genre["uri"], music_ops.GENRE), ids[0])
+                if item is None:
+                    return await _say(hass, behavior, values, outcome, "not_found", languages.speech().not_found(genre["name"]))
+                trace["found"] = {**item.as_dict(), "score": round(item.score, 3)}
+                values = {**values, "media": item.as_dict()}
+                speech = music_ops.found_said(operation, item, chosen)
+                data = _play_data(operation, item)
+                outcome.sequence.append({"action": "music_assistant.play_media", "target": target, "data": data})
+                await hass.call_service("music_assistant", "play_media", data, target)
+        except (HassError, ConnectionError, OSError, TimeoutError, LookupError) as err:
             outcome.error = str(err)
             _LOGGER.error("Music command failed: %s", err)
             return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
@@ -888,6 +899,17 @@ async def _move_music(
             music.remember_sent(satellite.key, [target.entity_id])
     outcome.timings["music"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, "done", music_ops.moved_said(source, target, to))
+
+
+def _play_data(operation: str, item: music_ops.Item) -> dict[str, Any]:
+    """``music_assistant.play_media``'s data for playing (or queueing, or
+    playing music like) what was found."""
+    data: dict[str, Any] = {"media_id": item.uri, "media_type": item.media_type}
+    if operation == "add":
+        data["enqueue"] = "add"
+    elif operation == "radio":
+        data["radio_mode"] = True
+    return data
 
 
 def _all_music_players(hass: HomeAssistant) -> list[str]:

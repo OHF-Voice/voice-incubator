@@ -385,7 +385,10 @@ def media(title: str, artist: str | None) -> str:
 
 
 def item(name: str, media_type: str, artist: str | None) -> str:
-    """A search result: "the Jazz playlist", "Kind of Blue by Miles Davis"."""
+    """A search result: "the Jazz playlist", "Kind of Blue by Miles Davis";
+    a genre: "jazz music"."""
+    if media_type == "genre":
+        return name if name.lower().endswith("music") else f"{name} music"
     if media_type == "playlist":
         return name if "playlist" in name.lower() else f"the {name} playlist"
     if artist and media_type in ("track", "album"):
