@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **Pause, skip and the volume on any media player**: with nothing named,
+  whatever plays in the satellite's area (its own music first), a TV among
+  them; "the music" is Music Assistant's players only, "the TV" the TVs
+  (`kind`, the `media_kinds` list). A TV that only steps its volume is
+  stepped, and says it can't be set to one. New: **Turn yourself up / down**
+  and **Set your volume** ("speak up", "set your volume to 40 percent"), on
+  the satellite's own speaker (`satellite.device_media_player`).
 - **Sensors** (English): "what's the outside temperature", "is the front door
   open" -- a sensor or binary sensor by its name (Names page), its value in
   its unit, a binary sensor in its device class's words. Sensors and binary

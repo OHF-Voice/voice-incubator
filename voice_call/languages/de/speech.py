@@ -59,6 +59,7 @@ _CAN = {
     "temperature": "auf eine Temperatur gestellt werden",
     "fan_mode": "einen Lüftermodus einstellen",
     "hvac_mode": "den Modus wechseln",
+    "volume_set": "auf eine Lautstärke gestellt werden",
     None: "das",
 }
 _CANNOT = {
@@ -70,6 +71,7 @@ _CANNOT = {
     "temperature": "nicht auf eine Temperatur gestellt werden",
     "fan_mode": "keinen Lüftermodus einstellen",
     "hvac_mode": "den Modus nicht wechseln",
+    "volume_set": "nicht auf eine Lautstärke gestellt werden",
     None: "das nicht",
 }
 

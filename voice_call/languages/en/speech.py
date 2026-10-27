@@ -72,6 +72,7 @@ _CAN = {
     "temperature": "be set to a temperature",
     "fan_mode": "set a fan mode",
     "hvac_mode": "change mode",
+    "volume_set": "be set to a volume",
     None: "do that",
 }
 

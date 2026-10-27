@@ -25,6 +25,13 @@ played by its name, which Music Assistant looks up itself -- Home
 Assistant's search leaves genres out -- and one it can't find is searched for
 as anything else would be ("the Jazz Classics playlist").
 
+The controls (CONTROLS: pause, next, the volume, "what's playing" ...) are
+any media player's, not only Music Assistant's: with nothing named, whatever
+plays in the satellite's area -- its own music first -- and "the music"
+(``slots.kind``: ``music``) is Music Assistant's players only, "the TV"
+(``tv``) the TVs (device class) there. A TV that can't be set to a volume is
+stepped up and down instead, and says so when asked for one (not_supported).
+
 Every operation has outcomes, like timers (see OUTCOMES), so a command can say
 something else for each. Controls say nothing when done: a short sound. What
 each says is the app's language's (its speech module's music sentences).
@@ -84,7 +91,7 @@ OUTCOMES = {
     "previous": _ON_PLAYING,
     "volume_up": _ANY,
     "volume_down": _ANY,
-    "volume_set": ("done", "missing_volume", "no_player"),
+    "volume_set": ("done", "missing_volume", "not_supported", "no_player"),
     "mute": _ANY,
     "unmute": _ANY,
     "shuffle_on": _ON_PLAYING,
@@ -96,6 +103,13 @@ OUTCOMES = {
     "move": ("done", "nothing_playing", "no_player", "already"),
 }
 
+
+CONTROLS = ("pause", "resume", "stop", "next", "previous", "volume_up", "volume_down", "volume_set", "mute", "unmute", "status")
+"""What any media player does, not only Music Assistant's."""
+KINDS = ("music", "tv")
+"""What ``slots.kind`` may pick: Music Assistant's players, or TVs."""
+VOLUME_SET = 4
+"""MediaPlayerEntityFeature.VOLUME_SET: a volume can be set, not only stepped."""
 
 VOLUME_STEP = 0.1
 MATCH_AT_LEAST = 0.5
@@ -125,6 +139,8 @@ class Player:
     album: str | None = None
     volume: float | None = None
     muted: bool | None = None
+    features: int | None = None
+    """Its supported_features (None: not known)."""
 
     @property
     def playing(self) -> bool:
@@ -133,6 +149,11 @@ class Player:
     @property
     def available(self) -> bool:
         return self.state not in ("unavailable", "unknown")
+
+    @property
+    def settable(self) -> bool:
+        """Whether its volume can be set (not only stepped), as far as is known."""
+        return self.features is None or bool(self.features & VOLUME_SET)
 
     @property
     def media(self) -> str | None:
@@ -331,10 +352,12 @@ def control(operation: str, slots: dict[str, Any], players: list[Player]) -> tup
         level = volume_level(slots)
         if level is None:
             return [], languages.speech().MUSIC_SAID["missing_volume"], "missing_volume"
+        if not any(p.settable for p in players):
+            return [], languages.speech().cannot(_names(players), "volume_set"), "not_supported"
         return [("volume_set", {"volume_level": level})], "", "done"
     if operation in ("volume_up", "volume_down"):
         player = players[0]
-        if player.volume is None:
+        if player.volume is None or not player.settable:
             return [(operation, {})], "", "done"
         step = VOLUME_STEP if operation == "volume_up" else -VOLUME_STEP
         level = round(min(1.0, max(0.0, player.volume + step)), 2)
@@ -512,7 +535,8 @@ STATE_TEMPLATE = """[
  "artist": {{ state_attr(e, 'media_artist') | tojson }},
  "album": {{ state_attr(e, 'media_album_name') | tojson }},
  "volume": {{ state_attr(e, 'volume_level') | tojson }},
- "muted": {{ state_attr(e, 'is_volume_muted') | tojson }}}{{ "," if not loop.last }}
+ "muted": {{ state_attr(e, 'is_volume_muted') | tojson }},
+ "features": {{ state_attr(e, 'supported_features') | tojson }}}{{ "," if not loop.last }}
 {%- endfor -%}
 ]"""
 
@@ -554,6 +578,7 @@ class Music:
                 state.get("album"),
                 state.get("volume"),
                 state.get("muted"),
+                state.get("features"),
             )
         return out
 

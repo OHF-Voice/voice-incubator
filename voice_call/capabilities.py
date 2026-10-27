@@ -56,6 +56,7 @@ CAPABILITIES = {
     "temperature": Capability(("climate",), features=1),
     "fan_mode": Capability(("climate",), features=8, values="fan_modes", now="fan_mode"),
     "hvac_mode": Capability(("climate",), values="hvac_modes"),
+    "volume_set": Capability(("media_player",), features=4),
 }
 
 ATTRIBUTES = ("supported_features", "supported_color_modes", "hvac_modes", "fan_modes", "device_class")

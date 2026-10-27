@@ -122,6 +122,7 @@ class Satellite:
             "device_id": self.device_id,
             "timer_list": self.timer_list,
             "media_player": self.media_player,
+            "device_media_player": self.device_media_player,
             "skills": sorted(self.skills) if self.skills is not None else None,
         }
 

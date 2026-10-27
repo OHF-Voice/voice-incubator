@@ -70,6 +70,7 @@ _SUPPORT = {
     "temperature": "ustawiania temperatury",
     "fan_mode": "trybów wentylatora",
     "hvac_mode": "zmiany trybu",
+    "volume_set": "ustawiania głośności",
     None: "tego",
 }
 

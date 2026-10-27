@@ -56,6 +56,7 @@ _CAN = {
     "temperature": "op een temperatuur gezet worden",
     "fan_mode": "een ventilatorstand instellen",
     "hvac_mode": "van modus veranderen",
+    "volume_set": "op een volume gezet worden",
     None: "dat",
 }
 _CANNOT = {
@@ -67,6 +68,7 @@ _CANNOT = {
     "temperature": "niet op een temperatuur gezet worden",
     "fan_mode": "geen ventilatorstand instellen",
     "hvac_mode": "niet van modus veranderen",
+    "volume_set": "niet op een volume gezet worden",
     None: "dat niet",
 }
 

@@ -16,6 +16,11 @@ colors:
 on_off:
   "on": ["on"]
   "off": ["off"]
+media_kinds:
+  # What plays (Music library): "the music" is Music Assistant's players, "the
+  # TV" the media players whose device class is tv.
+  music: [music]
+  tv: [tv, television, telly]
 cover_classes:
   awning: [awning, awnings]
   blind: [blind, blinds]

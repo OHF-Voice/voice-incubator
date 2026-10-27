@@ -60,6 +60,7 @@ _CAN = {
     "temperature": "essere impostato su una temperatura",
     "fan_mode": "impostare una modalità della ventola",
     "hvac_mode": "cambiare modalità",
+    "volume_set": "essere impostato su un volume",
     None: "farlo",
 }
 

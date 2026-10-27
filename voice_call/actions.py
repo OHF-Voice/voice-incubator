@@ -10,7 +10,9 @@ variables, which the sequence and the response template can both use:
                 preset's name: ``percentage``, ``duration`` ...), value
                 lists, free text
 ``satellite``   ``id``, ``name``, ``area_id``, ``area_name``, ``floor_id``,
-                ``floor_name``, ``device_id``, ``timer_list``
+                ``floor_name``, ``device_id``, ``timer_list``, ``media_player``
+                (its Music Assistant player), ``device_media_player`` (its
+                own speaker: what the dial sets)
 ``speaker``     who is speaking (voice_call/people.py): ``name`` (None when
                 nobody knows), ``score`` (by their voice), ``by`` (``voice``,
                 ``wake_word``, ``only_person``), and their own
@@ -852,8 +854,9 @@ async def _run_music(
     query = slots.get("query")
     if operation == "play" and music_ops.generic(query):
         operation = "resume"  # "play some music": whatever was playing
-    named, nearby = _music_players(hass, slots, satellite)
-    own = satellite.media_player
+    named, nearby = _music_players(hass, slots, satellite, operation)
+    # "The TV": not the satellite's own player, which plays music.
+    own = satellite.media_player if slots.get("kind") != "tv" else None
     sent = music.sent_by_voice(satellite.key)
     started = time.perf_counter()
     trace: dict[str, Any] = {"operation": operation, "own": own, "named": named, "nearby": nearby, "sent": sent}
@@ -883,6 +886,8 @@ async def _run_music(
         return await _say(hass, behavior, values, outcome, choice.outcome, languages.speech().MUSIC_SAID[choice.outcome])
 
     ids = [p.entity_id for p in chosen]
+    if operation == "volume_set" and any(p.settable for p in chosen):
+        ids = [p.entity_id for p in chosen if p.settable]  # a volume stepped only can't be set
     calls: list[tuple[str, str, dict]] = []
     try:
         if operation in music_ops.FIND:
@@ -1046,13 +1051,31 @@ def _players_place(players: list[music_ops.Player], satellite: Satellite, catalo
 
 
 def _music_players(
-    hass: HomeAssistant, slots: dict[str, Any], satellite: Satellite
+    hass: HomeAssistant, slots: dict[str, Any], satellite: Satellite, operation: str = "play"
 ) -> tuple[list[str] | None, list[str]]:
-    """The players a command names (entities, or Music Assistant's in the
-    areas and floors it names; None when it names none), and Music
-    Assistant's others in the satellite's area."""
+    """The players a command names (entities, or those in the areas and
+    floors it names; None when it names none), and the others in the
+    satellite's area. Music Assistant's -- and for a control (CONTROLS), any
+    media player exposed to Assist after them, but the satellite's own
+    speaker; "the music" (``kind``) is Music Assistant's alone, "the TV" the
+    TVs."""
     catalog = getattr(hass, "catalog", None)
-    players = catalog.music_players() if catalog is not None else []
+    music = catalog.music_players() if catalog is not None else []
+    kind = slots.get("kind")
+    others: list[Any] = []
+    if catalog is not None and (operation in music_ops.CONTROLS or kind == "tv"):
+        exposed = catalog.exposed
+        others = [
+            e for e in catalog.entities.values()
+            if e.domain == "media_player" and e.platform != "music_assistant"
+            and e.entity_id != satellite.device_media_player and (exposed is None or e.entity_id in exposed)
+        ]
+    if kind == "tv":
+        players = [e for e in [*music, *others] if (e.attributes or {}).get("device_class") == "tv"]
+    elif kind == "music":
+        players = music
+    else:
+        players = [*music, *others]
     named: list[str] | None = None
     if slots.get("entity") or slots.get("area") or slots.get("floor"):
         named = [str(e) for e in slots.get("entity") or [] if str(e).startswith("media_player.")]

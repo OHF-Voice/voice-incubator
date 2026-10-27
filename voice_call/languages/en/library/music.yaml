@@ -13,6 +13,12 @@
 # "Play …" searches Music Assistant for what was heard (free text to the end
 # of the sentence, spelled from the TDT transcript) and plays the closest
 # match; "the album …", "songs by …", "my … playlist", "… by …" narrow it.
+#
+# Pausing, skipping, the volume and muting are any media player's: with
+# nothing named, whatever plays in the satellite's area (its own music first),
+# a TV among them. "The music" (kind: music) is Music Assistant's players
+# only, "the TV" (kind: tv) the TVs (their device class) -- "pause the TV",
+# "turn the music down in the kitchen".
 title: Music
 icon: mdi:music
 
@@ -23,8 +29,8 @@ shared:
       entity: {count: 1, domains: [media_player]}
     combinations: [[entity]]
     needs:
-      - Add names for the players it may act on (Names page). A player must be
-        a Music Assistant player.
+      - Add names for the players it may act on (Names page). Any media player
+        can be paused, skipped or turned up; music plays on Music Assistant's.
   place: &place
     names:
       area: {count: 1}
@@ -32,7 +38,8 @@ shared:
     combinations: [[area], [floor]]
     needs:
       - Add names for the areas and floors it may act in (Names page). It acts
-        on the Music Assistant players there.
+        on the Music Assistant players there (and, to pause, skip or turn up,
+        the media players exposed to Assist).
 
 commands:
   play_music:
@@ -121,40 +128,52 @@ commands:
     icon: mdi:pause
     description: pause the music
     require: [[pause]]
-    optional: [[music, song, it, playback], [in, on], [the]]
+    optional: [[song, it, playback], [in, on], [the]]
     exclude: [timer, timers]
+    lists:
+      kind: {list: media_kinds}
     music: pause
     verbosity: beep
     variants:
       here:
         title: Pause the music on this satellite
-        examples: ["pause [the music]"]
+        combinations: [[], [kind]]
+        examples: [pause]
       device:
         <<: *player
         title: Pause the music on a different device
+        lists: null
+        optional: [[music, song, it, playback], [in, on], [the]]
       place:
         <<: *place
         title: Pause the music in an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   resume_music:
     title: Resume the music
     icon: mdi:play
     description: resume the music
     require: [[resume, unpause, continue, keep playing]]
-    optional: [[music, it, playing, playback], [in, on], [the]]
+    optional: [[it, playing, playback], [in, on], [the]]
     exclude: [timer, timers]
+    lists:
+      kind: {list: media_kinds}
     music: resume
     verbosity: beep
     variants:
       here:
         title: Resume the music on this satellite
-        examples: ["(resume|unpause) [the music]", play music, keep playing]
+        combinations: [[], [kind]]
+        examples: [resume, unpause, play music, keep playing]
       device:
         <<: *player
         title: Resume the music on a different device
+        lists: null
+        optional: [[music, it, playing, playback], [in, on], [the]]
       place:
         <<: *place
         title: Resume the music in an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   stop_music:
     title: Stop the music
@@ -181,18 +200,23 @@ commands:
     description: skip to the next song
     require: [[next, skip]]
     optional: [[song, track, this, it, one], [go], [to], [in, on], [the]]
+    lists:
+      kind: {list: media_kinds}
     music: next
     verbosity: beep
     variants:
       here:
         title: Next track on this satellite
+        combinations: [[], [kind]]
         examples: ["next [song]", "skip [this song]"]
       device:
         <<: *player
         title: Next track on a different device
+        lists: null
       place:
         <<: *place
         title: Next track in an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   previous_track:
     title: Previous track
@@ -200,58 +224,75 @@ commands:
     description: go back to the previous song
     require: [[previous, go back, last song, last track]]
     optional: [[song, track], [to], [in, on], [the]]
+    lists:
+      kind: {list: media_kinds}
     music: previous
     verbosity: beep
     variants:
       here:
         title: Previous track on this satellite
+        combinations: [[], [kind]]
         examples: ["(previous|last) song", go back]
       device:
         <<: *player
         title: Previous track on a different device
+        lists: null
       place:
         <<: *place
         title: Previous track in an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   volume_up:
     title: Turn it up
     icon: mdi:volume-plus
     description: turn up the volume
     require: [[louder, volume up, turn it up, turn up, turn ... up, increase the volume, raise the volume]]
-    optional: [[volume, music, sound, a bit, a little], [in, on], [the]]
+    optional: [[volume, sound, a bit, a little], [in, on], [the]]
     exclude: [light, lights, brightness, heat, temperature]
+    lists:
+      kind: {list: media_kinds}
     music: volume_up
     verbosity: beep
     variants:
       here:
         title: Turn it up on this satellite
+        combinations: [[], [kind]]
         examples: [louder, turn it up, volume up]
       device:
         <<: *player
         title: Turn it up on a different device
+        lists: null
+        optional: [[volume, music, sound, a bit, a little], [in, on], [the]]
       place:
         <<: *place
         title: Turn it up in an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   volume_down:
     title: Turn it down
     icon: mdi:volume-minus
     description: turn down the volume
     require: [[quieter, softer, volume down, turn it down, turn down, turn ... down, decrease the volume, lower the volume]]
-    optional: [[volume, music, sound, a bit, a little], [in, on], [the]]
+    optional: [[volume, sound, a bit, a little], [in, on], [the]]
     exclude: [light, lights, brightness, heat, temperature]
+    lists:
+      kind: {list: media_kinds}
     music: volume_down
     verbosity: beep
     variants:
       here:
         title: Turn it down on this satellite
+        combinations: [[], [kind]]
         examples: [quieter, turn it down, volume down]
       device:
         <<: *player
         title: Turn it down on a different device
+        lists: null
+        optional: [[volume, music, sound, a bit, a little], [in, on], [the]]
       place:
         <<: *place
         title: Turn it down in an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   set_volume:
     title: Set the volume
@@ -260,57 +301,117 @@ commands:
     require: [[volume]]
     optional: [[set, change, make], [to], [percent], [in, on], [the]]
     number: percentage
+    lists:
+      kind: {list: media_kinds}
     music: volume_set
     verbosity: beep
     variants:
       here:
         title: Set the volume on this satellite
+        combinations: [[percentage], [kind, percentage]]
       device:
         <<: *player
         title: Set the volume on a different device
+        lists: null
         combinations: [[entity, percentage]]
       place:
         <<: *place
         title: Set the volume in an area or floor
-        combinations: [[area, percentage], [floor, percentage]]
+        combinations: [[area, percentage], [floor, percentage], [area, kind, percentage], [floor, kind, percentage]]
 
   mute_music:
     title: Mute
     icon: mdi:volume-off
     description: mute the music
     require: [[mute]]
-    optional: [[music, it, sound], [in, on], [the]]
+    optional: [[it, sound], [in, on], [the]]
+    lists:
+      kind: {list: media_kinds}
     music: mute
     verbosity: beep
     variants:
       here:
         title: Mute this satellite
-        examples: ["mute [the music]"]
+        combinations: [[], [kind]]
+        examples: [mute]
       device:
         <<: *player
         title: Mute a different device
+        lists: null
+        optional: [[music, it, sound], [in, on], [the]]
       place:
         <<: *place
         title: Mute an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
 
   unmute_music:
     title: Unmute
     icon: mdi:volume-high
     description: unmute the music
     require: [[unmute]]
-    optional: [[music, it, sound], [in, on], [the]]
+    optional: [[it, sound], [in, on], [the]]
+    lists:
+      kind: {list: media_kinds}
     music: unmute
     verbosity: beep
     variants:
       here:
         title: Unmute this satellite
-        examples: ["unmute [the music]"]
+        combinations: [[], [kind]]
+        examples: [unmute]
       device:
         <<: *player
         title: Unmute a different device
+        lists: null
+        optional: [[music, it, sound], [in, on], [the]]
       place:
         <<: *place
         title: Unmute an area or floor
+        combinations: [[area], [floor], [area, kind], [floor, kind]]
+
+  # The satellite's own speaker, whatever plays on it: what its dial sets.
+  own_volume_up:
+    title: Turn yourself up
+    icon: mdi:volume-plus
+    description: turn up the satellite's own volume
+    examples: [speak up, talk louder, turn yourself up, turn up your volume]
+    require: [[turn yourself up, turn up your volume, turn your volume up, your volume up, speak up, talk louder, speak louder]]
+    action:
+      action: media_player.volume_up
+      target:
+        entity_id: "{{ satellite.device_media_player }}"
+    verbosity: beep
+
+  own_volume_down:
+    title: Turn yourself down
+    icon: mdi:volume-minus
+    description: turn down the satellite's own volume
+    examples: [turn yourself down, turn down your volume, talk quieter, speak more quietly]
+    require: [[turn yourself down, turn down your volume, turn your volume down, your volume down, talk quieter, talk softer, speak more quietly, speak softer]]
+    action:
+      action: media_player.volume_down
+      target:
+        entity_id: "{{ satellite.device_media_player }}"
+    verbosity: beep
+
+  own_volume_set:
+    title: Set your volume
+    icon: mdi:volume-equal
+    description: set the satellite's own volume
+    require: [[your volume]]
+    optional: [[set, change, make], [to], [percent]]
+    number: percentage
+    action:
+      action: media_player.volume_set
+      target:
+        entity_id: "{{ satellite.device_media_player }}"
+      data:
+        volume_level: "{{ slots.percentage / 100 }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Done.
+        specific: My volume is at {{ slots.percentage }}%.
 
   shuffle_on:
     title: Shuffle

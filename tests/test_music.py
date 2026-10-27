@@ -275,6 +275,48 @@ def test_a_genre_by_name_or_else_anything_by_it():
     asyncio.run(scenario())
 
 
+def test_the_controls_are_any_media_players():
+    """Pausing and the volume act on whatever plays in the satellite's area,
+    a TV among them; "the music" is Music Assistant's players alone, "the TV"
+    the TVs. A TV that can't be set to a volume is stepped, and says so."""
+    async def scenario():
+        fake, server = await fake_hass.serve()
+        # The living room's TV is on; its volume only steps (no VOLUME_SET).
+        fake.states["media_player.tv"] = ("playing", {"friendly_name": "TV", "device_class": "tv",
+                                                      "supported_features": 1 | 1024, "media_title": "The News"})
+        port = server.sockets[0].getsockname()[1]
+        hass = HomeAssistant(f"http://127.0.0.1:{port}", fake_hass.TOKEN)
+        await hass.start()
+        assert await hass.wait_connected(5)
+        den = Satellite("aabbccddeeff", "Den", "living_room", "Living Room", media_player=OWN)
+        try:
+            def sent():
+                return [(m["service"], m.get("target", {}).get("entity_id")) for m in fake.services if m["domain"] == "media_player"]
+
+            helper = music.Music(hass)
+            # Nothing named: the TV, which is what plays here.
+            outcome = await _run(hass, {"music": "volume_down"}, satellite=den, helper=helper)
+            assert outcome.name == "done" and sent()[-1] == ("volume_down", ["media_player.tv"])
+            outcome = await _run(hass, {"music": "pause"}, satellite=den, helper=helper)
+            assert outcome.name == "done" and sent()[-1] == ("media_pause", ["media_player.tv"])
+            fake.states["media_player.tv"] = ("playing", fake.states["media_player.tv"][1])
+            # "The music": Music Assistant's players alone, and none plays.
+            outcome = await _run(hass, {"music": "pause"}, {"kind": "music"}, satellite=den, helper=helper)
+            assert outcome.name == "nothing_playing"
+            # "The TV", to a volume: it can't be set to one.
+            outcome = await _run(hass, {"music": "volume_set"}, {"kind": "tv", "percentage": 20}, satellite=den, helper=helper)
+            assert (outcome.name, outcome.speech) == ("not_supported", "TV can't be set to a volume.")
+            # "The TV" in a room with none.
+            office = Satellite("aabbccddeeff", "Office", "office", "Office", media_player=OWN)
+            outcome = await _run(hass, {"music": "pause"}, {"kind": "tv"}, satellite=office, helper=helper)
+            assert outcome.name == "no_player"
+        finally:
+            await hass.stop()
+            server.close()
+
+    asyncio.run(scenario())
+
+
 def test_search_through_the_player_when_music_assistant_search_fails():
     async def scenario():
         fake, server, hass = await _hass()

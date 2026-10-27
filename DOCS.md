@@ -640,6 +640,19 @@ library's **Music** group:
   "music", is a search: the closest name wins.
 - "pause", "resume", "stop the music", "next", "go back", "louder", "set the
   volume to 30 percent", "mute", "shuffle", "repeat", "what's playing".
+- Pausing, skipping, the volume and muting work on **any media player**, not
+  only Music Assistant's: with nothing named, whatever plays in the
+  satellite's area -- its own music first, then another of Music Assistant's
+  players there, then any media player exposed to Assist that plays, such as
+  the TV. Say which when both play: "pause **the music**" is Music
+  Assistant's players only, "turn **the TV** down" (or "the television") the
+  media players whose device class is TV -- here, or in an area or floor
+  named. A TV that only steps its volume is stepped, and asked for a level
+  says so ("TV can't be set to a volume."). The words are the `media_kinds`
+  list.
+- **The satellite's own volume** -- what its dial sets: "turn yourself up",
+  "speak up", "talk quieter", "set your volume to 40 percent". Commands see
+  its speaker as `satellite.device_media_player`.
 - "move the music to the kitchen", "move the music upstairs", "send the music
   to the office speaker": what plays here -- the satellite's own player, else
   one in its area, else where it sent the music, else the one player playing
