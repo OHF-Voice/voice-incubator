@@ -506,8 +506,19 @@ The action, the script and the response template all see:
 | `exposed` | the entity ids exposed to Assist (not in the `voice_call_command` event) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 
-A script is called with these as its data, so its fields see them. If it
-returns `speech`, that is spoken when the command has no response of its own.
+A script is called with these as its data, so its fields see them. What it
+returns is a mapping -- Home Assistant refuses anything else, text included --
+and its `speech` is spoken when the command has no response of its own (the
+library's Run a script says it too):
+
+```yaml
+sequence:
+  - variables:
+      result: {speech: "Good night. Sleep well."}
+  - stop: Done
+    response_variable: result
+```
+
 Every command that runs also fires a `voice_call_command` event with the same
 data plus `outcome` and `response` (what was said), failed ones included.
 

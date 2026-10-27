@@ -108,6 +108,14 @@ def test_failed():
     assert (outcome.name, outcome.speech) == ("failed", "Timers are broken.")
     outcome = run({"timer": "pause"}, StubHass())
     assert (outcome.name, outcome.speech) == ("failed", english.TIMERS_NEED_INTEGRATION)
+    # A script that returned text: what it should return instead.
+    class TextScript(StubHass):
+        async def execute_script(self, sequence, variables=None):
+            raise HassError("home_assistant_error: Failed to process the returned action response data, "
+                            "expected a dictionary, but got <class 'str'>")
+
+    texted = run({"script": "script.good_night"}, TextScript())
+    assert texted.name == "failed" and texted.error.endswith("(a script returns a mapping: {speech: ...}, not text)")
 
 
 def test_a_script_picks_its_outcome():

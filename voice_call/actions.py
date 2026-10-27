@@ -360,8 +360,10 @@ async def run(
             outcome.response = await hass.execute_script(outcome.sequence, values)
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             outcome.error = str(err)
-            _LOGGER.error("Command %s failed: %s", command.id, err)
-            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
+            if behavior.script and "expected a dictionary" in outcome.error:
+                outcome.error += " (a script returns a mapping: {speech: ...}, not text)"
+            _LOGGER.error("Command %s failed: %s", command.id, outcome.error)
+            return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": outcome.error})
         finally:
             outcome.timings["execute"] = time.perf_counter() - started
 

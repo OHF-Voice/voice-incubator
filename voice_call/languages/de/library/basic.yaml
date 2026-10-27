@@ -508,5 +508,6 @@ commands:
     response: "{{ result.speech if result and result.speech else 'Erledigt.' }}"
     needs:
       - Add names for the scripts it may run (Names page). A script gets slots,
-        satellite, speaker and target as variables, and anything it returns
-        (stop with response_variable) as result.
+        satellite, speaker and target as variables. To have something said, it
+        ends with stop and a response_variable holding a mapping with speech
+        in it; text alone fails.
