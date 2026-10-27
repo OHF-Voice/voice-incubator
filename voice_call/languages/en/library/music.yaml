@@ -180,7 +180,7 @@ commands:
     icon: mdi:skip-next
     description: skip to the next song
     require: [[next, skip]]
-    optional: [[song, track, this, it, one], [in, on], [the]]
+    optional: [[song, track, this, it, one], [go], [to], [in, on], [the]]
     music: next
     verbosity: beep
     variants:
@@ -199,7 +199,7 @@ commands:
     icon: mdi:skip-previous
     description: go back to the previous song
     require: [[previous, go back, last song, last track]]
-    optional: [[song, track], [in, on], [the]]
+    optional: [[song, track], [to], [in, on], [the]]
     music: previous
     verbosity: beep
     variants:
