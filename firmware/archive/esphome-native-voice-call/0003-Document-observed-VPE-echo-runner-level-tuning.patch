@@ -1,0 +1,41 @@
+From a760b38252d152d62a7dbb0eef34f55036aa1398 Mon Sep 17 00:00:00 2001
+From: Michael Hansen <mike@rhasspy.org>
+Date: Tue, 29 Sep 2026 13:37:37 -0500
+Subject: [PATCH 3/3] Document observed VPE echo runner level tuning
+
+Record optional threshold and normalization flags from the audible hardware test without claiming universal gain settings or verified stop-word cancellation.
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+---
+ examples/voice_call/README.md | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/examples/voice_call/README.md b/examples/voice_call/README.md
+index 6fa839c3bd..80d628b579 100644
+--- a/examples/voice_call/README.md
++++ b/examples/voice_call/README.md
+@@ -36,6 +36,21 @@ accepts 48 kHz signed 16-bit little-endian stereo PCM through its stock 32-bit
+ I2S slots. The runner must use this advertised format (the echo runner converts
+ its captured audio); there is no on-device resampler in this prototype.
+ 
++### Echo runner levels on stock VPE
++
++For the Wyoming echo runner, the optional `--speech-threshold 10 --normalize`
++flags made the hardware demo audible without changing firmware or increasing
++the DAC volume from `0.5`. In that test, the call's gain-1 microphone source
++produced speech RMS values around 16-23 and background RMS around 1-2; the
++runner's threshold of 500 never detected a sentence. Normalization limited the
++output peak to 8192 (approximately -12 dBFS), and the user heard their sentence
++returned through Home Assistant.
++
++These are observations from one device and room, not universal microphone
++settings or an automatic gain-control recommendation. Measure the input levels
++before changing the threshold or playback level. This confirms audible echo,
++not stop-wake-word cancellation, which still needs a separate hardware check.
++
+ ## Component contract
+ 
+ `voice_call` references a microphone source, a dedicated standard `i2s_audio`
+-- 
+2.47.3
+

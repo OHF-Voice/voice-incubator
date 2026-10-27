@@ -277,6 +277,7 @@ and copies (`Satellite.first`).
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_call/timers.py` | timer commands: which timer is meant, the service call, what to say |
 | `custom_components/voice_call/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_call.timer_*` triggers |
+| `firmware/` | the satellites' ESPHome firmware (a copy of `~/opt/esphome/my_components_voice_call`), and set-aside experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the integration's tests, run with a Home Assistant core checkout's fixtures (see its conftest) |
 | `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
 | `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
