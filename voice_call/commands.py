@@ -85,6 +85,15 @@ unless it has an implied target of its own; with neither, the outcome is
     weather:
       home: weather
 
+``supports`` says what its target must be able to do (voice_call/
+capabilities.py): ``brightness``, ``color``, ``color_temp``, ``position``,
+``tilt``, ``temperature``, ``fan_mode`` or ``hvac_mode`` -- for a setting from
+a value list, with the slot whose value the device must have. What can't is
+left out; with nothing left, the outcome is ``not_supported``::
+
+    set_thermostat_mode:
+      supports: {hvac_mode: mode}
+
 ``on_list`` says a slot names an item on a to-do list -- one by id, or the
 one in ``entity`` (its implied target): what was heard becomes the item as
 the list has it -- the same words as spoken ("test three" is "test 3"), or
@@ -137,10 +146,11 @@ OUTCOME_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 # Every command is done or failed; a timer command also has its operation's
 # outcomes (timers.OUTCOMES), and a script or action whatever it returns.
 BASE_OUTCOMES = ("done", "failed")
-INTENT_OUTCOMES = ("done", "no_devices", "not_exposed", "unavailable", "no_area", "failed")
+INTENT_OUTCOMES = ("done", "no_devices", "not_exposed", "not_supported", "unavailable", "no_area", "failed")
 """How an intent can turn out: done (on what it found, all but the
-unavailable), nothing of the kind there, none of it exposed to Assist, all of
-it unavailable, a satellite with no area for "here", or failed."""
+unavailable), nothing of the kind there, none of it exposed to Assist, none of
+it able to, all of it unavailable, a satellite with no area for "here", or
+failed."""
 INTENT_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 # How much a command says when it is done. Silent is nothing at all, not even
 # a sound ("never mind"); a beep is the acknowledgement sound (a question still
@@ -167,6 +177,7 @@ COMMAND_KEYS = {
     "satellites",
     "mine",
     "home",
+    "supports",
     "on_list",
     "fallback",
     "combinations",
@@ -297,6 +308,11 @@ class Behavior:
     """The home's own thing it acts on without an implied target of its own
     (HOME_THINGS): it can then turn out ``not_set``."""
 
+    supports: dict[str, str | None] = field(default_factory=dict)
+    """What its target must be able to do (capabilities.CAPABILITIES), each
+    with the slot whose value it must have, or None: it can then turn out
+    ``not_supported``."""
+
     on_list: dict[str, str] = field(default_factory=dict)
     """Slots that name an item on a to-do list, by the list: it can then turn
     out ``not_on_list``."""
@@ -348,12 +364,13 @@ class Behavior:
         outcomes = self._outcomes()
         if outcomes is None:
             return None
-        return (
+        return tuple(dict.fromkeys(
             outcomes
             + (("no_speaker",) if self.mine else ())
             + (("not_set",) if self.home else ())
+            + (("not_supported",) if self.supports else ())
             + (("not_on_list",) if self.on_list else ())
-        )
+        ))
 
     def _outcomes(self) -> tuple[str, ...] | None:
         if self.timer:
@@ -514,6 +531,10 @@ def parse_command(command_id: str, spec: Any) -> Command:
         _ensure_unit_keywords(intent)
     behavior = _behavior(spec, where)
     _check_outcomes(behavior, f"{where}.response")
+    for capability, slot in behavior.supports.items():
+        if slot is not None and slot not in heard and slot not in behavior.slots:
+            known = ", ".join(heard) or "none"
+            raise ConfigError(f"{where}.supports.{capability}: {slot!r} is not a slot it listens for ({known})")
 
     return Command(
         command_id,
@@ -723,6 +744,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         home = str(home)
         if home not in HOME_THINGS:
             raise ConfigError(f"{where}.home: one of {', '.join(HOME_THINGS)}")
+    supports = _supports(spec.get("supports"), f"{where}.supports")
     on_list = {str(k): str(v) for k, v in _mapping(spec.get("on_list") or {}, f"{where}.on_list").items()}
     for slot, entity in on_list.items():
         if entity != "entity" and not re.fullmatch(r"todo\.[a-z0-9_]+", entity):
@@ -739,8 +761,33 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         verbosity=verbosity,
         mine=mine,
         home=home,
+        supports=supports,
         on_list=on_list,
     )
+
+
+def _supports(value: Any, where: str) -> dict[str, str | None]:
+    """``color``, a list of them, or ``{fan_mode: mode}``: the capabilities,
+    each with the slot whose value it must have."""
+    from .capabilities import CAPABILITIES  # pylint: disable=import-outside-toplevel
+
+    if value in (None, "", [], {}):
+        return {}
+    if isinstance(value, str):
+        value = [value]
+    if isinstance(value, list):
+        value = dict.fromkeys(value)
+    if not isinstance(value, dict):
+        raise ConfigError(f"{where}: a capability (color), a list of them, or {{capability: slot}}")
+    out: dict[str, str | None] = {}
+    for capability, slot in value.items():
+        capability = str(capability)
+        if capability not in CAPABILITIES:
+            raise ConfigError(f"{where}: {capability!r} is not one of {', '.join(CAPABILITIES)}")
+        if slot is not None and not CAPABILITIES[capability].values:
+            raise ConfigError(f"{where}.{capability}: has no values a slot could name")
+        out[capability] = None if slot is None else str(slot)
+    return out
 
 
 # What the app fills in from what was heard: they are not the command's to give.

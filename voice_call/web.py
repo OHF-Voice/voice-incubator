@@ -24,6 +24,8 @@ from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
 from . import languages, music, timers
+from .capabilities import CAPABILITIES
+from .capabilities import can as capabilities_can
 from .endpoint import parse as parse_end_of_speech
 from .enrollment import PASSAGE
 from .commands import (
@@ -185,6 +187,7 @@ def intent_examples() -> dict[str, str]:
         "no_devices": say.nothing_there(room),
         "not_exposed": say.not_exposed(room),
         "unavailable": say.unavailable(room),
+        "not_supported": say.none_can(room, None),
         "no_area": say.NO_AREA,
     }
 
@@ -593,11 +596,14 @@ class Api:
     # ------------------------------------------------------- home assistant
 
     async def catalog(self, request: web.Request) -> web.Response:
-        """Search Home Assistant's areas, floors and voice-domain entities.
-        Names and aliases come back as suggestions only."""
+        """Search Home Assistant's areas, floors and voice-domain entities --
+        or get the entities ``ids`` names. Names and aliases come back as
+        suggestions only; an entity's ``can``, what it can do of what
+        commands may need (capabilities.CAPABILITIES; None: not known)."""
         kind = request.query.get("kind", "entity")
         query = request.query.get("q", "").strip().lower()
         domain = request.query.get("domain")
+        ids = [i for i in request.query.get("ids", "").split(",") if i]
         catalog = self.app.hass.catalog
         results: list[dict[str, Any]] = []
 
@@ -622,7 +628,7 @@ class Api:
                     results.append({"id": floor.floor_id, "name": floor.name, "aliases": floor.aliases})
         else:
             for entity in catalog.entities.values():
-                if domain and entity.domain != domain:
+                if domain and entity.domain != domain or ids and entity.entity_id not in ids:
                     continue
                 area = catalog.areas.get(entity.area_id) if entity.area_id else None
                 if matches(entity.entity_id, entity.name, *entity.aliases, area.name if area else None):
@@ -634,6 +640,9 @@ class Api:
                             "domain": entity.domain,
                             "area": area.name if area else None,
                             "area_id": entity.area_id,
+                            "can": None if entity.attributes is None else [
+                                c for c in CAPABILITIES if capabilities_can(entity, c)
+                            ],
                         }
                     )
         results.sort(key=lambda r: (r.get("name") or "").lower())

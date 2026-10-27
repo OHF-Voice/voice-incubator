@@ -33,6 +33,8 @@ from typing import Any
 
 import websockets
 
+from .capabilities import ATTRIBUTES
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -116,6 +118,9 @@ class Entity:
 
     unique_id: str | None = None
     device_id: str | None = None
+    attributes: dict[str, Any] | None = None
+    """What it can do, from its state (capabilities.ATTRIBUTES); None when it
+    has no state."""
 
     @property
     def domain(self) -> str:
@@ -665,6 +670,10 @@ class HomeAssistant:
             s["entity_id"]: s.get("attributes", {}).get("friendly_name") or s["entity_id"]
             for s in states or []
         }
+        able = {
+            s["entity_id"]: {k: v for k, v in (s.get("attributes") or {}).items() if k in ATTRIBUTES}
+            for s in states or []
+        }
         catalog = Catalog(device_areas=catalog_device_areas, device_models=device_models, device_macs=device_macs)
         for floor in floors or []:
             catalog.floors[floor["floor_id"]] = Floor(
@@ -703,12 +712,13 @@ class HomeAssistant:
                 entry.get("platform"),
                 entry.get("unique_id"),
                 entry.get("device_id"),
+                able.get(entity_id),
             )
         # Entities without a registry entry (YAML-defined) still have states.
         for entity_id, name in friendly.items():
             if entity_id.split(".", 1)[0] in VOICE_DOMAINS and entity_id not in catalog.entities:
                 if not any(e["entity_id"] == entity_id for e in registry or []):
-                    catalog.entities[entity_id] = Entity(entity_id, name)
+                    catalog.entities[entity_id] = Entity(entity_id, name, attributes=able.get(entity_id))
         catalog.exposed = await self.exposed_entities()
         self.catalog = catalog
         _LOGGER.info(

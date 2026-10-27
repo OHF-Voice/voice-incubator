@@ -48,7 +48,8 @@ shared:
           {{ (slots.entity | select('is_state', 'on') | list) if slots.step | int < 0 else slots.entity }}
           {%- else -%}
           {%- set ns = namespace(ids=[]) -%}
-          {%- for s in states.light if s.entity_id in exposed and area_id(s.entity_id) in place.areas and s.state == 'on' -%}
+          {%- for s in states.light if s.entity_id in exposed and area_id(s.entity_id) in place.areas and s.state == 'on'
+            and s.attributes.supported_color_modes != ['onoff'] -%}
           {%- set ns.ids = ns.ids + [s.entity_id] -%}
           {%- endfor -%}
           {{ ns.ids }}
@@ -268,6 +269,7 @@ commands:
     title: Set the brightness
     icon: mdi:brightness-6
     description: set the brightness of the lights
+    supports: brightness
     require: [[brightness, percent]]
     optional: [[set, change, make], [light, lights], [to], [in, on], [the], [brightness], [percent]]
     number: percentage
@@ -302,6 +304,7 @@ commands:
     title: Set the light color
     icon: mdi:format-color-fill
     description: change the color of the lights
+    supports: color
     require: [[set, make, turn], [light, lights]]
     optional: [[color], [to], [in, on], [the]]
     lists:
@@ -338,6 +341,7 @@ commands:
     title: Brighter
     icon: mdi:brightness-7
     description: make the lights brighter
+    supports: brightness
     require: [[brighter, brighten, turn up, turn ... up, raise, increase], [light, lights, brightness]]
     optional: [[make], [a bit, a little], [in, on], [the]]
     slots: {step: 20}
@@ -371,6 +375,7 @@ commands:
     title: Dimmer
     icon: mdi:brightness-4
     description: make the lights dimmer
+    supports: brightness
     require: [[dimmer, dim, darker, turn down, turn ... down, lower, decrease], [light, lights, brightness]]
     optional: [[make], [a bit, a little], [in, on], [the]]
     slots: {step: -20}
@@ -404,6 +409,7 @@ commands:
     title: Set the color temperature
     icon: mdi:white-balance-sunny
     description: change the color temperature of the lights
+    supports: color_temp
     # By what the white is called: warm, soft, neutral, cool, daylight (the
     # color_temperatures list, in kelvin).
     require: [[set, make, turn], [light, lights]]
@@ -442,6 +448,7 @@ commands:
     title: Set the temperature
     icon: mdi:thermometer
     description: set the temperature
+    supports: temperature
     require: [[set, temperature, degrees]]
     optional: [[set], [temperature], [to, at], [degrees], [in, on], [the]]
     # A question about degrees is not a setting: "what's 20 degrees C in

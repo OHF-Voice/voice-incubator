@@ -222,6 +222,7 @@ commands:
     title: Set the brightness
     icon: mdi:brightness-6
     description: régler la luminosité
+    supports: brightness
     require: [[luminosité, pour cent, pourcent]]
     optional: [[règle, mets, mais, change, baisse, monte], [lumière, lumières, lampe, lampes], [à, sur], [luminosité], [pour cent]]
     # "Mets le volume à 30 pour cent" is the music's.
@@ -258,6 +259,7 @@ commands:
     title: Set the light color
     icon: mdi:format-color-fill
     description: changer la couleur de la lumière
+    supports: color
     # "mais": mets as a speech-to-text often writes it.
     require: [[mets, mais, règle, change, colore], [lumière, lumières, lampe, lampes]]
     optional: [[en], [couleur]]
@@ -297,6 +299,7 @@ commands:
     title: Set the temperature
     icon: mdi:thermometer
     description: régler la température
+    supports: temperature
     require: [[température, degrés, degré, chauffage]]
     optional: [[règle, mets, mais, monte, baisse], [à, sur], [degrés, degré], [thermostat]]
     # A question about degrees is not a setting: "combien font 20 degrés en

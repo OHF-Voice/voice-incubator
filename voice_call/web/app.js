@@ -244,11 +244,36 @@ function groupsEditor(groups, onChange, addLabel) {
   return wrap;
 }
 
-// Search Home Assistant (areas, floors, voice-domain entities).
-async function catalog(kind, q, domain) {
+// Search Home Assistant (areas, floors, voice-domain entities), or get the
+// entities ids names.
+async function catalog(kind, q, domain, ids) {
   const params = new URLSearchParams({ kind, q: q || "" });
   if (domain) params.set("domain", domain);
+  if (ids) params.set("ids", ids.join(","));
   return (await api("GET", `hass/catalog?${params}`)).results;
+}
+
+// What a command may need its target able to do (capabilities.py), as
+// "Garage Door can't …" says it.
+const CAPABILITIES = {
+  brightness: "change brightness", color: "change color", color_temp: "change color temperature",
+  position: "be set to a position", tilt: "be tilted", temperature: "be set to a temperature",
+  fan_mode: "set a fan mode", hvac_mode: "change mode",
+};
+
+// What a command's supports names: color, [color, brightness] or {fan_mode: mode}.
+function supportsOf(spec) {
+  const value = spec.supports;
+  return typeof value === "string" ? [value] : Array.isArray(value) ? value : Object.keys(value || {});
+}
+
+// Of these entities, those that can't do what is needed: "Garage Door can't
+// be set to a position." Those it knows nothing of are left out.
+async function cannotSay(ids, needs) {
+  if (!ids.length || !needs.length) return [];
+  const found = await catalog("entity", "", null, ids);
+  return found.filter((e) => e.can).flatMap((e) => needs.filter((c) => !e.can.includes(c)).slice(0, 1)
+    .map((c) => `${e.name} can't ${CAPABILITIES[c] || c}.`));
 }
 
 const ENTITY_ID = /^[a-z0-9_]+\.[a-z0-9_]+$/;
@@ -514,16 +539,30 @@ const HOME_THINGS = {
 // The home's own things: what commands on them use without their own.
 function homePanel() {
   const panel = h("div", { class: "panel" }, heading("h2", "Home"), h("p", { class: "muted small" }, "Loading…"));
-  api("GET", "settings").then((settings) => {
+  Promise.all([api("GET", "settings"), state.store || loadStore()]).then(([settings]) => {
     const home = settings.home || {};
     const save = async (thing, value) => {
       try { await api("PUT", "settings", { home: { [thing]: value } }); toast("Saved"); }
       catch (err) { toast(err.message); }
     };
+    // What the commands on it need, that it can't do.
+    const check = async (thing, value, box) => {
+      const commands = Object.values((state.store || {}).commands || {}).filter((c) => c.home === thing && supportsOf(c).length);
+      const why = {};
+      for (const c of value ? commands : []) {
+        for (const text of await cannotSay([value], supportsOf(c)).catch(() => [])) (why[text] = why[text] || []).push(c.title || c.description);
+      }
+      const and = (titles) => (titles.length > 1 ? `${titles.slice(0, -1).join(", ")} and ${titles[titles.length - 1]}` : titles[0]);
+      const said = Object.entries(why).map(([text, titles]) => `${text.slice(0, -1)}: ${and(titles)} won't work.`);
+      fill(box, said.length ? h("div", { class: "notice warn" }, said.join(" ")) : null);
+    };
     fill(panel,
       heading("h2", "Home", "What commands use where they have no implied target of their own."),
-      h("div", { class: "grid2" }, Object.entries(HOME_THINGS).map(([thing, [domain, label, , help]]) =>
-        field(label, entityField(domain, home[thing] || null, (value) => save(thing, value)), help))));
+      h("div", { class: "grid2" }, Object.entries(HOME_THINGS).map(([thing, [domain, label, , help]]) => {
+        const box = h("div");
+        check(thing, home[thing], box);
+        return field(label, h("div", {}, entityField(domain, home[thing] || null, (value) => { save(thing, value); check(thing, value, box); }), box), help);
+      })));
   }).catch((err) => fill(panel, heading("h2", "Home"), errorBox(err)));
   return panel;
 }
@@ -758,7 +797,7 @@ async function pageCommand(id, prefill, query) {
   }
 
   // Fixed slots: the entity, area or floor the command targets.
-  function targetEditor(target) {
+  function targetEditor(target, onChange) {
     target.slots = target.slots || {};
     const wrap = h("div");
     const labels = {};
@@ -780,6 +819,7 @@ async function pageCommand(id, prefill, query) {
       if (ids.length) target.slots[kind] = ids.slice();
       else delete target.slots[kind];
       if (!Object.keys(target.slots).length) delete target.slots;
+      if (onChange) onChange();
     }
     render();
     return wrap;
@@ -945,13 +985,13 @@ async function pageCommand(id, prefill, query) {
       const rows = [];
       if (mode === "intent") {
         const said = outcomeInfo().intent || {};
-        const labels = { no_devices: "Nothing of the kind there", not_exposed: "None of it exposed to Assist", unavailable: "All of it unavailable", no_area: "This satellite has no area" };
+        const labels = { no_devices: "Nothing of the kind there", not_exposed: "None of it exposed to Assist", not_supported: "None of it able to", unavailable: "All of it unavailable", no_area: "This satellite has no area" };
         for (const key of INTENT_OUTCOMES) {
           if (key !== "done" && key !== "failed") rows.push(field(labels[key], box(key, said[key] || "", false)));
         }
         rows.push(field("If it fails", box("failed", info.failed, false), "Home Assistant refused. result.error says why."));
         return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "Responses"),
-            hint(`Each outcome says its own sentence (shown) unless you give one here. Templates also see result.count, result.names and result.ids (what it acted on), result.unavailable, and result.speech (Home Assistant's own). ${vars}`)),
+            hint(`Each outcome says its own sentence (shown) unless you give one here. Templates also see result.count, result.names and result.ids (what it acted on), result.unavailable, result.skipped (what couldn't do what it needs: said after the verbose response unless it uses it), and result.speech (Home Assistant's own). ${vars}`)),
           doneEditor("Turned on the lights {{ place.said }}", null, false),
           h("div", { class: "grid2" }, ...rows));
       }
@@ -1258,9 +1298,19 @@ async function pageCommand(id, prefill, query) {
           heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
           combosWrap)),
       h("div", { class: "panel" }, heading("h2", "Implied target", "What it acts on without it being said — a command made for one device, room or floor — passed to Home Assistant as if it had been heard. The words can then be anything. A device, room or floor that is said takes the place of the implied one of its kind; a room said with an implied device, or one implied with a device said, only picks out which device."),
-        targetEditor(spec), homeNote()),
+        targetEditor(spec, checkCannot), homeNote(), cannotBox),
     );
   }
+
+  // Its own devices, or the home's, that can't do what it needs.
+  const cannotBox = h("div");
+  async function checkCannot() {
+    const own = asList((spec.slots || {}).entity);
+    const theirs = spec.home && (state.store.home || {})[spec.home];
+    const said = await cannotSay(own.length ? own : theirs ? [theirs] : [], supportsOf(spec)).catch(() => []);
+    fill(cannotBox, said.length ? h("div", { class: "notice warn" }, said.join(" "), " It won't run on ", said.length > 1 ? "them." : "it.") : null);
+  }
+  checkCannot();
 
   // What it acts on without an implied target of its own: the home's.
   function homeNote() {
@@ -3272,7 +3322,7 @@ function sessionGlance(record) {
 
 // How an intent command can turn out (commands.INTENT_OUTCOMES), and the
 // intents offered by name.
-const INTENT_OUTCOMES = ["done", "no_devices", "not_exposed", "unavailable", "no_area", "failed"];
+const INTENT_OUTCOMES = ["done", "no_devices", "not_exposed", "not_supported", "unavailable", "no_area", "failed"];
 const INTENTS = ["HassTurnOn", "HassTurnOff", "HassToggle", "HassLightSet", "HassClimateSetTemperature", "HassSetPosition",
   "HassMediaPause", "HassMediaUnpause", "HassMediaNext", "HassMediaPrevious", "HassSetVolume", "HassFanSetSpeed",
   "HassVacuumStart", "HassVacuumReturnToBase", "HassListAddItem", "HassGetState"];

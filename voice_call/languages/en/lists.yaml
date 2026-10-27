@@ -61,6 +61,13 @@ fan_modes:
   medium: [medium, mid]
   high: [high]
   circulate: [circulate, circulation]
+  # Both at once, where a thermostat's modes are ("on_low", "auto_high").
+  auto_low: [auto low]
+  auto_medium: [auto medium]
+  auto_high: [auto high]
+  on_low: [on low]
+  on_medium: [on medium]
+  on_high: [on high]
 hvac_modes:
   "off": ["off"]
   heat: [heat, heating]

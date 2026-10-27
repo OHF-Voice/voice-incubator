@@ -288,6 +288,7 @@ commands:
     title: Set the brightness
     icon: mdi:brightness-6
     description: ustawić jasność światła
+    supports: brightness
     require: [[jasność, jasności, procent]]
     optional: [[ustaw, zmień, ściemnij, rozjaśnij, przyciemnij, zmniejsz, zwiększ, daj], [światło, światła, lampę, lampy, oświetlenie],
                [jasność, jasności], [procent]]
@@ -325,6 +326,7 @@ commands:
     title: Set the light color
     icon: mdi:format-color-fill
     description: zmienić kolor światła
+    supports: color
     # "Ustaw światło na niebiesko", "zmień kolor lampy na czerwony".
     require: [[ustaw, zmień, zrób, kolor, koloru, przełącz, daj], [światło, światła, lampę, lampy, lampki, oświetlenie]]
     optional: [[kolor, koloru], [na]]
@@ -364,6 +366,7 @@ commands:
     title: Set the temperature
     icon: mdi:thermometer
     description: ustawić temperaturę
+    supports: temperature
     require: [[temperaturę, temperatura, temperatury, stopni, stopnie, stopień, stopnia, ogrzewanie, ogrzewania]]
     optional: [[ustaw, nastaw, zmień, podnieś, obniż, zwiększ, zmniejsz, podkręć], [temperaturę, termostat, ogrzewanie],
                [stopni, stopnie, stopień, stopnia]]

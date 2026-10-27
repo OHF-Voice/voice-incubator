@@ -41,6 +41,37 @@ def unavailable(place: str) -> str:
     return f"Tout cela {place} est indisponible pour le moment." if place else "C'est indisponible pour le moment."
 
 
+# What a device can't do of what a command needs (its ``supports``), by
+# capability; None for what Home Assistant refused without saying.
+_CAN = {
+    "brightness": "changer de luminosité",
+    "color": "changer de couleur",
+    "color_temp": "changer de température de couleur",
+    "position": "être réglé sur une position",
+    "tilt": "être incliné",
+    "temperature": "être réglé sur une température",
+    "fan_mode": "régler un mode de ventilation",
+    "hvac_mode": "changer de mode",
+    None: "faire ça",
+}
+
+
+def cannot(names: list[str], capability: str | None, value: str | None = None) -> str:
+    """Devices that can't: "Porte de garage ne peut pas être réglé sur une
+    position."; that have no ``value`` (a mode)."""
+    if value is not None:
+        what = f"régler le ventilateur sur {value}" if capability == "fan_mode" else f"être réglé sur {value}"
+    else:
+        what = _CAN.get(capability, _CAN[None])
+    return f"{join(names)} {'ne peut pas' if len(names) == 1 else 'ne peuvent pas'} {what}."
+
+
+def none_can(place: str, capability: str | None) -> str:
+    """Nothing of the kind ``place`` can: "Rien dans la cuisine ne peut changer de couleur."."""
+    what = _CAN.get(capability, _CAN[None])
+    return f"Rien {place} ne peut {what}." if place else f"Rien ne peut {what}."
+
+
 EXAMPLE_NAMES = {
     "room": "Cuisine",
     "player": "Enceinte de la cuisine",

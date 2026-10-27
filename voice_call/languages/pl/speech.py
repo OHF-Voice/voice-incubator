@@ -53,6 +53,39 @@ def unavailable(place: str) -> str:
     return f"Wszystko to {place} jest teraz niedostępne." if place else "To jest teraz niedostępne."
 
 
+# What a device can't do of what a command needs (its ``supports``), by
+# capability (after "nie obsługuje": the genitive); None for what Home
+# Assistant refused without saying.
+_SUPPORT = {
+    "brightness": "zmiany jasności",
+    "color": "zmiany koloru",
+    "color_temp": "zmiany temperatury barwowej",
+    "position": "ustawiania pozycji",
+    "tilt": "pochylania",
+    "temperature": "ustawiania temperatury",
+    "fan_mode": "trybów wentylatora",
+    "hvac_mode": "zmiany trybu",
+    None: "tego",
+}
+
+
+def cannot(names: list[str], capability: str | None, value: str | None = None) -> str:
+    """Devices that can't: "Brama garażowa nie obsługuje ustawiania
+    pozycji."; that have no ``value`` (a mode)."""
+    if value is not None:
+        has = "nie ma" if len(names) == 1 else "nie mają"
+        what = f"trybu wentylatora {value}" if capability == "fan_mode" else f"trybu {value}"
+        return f"{join(names)} {has} {what}."
+    supports = "nie obsługuje" if len(names) == 1 else "nie obsługują"
+    return f"{join(names)} {supports} {_SUPPORT.get(capability, _SUPPORT[None])}."
+
+
+def none_can(place: str, capability: str | None) -> str:
+    """Nothing of the kind ``place`` can: "Nic w kuchni nie obsługuje zmiany koloru."."""
+    what = _SUPPORT.get(capability, _SUPPORT[None])
+    return f"Nic {place} nie obsługuje {what}." if place else f"Nic nie obsługuje {what}."
+
+
 EXAMPLE_NAMES = {
     "room": "Kuchnia",
     "player": "Głośnik w kuchni",

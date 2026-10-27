@@ -223,6 +223,7 @@ commands:
     title: Set the brightness
     icon: mdi:brightness-6
     description: de helderheid instellen
+    supports: brightness
     require: [[helderheid, procent]]
     optional: [[zet, maak, dim, dimmen, verander], [licht, lichten, lamp, lampen], [op], [helderheid], [procent]]
     number: percentage
@@ -257,6 +258,7 @@ commands:
     title: Set the light color
     icon: mdi:format-color-fill
     description: de kleur van het licht veranderen
+    supports: color
     require: [[maak, zet, kleur, verander], [licht, lichten, lamp, lampen]]
     optional: [[op], [kleur]]
     lists:
@@ -295,6 +297,7 @@ commands:
     title: Set the temperature
     icon: mdi:thermometer
     description: de temperatuur instellen
+    supports: temperature
     require: [[zet, temperatuur, graden, graad, verwarming]]
     optional: [[zet, draai], [temperatuur, verwarming, thermostaat], [op], [graden, graad]]
     # A question about degrees is not a setting: "hoeveel is 20 graden in

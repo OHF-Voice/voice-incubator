@@ -434,6 +434,7 @@ Besides done and failed, an intent's outcomes say why it acted on nothing:
 |---|---|---|
 | `no_devices` | nothing of the kind there | "There's nothing like that in the Kitchen." |
 | `not_exposed` | some there, none exposed to Assist | "Nothing like that in the Kitchen is exposed to Assist." |
+| `not_supported` | none of it can do what it needs | "Nothing in the Kitchen can change color." |
 | `unavailable` | exposed, all unavailable | "Everything like that in the Kitchen is unavailable right now." |
 | `no_area` | nothing named, and the satellite has no area | "I don't know which area I'm in. Give this satellite an area." |
 
@@ -447,6 +448,41 @@ The library's questions answer the same way: "are any lights on in the
 kitchen", "are the blinds open", "is everything locked" count only what is
 exposed to Assist (their templates filter by `exposed`), while "is the desk
 lamp on" asks about the device named.
+
+### What a device can do
+
+Not every light changes color, not every cover can be set to a position, and
+not every thermostat has a fan setting. A command says what its target must
+be able to do with `supports` -- `brightness`, `color`, `color_temp`,
+`position`, `tilt`, `temperature`, `fan_mode` or `hvac_mode` -- and the
+library's do. For a setting from a value list, it also names the slot whose
+value the device must have:
+
+```yaml
+supports: color               # or a list of them
+supports: {fan_mode: mode}    # and have the mode said
+```
+
+Before it runs, the app checks the target against what Home Assistant says
+each device can do (its supported features, color modes and modes):
+
+- **A device named**, or the command's own or the home's: one that can't is
+  left out, and with none left nothing runs: "Desk Lamp can't change color."
+- **An area, a floor or the satellite's area**: only the devices there that
+  can are acted on, each by name. With none that can, "Nothing in the
+  Kitchen can change color." (`not_supported`, which a response can change).
+- What was left out is said after the response at the **verbose** level
+  ("Kitchen Ceiling can't change color."), unless the response uses
+  `result.skipped` (their names) itself.
+- A value said is the device's own as it writes it ("auto" is its "Auto"),
+  else the one with all its words: "low" is "on_low" or "auto_low",
+  whichever is more like what it is set to now -- "auto_low" from
+  "auto_high". One it doesn't have: "HVAC can't set its fan to circulate."
+
+A device the app knows nothing of is tried anyway, and Home Assistant
+decides. The command's page warns when its implied target can't do what it
+needs, and the Settings page when the home's thermostat (or another of the
+home's things) can't.
 
 ### What Home Assistant gets
 
@@ -626,14 +662,16 @@ in an area or floor named ("dim the lights upstairs"), or a light by name
 - **Brighter** and **Dimmer**: a fifth at a time ("make the lights
   brighter", "turn the lights down", "dim the bed light", "brighter"),
   never down to off. In an area, only the lights that are on change, of
-  those exposed to Assist; a light by name that is off comes on to be
-  brightened. With none on, the satellite says so.
+  those exposed to Assist and able to dim; a light by name that is off comes
+  on to be brightened. With none on, the satellite says so.
 - **Set the color temperature**: the white a light shines, by name -- warm
   white, soft white, neutral white, cool white, daylight ("set the lights to
   warm white"). They are the `color_temperatures` list, in kelvin (2700 to
   6500): change it on the Names page to name others.
 
-These are in the English library for now.
+These are in the English library for now. Setting the brightness, the color
+or the color temperature acts only on lights that can ("Kitchen Ceiling
+can't change color."; see [What a device can do](#what-a-device-can-do)).
 
 ## Lists
 
@@ -704,13 +742,17 @@ is given as its implied target:
 - **Set the thermostat's mode**: "set the thermostat to heat", "switch the
   thermostat to air conditioning", "turn off the thermostat". The modes are
   the `hvac_modes` list's: off, heat, cool, heat and cool, auto, dry, fan only.
+  One the thermostat doesn't have is said: "HVAC can't be set to dry."
 - **Ask the thermostat's fan**: "what's the fan mode" -- "The thermostat's
-  fan is on auto."
+  fan is on auto.", "The thermostat's fan is on high."
 - **Set the thermostat's fan**: "set the fan mode to auto", "turn the
-  thermostat fan on". A fan alone is a fan's ("turn on the fan"). The modes
-  are the `fan_modes` list's -- auto, on, off, low, medium, high, circulate,
-  Home Assistant's words for them; add a thermostat's others there (Names
-  page).
+  thermostat fan on", "set the thermostat fan mode to low". A fan alone is a
+  fan's ("turn on the fan"). The modes are the `fan_modes` list's -- auto,
+  on, off, low, medium, high, circulate, and both at once ("auto low", "on
+  high"): Home Assistant's words for them, matched to the thermostat's own by
+  their words. Where its modes are "on_low", "on_high", "auto_low" and
+  "auto_high", "low" keeps the rest of what it is set to: "auto_low" from
+  "auto_high", "on_low" from "on_high".
 
 A thermostat by name or in an area is **Set the temperature** (Basics),
 through Home Assistant's intent.
@@ -733,7 +775,13 @@ in the bedroom?", "is the front door locked?" and "is everything locked?". The
 - Unlocking works for anyone the satellite hears: put the command on the
   satellites that should have it, not the Home.
 
-Opening, closing and "is it open" come in versions: by type in the
+- **To a position** ("set the blinds to 50%", "lower the shades to 20
+  percent", "set the garage door to 30%"): 100 is open, 0 closed. Only covers
+  that can be set to a position are; the rest of that type there are left
+  out, and with none that can, "The garage doors can't be set to a
+  position."
+
+Opening, closing, setting and "is it open" come in versions: by type in the
 satellite's area ("open the blinds"), a cover by name ("open the skylight"),
 and by type in an area or floor ("close the shades upstairs"). Locks are
 only by name, and "lock up" and "is everything locked" are every lock.

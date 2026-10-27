@@ -1,4 +1,5 @@
-# Covers and locks: opening, closing, locking, and asking about them.
+# Covers and locks: opening, closing, setting to a position, locking, and
+# asking about them.
 #
 # A cover or a lock by name needs a name for it (Names page). Covers by type
 # ("the blinds", "the garage door") need no names: their device class says
@@ -10,9 +11,9 @@
 # exposed to Assist. Nothing of the type there is their no_devices outcome
 # ("There aren't any shades in the Bedroom"), not nothing happening.
 #
-# Opening, closing and asking about covers come in versions (variants; see
-# basic.yaml): by type in the satellite's area, a cover by name, by type in an
-# area or on a floor named. Locks have no versions: one is locked or unlocked
+# Opening, closing, setting and asking about covers come in versions
+# (variants; see basic.yaml): by type in the satellite's area, a cover by name,
+# by type in an area or on a floor named. Locks have no versions: one is locked or unlocked
 # only by name, and "lock up" is every lock in the home.
 title: Covers and locks
 icon: mdi:door
@@ -150,6 +151,71 @@ commands:
         <<: *place
         title: Close the blinds in an area or floor
         combinations: [[area, device_class], [floor, device_class]]
+
+  # "Set the blinds to 50%": 100 is open, 0 closed. Only covers that can be
+  # set to a position are (supports); the others there are left out.
+  cover_position:
+    title: Set covers to a position
+    icon: mdi:blinds-horizontal
+    description: set the blinds to a position
+    require: [[set, put, move, open, close, raise, lower]]
+    optional: [[all], [to, at], [in, on], [the], [percent]]
+    exclude: [is, are]
+    lists:
+      device_class: {list: cover_classes}
+    number: percentage
+    supports: position
+    intent:
+      name: HassSetPosition
+      slots: {position: "{{ slots.percentage }}", domain: cover, device_class: "{{ slots.device_class }}"}
+      anywhere: true
+    verbosity: specific
+    response:
+      done: >-
+        {%- set kinds = {'awning': ['awning', 'awnings'], 'blind': ['blind', 'blinds'],
+          'curtain': ['curtain', 'curtains'], 'door': ['door', 'doors'],
+          'garage': ['garage door', 'garage doors'], 'gate': ['gate', 'gates'],
+          'shade': ['shade', 'shades'], 'shutter': ['shutter', 'shutters'],
+          'window': ['window', 'windows']} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        Setting the {{ kinds[slots.device_class][0 if result.count == 1 else 1] }}{{ where }} to {{ slots.percentage }}%.
+      no_devices: >-
+        {%- set kinds = {'awning': 'awnings', 'blind': 'blinds', 'curtain': 'curtains',
+          'door': 'doors', 'garage': 'garage doors', 'gate': 'gates', 'shade': 'shades',
+          'shutter': 'shutters', 'window': 'windows'} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        There aren't any {{ kinds[slots.device_class] }}{{ where }}.
+      not_supported: >-
+        {%- set kinds = {'awning': 'awnings', 'blind': 'blinds', 'curtain': 'curtains',
+          'door': 'doors', 'garage': 'garage doors', 'gate': 'gates', 'shade': 'shades',
+          'shutter': 'shutters', 'window': 'windows'} -%}
+        {%- set where = (' in the ' ~ area_name(slots.area[0])) if slots.area
+          else ((' on the ' ~ floor_name(slots.floor[0])) if slots.floor else '') -%}
+        The {{ kinds[slots.device_class] }}{{ where }} can't be set to a position.
+    variants:
+      here:
+        title: Set the blinds in this satellite's area to a position
+        needs: *nothing_here
+      device:
+        <<: *cover
+        title: Set a cover to a position by name
+        icon: mdi:window-shutter-settings
+        description: set a cover to a position
+        lists: null
+        combinations: [[entity, percentage], [entity, area, percentage]]
+        intent:
+          name: HassSetPosition
+          slots: {position: "{{ slots.percentage }}"}
+        response:
+          done: "Setting {{ state_attr(slots.entity[0], 'friendly_name') }} to {{ slots.percentage }}%."
+        needs:
+          - Add names for the covers it may set (Names page).
+      place:
+        <<: *place
+        title: Set the blinds in an area or floor to a position
+        combinations: [[area, device_class, percentage], [floor, device_class, percentage]]
 
   lock:
     title: Lock a lock

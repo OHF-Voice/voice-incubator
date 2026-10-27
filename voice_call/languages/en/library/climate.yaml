@@ -6,7 +6,9 @@
 # Setting the temperature sets the one the thermostat keeps: in heat and cool
 # mode it keeps two, and Home Assistant refuses one alone. Modes are the
 # hvac_modes list's and fan modes the fan_modes list's, Home Assistant's words
-# for them; a thermostat with others needs them added there (Names page).
+# for them, matched to the thermostat's own by their words (supports): "low"
+# is its "on_low" or "auto_low", whichever is like what it is set to now. A
+# thermostat that can't is told ("Ecobee can't set its fan to circulate.").
 title: Climate
 icon: mdi:thermostat
 
@@ -51,6 +53,7 @@ commands:
     exclude: [what, "what's", is]
     number: temperature
     home: climate
+    supports: temperature
     action:
       - action: climate.set_temperature
         target:
@@ -98,6 +101,7 @@ commands:
     lists:
       mode: {list: hvac_modes}
     home: climate
+    supports: {hvac_mode: mode}
     action:
       - action: climate.set_hvac_mode
         target:
@@ -122,11 +126,13 @@ commands:
     require: [[fan mode, fan setting, thermostat fan, thermostat's fan]]
     optional: [[what, whats, what's, what is], [is, the, set, to, on, at]]
     home: climate
+    supports: fan_mode
+    # "On", "off", "on low": as it is; "auto", "auto high": on it.
     response: >-
-      {%- set mode = state_attr(slots.entity[0], 'fan_mode') -%}
-      {%- if mode is none -%}The thermostat has no fan setting.
-      {%- elif mode | lower in ['on', 'off'] -%}The thermostat's fan is {{ mode | lower }}.
-      {%- else -%}The thermostat's fan is on {{ mode | lower | replace('_', ' ') }}.
+      {%- set mode = (state_attr(slots.entity[0], 'fan_mode') or '') | lower | replace('_', ' ') -%}
+      {%- if not mode -%}The thermostat's fan isn't set.
+      {%- elif mode.split()[0] in ['on', 'off'] -%}The thermostat's fan is {{ mode }}.
+      {%- else -%}The thermostat's fan is on {{ mode }}.
       {%- endif -%}
     needs: *needs
 
@@ -137,11 +143,12 @@ commands:
     # "Set the fan mode to auto", "turn the thermostat fan on". A fan alone is
     # a fan's: "turn on the fan".
     require: [[fan mode, fan setting, thermostat fan, thermostat's fan]]
-    optional: [[set, turn, switch, change], [the], [to]]
+    optional: [[set, turn, switch, change], [the], [mode, setting], [to]]
     exclude: [what, "what's", is]
     lists:
       mode: {list: fan_modes}
     home: climate
+    supports: {fan_mode: mode}
     action:
       - action: climate.set_fan_mode
         target:
@@ -153,9 +160,11 @@ commands:
       done:
         brief: Set the thermostat's fan.
         specific: >-
-          {%- if slots.mode in ['on', 'off'] -%}Turned the thermostat's fan {{ slots.mode }}.
-          {%- else -%}Set the thermostat's fan to {{ slots.mode | replace('_', ' ') }}.
+          {%- set mode = slots.mode | lower | replace('_', ' ') -%}
+          {%- if mode.split()[0] in ['on', 'off'] -%}Turned the thermostat's fan {{ mode }}.
+          {%- else -%}Set the thermostat's fan to {{ mode }}.
           {%- endif -%}
     needs:
       - Set the home's thermostat on the Settings page, or give it one of its own
-        (its implied target). Its fan modes must be in the fan_modes list.
+        (its implied target). Its fan modes are matched by their words to the
+        fan_modes list's (Names page).

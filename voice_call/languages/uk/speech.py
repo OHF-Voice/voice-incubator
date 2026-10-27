@@ -54,6 +54,39 @@ def unavailable(place: str) -> str:
     return f"Усе це {place} зараз недоступне." if place else "Це зараз недоступне."
 
 
+# What a device can't do of what a command needs (its ``supports``), by
+# capability (after "не підтримує"); None for what Home Assistant refused
+# without saying.
+_SUPPORT = {
+    "brightness": "зміну яскравості",
+    "color": "зміну кольору",
+    "color_temp": "зміну колірної температури",
+    "position": "встановлення положення",
+    "tilt": "нахил",
+    "temperature": "встановлення температури",
+    "fan_mode": "режими вентилятора",
+    "hvac_mode": "зміну режиму",
+    None: "це",
+}
+
+
+def cannot(names: list[str], capability: str | None, value: str | None = None) -> str:
+    """Devices that can't: "Гаражні ворота не підтримує встановлення
+    положення."; that have no ``value`` (a mode)."""
+    supports = "не підтримує" if len(names) == 1 else "не підтримують"
+    if value is not None:
+        what = f"режим вентилятора {value}" if capability == "fan_mode" else f"режим {value}"
+    else:
+        what = _SUPPORT.get(capability, _SUPPORT[None])
+    return f"{join(names)} {supports} {what}."
+
+
+def none_can(place: str, capability: str | None) -> str:
+    """Nothing of the kind ``place`` can: "Ніщо на кухні не підтримує зміну кольору."."""
+    what = _SUPPORT.get(capability, _SUPPORT[None])
+    return f"Ніщо {place} не підтримує {what}." if place else f"Ніщо не підтримує {what}."
+
+
 EXAMPLE_NAMES = {
     "room": "Кухня",
     "player": "Кухонна колонка",

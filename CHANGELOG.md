@@ -2,6 +2,23 @@
 
 ## 0.2.0
 
+- **Commands act only on what can do it** (`supports` on a command:
+  brightness, color, color_temp, position, tilt, temperature, fan_mode,
+  hvac_mode). A device named that can't is told ("Desk Lamp can't change
+  color."); in an area, only the devices that can are acted on, and with none
+  that can, "Nothing in the Kitchen can change color." (`not_supported`, also
+  Home Assistant's own refusal for a missing feature). What was left out is
+  said at the verbose level. The library's light, temperature and climate
+  commands declare theirs: setting a color no longer turns on a plain light
+  and says it is red. The catalog keeps what each entity can do; the command
+  and Settings pages warn when an implied target or the home's can't.
+- **A thermostat's own modes**: "set the thermostat fan mode to low" sets the
+  thermostat's "on_low" or "auto_low", whichever keeps the rest of what it
+  is set to; "Auto" is "auto". Before, Home Assistant refused "low". "The
+  thermostat's fan is on on high" is "on high".
+- **Set covers to a position** ("set the blinds to 50%", "lower the shades
+  to 20 percent", "set the garage door to 30%"), in its three versions
+  (English).
 - **The home's weather entity, thermostat, shopping list and to-do list**,
   on the Settings page (Home): the library's commands for them use these
   unless one is given its own implied target (`home: weather`, `climate`,

@@ -225,6 +225,7 @@ commands:
     title: Set the brightness
     icon: mdi:brightness-6
     description: die Helligkeit einstellen
+    supports: brightness
     require: [[helligkeit, prozent]]
     optional: [[stelle, stell, setze, setz, mach, mache, dimme, dimm], [licht, lichter, lampe, lampen], [auf], [helligkeit], [prozent]]
     number: percentage
@@ -259,6 +260,7 @@ commands:
     title: Set the light color
     icon: mdi:format-color-fill
     description: die Lichtfarbe ändern
+    supports: color
     require: [[mach, mache, stelle, stell, setze, setz, färbe, färb], [licht, lichter, lampe, lampen]]
     optional: [[farbe], [auf, in]]
     lists:
@@ -297,6 +299,7 @@ commands:
     title: Set the temperature
     icon: mdi:thermometer
     description: die Temperatur einstellen
+    supports: temperature
     require: [[stelle, stell, setze, setz, temperatur, grad, heizung]]
     optional: [[stelle, stell, setze, setz, dreh, drehe], [temperatur, heizung], [auf], [grad]]
     # A question about degrees is not a setting: "wie viel sind 20 Grad in

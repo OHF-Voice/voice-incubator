@@ -367,3 +367,83 @@ def test_the_questions_count_what_is_exposed():
     said = run(spec, hass)
     assert said.speech == "light.kitchen_ceiling"
     assert "exposed" not in said.to_json()["variables"] and "exposed" not in hass.events[-1]
+
+
+class CapableHass(StubHass):
+    """Devices that can do some things and not others: the catalog keeps
+    what their states say. Intents act on the devices named, else every
+    light in the area (HassLightSet asks nothing of them)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        from voice_call.hass import Catalog, Entity  # pylint: disable=import-outside-toplevel
+
+        lights = [("light.kitchen_ceiling", "Kitchen Ceiling", ["onoff"]), ("light.kitchen_strip", "Kitchen Strip", ["hs", "color_temp"]),
+                  ("light.desk_lamp", "Desk Lamp", ["onoff"])]
+        self.catalog = Catalog(entities={e: Entity(e, n, area_id="office" if "desk" in e else "kitchen",
+                                                   attributes={"supported_color_modes": modes}) for e, n, modes in lights})
+        self.catalog.entities["climate.hvac"] = Entity("climate.hvac", "HVAC", attributes={
+            "supported_features": 8 | 1, "fan_modes": ["on_low", "on_high", "auto_low", "auto_high", "off"], "hvac_modes": ["off", "heat"]})
+        self.catalog.exposed = set(self.catalog.entities)
+        self.now: list[Any] = ["auto_high"]
+        self.feature = False
+
+    async def render_value(self, template, variables=None):
+        return self.now
+
+    async def handle_intent(self, name, slots, variables, language, device_id=None, text=None, exposed_only=True):
+        self.fake.intents.append({"intent": name, "slots": slots})
+        if self.feature:
+            return {"error": {"code": "no_match", "reason": "feature", "name": None}}
+        acted = [e for e in self.catalog.entities.values()
+                 if e.entity_id == slots.get("name") or (slots.get("area") and e.area_id == slots["area"] and e.domain == "light")]
+        return {"response": {"speech": {}, "data": {"success": [{"type": "entity", "id": e.entity_id, "name": e.name} for e in acted]}},
+                "unavailable": []}
+
+
+COLOR = {"intent": {"name": "HassLightSet", "slots": {"color": "red"}}, "supports": "color",
+         "response": {"done": {"specific": "Turned the lights {{ place.said }} red.", "verbose": "Turned {{ result.names | join(', ') }} red."}}}
+
+
+def test_only_what_can_does_it():
+    hass = CapableHass()
+    # In the kitchen: only the light that changes color, by name.
+    some = run(COLOR, hass)
+    assert (some.name, some.speech) == ("done", "Turned the lights in the Kitchen red.")
+    assert [i["slots"].get("name") for i in hass.fake.intents] == ["light.kitchen_strip"]
+    assert some.skipped == ["Kitchen Ceiling"]
+    # What was left out is said when verbose.
+    verbose = run({**COLOR, "verbosity": "verbose"}, hass)
+    assert verbose.speech == "Turned Kitchen Strip red. Kitchen Ceiling can't change color."
+    # Nothing there can: nothing runs.
+    hass.fake.intents.clear()
+    office = run(COLOR, hass, {"area": ["office"]})
+    assert (office.name, office.speech) == ("not_supported", "Nothing in the Office can change color.")
+    assert not hass.fake.intents
+    # A device named that can't: said as itself.
+    named = run(COLOR, hass, {"entity": ["light.desk_lamp"]})
+    assert (named.name, named.speech) == ("not_supported", "Desk Lamp can't change color.") and not hass.fake.intents
+    # Home Assistant's own refusal, for what it checks itself.
+    hass.feature = True
+    refused = run({"intent": {"name": "HassClimateSetTemperature", "slots": {"temperature": 20}}}, hass, {"area": ["office"]})
+    assert (refused.name, refused.speech) == ("not_supported", "Nothing in the Office can do that.")
+
+
+def test_a_mode_as_the_device_has_it():
+    hass = CapableHass()
+    fan = {"supports": {"fan_mode": "mode"}, "lists": {"mode": {"list": "fan_modes"}}, "home": "climate",
+           "action": [{"action": "climate.set_fan_mode", "data": {"fan_mode": "{{ slots.mode }}"}}],
+           "response": "Set the fan to {{ slots.mode }}."}
+    command = parse_command("c", {"description": "do it", "examples": ["do it"], **fan})
+
+    def said(mode, **kwargs):
+        decision = Decision({"transcript": "do it"}, command, command.behavior, "command", slots={"mode": mode})
+        return asyncio.run(actions.run(hass, decision, SATELLITE, None, False, home={"climate": "climate.hvac"}, **kwargs))
+
+    # "Low", from auto high: auto low.
+    assert said("low").speech == "Set the fan to auto_low."
+    hass.now = ["on_high"]
+    assert said("low").speech == "Set the fan to on_low."
+    # One it doesn't have.
+    gone = said("circulate")
+    assert (gone.name, gone.speech) == ("not_supported", "HVAC can't set its fan to circulate.")

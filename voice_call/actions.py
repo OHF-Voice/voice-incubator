@@ -42,7 +42,10 @@ it came from).
 
 How it went is the outcome: ``done``, ``failed`` (Home Assistant refused), a
 timer operation's own (``no_timers``, ``not_found`` ...), or the ``outcome`` a
-script returned. The command's response for that outcome is spoken, or else
+script returned. A command that needs its target able to do something
+(``supports``; voice_call/capabilities.py) acts only on what can, and with
+nothing that can, is ``not_supported``; what it left out is said at the
+verbose level (``result.skipped``). The command's response for that outcome is spoken, or else
 the built-in sentence: what the timer operation says, the script's
 ``speech``, or that it failed (the language's FAILED).
 
@@ -70,6 +73,7 @@ looks like you're trying to …, but …"; empty when nothing came close),
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import re
 import time
@@ -78,7 +82,7 @@ from typing import Any
 
 from adapt_ctc.text import spoken_words
 
-from . import alarms, languages, timers
+from . import alarms, capabilities, languages, timers
 from . import music as music_ops
 from . import people as people_ops
 from .commands import QUIET, SPOKEN, Behavior, Command, closest_text
@@ -121,6 +125,12 @@ class Outcome:
     silent: bool = False
     """Done, and nothing said: not even the acknowledgement sound."""
 
+    skipped: list[str] = field(default_factory=list)
+    """What it left out, unable to do what the command needs (names)."""
+
+    skipped_said: str = ""
+    """That, said: at the verbose level, after what was done."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "outcome": self.name,
@@ -133,6 +143,7 @@ class Outcome:
             "response": self.response,
             "speech": self.speech,
             "silent": self.silent,
+            "skipped": self.skipped,
             "error": self.error,
             "timings": {k: round(v, 4) for k, v in self.timings.items()},
         }
@@ -295,6 +306,10 @@ async def run(
             decision.slots = {**decision.slots, "entity": [entity_id]}
         else:
             unset = True
+    checked = capabilities.Check(slots=decision.slots)
+    if behavior.supports and known and not unset:
+        checked = await _supports(hass, behavior, decision.slots, satellite, catalog)
+        decision.slots = checked.slots
     missing = None
     for slot, entity_id in behavior.on_list.items():
         said = str(decision.slots.get(slot) or "")
@@ -315,6 +330,20 @@ async def run(
     if missing is not None:
         sentence = languages.speech().NOT_ON_LIST.format(item=missing)
         return await _say(hass, behavior, values, outcome, "not_on_list", sentence[:1].upper() + sentence[1:])
+    if checked.cannot:
+        named = bool(decision.slots.get("entity"))
+        capability, value = _lacking(behavior.supports, checked.cannot[0], decision.slots, catalog)
+        names = _names(checked.cannot, catalog)
+        if checked.nothing:
+            sentence = (
+                languages.speech().cannot(names, capability, value) if named
+                else languages.speech().none_can(str(values["place"].get("said") or ""), capability)
+            )
+            return await _say(hass, behavior, values, outcome, "not_supported", _capital(sentence), {"cannot": names})
+        # Left out of a device list, or of an intent's place: said when verbose.
+        if named or behavior.intent:
+            outcome.skipped = names
+            outcome.skipped_said = _capital(languages.speech().cannot(names, capability, value))
     if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
         return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     if behavior.timer:
@@ -323,7 +352,7 @@ async def run(
         return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass))
 
     if behavior.intent:
-        return await _run_intent(hass, behavior, values, satellite, outcome)
+        return await _run_intent(hass, behavior, values, satellite, outcome, checked.entities)
 
     if outcome.sequence and not dry_run:
         started = time.perf_counter()
@@ -393,20 +422,96 @@ def closest_item(said: str, items: list[str]) -> str | None:
     return best[1] if best is not None and best[0] >= ITEM_CLOSE else None
 
 
+async def _supports(
+    hass: HomeAssistant, behavior: Behavior, slots: dict[str, Any], satellite: Satellite, catalog: Any
+) -> capabilities.Check:
+    """What of the command's target can do what it needs: the devices named
+    (or its own, or the home's), else what its intent would act on in the
+    areas and floors named, the satellite's area -- or, for an intent that
+    goes there, the whole home. A value said that could mean several of a
+    device's is read against what it is set to now."""
+    call = behavior.intent
+    named = bool(slots.get("entity"))
+    placed = bool(slots.get("area") or slots.get("floor"))
+    whole = call is not None and call.home and not (named or placed)
+    areas = None if whole else _where(slots, satellite, catalog)[2]
+    kind = {key: _slot_value(call.slots.get(key), slots) for key in ("domain", "device_class")} if call else {}
+    now = await _now(hass, capabilities.unsure(behavior.supports, slots, catalog))
+    checked = capabilities.check(behavior.supports, slots, catalog, areas, kind, now)
+    if call is not None and call.anywhere and not (named or placed) and not checked.found:
+        # Nothing of the kind here: the whole home's, as the intent goes.
+        checked = capabilities.check(behavior.supports, slots, catalog, None, kind)
+    return checked
+
+
+async def _now(hass: HomeAssistant, wanted: dict[str, str | None]) -> dict[str, Any]:
+    """What devices are set to now, by entity id: the attribute given, else
+    the state. Empty when it can't be read."""
+    if not wanted:
+        return {}
+    said = [f"states({e!r})" if attribute is None else f"state_attr({e!r}, {attribute!r})" for e, attribute in wanted.items()]
+    try:
+        values = await hass.render_value("{{ [" + ", ".join(said) + "] | tojson }}", {})
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        _LOGGER.warning("Could not read %s: %s", ", ".join(wanted), err)
+        return {}
+    if isinstance(values, str):  # not parsed, as Home Assistant would
+        try:
+            values = json.loads(values)
+        except ValueError:
+            return {}
+    return dict(zip(wanted, values)) if isinstance(values, list) else {}
+
+
+def _slot_value(value: Any, slots: dict[str, Any]) -> Any:
+    """An intent's slot as written, or the slot its template is
+    (``{{ slots.device_class }}``); None for a template that says more."""
+    if not isinstance(value, str) or "{" not in value:
+        return value
+    match = re.fullmatch(r"\{\{\s*slots\.(\w+)\s*\}\}", value.strip())
+    return slots.get(match.group(1)) if match else None
+
+
+def _lacking(needs: dict[str, str | None], entity_id: str, slots: dict[str, Any], catalog: Any) -> tuple[str | None, str | None]:
+    """What a device can't, of what the command needs: the capability, and
+    the value it doesn't have ("dry"), if that is all."""
+    entity = getattr(catalog, "entities", {}).get(entity_id)
+    for capability, slot in needs.items():
+        if capabilities.can(entity, capability) is False:
+            return capability, None
+        value = slots.get(slot) if slot else None
+        if value is not None and capabilities.can(entity, capability, value) is False:
+            return capability, str(value).replace("_", " ")
+    return next(iter(needs), None), None
+
+
+def _names(entity_ids: list[str], catalog: Any) -> list[str]:
+    """Devices as Home Assistant names them."""
+    entities = getattr(catalog, "entities", None) or {}
+    return [entities[e].name if e in entities else e for e in entity_ids]
+
+
+def _capital(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
 async def _run_intent(
     hass: HomeAssistant,
     behavior: Behavior,
     values: dict[str, Any],
     satellite: Satellite,
     outcome: Outcome,
+    only: list[str] | None = None,
 ) -> Outcome:
     """Run the command's intent on what was heard -- each device named (by
     entity id, exposed to Assist or not: a name is the Names page's), each
     area or floor named, else the satellite's area (what is exposed to
     Assist there) -- and say how it went: done on what it found (but the
-    unavailable), or why it found nothing it could act on. Its response sees
-    ``result``: ``count``, ``names`` and ``ids`` of what it acted on, the
-    ``unavailable`` ones, and Home Assistant's own ``speech``."""
+    unavailable), or why it found nothing it could act on. ``only``: the
+    devices there that can do what it needs, each by name in place of the
+    place. Its response sees ``result``: ``count``, ``names`` and ``ids`` of
+    what it acted on, the ``unavailable`` ones, and Home Assistant's own
+    ``speech``."""
     call = behavior.intent
     assert call is not None
     say = languages.speech()
@@ -417,6 +522,8 @@ async def _run_intent(
     where = "" if named else str(values["place"].get("said") or "")
     if named:
         targets = [{"name": str(e)} for e in slots["entity"]]
+    elif only:
+        targets = [{"name": e} for e in only]
     elif placed:
         areas, floors = [str(a) for a in slots.get("area") or []], [str(f) for f in slots.get("floor") or []]
         within = {"floor": floors[0]} if len(floors) == 1 else {}
@@ -490,6 +597,11 @@ async def _run_intent(
     outcome.error = "; ".join(str(e.get("message") or e.get("reason") or e.get("code")) for e in errors) or None
     if "assistant" in reasons:
         return await _say(hass, behavior, values, outcome, "not_exposed", say.not_exposed(where), found)
+    if "feature" in reasons:
+        capability = next(iter(behavior.supports), None)
+        catalog = getattr(hass, "catalog", None)
+        sentence = say.cannot(_names([str(e) for e in slots["entity"]], catalog), capability) if named else say.none_can(where, capability)
+        return await _say(hass, behavior, values, outcome, "not_supported", _capital(sentence), found)
     if reasons:
         return await _say(hass, behavior, values, outcome, "no_devices", say.nothing_there(where), found)
     if not errors and not outcome.error:
@@ -860,7 +972,7 @@ async def _say(
         started = time.perf_counter()
         try:
             rendered = await hass.render_template(
-                template, {**values, "result": {**(result or {}), "outcome": name, "speech": default}}
+                template, {**values, "result": {"skipped": outcome.skipped, **(result or {}), "outcome": name, "speech": default}}
             )
             outcome.speech = _tidy(rendered)
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
@@ -871,6 +983,8 @@ async def _say(
             outcome.timings["render"] = time.perf_counter() - started
     else:
         outcome.speech = default
+    if level == "verbose" and outcome.skipped_said and "skipped" not in (template or ""):
+        outcome.speech = f"{outcome.speech} {outcome.skipped_said}".strip()
     if not outcome.dry_run:
         try:
             event = {k: v for k, v in values.items() if k not in PRIVATE}
