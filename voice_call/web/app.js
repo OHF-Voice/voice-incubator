@@ -3313,6 +3313,8 @@ function renderRecognition(rec) {
         rec.fallback.llm.skipped ? `skipped (${rec.fallback.llm.skipped})` : [
           h("code", {}, rec.fallback.llm.raw || "nothing"), ` in ${took(rec.fallback.llm.seconds || 0)}`,
           rec.fallback.llm.candidates ? h("div", { class: "muted" }, "chose from ", rec.fallback.llm.candidates.join(", ")) : null,
+          rec.fallback.llm.surer ? h("div", { class: "muted" }, `likelier, not chosen for it: ${rec.fallback.llm.surer.join(", ")}`) : null,
+          rec.fallback.llm.instead_of ? h("div", { class: "muted" }, `instead of ${rec.fallback.llm.instead_of.command}: ${rec.fallback.llm.instead_of.why}`) : null,
           rec.fallback.llm.combination ? h("div", { class: "muted" }, `said with ${rec.fallback.llm.combination.length ? rec.fallback.llm.combination.join(" and ") : "nothing"}`) : null,
           rec.fallback.llm.problems ? h("div", { class: "muted" }, "refused: ", rec.fallback.llm.problems.join("; ")) : null,
           rec.fallback.llm.refused ? h("div", { class: "muted" }, `not run: ${rec.fallback.llm.refused.command} is ${rec.fallback.llm.refused.why}`) : null,

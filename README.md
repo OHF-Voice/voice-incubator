@@ -1565,8 +1565,12 @@ With optional slots instead of combinations, GLiNER at 0.3 got 17/32 and
 model hears the rest: "kill the lights in the office" is the office, "shut
 the lights off downstairs" the ground floor -- with optional slots, meaning
 ran both in the satellite's own area. GLiNER almost never runs a wrong
-command: with eight chosen, what it misses it refuses -- "not sure enough",
-or a closer command that is not chosen. With every command chosen, the two
+command: with eight chosen, what it misses it refuses -- "not sure enough"
+or "not a command". It picks among the chosen ones (since 2026-10-27; before,
+a likelier command not chosen refused the sentence), with the same results
+on all 65 sentences, eight chosen or one: each command is scored on its own,
+and a sentence meant for another leaves the chosen ones unsure ("give me ten
+minutes": how long is left 0.82, start a timer 0.21). With every command chosen, the two
 it gets wrong are timers: "give me ten minutes" and "let me know when twenty
 minutes are up" ran *how long is left* on a 10 and 20 minute timer. GLiNER
 reads any length of time as that label, however start and status are

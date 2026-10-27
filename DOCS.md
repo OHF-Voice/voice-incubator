@@ -754,18 +754,22 @@ choose them.
   When it hears nothing in the sentence ("lights out", "how late is it"), its
   pick runs only if meaning puts the same command first, ahead of the
   everyday requests that are no command ("thank you"). When its pick takes
-  none of what it heard, the surest command that does takes its place: "I
-  need cookies to be on the shopping list" is closest to What's on the
-  shopping list, which takes no item, and is Add to the shopping list.
+  none of what it heard, the likeliest chosen command that does takes its
+  place: with both chosen, "I need cookies to be on the shopping list" is
+  closest to What's on the shopping list, which takes no item, and is Add
+  to the shopping list.
 - A command's **versions** (on this satellite, a device by name, an area or
   floor by name) are one choice to both: what was said picks the version --
   "lights out in the bedroom" is Turn off the lights in an area or floor,
   "lights out" the one for this satellite. So are any commands you describe
   the same way.
   It compares the chosen commands with others close in meaning, chosen or
-  not, and runs nothing when it is not sure (**Threshold**, 0.3:
-  lower runs more, and more by mistake), when the closest is one you did not
-  choose, or when the sentence is not a command at all.
+  not, and picks the likeliest chosen one. It runs nothing when it is not
+  sure of that one (**Threshold**, 0.3: lower runs more, and more by
+  mistake), or when the sentence is not a command at all. Each command is
+  scored on its own, so a sentence meant for another leaves the chosen ones
+  unsure: to it, "give me ten minutes" is How long is left on a timer (0.82)
+  far more than Start a timer (0.21).
 
   It only runs commands the satellite may run, and never
   with a name, value or number you didn't say. Commands are told apart by

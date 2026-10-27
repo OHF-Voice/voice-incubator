@@ -1116,7 +1116,8 @@ def model_note(fallback: dict[str, Any] | None) -> str | None:
     if step.get("problems"):
         picked = f"{by} picked {step['command']}" if step.get("command") else f"{by}'s pick"
         return f"{picked}, not run: {'; '.join(step['problems'])}"
-    return f"{by}: {step.get('said') or 'not a command'}"
+    surer = f"; {', '.join(step['surer'])} likelier, not chosen for it" if step.get("surer") else ""
+    return f"{by}: {step.get('said') or 'not a command'}{surer}"
 
 
 def _named(decision: Decision) -> bool:

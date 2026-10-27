@@ -2,10 +2,16 @@
 
 ## 0.2.0
 
-- **GLiNER's pick takes what it heard**: one that can take none of it gives
-  way to the surest command that can. "I need cookies to be on the shopping
-  list" was What's on the shopping list (0.44, no item) and ran nothing;
-  it is Add to the shopping list (0.39) now.
+- **GLiNER picks among the commands chosen for it**, with the others close
+  in meaning there to tell them apart; before, a likelier command not chosen
+  refused the sentence. "I need cookies to be on the shopping list" was
+  What's on the shopping list (0.44, not chosen, and no item) and ran
+  nothing; it is Add to the shopping list (0.39) now. On the benchmark
+  nothing else changed: each command is scored on its own, and a sentence
+  meant for another leaves the chosen ones below the threshold. A call's
+  trace names the likelier ones.
+- **GLiNER's pick takes what it heard**: of the chosen ones, a pick that can
+  take none of it gives way to the likeliest one that can.
 - **Weather**, a library group of its own (English): the weather now ("partly
   cloudy", not "partlycloudy"), on a day ("tomorrow", "Saturday", "this
   weekend"), this week, and whether it will rain or snow ("do I need an

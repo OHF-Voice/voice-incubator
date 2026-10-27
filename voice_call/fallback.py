@@ -815,12 +815,15 @@ class Fallback:
         hears in the sentence picks the version and the combination. It is
         given the closest ``top_k`` in meaning, chosen or not -- with no others
         to tell it from, it would take anything for the one there is ("never
-        mind" played as music) -- and its pick runs only when it was chosen,
-        sure enough (``threshold``), ahead of "not a command", available here,
-        and what it heard is a combination of it. A pick that can take none
-        of what it heard gives way to the surest one that can ("I need cookies
-        to be on the shopping list": what's on it, 0.44, which takes no item,
-        and adding to it, 0.39, which does). Hearing nothing in it, it
+        mind" played as music) -- and picks the surest of those chosen for it.
+        Each is scored on its own, so a sentence for another leaves the chosen
+        ones unsure ("give me ten minutes": how long is left 0.82, start a
+        timer 0.21). Its pick runs only when sure enough (``threshold``), ahead
+        of "not a command", available here, and what it heard is a combination
+        of it. A pick that can take none of what it heard gives way to the
+        surest one that can ("I need cookies to be on the shopping list":
+        what's on it, 0.44, which takes no item, and adding to it, 0.39,
+        which does). Hearing nothing in it, it
         runs only when meaning puts the same command first, ahead of the
         everyday requests that are no command too: there is nothing else to
         check it by ("thank you" was "say good night", "what's twelve times
@@ -855,7 +858,8 @@ class Fallback:
         none = probabilities.pop(NOT_A_COMMAND_LABEL)
         scores = {label: probabilities[label] for label in candidates}
         entities = out.get("entities") or {}
-        best = max(candidates, key=lambda label: scores[label])
+        ours = [label for label in candidates if label in mine]
+        best = max(ours, key=lambda label: scores[label])
         heard = {kind for kind, found in entities.items() if any(e[1] >= GLINER_ENTITY_MIN for e in found)}
 
         def takes(label: str) -> bool:
@@ -868,7 +872,8 @@ class Fallback:
 
         took = best
         if heard and not takes(best):
-            best = max((label for label in candidates if takes(label)), key=lambda label: scores[label], default=best)
+            best = max((label for label in ours if takes(label)), key=lambda label: scores[label], default=best)
+        surer = [label for label in candidates if label not in mine and scores[label] > scores[best]]
         trace.update(
             candidates=[shown[label] for label in candidates],
             scores={shown[label]: round(p, 4) for label, p in scores.items()},
@@ -876,11 +881,14 @@ class Fallback:
             entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
             seconds=round(seconds, 3),
         )
-        trace["raw"] = f"{shown[took]} {scores[took]:.2f}, not a command {none:.2f}" + "".join(
+        trace["raw"] = f"{shown[best]} {scores[best]:.2f}, not a command {none:.2f}" + "".join(
             f"; {k}: " + ", ".join(f"\u201c{e[0]}\u201d {e[1]:.2f}" for e in v) for k, v in entities.items() if v
         )
         if best != took:
             trace["instead_of"] = {"command": shown[took], "why": "it takes none of what was heard"}
+        if surer:
+            # Likelier, but not chosen for it: the trace says so.
+            trace["surer"] = [shown[label] for label in sorted(surer, key=lambda label: -scores[label])]
         if none >= scores[best]:
             trace["said"] = "not a command"
             return found
@@ -888,9 +896,6 @@ class Fallback:
             trace["said"] = f"not sure enough ({scores[best]:.2f}, needs {model.threshold:.2f})"
             return found
         members = [c for c in groups[best] if c.id in self.chosen]
-        if not members:
-            trace["refused"] = {"command": shown[best], "why": "not chosen for it"}
-            return found
         available = satellite.first(members)
         if not available:
             trace["command"] = members[0].id

@@ -253,7 +253,7 @@ def test_a_pick_that_takes_none_of_what_was_heard_gives_way():
         "description": "say what's on the shopping list", "examples": ["what's on the shopping list"], "response": "Milk."}}}
     stub = StubGliner({"say what's on the shopping list": 0.44, "add something to the shopping list": 0.39},
                       {"item": [("cookies", 0.99, 7, 14)]}, none=0.04)
-    fallback, compiled = gliner_fallback(stub, ["add_item"], store)
+    fallback, compiled = gliner_fallback(stub, ["add_item", "list_items"], store)
 
     def closest():
         return [("list_items", 0.82), *everything()]
@@ -261,7 +261,7 @@ def test_a_pick_that_takes_none_of_what_was_heard_gives_way():
     found = fallback.decide("I need cookies to be on the shopping list", far, compiled, KITCHEN, closest)
     assert found.command.id == "add_item" and found.slots == {"item": "cookies"}
     assert found.trace["llm"]["instead_of"] == {"command": "list_items", "why": "it takes none of what was heard"}
-    # Nothing heard: the pick stands, and isn't chosen.
+    # Nothing heard: the pick stands (and runs only if meaning puts it first).
     stub.entities = {}
     found = fallback.decide("what do we need", far, compiled, KITCHEN, closest)
     assert found.command is None and found.trace["llm"]["refused"]["command"] == "list_items"
@@ -277,14 +277,14 @@ def test_only_chosen_commands():
     assert fallback.status == "no commands chosen for it" and not stub.ready
     assert fallback.decide("have you got the time", near, compiled, KITCHEN, everything).command is None
 
-    # Close in meaning, but not chosen for meaning; picked by GLiNER, but not
-    # chosen for it either.
+    # Close in meaning, but not chosen for meaning; likeliest to GLiNER, but
+    # not chosen for it either, and the chosen ones are unlikely.
     compiled = chosen_for(STORE, meaning=["lights_on"], llm=["lights_on", "add_item"])
     fallback = Fallback(embedding_accept=True, model=stub, top_k=8)
     fallback.prepare(FakeEngine(compiled), wait=True)
     found = fallback.decide("have you got the time", near, compiled, KITCHEN, everything)
     assert found.command is None and found.trace["meaning"]["why"] == "not chosen for meaning"
-    assert found.trace["llm"]["refused"] == {"command": "what_time", "why": "not chosen for it"}
+    assert found.trace["llm"]["said"] == "not a command" and found.trace["llm"]["surer"] == ["what_time"]
 
 
 def test_gliner_picks_among_the_closest():
@@ -306,11 +306,20 @@ def test_gliner_picks_among_the_closest():
 
 
 def test_gliner_runs_only_a_chosen_command_it_is_sure_of():
-    picks_timer = StubGliner({"set a timer": 0.7, "add something to the shopping list": 0.5})
+    # It picks among the chosen ones; the others tell them apart. A sentence
+    # for another leaves the chosen ones unsure.
+    picks_timer = StubGliner({"set a timer": 0.7, "add something to the shopping list": 0.2})
     fallback, compiled = gliner_fallback(picks_timer, ["add_item"])
     found = fallback.decide("give me ten minutes", far, compiled, KITCHEN, everything)
-    assert found.command is None and found.trace["llm"]["refused"] == {"command": "start_timer", "why": "not chosen for it"}
-    assert model_note(found.trace) == "GLiNER picked start_timer, not run: not chosen for it"
+    assert found.command is None and found.trace["llm"]["surer"] == ["start_timer"]
+    assert model_note(found.trace) == "GLiNER: not sure enough (0.20, needs 0.30); start_timer likelier, not chosen for it"
+    # Sure enough of a chosen one, though another is likelier: it runs.
+    second = StubGliner({"turn on a device": 0.38, "add something to the shopping list": 0.35},
+                        {"item": [("cookies", 0.99, 8, 15)]})
+    fallback, compiled = gliner_fallback(second, ["add_item"])
+    found = fallback.decide("we need cookies on the list for shopping", far, compiled, KITCHEN, everything)
+    assert found.command.id == "add_item" and found.slots == {"item": "cookies"}
+    assert found.trace["llm"]["surer"] == ["device_on"]
 
     unsure = StubGliner({"add something to the shopping list": 0.2}, {"item": [("milk", 0.97, 8, 12)]})
     fallback, compiled = gliner_fallback(unsure, ["add_item"])
