@@ -247,7 +247,7 @@ def not_in(device: str, room: str) -> str:
     return f"pero {device} no está {_place(room, False)}"
 
 
-_WHICH = {"entity": "qué dispositivo", "area": "qué habitación", "floor": "qué planta"}
+_WHICH = {"entity": "qué dispositivo", "area": "qué habitación", "floor": "qué planta", "scene": "qué escena", "script": "qué script"}
 _SLOTS = {
     "color": "qué color", "percentage": "qué porcentaje", "temperature": "qué temperatura", "volume": "qué volumen",
     "item": "qué", "reminder": "qué recordarte", "query": "qué poner", "timer": "qué temporizador",

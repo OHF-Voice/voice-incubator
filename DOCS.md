@@ -299,8 +299,12 @@ all. A command has:
     any order, plus optional groups and words that must not be heard ("is",
     so "the door is locked" isn't "lock the door"). Write `turn ... on` for
     words that may be split: "turn the lights on".
-  - **Names**: a device, area or floor, from your names (see below), limited
-    to some of them or (for devices) to some domains.
+  - **Names**: a device, a scene, a script, an area or a floor, from your
+    names (see below), limited to some of them or (for devices) to some
+    domains. A name may be shared by one in each room -- a scene called
+    "cozy" in the living room and in the bedroom: it is the one in the room
+    said ("make it cozy in the bedroom"), else in the satellite's area
+    ("make it cozy").
   - **Number**: a preset (`percentage`, `temperature`, `duration`, `count`)
     or a range. A duration is heard as "ten minutes" or "an hour and a half"
     and arrives as `slots.duration` with `hours`, `minutes`, `seconds`,
@@ -351,7 +355,9 @@ all. A command has:
   stays fixed. A device, room or floor that is said takes the place of the
   implied one of its kind; a room said with an implied device, or one
   implied with a device said, only picks out which device.
-- **What happens**: only respond, run a script, activate a scene, run an
+- **What happens**: only respond, run a script, activate a scene -- a fixed
+  one, or the one heard by name (`scene: heard`, `script: heard`, for a
+  command listening for a scene or script name) -- run an
   action (Home Assistant script syntax), run an **intent** (below), a timer
   operation or a music operation (below), plus an
   optional **response** template that is spoken. Nothing to say plays a short

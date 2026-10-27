@@ -175,7 +175,7 @@ def not_in(device: str, room: str) -> str:
     return f"but there's no {device} {_in_area(room)}"
 
 
-_WHICH = {"entity": "which device", "area": "which room", "floor": "which floor"}
+_WHICH = {"entity": "which device", "area": "which room", "floor": "which floor", "scene": "which scene", "script": "which script"}
 
 
 def missing(first: dict[str, Any], duration: bool = False, number_slot: str = "number") -> str:

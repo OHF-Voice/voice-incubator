@@ -990,7 +990,7 @@ class Engine:
             if satellite.available(command) is None:
                 why = say.NOT_HERE
             else:
-                why = say.missing(result.missing[0], command.duration, command.number_slot)
+                why = say.missing(_which(result.missing[0], command), command.duration, command.number_slot)
             return {
                 "source": "keywords",
                 "command": command.id,
@@ -1233,3 +1233,12 @@ def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str
     else:
         best = candidates[0]
     return " ".join(best).strip() or None
+
+
+def _which(missing: dict[str, Any], command: Command) -> dict[str, Any]:
+    """A device name missing, as what the command names: a scene or a script
+    when those are all it listens for."""
+    domains = list(((command.intent.get("names") or {}).get("entity") or {}).get("domains") or [])
+    if missing.get("kind") == "name" and missing.get("type") == "entity" and domains in (["scene"], ["script"]):
+        return {**missing, "type": domains[0]}
+    return missing

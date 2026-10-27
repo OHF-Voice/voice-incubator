@@ -88,6 +88,38 @@ def test_script_gets_the_variables_and_returns_its_response():
     assert scene.behavior.sequence() == [{"action": "scene.turn_on", "target": {"entity_id": "scene.movie"}}]
 
 
+def test_the_scene_or_script_heard():
+    """By its name: the command listens for a scene (or a script) and runs
+    the one heard."""
+    names = {"entity": {"count": 1, "domains": ["scene"]}, "area": {"count": 1}}
+    cozy = parse_command("s", {"description": "activate a scene", "names": names, "combinations": [["entity"], ["entity", "area"]],
+                               "optional": [["make it"]], "scene": "heard"})
+    assert cozy.behavior.sequence() == [{"action": "scene.turn_on", "target": {"entity_id": "{{ slots.entity }}"}}]
+    night = parse_command("n", {"description": "run a script", "names": {"entity": {"count": 1, "domains": ["script"]}},
+                                "script": "heard"})
+    assert night.behavior.sequence()[0]["action"] == "{{ slots.entity[0] }}"
+    assert night.behavior.sequence()[0]["data"]["satellite"] == "{{ satellite }}"
+    # Heard needs something to hear: a name of that kind.
+    with pytest.raises(ConfigError, match="needs it to listen for a scene name"):
+        parse_command("x", {"description": "x", "examples": ["x"], "scene": "heard"})
+    with pytest.raises(ConfigError, match="needs it to listen for a script name"):
+        parse_command("x", {"description": "x", "names": names, "script": "heard"})
+    with pytest.raises(ConfigError, match="a scene entity id"):
+        parse_command("x", {"description": "x", "examples": ["x"], "scene": "movie_time"})
+
+
+def test_a_missing_scene_is_said_as_one():
+    from voice_call.engine import _which  # pylint: disable=import-outside-toplevel
+    from voice_call.languages.en import speech  # pylint: disable=import-outside-toplevel
+
+    scene = parse_command("s", {"description": "activate a scene", "names": {"entity": {"count": 1, "domains": ["scene"]}},
+                                "optional": [["activate"]], "scene": "heard"})
+    device = parse_command("d", {"description": "turn on a device", "names": {"entity": {"count": 1}}, "require": [["turn on"]]})
+    first = {"kind": "name", "type": "entity"}
+    assert speech.missing(_which(first, scene)) == "but I didn't hear which scene"
+    assert speech.missing(_which(first, device)) == "but I didn't hear which device"
+
+
 PAUSE = {"description": "pause a timer", "require": [["pause"], ["timer"]], "timer": "pause"}
 
 

@@ -472,26 +472,44 @@ commands:
         to-do list of their own (People page), theirs, and they must be
         recognized.
 
+  # A scene or a script by its name (Names page): "make it cozy", "movie
+  # time", "good night". Names may repeat -- a Cozy in the living room and one
+  # in the bedroom -- and then it is the one in the room said, else in the
+  # satellite's area.
   scene:
     title: Activate a scene
     icon: mdi:palette
-    description: lancer la soirée cinéma
-    examples: ["[lance] [la] soirée cinéma"]
-    scene: scene.movie_time
+    description: activer une scène
+    optional: [[active, activer, lance, lancer, mets, démarre], [scène, ambiance]]
+    exclude: [quel, quelle, est, sont]
+    names:
+      entity: {count: 1, domains: [scene]}
+      area: {count: 1}
+    combinations: [[entity], [entity, area]]
+    scene: heard
     verbosity: beep
     response:
       done:
-        brief: C'est fait.
+        brief: "C'est fait."
+        specific: "J'ai activé {{ state_attr(slots.entity[0], 'friendly_name') }}."
     needs:
-      - Take control of it, then pick the scene and say it your way.
+      - Add names for the scenes it may activate (Names page). One in each room
+        may share a name ("cozy").
 
   script:
     title: Run a script
     icon: mdi:script-text-outline
-    description: dire bonne nuit
-    examples: [bonne nuit]
-    script: script.good_night
-    response: "{{ result.speech if result and result.speech else 'Bonne nuit.' }}"
+    description: lancer un script
+    optional: [[lance, lancer, exécute, exécuter, démarre], [script]]
+    exclude: [quel, quelle, est, sont]
+    names:
+      entity: {count: 1, domains: [script]}
+      area: {count: 1}
+    combinations: [[entity], [entity, area]]
+    script: heard
+    response: >-
+      {{ result.speech if result and result.speech else "C'est fait." }}
     needs:
-      - Take control of it, then pick the script. It gets slots, satellite, speaker and target as variables,
-        and anything it returns (stop with response_variable) as result.
+      - Add names for the scripts it may run (Names page). A script gets slots,
+        satellite, speaker and target as variables, and anything it returns
+        (stop with response_variable) as result.

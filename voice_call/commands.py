@@ -48,6 +48,18 @@ plus an optional ``response`` template that is spoken. A command may also only
 respond, or do nothing at all -- "never mind" -- which by default says nothing,
 not even the acknowledgement sound.
 
+A scene or a script may be the one heard, by its name (Names page): the
+command listens for a device of that domain, and ``heard`` is the one said --
+of those sharing the name, the one in the room said, else the satellite's::
+
+    scene:
+      names:
+        entity: {count: 1, domains: [scene]}   # "Listen for a scene name"
+        area: {count: 1}
+      combinations: [[entity], [entity, area]]
+      optional: [[activate, make it]]
+      scene: heard                             # "make it cozy (in the bedroom)"
+
 ``response`` may instead say something different for each way it can turn
 out (its outcome): ``done``, ``failed`` (Home Assistant refused), what a
 timer operation found (``no_timers``, ``not_found``, ``ambiguous``,
@@ -142,6 +154,8 @@ LISTEN_KEYS = (
     "wildcard",
 )
 DO_KEYS = ("script", "scene", "action", "intent", "timer", "music")
+HEARD = "heard"
+"""A command's ``scene`` or ``script`` when it is the one whose name was heard."""
 OUTCOME_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 # Every command is done or failed; a timer command also has its operation's
 # outcomes (timers.OUTCOMES), and a script or action whatever it returns.
@@ -415,14 +429,16 @@ class Behavior:
         response's ``result``."""
         if self.script:
             data = {key: "{{ %s }}" % key for key in ("slots", "satellite", "speaker", "target", "command")}
+            script = "{{ slots.entity[0] }}" if self.script == HEARD else self.script
             return [
-                {"action": self.script, "data": data, "response_variable": "result"},
+                {"action": script, "data": data, "response_variable": "result"},
                 # A script that returns nothing still stops with a mapping.
                 {"variables": {"result": "{{ result if result is mapping else {} }}"}},
                 {"stop": "done", "response_variable": "result"},
             ]
         if self.scene:
-            return [{"action": "scene.turn_on", "target": {"entity_id": self.scene}}]
+            scene = "{{ slots.entity }}" if self.scene == HEARD else self.scene
+            return [{"action": "scene.turn_on", "target": {"entity_id": scene}}]
         if self.timer or self.music or self.intent:
             return []  # the app does these itself (voice_call/timers.py, music.py, actions.py)
         return copy.deepcopy(self.action or [])
@@ -531,6 +547,9 @@ def parse_command(command_id: str, spec: Any) -> Command:
         _ensure_unit_keywords(intent)
     behavior = _behavior(spec, where)
     _check_outcomes(behavior, f"{where}.response")
+    for kind in ("scene", "script"):
+        if getattr(behavior, kind) == HEARD and kind not in ((intent.get("names") or {}).get("entity") or {}).get("domains", []):
+            raise ConfigError(f"{where}.{kind}: {HEARD} needs it to listen for a {kind} name (names.entity.domains: [{kind}])")
     for capability, slot in behavior.supports.items():
         if slot is not None and slot not in heard and slot not in behavior.slots:
             known = ", ".join(heard) or "none"
@@ -708,13 +727,13 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
     script = spec.get("script")
     if script is not None:
         script = str(script)
-        if not script.startswith("script."):
-            raise ConfigError(f"{where}.script: expected a script entity id (script.…)")
+        if not script.startswith("script.") and script != HEARD:
+            raise ConfigError(f"{where}.script: expected a script entity id (script.…), or {HEARD}")
     scene = spec.get("scene")
     if scene is not None:
         scene = str(scene)
-        if not scene.startswith("scene."):
-            raise ConfigError(f"{where}.scene: expected a scene entity id (scene.…)")
+        if not scene.startswith("scene.") and scene != HEARD:
+            raise ConfigError(f"{where}.scene: expected a scene entity id (scene.…), or {HEARD}")
     timer = spec.get("timer")
     if timer is not None:
         from .timers import OPERATIONS  # pylint: disable=import-outside-toplevel

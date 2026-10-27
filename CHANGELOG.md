@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **Scenes and scripts by name**: a command may listen for a scene name or a
+  script name (Names page) and activate or run the one heard. The library's
+  Activate a scene and Run a script are by name now, in every language --
+  "make it cozy", "movie time", "good night" -- in place of a fixed scene and
+  script to take control of. One in each room may share a name: "make it
+  cozy" is the satellite's area's, "make it cozy in the bedroom" the
+  bedroom's. A near miss asks which scene or script, not which device.
 - **Commands act only on what can do it** (`supports` on a command:
   brightness, color, color_temp, position, tilt, temperature, fan_mode,
   hvac_mode). A device named that can't is told ("Desk Lamp can't change

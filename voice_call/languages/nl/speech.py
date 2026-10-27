@@ -155,7 +155,7 @@ def not_in(device: str, room: str) -> str:
     return f"maar {device} staat niet {_place('area', room, False)}"
 
 
-_WHICH = {"entity": "welk apparaat", "area": "welke kamer", "floor": "welke verdieping"}
+_WHICH = {"entity": "welk apparaat", "area": "welke kamer", "floor": "welke verdieping", "scene": "welke scène", "script": "welk script"}
 _SLOTS = {
     "color": "welke kleur", "percentage": "hoeveel procent", "temperature": "welke temperatuur", "volume": "hoe hard",
     "item": "wat", "reminder": "waaraan", "query": "wat", "timer": "welke timer", "time": "hoe laat", "number": "welk getal",

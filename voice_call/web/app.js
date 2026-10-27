@@ -826,6 +826,8 @@ async function pageCommand(id, prefill, query) {
   }
 
   // What happens: respond / script / scene / action YAML, and a response.
+  // What happens, drawn again when what it listens for changes.
+  let renderBehavior = null;
   function behaviorEditor(target, yamlBox) {
     const wrap = h("div");
     const current = () => (target.script ? "script" : target.scene ? "scene" : target.intent ? "intent" : target.timer ? "timer" : target.music ? "music"
@@ -850,9 +852,17 @@ async function pageCommand(id, prefill, query) {
       let control = null;
       if (mode === "script" || mode === "scene") {
         const domain = mode;
+        // The one whose name was heard, when it listens for one.
+        const listening = asList(((target.names || {}).entity || {}).domains).includes(domain);
+        const heard = target[domain] === "heard";
         control = field(mode === "script" ? "Script" : "Scene", h("div", {},
-          target[domain] ? h("div", { class: "chips" }, h("span", { class: "chip" }, target[domain], h("button", { type: "button", onclick: () => { delete target[domain]; render(); } }, "×"))) : null,
-          hassPicker("entity", (item) => { target[domain] = item.id; render(); }, { domain })),
+          listening || heard ? h("label", {}, h("input", { type: "checkbox", checked: heard, onchange: (e) => {
+            if (e.target.checked) target[domain] = "heard"; else delete target[domain];
+            render();
+          } }), `The ${domain} heard`, hint(`The one whose name was said (Names page). Of several with that name, the one in the room said, else in the satellite's area.`)) : null,
+          heard ? null : [
+            target[domain] ? h("div", { class: "chips" }, h("span", { class: "chip" }, target[domain], h("button", { type: "button", onclick: () => { delete target[domain]; render(); } }, "×"))) : null,
+            hassPicker("entity", (item) => { target[domain] = item.id; render(); }, { domain })]),
           mode === "script" ? "The script gets slots, satellite, speaker, target and command as variables; what it returns (stop with response_variable) is the response's result." : null);
       } else if (mode === "timer") {
         const ops = { start: "Start a timer", cancel: "Cancel a timer", cancel_all: "Cancel every timer", pause: "Pause a timer", resume: "Resume a timer", add: "Add time", subtract: "Take time off", status: "Say how long is left", alarm: "Set an alarm", cancel_alarm: "Cancel an alarm", alarm_status: "Say the alarms", reminder: "Remind at a time", cancel_reminder: "Cancel a reminder", reminder_status: "Say the reminders" };
@@ -1044,6 +1054,7 @@ async function pageCommand(id, prefill, query) {
         h("div", { class: "grid2" }, ...rows), extra,
         h("p", { class: "muted small" }, "Optional.", hint(`${vars} place says where it acted: place.said (“in the Kitchen”), place.here, place.areas. Nothing to say plays a short sound.`)));
     }
+    renderBehavior = render;
     render();
     return wrap;
   }
@@ -1052,20 +1063,27 @@ async function pageCommand(id, prefill, query) {
     spec.names = spec.names || {};
     const wrap = h("div");
     const shared = state.store.names || {};
-    const kinds = { entity: "entities", area: "areas", floor: "floors" };
+    // A scene or a script by name is a device of that domain only: one of
+    // the three at a time.
+    const named = (req) => (typeof req === "number" ? { count: req } : (req || {}));
+    const only = (domain) => { const d = asList(named(spec.names.entity).domains); return d.length === 1 && d[0] === domain; };
+    const kinds = { entity: ["entities", "a device"], scene: ["entities", "a scene name", "scene"], script: ["entities", "a script name", "script"],
+      area: ["areas", "an area"], floor: ["floors", "a floor"] };
     function render() {
-      fill(wrap, ...Object.entries(kinds).map(([type, plural]) => {
+      fill(wrap, ...Object.entries(kinds).map(([kind, [plural, label, domain]]) => {
+        const type = domain ? "entity" : kind;
         const req = spec.names[type];
-        const on = !!req;
-        const r = typeof req === "number" ? { count: req } : (req || {});
-        const available = Object.entries(shared[plural] || {});
+        const on = !!req && (domain ? only(domain) : kind !== "entity" || !(only("scene") || only("script")));
+        const r = named(req);
+        const available = Object.entries(shared[plural] || {}).filter(([nid]) => !domain || nid.startsWith(`${domain}.`));
         const update = (next) => {
           const merged = { ...r, ...next };
           for (const k of Object.keys(merged)) if (merged[k] === undefined || (Array.isArray(merged[k]) && !merged[k].length)) delete merged[k];
           spec.names[type] = merged;
         };
+        const fresh = () => (domain ? { count: 1, domains: [domain] } : { count: 1 });
         return h("div", { class: "group", style: "align-items:flex-start" },
-          h("label", { style: "min-width:120px" }, h("input", { type: "checkbox", checked: on, onchange: (e) => { if (e.target.checked) spec.names[type] = { count: 1 }; else delete spec.names[type]; render(); slotsChanged(); } }), `Listen for ${type === "entity" ? "a device" : `a${type === "area" ? "n" : ""} ${type}`}`),
+          h("label", { style: "min-width:120px" }, h("input", { type: "checkbox", checked: on, onchange: (e) => { if (e.target.checked) spec.names[type] = fresh(); else delete spec.names[type]; render(); slotsChanged(); } }), `Listen for ${label}`),
           on ? h("div", { class: "grow stack" },
             h("div", { class: "row" },
               h("label", {}, "how many", h("input", { type: "number", min: 1, max: 3, value: r.count || 1, style: "width:60px", onchange: (e) => { update({ count: Number(e.target.value) || 1 }); } }))),
@@ -1077,8 +1095,8 @@ async function pageCommand(id, prefill, query) {
                   if (e.target.checked) ids.push(nid);
                   update({ ids: ids.length ? ids : undefined });
                 } }), typeof entry === "string" ? entry : entry.name)))) :
-              h("div", { class: "small muted" }, `No ${plural} have names yet: add them on the Names page.`),
-            type === "entity" ? field("Only these domains", chipsInput(r.domains || [], (v) => update({ domains: v.length ? v : undefined }), "light, switch")) : null) : null);
+              h("div", { class: "small muted" }, `No ${domain ? `${domain}s` : plural} have names yet: add them on the Names page.`),
+            kind === "entity" ? field("Only these domains", chipsInput(r.domains || [], (v) => update({ domains: v.length ? v : undefined }), "light, switch")) : null) : null);
       }));
     }
     render();
@@ -1198,6 +1216,7 @@ async function pageCommand(id, prefill, query) {
     knownSlots = slots;
     renderCombos();
     renderModelBox();
+    if (renderBehavior) renderBehavior();
   }
   function renderCombos() {
     const slots = heardSlots();

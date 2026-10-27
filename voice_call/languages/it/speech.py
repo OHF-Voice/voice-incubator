@@ -182,7 +182,7 @@ def not_in(device: str, room: str) -> str:
     return f"ma {device} non è {_place('area', room)}"
 
 
-_WHICH = {"entity": "quale dispositivo", "area": "quale stanza", "floor": "quale piano"}
+_WHICH = {"entity": "quale dispositivo", "area": "quale stanza", "floor": "quale piano", "scene": "quale scena", "script": "quale script"}
 _SLOTS = {
     "color": "quale colore", "percentage": "quale percentuale", "temperature": "quale temperatura",
     "volume": "quale volume", "item": "cosa", "reminder": "cosa ricordarti", "query": "cosa", "timer": "quale timer",
