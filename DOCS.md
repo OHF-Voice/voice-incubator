@@ -655,6 +655,29 @@ that isn't on the list says so ("Bread isn't on the list."). Which list is
 their implied target: point them at yours there. Checking off, removing and
 reading are in the English library for now.
 
+## Weather
+
+The library's **Weather** group answers from a Home Assistant weather entity
+(its implied target; `weather.home` until you point it at yours), with its
+daily forecast:
+
+- **What's the weather**: now -- "It's partly cloudy and 15 degrees."
+- **The weather on a day**: "what's the weather tomorrow", "the forecast for
+  Saturday", "the day after tomorrow", "this weekend" (both days) -- "Saturday
+  looks cloudy, with a high of 18 and a low of 10, and a 20% chance of rain."
+- **The weather this week**: "what's the forecast for the week", "for the
+  next few days" -- "Mostly sunny, with highs from 15 to 21 degrees. Rain is
+  likely on Thursday."
+- **Will it rain**: "is it going to rain", "will it rain tomorrow", "will it
+  snow on Saturday", "do I need an umbrella", "will it rain this weekend" --
+  "Yes, there's an 80% chance of rain tomorrow." or "Probably not. Saturday
+  looks cloudy, with a 20% chance of rain." Rain is likely at 50% or more,
+  or when the forecast says rainy.
+
+A day is today, tomorrow, the day after tomorrow, a day of the week (the
+next one) or this weekend: the `forecast_days` list. The forecast is in
+English for now.
+
 ## Covers and locks
 
 The library's **Covers and locks** group opens and closes covers and locks and

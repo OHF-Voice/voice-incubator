@@ -106,7 +106,7 @@ def test_commands_are_listed_by_library_section():
     from voice_call.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
 
     sections, _ids = library_sections()
-    assert [s["file"] for s in sections] == ["basic", "home", "music", "timers"] and sections[0]["title"] == "Basics"
+    assert [s["file"] for s in sections] == ["basic", "home", "music", "timers", "weather"] and sections[0]["title"] == "Basics"
     # Added from the library (library: music), else by id -- a numbered or
     # copied one too; made from scratch: none (Custom).
     assert library_of("anything", {"library": "music"}) == "music"
@@ -141,21 +141,28 @@ def test_every_response_template_renders(language):
             return "on"
 
     env = jinja2.Environment(undefined=jinja2.ChainableUndefined)
+    import datetime as dt  # pylint: disable=import-outside-toplevel
+
     env.globals.update(
-        now=__import__("datetime").datetime.now, states=States(), state_attr=lambda e, a: 21 if a == "temperature" else "Ceiling",
+        now=dt.datetime.now, timedelta=dt.timedelta, as_datetime=dt.datetime.fromisoformat,
+        states=States(), state_attr=lambda e, a: 21 if a == "temperature" else "Ceiling",
         is_state=lambda e, s: False, area_entities=lambda a: ["light.ceiling", "light.lamp", "switch.kettle"],
         area_name=lambda a: "Kitchen", floor_name=lambda f: "Upstairs", floor_areas=lambda f: ["kitchen"],
         area_id=lambda e: "kitchen",
     )
     env.filters.setdefault("round", lambda value, n=0: round(float(value), n))
+    env.filters["as_local"] = lambda value: value.astimezone()
     env.tests["match"] = lambda value, pattern: __import__("re").match(pattern, str(value)) is not None
     variables = {
         "slots": {"entity": ["light.ceiling"], "area": ["kitchen"], "item": "milk", "reminder": "call Sam",
-                  "percentage": 30, "temperature": 21, "color": "red", "device_class": "blind", "asked": "open"},
+                  "percentage": 30, "temperature": 21, "color": "red", "device_class": "blind", "asked": "open",
+                  "day": "saturday", "what": "rain"},
         "satellite": {"area_id": "kitchen", "area_name": "Kitchen"},
         "place": {"here": False, "said": "in the Kitchen", "areas": ["kitchen"]},
         "command": {"id": "c", "description": "do it", "text": "do it"},
-        "result": {"outcome": "done", "speech": "", "count": 2, "names": ["Ceiling", "Lamp"]},
+        "result": {"outcome": "done", "speech": "", "count": 2, "names": ["Ceiling", "Lamp"], "days": [
+            {"datetime": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=n)).isoformat(), "condition": "rainy",
+             "temperature": 15, "templow": 8, "precipitation_probability": 60} for n in range(7)]},
         "exposed": ["light.ceiling", "light.lamp"],
     }
     lights = None

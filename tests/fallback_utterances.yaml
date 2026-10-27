@@ -68,7 +68,7 @@ utterances:
   # ---- time, date, weather
   - {text: do you know what time it is, expect: what_time}
   - {text: what's today, expect: what_date}
-  - {text: do i need an umbrella, expect: weather}
+  - {text: do i need an umbrella, expect: will_it_rain}
   # ---- not commands
   - {text: what's the capital of france, expect: null}
   - {text: tell me a joke, expect: null}

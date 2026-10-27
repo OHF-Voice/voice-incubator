@@ -476,19 +476,6 @@ commands:
         title: Set the temperature in an area or floor
         combinations: [[area, temperature], [floor, temperature]]
 
-  weather:
-    title: What's the weather
-    icon: mdi:weather-partly-cloudy
-    description: tell the weather
-    examples: ["what's the weather [like] [today]", "is it going to rain [today]"]
-    require: [[weather, forecast]]
-    slots:
-      entity: [weather.home]
-    response: >-
-      It's {{ states(slots.entity[0]) | replace('-', ' ') }} and
-      {{ state_attr(slots.entity[0], 'temperature') | round }} degrees.
-    needs:
-      - Point it at your weather entity (its implied target, weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list

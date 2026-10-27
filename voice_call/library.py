@@ -207,10 +207,14 @@ def library_of(command_id: str, spec: dict[str, Any]) -> str | None:
 def entry(ref: str, code: str | None = None) -> dict[str, Any] | None:
     """The library command ``ref`` (``file/id``) names, in ``code``'s
     library (the app's language's), or None. A family's former id (one it
-    had before it had versions) is its first version."""
+    had before it had versions) is its first version; one moved to another
+    section is found there (ids are the library's, whatever the section)."""
     file, _, command_id = str(ref).partition("/")
-    entries = [e for e in _library(code or languages.current().code) if e["file"] == file]
+    every = _library(code or languages.current().code)
+    entries = [e for e in every if e["file"] == file]
     found = next((e for e in entries if e["id"] == command_id), None)
+    if found is None:
+        found = next((e for e in every if e["id"] == command_id), None)
     if found is None:
         for path, data in library_files(code):
             if path.stem != file:
@@ -298,13 +302,9 @@ def migrate(document: dict[str, Any]) -> list[str]:
             library_entries = _library(code)
         except ValueError:
             continue  # no such language
-        found = next(
-            (
-                e for e in library_entries
-                if e["file"] == spec["library"] and re.fullmatch(re.escape(e["id"]) + COPY_SUFFIX, str(command_id))
-            ),
-            None,
-        )
+        matches = [e for e in library_entries if re.fullmatch(re.escape(e["id"]) + COPY_SUFFIX, str(command_id))]
+        # Its section's, else one moved to another.
+        found = next((e for e in matches if e["file"] == spec["library"]), matches[0] if matches else None)
         if found is None:
             continue
         theirs = base(f"{found['file']}/{found['id']}", code)

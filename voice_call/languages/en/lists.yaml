@@ -38,6 +38,21 @@ color_temperatures:
   "4000": [neutral white, natural white, neutral]
   "5000": [cool white, cold white, cool]
   "6500": [daylight]
+forecast_days:
+  today: [today]
+  tomorrow: [tomorrow]
+  day_after_tomorrow: [the day after tomorrow, day after tomorrow]
+  monday: [monday]
+  tuesday: [tuesday]
+  wednesday: [wednesday]
+  thursday: [thursday]
+  friday: [friday]
+  saturday: [saturday]
+  sunday: [sunday]
+  weekend: [this weekend, the weekend, weekend]
+weather_kinds:
+  rain: [rain, raining, rainy, umbrella, wet]
+  snow: [snow, snowing, snowy]
 hvac_modes:
   "off": ["off"]
   heat: [heat, heating]

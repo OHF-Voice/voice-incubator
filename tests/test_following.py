@@ -33,6 +33,8 @@ def test_the_librarys_version_with_its_settings():
         resolve("x", {"from": "basic/turn_on_here", "require": [["lights"]]})
     with pytest.raises(ConfigError, match="basic/nope is not in the library"):
         resolve("x", {"from": "basic/nope"})
+    # One moved to another section is found there.
+    assert resolve("w", {"from": "basic/weather"})["library"] == "weather"
 
 
 def test_saved_as_what_differs():

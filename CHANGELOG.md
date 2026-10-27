@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **Weather**, a library group of its own (English): the weather now ("partly
+  cloudy", not "partlycloudy"), on a day ("tomorrow", "Saturday", "this
+  weekend"), this week, and whether it will rain or snow ("do I need an
+  umbrella", "will it rain tomorrow"), from the weather entity's daily
+  forecast. New lists: `forecast_days`, `weather_kinds`. A command that
+  follows the library finds one moved to another section by its id.
 - **Commands follow the library**, as Home Assistant automations follow
   their blueprints: one added from it is saved as a reference with what you
   set (where it runs, how much it says, the steps when nothing matches, your
