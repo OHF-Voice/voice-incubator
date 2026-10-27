@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import functools
 import json
 import logging
 import math
@@ -36,7 +35,6 @@ from .skills import load as load_skill_settings
 from .store import (
     NAME_KINDS,
     command_language,
-    compile_store,
     dump,
     file_language,
     language_name,
@@ -44,6 +42,8 @@ from .store import (
     names_in,
     plain,
 )
+from . import library as following
+from .library import _library, library_files, library_of, library_sections, library_versions, load_library  # noqa: F401
 from .people import find as people_find
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
@@ -60,9 +60,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "web"
-def library_dir() -> Path:
-    """The command library: the app's language's (voice_call/languages)."""
-    return languages.current().library
 SAFE_ID = re.compile(r"[^a-z0-9_]+")
 
 
@@ -105,7 +102,6 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
             web.get("/api/commands/{id}", api.get_command),
             web.put("/api/commands/{id}", api.put_command),
             web.delete("/api/commands/{id}", api.delete_command),
-            web.post("/api/commands/check", api.check_command),
             web.post("/api/examples", api.examples),
             web.post("/api/commands/{id}/duplicate", api.duplicate_command),
             web.post("/api/yaml/dump", api.yaml_dump),
@@ -170,24 +166,6 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
     return runner
 
 
-VARIANTS = {
-    "here": "on this satellite",
-    "device": "on a device by name",
-    "place": "in an area or floor by name",
-}
-"""What a library family's versions act on, in the order the library shows
-them: the satellite it is said to (nothing named), a device named, or an area
-or floor named."""
-
-LIBRARY_ONLY = ("needs", "variants", "formerly")
-"""Library keys that are not the command's: not added with it."""
-
-
-def library_files() -> list[tuple[Path, dict[str, Any]]]:
-    yaml = YAML(typ="safe")
-    return [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in sorted(library_dir().glob("*.yaml"))]
-
-
 def intent_examples() -> dict[str, str]:
     """What an intent command says for each way it can turn out, unless it
     says its own: in the example room."""
@@ -199,137 +177,6 @@ def intent_examples() -> dict[str, str]:
         "unavailable": say.unavailable(room),
         "no_area": say.NO_AREA,
     }
-
-
-def library_versions(family_id: str, spec: dict[str, Any]) -> list[tuple[str, str | None, dict[str, Any]]]:
-    """A library command's versions, ``[(id, variant, spec)]``.
-
-    With ``variants`` it is a family: one version for each of ``here``,
-    ``device`` and ``place`` it has (id ``<family>_<variant>``), each the
-    family's keys with the variant's own on top -- a null one removes the
-    family's. Else it is its own only version. ``needs`` stays in the spec;
-    ``variants`` and ``formerly`` (ids the family once had) do not."""
-    base = {k: v for k, v in spec.items() if k not in ("variants", "formerly")}
-    variants = spec.get("variants")
-    if not variants:
-        return [(family_id, None, base)]
-    unknown = sorted(set(variants) - set(VARIANTS))
-    if unknown:
-        raise ConfigError(f"Library command {family_id}: no variant {', '.join(unknown)} (one of {', '.join(VARIANTS)})")
-    out = []
-    for variant in VARIANTS:
-        if variant not in variants:
-            continue
-        merged = {**base, **(variants[variant] or {})}
-        out.append((f"{family_id}_{variant}", variant, copy.deepcopy({k: v for k, v in merged.items() if v is not None})))
-    return out
-
-
-def load_library() -> list[dict[str, Any]]:
-    """Example commands shipped with the app, by file: one entry for each
-    version of each command (``family``, ``variant``: see
-    library_versions). A copy of ``_library``'s."""
-    return plain(_library(languages.current().code))
-
-
-@functools.cache
-def _library(code: str) -> list[dict[str, Any]]:
-    """The library in ``code`` (the app's language), read and checked once:
-    it ships with the app. 1.6 s on an HA Green, mostly parsing YAML. Not to
-    be changed: ``load_library`` hands out copies."""
-    entries = []
-    for path, data in library_files():
-        file_lists = data.get("lists") or {}
-        for family_id, family in (data.get("commands") or {}).items():
-            try:
-                versions = library_versions(family_id, family)
-            except ConfigError as err:
-                versions = [(family_id, None, {k: v for k, v in family.items() if k not in ("variants", "formerly")})]
-                failed = str(err)
-            else:
-                failed = None
-            for command_id, variant, spec in versions:
-                entries.append(_library_entry(path.stem, data, file_lists, family_id, family, command_id, variant, spec, failed))
-    return entries
-
-
-def _library_entry(
-    file: str,
-    data: dict[str, Any],
-    file_lists: dict[str, Any],
-    family_id: str,
-    family: dict[str, Any],
-    command_id: str,
-    variant: str | None,
-    full: dict[str, Any],
-    failed: str | None,
-) -> dict[str, Any]:
-    spec = {k: v for k, v in full.items() if k not in LIBRARY_ONLY}
-    # The file's shared value lists this command uses: added with it.
-    used = sorted(
-        {
-            str(value["list"])
-            for value in (spec.get("lists") or {}).values()
-            if isinstance(value, dict) and value.get("list") in file_lists
-        }
-        | {str(value) for value in (spec.get("lists") or {}).values() if isinstance(value, str) and value in file_lists}
-    )
-    family_title = family.get("title") or family_id
-    if variant:
-        # Its own, else the family's with what it acts on.
-        title = ((family["variants"].get(variant) or {}).get("title")) or f"{family_title} {VARIANTS[variant]}"
-    else:
-        title = spec.get("title") or command_id
-    entry = {
-        "file": file,
-        "group": data.get("title") or file,
-        "group_icon": data.get("icon"),
-        "id": command_id,
-        "title": title,
-        "description": spec.get("description", ""),
-        "family": family_id,
-        "family_title": family_title,
-        "family_icon": family.get("icon"),
-        "family_description": family.get("description", ""),
-        "variant": variant,
-        "spec": spec,
-        "lists": {name: file_lists[name] for name in used},
-        "needs": full.get("needs") or [],
-    }
-    if failed:
-        entry["error"] = failed
-        return entry
-    try:
-        # adapt-ctc's own checks too: keywords, names, numbers.
-        compile_store({"lists": entry["lists"], "commands": {command_id: spec}})
-    except ConfigError as err:
-        entry["error"] = str(err)
-    return entry
-
-
-@functools.lru_cache(maxsize=1)
-def library_sections() -> tuple[list[dict[str, Any]], dict[str, str]]:
-    """The library's files in order -- ``{file, title, icon}`` -- and which
-    file each library command id is in. The library ships with the app."""
-    sections, ids = [], {}
-    for path, data in library_files():
-        sections.append({"file": path.stem, "title": data.get("title") or path.stem, "icon": data.get("icon")})
-        for family_id, family in (data.get("commands") or {}).items():
-            # Each version's id, and the family's own and former ones: a
-            # command added before the library had versions.
-            versions = [str(v) for v in (family.get("variants") or {})]
-            for command_id in [family_id, *(f"{family_id}_{v}" for v in versions), *(family.get("formerly") or [])]:
-                ids.setdefault(str(command_id), path.stem)
-    return sections, ids
-
-
-def library_of(command_id: str, spec: dict[str, Any]) -> str | None:
-    """The library file a command came from: its ``library``, else the one
-    with its id (also as a numbered or copied one, ``lights_on_2``)."""
-    sections, ids = library_sections()
-    if spec.get("library") in {section["file"] for section in sections}:
-        return str(spec["library"])
-    return ids.get(command_id) or ids.get(re.sub(r"(_copy)?(_\d+)?$", "", command_id))
 
 
 class Api:
@@ -396,7 +243,20 @@ class Api:
         # The app's language's commands; the others are kept, not shown.
         here, default = languages.current().code, file_language(data)
         every = data.get("commands") or {}
-        commands = {k: v for k, v in every.items() if command_language(v, default) == here}
+        saved = {k: v for k, v in every.items() if command_language(v, default) == here}
+        # As the app runs them: one that follows the library, its version now.
+        commands, references, needs = {}, {}, {}
+        for command_id, spec in saved.items():
+            if following.follows(spec):
+                references[command_id] = spec
+                found = following.entry(str(spec[following.REFERENCE]))
+                if found is not None and found["needs"]:
+                    needs[command_id] = found["needs"]
+                try:
+                    spec = following.resolve(command_id, spec)
+                except ConfigError as err:
+                    error = error or str(err)
+            commands[command_id] = spec
         hidden: dict[str, int] = {}
         for spec in every.values():
             said = command_language(spec, default)
@@ -432,6 +292,10 @@ class Api:
         return web.json_response(
             {
                 "commands": commands,
+                # Those that follow the library: as saved (from, and their settings),
+                # and what the library says to set after adding them.
+                "references": references,
+                "needs": needs,
                 "details": details,
                 # Where the Home and satellite pages list them: the library's sections.
                 "sections": library_sections()[0],
@@ -463,21 +327,22 @@ class Api:
         commands = self.app.store.document().get("commands") or {}
         if command_id not in commands:
             raise FileNotFoundError(f"No command {command_id}")
-        return web.json_response(
-            {"id": command_id, "spec": commands[command_id], "yaml": _dump(commands[command_id])}
-        )
+        return web.json_response({"id": command_id, "spec": commands[command_id]})
 
     async def put_command(self, request: web.Request) -> web.Response:
+        """A command as the command page has it. One that follows the library
+        (``from``) is saved as what differs from the library's version, of
+        what it may set itself (library.SETTINGS); without ``from``, as it is
+        -- taking control of one that followed the library."""
         body = await request.json()
         command_id = request.match_info["id"]
-        if body.get("yaml") is not None:
-            spec = _load(str(body["yaml"]))
-            if not isinstance(spec, dict):
-                raise ConfigError("A command is a mapping")
+        spec = body.get("spec") or {}
+        if following.follows(spec):
+            spec = following.settings(spec, following.base(str(spec[following.REFERENCE])))
+            parse_command(command_id, following.resolve(command_id, spec))
         else:
-            spec = _from_form(body.get("spec") or {})
-        spec = _clean(spec)
-        parse_command(command_id, spec)
+            spec = _clean(_from_form(spec))
+            parse_command(command_id, spec)
         compiled = self.app.store.put_command(command_id, spec, body.get("old_id"))
         return await self._saved(compiled)
 
@@ -495,13 +360,6 @@ class Api:
         )
         await self.app.apply(compiled)
         return web.json_response({"ok": True, "id": new_id})
-
-    async def check_command(self, request: web.Request) -> web.Response:
-        """Validate a command without saving it."""
-        body = await request.json()
-        spec = _clean(_from_form(body.get("spec") or {}))
-        command = parse_command(str(body.get("id") or "draft"), spec)
-        return web.json_response({"ok": True, "intent": command.intent, "yaml": _dump(spec)})
 
     async def examples(self, request: web.Request) -> web.Response:
         """What example sentences stand for: each template's sentences (the
@@ -684,7 +542,7 @@ class Api:
     async def library_add(self, request: web.Request) -> web.Response:
         """Library commands into yours: one (``file``, ``id``; ``new_id`` to
         name it), or several at once (``entries``: ``[{file, id}]``), with
-        the commands rebuilt once."""
+        the commands rebuilt once. Each follows the library (library.py)."""
         body = await request.json()
         library = await asyncio.to_thread(_library, languages.current().code)
         wanted = body.get("entries") if body.get("entries") is not None else [body]
@@ -700,9 +558,8 @@ class Api:
         compiled = self.app.store.load()
         ids = []
         for entry in found:
-            spec = copy.deepcopy(entry["spec"])
-            spec["title"] = entry["title"]
-            spec["library"] = entry["file"]
+            # It follows the library: a fix there reaches it.
+            spec = {following.REFERENCE: f"{entry['file']}/{entry['id']}"}
             # Shared lists it uses, unless yours already has one by that name.
             have = compiled.data.get("lists") or {}
             for name, values in entry["lists"].items():

@@ -356,7 +356,7 @@ commands:
       Tempo: {{ meteo.get(state, state) }}, con
       {{ state_attr(slots.entity[0], 'temperature') | round }} gradi.
     needs:
-      - Set the fixed slot entity to your weather entity (weather.home here).
+      - Point it at your weather entity (Implied target: weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list
@@ -370,6 +370,8 @@ commands:
       before: [alla, nella, sulla]
       bounded: true
       max_words: 8
+    slots:
+      entity: [todo.shopping_list]
     # Several at once, each an item of its own: "oranges and bananas".
     action:
       repeat:
@@ -379,7 +381,7 @@ commands:
         sequence:
           - action: todo.add_item
             target:
-              entity_id: todo.shopping_list
+              entity_id: "{{ slots.entity }}"
             data:
               item: "{{ repeat.item }}"
     verbosity: specific
@@ -400,10 +402,12 @@ commands:
       before: [dalla]
       bounded: true
       max_words: 5
+    slots:
+      entity: [todo.shopping_list]
     action:
       action: todo.remove_item
       target:
-        entity_id: todo.shopping_list
+        entity_id: "{{ slots.entity }}"
       data:
         item: "{{ slots.item }}"
     verbosity: specific
@@ -424,10 +428,12 @@ commands:
       before: [alla, nella, sulla]
       bounded: true
       max_words: 8
+    slots:
+      entity: [todo.to_do]
     action:
       action: todo.add_item
       target:
-        entity_id: todo.to_do
+        entity_id: "{{ slots.entity }}"
       data:
         item: "{{ slots.item }}"
     verbosity: specific
@@ -481,7 +487,7 @@ commands:
       done:
         brief: Fatto.
     needs:
-      - Pick the scene, and change the examples to what you want to say.
+      - Take control of it, then pick the scene and say it your way.
 
   script:
     title: Run a script
@@ -491,5 +497,5 @@ commands:
     script: script.good_night
     response: "{{ result.speech if result and result.speech else 'Buonanotte.' }}"
     needs:
-      - Pick the script. It gets slots, satellite, speaker and target as variables,
+      - Take control of it, then pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.

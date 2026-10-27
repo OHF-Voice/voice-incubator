@@ -488,7 +488,7 @@ commands:
       It's {{ states(slots.entity[0]) | replace('-', ' ') }} and
       {{ state_attr(slots.entity[0], 'temperature') | round }} degrees.
     needs:
-      - Set the fixed slot entity to your weather entity (weather.home here).
+      - Point it at your weather entity (Implied target: weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list
@@ -502,6 +502,8 @@ commands:
       before: [to, on]
       bounded: true
       max_words: 8
+    slots:
+      entity: [todo.shopping_list]
     # Several at once, each an item of its own: "oranges and bananas".
     action:
       repeat:
@@ -511,7 +513,7 @@ commands:
         sequence:
           - action: todo.add_item
             target:
-              entity_id: todo.shopping_list
+              entity_id: "{{ slots.entity }}"
             data:
               item: "{{ repeat.item }}"
     verbosity: specific
@@ -534,11 +536,13 @@ commands:
       before: [from, off]
       bounded: true
       max_words: 5
-    on_list: {item: todo.shopping_list}
+    on_list: {item: entity}
+    slots:
+      entity: [todo.shopping_list]
     action:
       action: todo.remove_item
       target:
-        entity_id: todo.shopping_list
+        entity_id: "{{ slots.entity }}"
       data:
         item: "{{ slots.item }}"
     verbosity: specific
@@ -547,8 +551,7 @@ commands:
         brief: Took it off the shopping list.
         specific: "Took {{ slots.item }} off the shopping list."
     needs:
-      - Point it at your shopping list (todo.shopping_list here), in On list
-        (its YAML) and in what happens.
+      - Point it at your shopping list (Implied target: todo.shopping_list here).
 
   shopping_list_check:
     title: Check off the shopping list
@@ -564,11 +567,13 @@ commands:
       before: [off, from, on, as done, as bought]
       bounded: true
       max_words: 5
-    on_list: {item: todo.shopping_list}
+    on_list: {item: entity}
+    slots:
+      entity: [todo.shopping_list]
     action:
       action: todo.update_item
       target:
-        entity_id: todo.shopping_list
+        entity_id: "{{ slots.entity }}"
       data:
         item: "{{ slots.item }}"
         status: completed
@@ -578,8 +583,7 @@ commands:
         brief: Checked it off.
         specific: "Checked {{ slots.item }} off the shopping list."
     needs:
-      - Point it at your shopping list (todo.shopping_list here), in On list
-        (its YAML) and in what happens.
+      - Point it at your shopping list (Implied target: todo.shopping_list here).
 
   shopping_list_items:
     title: What's on the shopping list
@@ -589,9 +593,11 @@ commands:
     examples: ["what's on [the|my|our] shopping list", "what do we need from the (store|shop)", "read [me] the shopping list"]
     require: [[what's on, what is on, read, tell me], [shopping list]]
     optional: [[the, my, our], [me]]
+    slots:
+      entity: [todo.shopping_list]
     action:
       - variables:
-          shopping: todo.shopping_list
+          shopping: "{{ slots.entity[0] }}"
       - action: todo.get_items
         target:
           entity_id: "{{ shopping }}"
@@ -617,8 +623,7 @@ commands:
         On the shopping list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
         {%- endif -%}
     needs:
-      - Point it at your shopping list (todo.shopping_list here, at the top of
-        what happens).
+      - Point it at your shopping list (Implied target: todo.shopping_list here).
 
   todo_add:
     title: Add to the to-do list
@@ -632,10 +637,12 @@ commands:
       before: [to, on]
       bounded: true
       max_words: 8
+    slots:
+      entity: [todo.to_do]
     action:
       action: todo.add_item
       target:
-        entity_id: todo.to_do
+        entity_id: "{{ slots.entity }}"
       data:
         item: "{{ slots.item }}"
     verbosity: specific
@@ -644,7 +651,7 @@ commands:
         brief: Added it to the to-do list.
         specific: "Added {{ slots.item }} to the to-do list."
     needs:
-      - Point it at your to-do list (todo.to_do here).
+      - Point it at your to-do list (Implied target: todo.to_do here).
 
   todo_add_mine:
     title: Add to my to-do list
@@ -771,7 +778,7 @@ commands:
       done:
         brief: Done.
     needs:
-      - Pick the scene, and change the examples to what you want to say.
+      - Take control of it, then pick the scene and say it your way.
 
   script:
     title: Run a script
@@ -781,5 +788,5 @@ commands:
     script: script.good_night
     response: "{{ result.speech if result and result.speech else 'Good night.' }}"
     needs:
-      - Pick the script. It gets slots, satellite, speaker and target as variables,
+      - Take control of it, then pick the script. It gets slots, satellite, speaker and target as variables,
         and anything it returns (stop with response_variable) as result.

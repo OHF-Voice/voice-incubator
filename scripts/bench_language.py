@@ -99,7 +99,10 @@ def scored(decision, want_command: str, want_slots: dict[str, Any]) -> tuple[boo
     A duration is compared by its seconds, free text as words."""
     got = decision.command.id if decision.command else None
     slots = {}
+    fixed = decision.behavior.slots if decision.behavior is not None else {}
     for key, value in (decision.slots or {}).items():
+        if key not in want_slots and fixed.get(key) == value:
+            continue  # its implied target, not heard
         if isinstance(value, dict) and "total_seconds" in value:
             value = value["total_seconds"]
         elif isinstance(value, str):

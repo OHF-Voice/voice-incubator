@@ -289,7 +289,9 @@ async def run(
     missing = None
     for slot, entity_id in behavior.on_list.items():
         said = str(decision.slots.get(slot) or "")
-        if said:
+        if entity_id == "entity":  # the command's to-do list: its target
+            entity_id = str((decision.slots.get("entity") or [""])[0])
+        if said and entity_id:
             item = await _item_on(hass, entity_id, said)
             if item is None:
                 missing = said

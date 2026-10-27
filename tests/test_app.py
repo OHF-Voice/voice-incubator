@@ -271,18 +271,18 @@ async def _scenario(tmp_path: Path) -> None:
             copied = await (await http.post("/api/commands/what_time/duplicate", json={"new_id": "kids_time"})).json()
             assert copied["ok"]
             kids_time = {**app.store.document()["commands"]["kids_time"], "satellites": [MAC]}
-            assert (await http.put("/api/commands/kids_time", json={"yaml": json.dumps(kids_time)})).status == 200
+            assert (await http.put("/api/commands/kids_time", json={"spec": kids_time})).status == 200
             assert app.engine.compiled.commands["kids_time"].satellites == (MAC,)
             store_data = await (await http.get("/api/store")).json()
             assert store_data["details"]["kids_time"]["satellites"] == [MAC] and store_data["details"]["what_time"]["satellites"] is None
             assert (await tried_command("what time is it"))["command"] == "kids_time"
             lights = {**app.store.document()["commands"]["lights_on"], "satellites": ["elsewhere"]}
-            assert (await http.put("/api/commands/lights_on", json={"yaml": json.dumps(lights)})).status == 200
+            assert (await http.put("/api/commands/lights_on", json={"spec": lights})).status == 200
             recognition = await tried_command("turn on the lights")
             assert recognition["command"] is None
             assert recognition["skipped"][0] == {"command": "lights_on", "why": "not on this satellite"}
             del lights["satellites"]
-            assert (await http.put("/api/commands/lights_on", json={"yaml": json.dumps(lights)})).status == 200
+            assert (await http.put("/api/commands/lights_on", json={"spec": lights})).status == 200
             assert (await tried_command("turn on the lights"))["command"] == "lights_on"
             assert (await http.delete("/api/commands/kids_time")).status == 200
             assert (await http.put(f"/api/satellites/{MAC}", json={"icon": "mdi:sofa"})).status == 200
@@ -448,7 +448,7 @@ async def _scenario(tmp_path: Path) -> None:
                 "action": {"action": "todo.add_item", "target": {"entity_id": "{{ slots.entity }}"}, "data": {"item": "{{ slots.item }}"}},
                 "response": {"done": "Added {{ slots.item }} to {{ slots.entity[0] }}.", "no_speaker": "Who's asking?"},
             }
-            assert (await http.put("/api/commands/todo_add_mine", json={"yaml": json.dumps(mine)})).status == 200
+            assert (await http.put("/api/commands/todo_add_mine", json={"spec": mine})).status == 200
             # Nobody has one of their own: the command's own, whoever speaks.
             assert await said("add milk to my to do list") == "Added milk to todo.to_do."
             # One person: it's them, without a voice.
@@ -495,7 +495,7 @@ async def _scenario(tmp_path: Path) -> None:
                 "action": {"action": "todo.remove_item", "target": {"entity_id": "todo.shopping_list"}, "data": {"item": "{{ slots.item }}"}},
                 "response": "Took {{ slots.item }} off.",
             }
-            assert (await http.put("/api/commands/shopping_remove", json={"yaml": json.dumps(remove)})).status == 200
+            assert (await http.put("/api/commands/shopping_remove", json={"spec": remove})).status == 200
             hass.todo_items["todo.shopping_list"] = [{"summary": "Test 3", "status": "needs_action"}, {"summary": "Milk", "status": "completed"}]
             assert await said("remove test three from the shopping list") == "Took Test 3 off."
             assert await said("remove bread from the shopping list") == "Bread isn't on the list."

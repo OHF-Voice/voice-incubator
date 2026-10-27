@@ -125,9 +125,8 @@ identification `--speaker-threshold`, `--speaker-channel`,
 ## Commands
 
 The app no longer reads Home Assistant's sentence triggers. Its commands are
-its own, in `commands.json`, which only the web UI edits: it is read once and
-written whole on every save (a command's YAML tab still shows and takes one
-command as YAML). Round-trip YAML, which kept a hand edit's comments, took 386
+its own, in `commands.json`, which only the web UI edits, field by field (no
+YAML): it is read once and written whole on every save. Round-trip YAML, which kept a hand edit's comments, took 386
 ms to read the commands and 218 ms to write them on an HA Green; JSON takes
 under a millisecond. A data directory from before is copied over once: each
 `.yaml` file to its `.json`, the YAML left as it was and not read again. A
@@ -137,6 +136,23 @@ command is refused rather than saved; commands an update no longer accepts
 keep the previous ones in use, saying why in the UI. The command library
 ships with the app: it is read and checked once (1.6 s on the Green, mostly
 parsing its YAML), when it is first opened.
+
+**Following the library** (`voice_call/library.py`, as Home Assistant's
+blueprints). A command added from it is saved as a reference, `from:
+basic/shopping_list_add`, plus what it sets itself (`library.SETTINGS`:
+satellites, disabled, verbosity, fallback, title, icon, its implied target
+`slots`, and `examples` added to the library's), and is resolved to the
+library's version when the commands are compiled (`store.compile_store`), so
+a library fix reaches it. Saving one stores only what differs from the
+library (`library.settings`); a command page's **Take control** saves it
+whole, without `from`, as a copy. A commands file before `version: 2` is
+moved once (`library.migrate`): a copy with `library:` whose id is a library
+command's (or one's with `_2`, `_de`, `_copy`) keeps its settings that
+differ and follows the library; the file as it was is kept in
+`commands.before-library.json`. Library commands read their target from the
+implied target (`entity_id: "{{ slots.entity }}"`, `on_list: {item:
+entity}`), which is a setting, so pointing one at your list doesn't take
+control of it.
 
 A command is one adapt-ctc intent (examples, keywords, names, a number, value
 lists, free text) plus where it is available and what it does. All of them
@@ -247,6 +263,7 @@ and copies (`Satellite.first`).
 | `voice_call/tts.py` | Piper, and the acknowledgement fallback |
 | `voice_call/server.py` | the call state machine |
 | `voice_call/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_call.speaker` |
+| `voice_call/library.py` | the command library; commands that follow it (references, settings, migration) |
 | `voice_call/people.py` | people: who is speaking, and their own to-do list, calendar, playlist and voice ("my") |
 | `voice_call/integration.py` | the Voice Call integration from the app's side: set-up, satellites, following timers |
 | `voice_call/alarms.py` | alarms and timed reminders on the "Voice Call" Local Calendar in Home Assistant: made if missing, followed, rung on the satellite that set them (in a language with a `calendar.py`, English for now) |

@@ -2,6 +2,16 @@
 
 ## 0.2.0
 
+- **Commands follow the library**, as Home Assistant automations follow
+  their blueprints: one added from it is saved as a reference with what you
+  set (where it runs, how much it says, the steps when nothing matches, your
+  own example sentences, its implied target, its icon), so the library's
+  fixes reach it. **Take control** on its page makes it yours to change all
+  of it. Commands added before were made to follow it, with your settings
+  kept (`commands.before-library.json` is the file as it was).
+- **No YAML editing of commands**: a command is edited on its page alone.
+- The library's shopping, to-do and weather commands take their entity from
+  the implied target.
 - **Several items added at once** are items of their own: "add oranges and
   bananas to the shopping list" adds two (split at the language's "and" and
   at commas), in every language's library.

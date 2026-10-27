@@ -77,12 +77,14 @@ anyone has one of their own: "add … to my to-do list"::
       slots: {entity: [todo.to_do]}     # where nobody has their own
       mine: todo_list
 
-``on_list`` says a slot names an item on a to-do list: what was heard becomes
-the item as the list has it -- the same words as spoken ("test three" is
-"test 3"), or the closest -- and none close is the outcome ``not_on_list``::
+``on_list`` says a slot names an item on a to-do list -- one by id, or the
+one in ``entity`` (its implied target): what was heard becomes the item as
+the list has it -- the same words as spoken ("test three" is "test 3"), or
+the closest -- and none close is the outcome ``not_on_list``::
 
     shopping_list_remove:
-      on_list: {item: todo.shopping_list}
+      slots: {entity: [todo.shopping_list]}
+      on_list: {item: entity}
 
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
@@ -698,8 +700,8 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
             raise ConfigError(f"{where}.mine: one of {', '.join(THINGS)}")
     on_list = {str(k): str(v) for k, v in _mapping(spec.get("on_list") or {}, f"{where}.on_list").items()}
     for slot, entity in on_list.items():
-        if not re.fullmatch(r"todo\.[a-z0-9_]+", entity):
-            raise ConfigError(f"{where}.on_list.{slot}: a to-do list (todo.…)")
+        if entity != "entity" and not re.fullmatch(r"todo\.[a-z0-9_]+", entity):
+            raise ConfigError(f"{where}.on_list.{slot}: a to-do list (todo.…), or entity (its target's)")
     return Behavior(
         slots=_fixed_slots(spec.get("slots"), f"{where}.slots"),
         script=script,

@@ -211,8 +211,8 @@ unless their voice was heard and it wasn't theirs. With one person, no voice
 is needed: enroll it to tell guests apart.
 A session's Speaker step says who it was and how.
 
-A command of your own acts on the speaker's own with `mine` (`todo_list`,
-`calendar` or `playlist`; its YAML tab): their to-do list or calendar
+The library's "my" commands act on the speaker's own with `mine`
+(`todo_list`, `calendar` or `playlist`): their to-do list or calendar
 replaces its `slots.entity`, their playlist its `slots.query`. Its response
 may say something of its own when nobody is known (`no_speaker`). The "my"
 commands are in the English library for now; **Remind me** is personal in
@@ -249,10 +249,20 @@ library's commands come in **versions**, for what they act on; open one
 
 Each version is a command of its own (`play_music_here`,
 `play_music_device`, `play_music_place`): add the ones you want, and a
-sentence goes to the one that takes what was said in it. Adding one from the
-library copies it into your commands (the value lists it uses are the
-language's own: see Value lists); one you already have is marked **added**,
-and can be added again. Tick several to add them together; in a group,
+sentence goes to the one that takes what was said in it.
+
+A command added from the library **follows it**, as an automation follows
+its blueprint in Home Assistant: the library's changes reach it -- fixes,
+better keywords -- and it is in the app's language, whichever that is.
+Yours to set on its page: where it runs, how much it says, the steps when
+nothing matches, example sentences of your own (beside the library's), its
+implied target, and its icon. The rest is shown, not changed: **Take
+control** (at the top of its page) makes it yours to change all of it, and
+the library's changes no longer reach it. Commands added from the library
+before this version were made to follow it, with what you had set kept; the
+file as it was is `commands.before-library.json`.
+
+One you already have is marked **added**, and can be added again. Tick several to add them together; in a group,
 **Select the … not added** ticks each command you have no version of (the
 version for the satellite it's said to). Under each section of the Home page
 you have commands from, **Not added** names the rest of it, to add one or
@@ -641,10 +651,9 @@ you point them at yours):
 Checking off and removing take an item that is on the list: what was heard
 is matched to it as spoken, so "test three" is the item "Test 3", "the
 milk" is "Milk", and a near spelling ("paper towel") is the closest. One
-that isn't on the list says so ("Bread isn't on the list."). A command of
-your own does the same with `on_list: {item: todo.your_list}` (its YAML
-tab). Checking off, removing and reading are in the English library for
-now.
+that isn't on the list says so ("Bread isn't on the list."). Which list is
+their implied target: point them at yours there. Checking off, removing and
+reading are in the English library for now.
 
 ## Covers and locks
 
@@ -846,7 +855,7 @@ area or floor and its name and aliases are offered as a starting point. Add
 the spellings the speech model actually uses as aliases ("Echo Bee" for
 ecobee). Devices are limited to lights, switches, fans, covers, locks,
 climate, media players, scenes, scripts, input booleans, valves and vacuums;
-a command's YAML tab may name anything.
+an implied target may be any entity.
 
 A name is in the language it was given in. In another language than your
 commands', a thing's name and aliases go under the language's code,
@@ -905,9 +914,10 @@ Everything the UI edits is in `/data`, as JSON the UI alone reads and writes:
 `settings.json`, `wake_words.json` and `people.json` (each person's own
 things). They are not for editing by hand.
 Files from before this version (`commands.yaml` and the others) are copied
-to JSON once, and left as they were. The commands, written as YAML, look like
-this; a command's YAML tab shows and takes one of them (what is under its id
-below), and names and lists are edited on the Names page.
+to JSON once, and left as they were. The commands, written as YAML (the file
+is JSON), look like this; each is edited on its page, and names and lists on
+the Names page. One that follows the library is saved as `from` and what
+you set (`from: basic/turn_on_here`, `verbosity: brief`).
 
 ```yaml
 language: en  # what the commands are said in, unless one says its own

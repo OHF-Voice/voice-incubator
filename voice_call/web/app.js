@@ -660,13 +660,20 @@ async function pageUnknown() {
 }
 
 // The command editor. `spec` is edited in place; fields it does not know
-// about are kept as loaded.
+// about are kept as loaded. A command that follows the library shows the
+// library's version, its own settings editable and the rest locked until
+// you take control of it (library.SETTINGS).
 async function pageCommand(id, prefill, query) {
   await Promise.all([loadStore(), loadSatellites()]);
   const areas = await areaLabels();
   const isNew = !id;
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
+  const reference = isNew ? null : ((state.store.references || {})[id] || null);
+  let following = Boolean(reference);
+  // Example sentences of your own, beside the library's.
+  let extras = following ? asList(reference.examples) : [];
+  const locked = (...children) => (following ? h("fieldset", { class: "locked", disabled: true }, ...children) : children);
   const back = () => "#/home";
   // A new command's id, from its description: unique, never shown.
   const commandId = () => {
@@ -678,45 +685,36 @@ async function pageCommand(id, prefill, query) {
   };
   const actionYaml = { value: await yamlDump(spec.action) };
   const errors = h("div");
-  let tab = "form";
-
   const body = h("div");
-  const tabs = h("div", { class: "tabs" });
-
-  function renderTabs() {
-    fill(tabs, 
-      h("button", { class: tab === "form" ? "active" : "", onclick: () => { tab = "form"; renderTabs(); render(); } }, "Form"),
-      h("button", { class: tab === "yaml" ? "active" : "", onclick: async () => { await syncFromForm(); tab = "yaml"; renderTabs(); render(); } }, "YAML"),
-    );
-  }
-
-  let yamlText = "";
-  async function syncFromForm() {
-    const form = formSpec();
-    try {
-      const checked = await api("POST", "commands/check", { id: commandId(), spec: form });
-      yamlText = checked.yaml;
-    } catch (_) {
-      yamlText = await yamlDump(form);
-    }
-  }
+  const head = h("div");
 
   function formSpec() {
+    if (following) {
+      // What it may set itself: the library's version is the rest.
+      const out = { from: reference.from, examples: extras, slots: spec.slots || {} };
+      for (const key of ["satellites", "disabled", "verbosity", "fallback", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
+      if (reference.language) out.language = reference.language;
+      return out;
+    }
     const out = clone(spec);
+    delete out.from;
     out.action_yaml = actionYaml.value;
     return out;
   }
 
+  function takeControl() {
+    if (!confirm(`Take control of ${spec.title || spec.description || id}? It stops following the library: you can change all of it, and the library's changes no longer reach it.`)) return;
+    following = false;
+    renderHead();
+    render();
+  }
+
   async function save() {
     fill(errors, );
-    if (tab !== "yaml" && !String(spec.description || "").trim()) { errors.append(errorBox("Give the command a description")); return; }
+    if (!following && !String(spec.description || "").trim()) { errors.append(errorBox("Give the command a description")); return; }
     const saving = commandId();
     try {
-      if (tab === "yaml") {
-        await api("PUT", `commands/${saving}`, { yaml: yamlText });
-      } else {
-        await api("PUT", `commands/${saving}`, { spec: formSpec() });
-      }
+      await api("PUT", `commands/${saving}`, { spec: formSpec() });
       toast("Saved");
       refreshStatus();
       if (saving !== id) location.hash = `#/command/${saving}`;
@@ -749,7 +747,7 @@ async function pageCommand(id, prefill, query) {
       }
       const others = Object.keys(slots).filter((k) => !["entity", "area", "floor"].includes(k));
       fill(wrap, h("div", { class: "grid2" }, ...rows),
-        others.length ? h("p", { class: "muted small" }, "Other fixed slots (edit in YAML): ", others.map((k) => `${k}=${JSON.stringify(slots[k])}`).join(", ")) : null);
+        others.length ? h("p", { class: "muted small" }, "Also passed as heard: ", others.map((k) => `${k}=${JSON.stringify(slots[k])}`).join(", ")) : null);
     }
     function setSlot(kind, ids) {
       target.slots = target.slots || {};
@@ -823,7 +821,8 @@ async function pageCommand(id, prefill, query) {
         control = field("Action", area,
           "Home Assistant script syntax: one action or a list. Templates see slots, satellite, speaker, target and command. target: \"{{ target }}\" is what was named, or else the satellite's area -- every device there, exposed to Assist or not (Run an intent acts only on exposed ones).");
       }
-      fill(wrap, radios, control, verbosityField(), responsesEditor());
+      // Following the library, only how much it says is its own.
+      fill(wrap, locked(radios, control), verbosityField(), locked(responsesEditor()));
     }
 
     // How much it says when done: the command's level, or what it does by default.
@@ -1199,56 +1198,70 @@ async function pageCommand(id, prefill, query) {
         h("div", { class: "row", style: "align-items:flex-start" },
           field("Icon", iconBox),
           h("div", { class: "grow" },
-            field("Description", description, "What it does, as a verb phrase: “turn on the lights”. A near miss is described with it (“It looks like you're trying to turn on the lights, but…”), and meaning and the model tell commands apart by it."))),
+            locked(field("Description", description, "What it does, as a verb phrase: “turn on the lights”. A near miss is described with it (“It looks like you're trying to turn on the lights, but…”), and meaning and the model tell commands apart by it.")))),
         field("Runs on", whereEditor(spec.disabled ? "none" : spec.satellites ? "some" : "every", asList(spec.satellites), (where, keys) => {
           if (where === "none") spec.disabled = true; else delete spec.disabled;
           if (where === "some") spec.satellites = keys; else if (where === "every") delete spec.satellites;
         }), "Where two take the same sentence, one on some satellites goes first there.")),
       h("div", { class: "panel" },
-        ((info) => h("div", {},
-            heading("h2", "Example sentences", "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."),
+        heading("h2", "Example sentences", "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."),
+        following
+          ? [
+            asList(spec.examples).filter((e) => !extras.includes(e)).length
+              ? locked(chipsInput(asList(spec.examples).filter((e) => !extras.includes(e)), () => {}, "")) : null,
+            ((info) => field("Your own", h("div", {}, chipsInput(extras, (v) => { extras = v; info.show(v); }, "type a whole sentence and press Enter"), info.box),
+              "Said as well as the library's."))(examplesInfo(extras)),
+          ]
+          : ((info) => h("div", {},
             chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box))(examplesInfo(spec.examples || [])),
         h("div", { class: "wake-list" }, fallbackBox("meaning", "Also sentences that mean the same",
           "When nothing else matched, a sentence very close in meaning to one of these, or to the description, runs it: “got the time?” for “what time is it”. Example sentences match far better than the description."))),
       h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml)),
       h("div", { class: "panel" },
         heading("h2", "Keywords", "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),
-        field("Required", groupsEditor(spec.require, (v) => { spec.require = v; }, "Add a required group")),
-        field("Optional", groupsEditor(spec.optional, (v) => { spec.optional = v; }, "Add an optional group"), "Words that may be said and should not count against the match."),
-        field("Must not hear", chipsInput(spec.exclude || [], (v) => { spec.exclude = v; }, "is, are"), "A statement is not a command: “the door is locked”."),
-        h("h3", {}, "Names"), namesEditor(),
-        h("h3", {}, "Number"), numberEditor(),
-        h("h3", {}, "Value lists"), listsEditor(),
-        heading("h3", "Free text", "Re-read from the TDT transcript for spelling. Keep it bounded: the fewer words it may take, the fewer mishearings it swallows."), wildcardEditor(),
+        locked(
+          field("Required", groupsEditor(spec.require, (v) => { spec.require = v; }, "Add a required group")),
+          field("Optional", groupsEditor(spec.optional, (v) => { spec.optional = v; }, "Add an optional group"), "Words that may be said and should not count against the match."),
+          field("Must not hear", chipsInput(spec.exclude || [], (v) => { spec.exclude = v; }, "is, are"), "A statement is not a command: “the door is locked”."),
+          h("h3", {}, "Names"), namesEditor(),
+          h("h3", {}, "Number"), numberEditor(),
+          h("h3", {}, "Value lists"), listsEditor(),
+          heading("h3", "Free text", "Re-read from the TDT transcript for spelling. Keep it bounded: the fewer words it may take, the fewer mishearings it swallows."), wildcardEditor()),
         h("div", { class: "wake-list" }, modelBox),
-        heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
-        combosWrap),
+        locked(
+          heading("h3", "Ways to say it", "What it hears is never optional: each way is said whole, and a command never runs with something said left out. “Turn off the lights” could be said with nothing named (the satellite's area), with an area, or with a floor. The first way gets the example sentences."),
+          combosWrap)),
       h("div", { class: "panel" }, heading("h2", "Implied target", "What it acts on without it being said — a command made for one device, room or floor — passed to Home Assistant as if it had been heard. The words can then be anything. A device, room or floor that is said takes the place of the implied one of its kind; a room said with an implied device, or one implied with a device said, only picks out which device."),
         targetEditor(spec)),
     );
   }
 
-  function renderYaml() {
-    const area = h("textarea", { class: "code big", oninput: (e) => { yamlText = e.target.value; } });
-    area.value = yamlText;
-    return h("div", { class: "panel" }, area);
-  }
-
   function render() {
-    fill(body, tab === "form" ? renderForm() : renderYaml());
+    fill(body, renderForm());
   }
 
-  renderTabs();
+  // Following the library: says so, with what to set after adding it, and
+  // taking control.
+  function renderHead() {
+    const needs = following ? asList((state.store.needs || {})[id]) : asList(spec.needs);
+    fill(head,
+      following ? h("div", { class: "notice info row" },
+        h("span", { class: "grow" }, "Follows the library.",
+          hint("The library's changes reach this command. Where it runs, how much it says, the steps when nothing matches, example sentences of your own and its implied target are yours to set. To change anything else, take control of it: it becomes yours, and the library's changes no longer reach it.")),
+        h("button", { onclick: takeControl }, "Take control")) : null,
+      needs.length ? h("div", { class: "notice info" }, needs.join(" ")) : null);
+  }
+
+  renderHead();
   render();
-  fill($main, 
+  fill($main,
     h("div", { class: "row" },
       h("a", { href: back() }, "← Home"),
       h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command" : (spec.title || spec.description || id)),
       isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
       isNew ? null : h("button", { onclick: () => duplicateDialog(id) }, "Duplicate"),
       h("button", { class: "primary", onclick: save }, "Save")),
-    spec.needs ? h("div", { class: "notice info" }, asList(spec.needs).join(" ")) : null,
-    errors, tabs, body,
+    head, errors, body,
     h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
   );
 }

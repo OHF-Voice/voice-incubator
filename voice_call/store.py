@@ -36,7 +36,11 @@ from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, par
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings"}
+STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "version"}
+VERSION = 2
+"""What a commands file is: 2, its commands from the library follow it
+(voice_call/library.py); before, they were copies of it, and are made to
+follow it when read."""
 NAME_KINDS = ("entities", "areas", "floors")
 
 def new_store(language: str) -> dict[str, Any]:
@@ -53,7 +57,7 @@ def new_store(language: str) -> dict[str, Any]:
     (``red: {en: [red], de: [rot]}``). ``commands``: what is listened for, and
     what happens. ``unknown``: what is said when nothing understood a
     sentence."""
-    return {"language": language, "names": {}, "lists": {}, "commands": {}}
+    return {"version": VERSION, "language": language, "names": {}, "lists": {}, "commands": {}}
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -282,8 +286,13 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     # What things are called in the app's language: everything reads these.
     said, hidden_names = names_in(names, here, language)
     own_lists, hidden_lists = lists_in(data.get("lists") or {}, here, language)
-    data = {**data, "names": said, "lists": {**languages.current().lists, **own_lists}}
-    commands = parse_commands({k: v for k, v in every.items() if str(k) not in hidden})
+    from .library import follows, resolve  # pylint: disable=import-outside-toplevel
+
+    # One that follows the library is its version now, with its settings.
+    heard = {str(k): (resolve(str(k), v) if follows(v) else v) for k, v in every.items() if str(k) not in hidden}
+    kept = {str(k): heard.get(str(k), v) for k, v in every.items()}  # another language's as saved
+    data = {**data, "names": said, "lists": {**languages.current().lists, **own_lists}, "commands": kept}
+    commands = parse_commands(heard)
     unknown_response = parse_unknown(data.get("unknown"))
     config = adapt_config(data, commands)
     if config is not None:
@@ -346,8 +355,26 @@ class Store:
                 _write_atomic(self.commands_path, _dumps(data))
             if not isinstance(data, dict):
                 raise ConfigError("commands file: expected a mapping")
+            if int(data.get("version") or 1) < VERSION:
+                data = self._follow_library(data)
             self._document = data
         return plain(self._document)
+
+    def _follow_library(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Commands added from the library before they followed it, made to
+        (library.migrate); the file as it was is kept beside it, once."""
+        from .library import migrate  # pylint: disable=import-outside-toplevel
+
+        before = _dumps(data)
+        changed = migrate(data)
+        data["version"] = VERSION
+        kept = self.data_dir / "commands.before-library.json"
+        if changed and not kept.exists():
+            _write_atomic(kept, before)
+        _write_atomic(self.commands_path, _dumps(data))
+        if changed:
+            _LOGGER.info("%d command(s) follow the library now: %s (as they were: %s)", len(changed), ", ".join(changed), kept.name)
+        return data
 
     def load(self) -> Compiled:
         """The commands, validated. Raises ConfigError."""
