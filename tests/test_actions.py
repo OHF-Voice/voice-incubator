@@ -467,3 +467,33 @@ def test_a_script_says_its_speech_or_plays_the_sound():
     hass.script_response = {}
     sound = run({"script": "script.good_night"}, hass)
     assert (sound.name, sound.speech, sound.silent) == ("done", "", False)
+
+
+def test_what_sensors_say():
+    """The Sensors library group: a sensor's value in its unit, a binary
+    sensor in its device class's words, yes or no when asked."""
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+
+    import yaml  # pylint: disable=import-outside-toplevel
+
+    library = yaml.safe_load((Path(actions.__file__).parent / "languages/en/library/sensors.yaml").read_text())["commands"]
+    hass = StubHass()
+    hass.fake.states.update({
+        "sensor.outside_temperature": ("12.50", {"friendly_name": "Outside Temperature", "unit_of_measurement": "°C"}),
+        "sensor.dryer_power": ("1200.0", {"friendly_name": "Dryer Power", "unit_of_measurement": "W"}),
+        "sensor.washer": ("rinse_cycle", {"friendly_name": "Washer"}),
+        "binary_sensor.front_door": ("off", {"friendly_name": "Front Door", "device_class": "door"}),
+        "binary_sensor.basement": ("on", {"friendly_name": "Basement", "device_class": "moisture"}),
+    })
+
+    def said(command, slots):
+        spec = {k: v for k, v in library[command].items() if k not in ("title", "needs")}
+        return run(spec, hass, slots).speech
+
+    assert said("sensor_value", {"entity": ["sensor.outside_temperature"]}) == "Outside Temperature is 12.5 degrees."
+    assert said("sensor_value", {"entity": ["sensor.dryer_power"]}) == "Dryer Power is 1200 watts."
+    assert said("sensor_value", {"entity": ["sensor.washer"]}) == "Washer is rinse cycle."
+    assert said("binary_sensor_state", {"entity": ["binary_sensor.front_door"], "asked": "open"}) == "No, Front Door is closed."
+    assert said("binary_sensor_state", {"entity": ["binary_sensor.front_door"], "asked": "closed"}) == "Yes, Front Door is closed."
+    assert said("binary_sensor_state", {"entity": ["binary_sensor.basement"], "asked": "wet"}) == "Yes, Basement is wet."
+    assert said("binary_sensor_state", {"entity": ["binary_sensor.basement"], "asked": "running"}) == "Basement is wet."

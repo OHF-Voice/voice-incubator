@@ -816,6 +816,25 @@ satellite's area ("open the blinds"), a cover by name ("open the skylight"),
 and by type in an area or floor ("close the shades upstairs"). Locks are
 only by name, and "lock up" and "is everything locked" are every lock.
 
+## Sensors
+
+The library's **Sensors** group (English) asks a sensor or a binary sensor by
+the name you give it on the Names page:
+
+- **What a sensor says**: "what's the outside temperature", "how much is the
+  dryer power", "tell me the humidity" -- "Outside Temperature is 12.5
+  degrees." Its value is said in its unit (degrees, percent, watts, kilowatt
+  hours ...), its state in words otherwise ("Washer is rinse cycle.").
+- **Is a binary sensor on**: "is the front door open", "is the basement wet",
+  "is the office occupied" -- "No, Front Door is closed." It answers in the
+  words of the sensor's device class (open or closed, wet or dry, occupied or
+  clear, connected or disconnected ...): yes or no when asked about one of
+  them, else what it is. The words it hears are the `binary_states` list.
+
+Names may repeat, one in each room: "what's the temperature in the kitchen"
+asks the kitchen's sensor named "temperature", and without a room, the
+satellite's.
+
 ## Announcements and intercom
 
 The library's **Announcements and intercom** group (English) works between
@@ -1025,8 +1044,8 @@ Nothing is taken from Home Assistant automatically: search for an entity,
 area or floor and its name and aliases are offered as a starting point. Add
 the spellings the speech model actually uses as aliases ("Echo Bee" for
 ecobee). Devices are limited to lights, switches, fans, covers, locks,
-climate, media players, scenes, scripts, input booleans, valves and vacuums;
-an implied target may be any entity.
+climate, media players, scenes, scripts, input booleans, valves, vacuums,
+sensors and binary sensors; an implied target may be any entity.
 
 A name is in the language it was given in. In another language than your
 commands', a thing's name and aliases go under the language's code,

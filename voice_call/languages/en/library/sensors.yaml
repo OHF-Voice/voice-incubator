@@ -1,0 +1,90 @@
+# Asking a sensor or a binary sensor by its name (Names page): "what's the
+# outside temperature", "how much power is the dryer using", "is the front door
+# open", "is the basement leaking".
+#
+# A sensor says its value as Home Assistant has it, in its unit ("21.5
+# degrees", "40 percent"), or its state in words; a binary sensor says what it
+# is in the words of its device class (open or closed, wet or dry, occupied or
+# clear ...), and yes or no when asked about one of them. A name may be shared
+# by one in each room: the room said picks it, else the satellite's.
+title: Sensors
+icon: mdi:gauge
+
+commands:
+  sensor_value:
+    title: What a sensor says
+    icon: mdi:gauge
+    description: say what a sensor reads
+    require: [[what, what's, whats, what is, how, how's, how much, how many, tell me]]
+    optional: [[is, are, the, of, in, at, reading, level, using, use]]
+    names:
+      entity: {count: 1, domains: [sensor]}
+      area: {count: 1}
+    # A room with the sensor picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- set name = state_attr(e, 'friendly_name') -%}
+      {%- set state = states(e) -%}
+      {%- set number = state | float(none) -%}
+      {%- set unit = state_attr(e, 'unit_of_measurement') -%}
+      {%- set units = {'°C': 'degrees', '°F': 'degrees', '%': 'percent', 'W': 'watts', 'kW': 'kilowatts',
+        'Wh': 'watt hours', 'kWh': 'kilowatt hours', 'V': 'volts', 'A': 'amps', 'lx': 'lux',
+        'ppm': 'parts per million', 'ppb': 'parts per billion', 'µg/m³': 'micrograms per cubic meter',
+        'hPa': 'hectopascals', 'mbar': 'millibars', 'inHg': 'inches of mercury', 'mm': 'millimeters',
+        'cm': 'centimeters', 'in': 'inches', 'km/h': 'kilometers per hour', 'mph': 'miles per hour',
+        'm/s': 'meters per second', 'L': 'liters', 'gal': 'gallons', 'm³': 'cubic meters',
+        'min': 'minutes', 'h': 'hours', 's': 'seconds', 'd': 'days', 'dB': 'decibels', 'kg': 'kilograms',
+        'lb': 'pounds', 'mm/h': 'millimeters per hour', 'in/h': 'inches per hour'} -%}
+      {%- if state in ['unavailable', 'unknown'] -%}
+      {{ name }} is {{ state }} right now.
+      {%- elif number is not none -%}
+      {%- set shown = (number | round(1)) | string -%}
+      {%- set shown = shown[:-2] if shown.endswith('.0') else shown -%}
+      {{ name }} is {{ shown }}{{ (' ' ~ units.get(unit, unit)) if unit else '' }}.
+      {%- elif state_attr(e, 'device_class') == 'timestamp' -%}
+      {{ name }} is {{ as_local(as_datetime(state)).strftime('%A at %-I:%M %p') }}.
+      {%- else -%}
+      {{ name }} is {{ state | replace('_', ' ') }}.
+      {%- endif -%}
+    needs:
+      - Add names for the sensors it may ask about (Names page).
+
+  binary_sensor_state:
+    title: Is a binary sensor on
+    icon: mdi:checkbox-blank-circle-outline
+    description: say if a binary sensor is on
+    require: [[is, are]]
+    # "On" is the answer asked about here, not a place word.
+    optional: [[in], [the]]
+    names:
+      entity: {count: 1, domains: [binary_sensor]}
+      area: {count: 1}
+    lists:
+      asked: {list: binary_states}
+    combinations: [[entity, asked], [entity, area, asked]]
+    response: >-
+      {%- set e = slots.entity[0] -%}
+      {%- set name = state_attr(e, 'friendly_name') -%}
+      {%- set state = states(e) -%}
+      {%- set words = {'door': ['open', 'closed'], 'garage_door': ['open', 'closed'], 'window': ['open', 'closed'],
+        'opening': ['open', 'closed'], 'lock': ['unlocked', 'locked'], 'moisture': ['wet', 'dry'],
+        'motion': ['detecting motion', 'clear'], 'occupancy': ['occupied', 'clear'], 'presence': ['home', 'away'],
+        'plug': ['plugged in', 'unplugged'], 'battery': ['low', 'normal'], 'battery_charging': ['charging', 'not charging'],
+        'connectivity': ['connected', 'disconnected'], 'running': ['running', 'not running'],
+        'smoke': ['detecting smoke', 'clear'], 'gas': ['detecting gas', 'clear'],
+        'carbon_monoxide': ['detecting carbon monoxide', 'clear'], 'problem': ['reporting a problem', 'OK'],
+        'cold': ['cold', 'normal'], 'heat': ['hot', 'normal'], 'light': ['detecting light', 'dark'],
+        'sound': ['detecting sound', 'quiet'], 'vibration': ['vibrating', 'still'], 'tamper': ['tampered with', 'OK'],
+        'safety': ['unsafe', 'safe'], 'update': ['out of date', 'up to date']} -%}
+      {%- set pair = words.get(state_attr(e, 'device_class'), ['on', 'off']) -%}
+      {%- set now = pair[0] if state == 'on' else pair[1] -%}
+      {%- if state not in ['on', 'off'] -%}
+      {{ name }} is {{ state }} right now.
+      {%- elif slots.asked in pair or slots.asked in ['on', 'off'] -%}
+      {{ 'Yes' if (slots.asked in [pair[0], 'on']) == (state == 'on') else 'No' }}, {{ name }} is {{ now }}.
+      {%- else -%}
+      {{ name }} is {{ now }}.
+      {%- endif -%}
+    needs:
+      - Add names for the binary sensors it may ask about (Names page).

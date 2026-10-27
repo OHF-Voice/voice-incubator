@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **Sensors** (English): "what's the outside temperature", "is the front door
+  open" -- a sensor or binary sensor by its name (Names page), its value in
+  its unit, a binary sensor in its device class's words. Sensors and binary
+  sensors can be named now. New list: `binary_states`.
 - **Announcements** (English): "announce dinner is ready" says it after a
   chime on every other satellite, or those in the area or floor named,
   turning their music down; a satellite busy with a call says it after.

@@ -74,6 +74,8 @@ VOICE_DOMAINS = (
     "todo",
     "shopping_list",
     "calendar",
+    "sensor",
+    "binary_sensor",
 )
 
 CONNECT_WAIT = 5.0
