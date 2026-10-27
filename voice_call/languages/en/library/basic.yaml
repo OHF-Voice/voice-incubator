@@ -488,7 +488,7 @@ commands:
       It's {{ states(slots.entity[0]) | replace('-', ' ') }} and
       {{ state_attr(slots.entity[0], 'temperature') | round }} degrees.
     needs:
-      - Point it at your weather entity (Implied target: weather.home here).
+      - Point it at your weather entity (its implied target, weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list
@@ -551,7 +551,7 @@ commands:
         brief: Took it off the shopping list.
         specific: "Took {{ slots.item }} off the shopping list."
     needs:
-      - Point it at your shopping list (Implied target: todo.shopping_list here).
+      - Point it at your shopping list (its implied target, todo.shopping_list here).
 
   shopping_list_check:
     title: Check off the shopping list
@@ -583,7 +583,7 @@ commands:
         brief: Checked it off.
         specific: "Checked {{ slots.item }} off the shopping list."
     needs:
-      - Point it at your shopping list (Implied target: todo.shopping_list here).
+      - Point it at your shopping list (its implied target, todo.shopping_list here).
 
   shopping_list_items:
     title: What's on the shopping list
@@ -623,7 +623,7 @@ commands:
         On the shopping list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
         {%- endif -%}
     needs:
-      - Point it at your shopping list (Implied target: todo.shopping_list here).
+      - Point it at your shopping list (its implied target, todo.shopping_list here).
 
   todo_add:
     title: Add to the to-do list
@@ -651,7 +651,7 @@ commands:
         brief: Added it to the to-do list.
         specific: "Added {{ slots.item }} to the to-do list."
     needs:
-      - Point it at your to-do list (Implied target: todo.to_do here).
+      - Point it at your to-do list (its implied target, todo.to_do here).
 
   todo_add_mine:
     title: Add to my to-do list

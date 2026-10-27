@@ -349,7 +349,7 @@ commands:
       Es ist {{ wetter.get(state, state) }} bei
       {{ state_attr(slots.entity[0], 'temperature') | round }} Grad.
     needs:
-      - Point it at your weather entity (Implied target: weather.home here).
+      - Point it at your weather entity (its implied target, weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list

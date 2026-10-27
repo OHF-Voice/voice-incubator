@@ -30,6 +30,8 @@ def fixture_language(request):
 def test_every_library_command_is_valid(language):
     entries = load_library()
     assert entries and not [(e["id"], e["error"]) for e in entries if e.get("error")]
+    # What to set after adding it is text: "a: b" in it, unquoted, is a mapping.
+    assert not [(e["id"], n) for e in entries for n in e["needs"] if not isinstance(n, str)]
 
 
 def test_ids_are_unique_across_files(language):

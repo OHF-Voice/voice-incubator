@@ -425,7 +425,7 @@ commands:
       {%- set unit = 'stopień' if t | abs == 1 else ('stopnie' if t | abs % 10 in [2, 3, 4] and t | abs % 100 not in [12, 13, 14] else 'stopni') -%}
       {{ pogoda.get(state, 'Pogoda: ' ~ state) }}, {{ t }} {{ unit }}.
     needs:
-      - Point it at your weather entity (Implied target: weather.home here).
+      - Point it at your weather entity (its implied target, weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list

@@ -410,7 +410,7 @@ commands:
         ('градуса' if n % 10 in [2, 3, 4] and (n % 100 < 12 or n % 100 > 14) else 'градусов') -%}
       Сейчас {{ weather.get(state, state) }}, {{ t }} {{ word }}.
     needs:
-      - Point it at your weather entity (Implied target: weather.home here).
+      - Point it at your weather entity (its implied target, weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list

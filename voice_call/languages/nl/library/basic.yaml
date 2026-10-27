@@ -347,7 +347,7 @@ commands:
       Het is {{ weer.get(state, state) }} bij
       {{ state_attr(slots.entity[0], 'temperature') | round }} graden.
     needs:
-      - Point it at your weather entity (Implied target: weather.home here).
+      - Point it at your weather entity (its implied target, weather.home here).
 
   shopping_list_add:
     title: Add to the shopping list
