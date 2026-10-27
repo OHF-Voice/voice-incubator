@@ -246,6 +246,27 @@ def test_the_chain():
     assert model_note(found.trace) == "GLiNER: not a command"
 
 
+def test_a_pick_that_takes_none_of_what_was_heard_gives_way():
+    """"I need cookies to be on the shopping list" was closest to what's on
+    the list, which takes no item; GLiNER heard an item, which adding takes."""
+    store = {**STORE, "commands": {**STORE["commands"], "list_items": {
+        "description": "say what's on the shopping list", "examples": ["what's on the shopping list"], "response": "Milk."}}}
+    stub = StubGliner({"say what's on the shopping list": 0.44, "add something to the shopping list": 0.39},
+                      {"item": [("cookies", 0.99, 7, 14)]}, none=0.04)
+    fallback, compiled = gliner_fallback(stub, ["add_item"], store)
+
+    def closest():
+        return [("list_items", 0.82), *everything()]
+
+    found = fallback.decide("I need cookies to be on the shopping list", far, compiled, KITCHEN, closest)
+    assert found.command.id == "add_item" and found.slots == {"item": "cookies"}
+    assert found.trace["llm"]["instead_of"] == {"command": "list_items", "why": "it takes none of what was heard"}
+    # Nothing heard: the pick stands, and isn't chosen.
+    stub.entities = {}
+    found = fallback.decide("what do we need", far, compiled, KITCHEN, closest)
+    assert found.command is None and found.trace["llm"]["refused"]["command"] == "list_items"
+
+
 def test_only_chosen_commands():
     # Nothing chosen: neither step runs anything, and GLiNER is not loaded.
     compiled = compile_store(STORE)

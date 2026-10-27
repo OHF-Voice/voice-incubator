@@ -817,7 +817,10 @@ class Fallback:
         to tell it from, it would take anything for the one there is ("never
         mind" played as music) -- and its pick runs only when it was chosen,
         sure enough (``threshold``), ahead of "not a command", available here,
-        and what it heard is a combination of it. Hearing nothing in it, it
+        and what it heard is a combination of it. A pick that can take none
+        of what it heard gives way to the surest one that can ("I need cookies
+        to be on the shopping list": what's on it, 0.44, which takes no item,
+        and adding to it, 0.39, which does). Hearing nothing in it, it
         runs only when meaning puts the same command first, ahead of the
         everyday requests that are no command too: there is nothing else to
         check it by ("thank you" was "say good night", "what's twelve times
@@ -853,6 +856,19 @@ class Fallback:
         scores = {label: probabilities[label] for label in candidates}
         entities = out.get("entities") or {}
         best = max(candidates, key=lambda label: scores[label])
+        heard = {kind for kind, found in entities.items() if any(e[1] >= GLINER_ENTITY_MIN for e in found)}
+
+        def takes(label: str) -> bool:
+            """Whether a label's commands take something of what was heard."""
+            return any(
+                entity_type(name, parameter)[0] in heard
+                for command in groups[label]
+                for name, parameter in arguments.parameters[command.id].items()
+            )
+
+        took = best
+        if heard and not takes(best):
+            best = max((label for label in candidates if takes(label)), key=lambda label: scores[label], default=best)
         trace.update(
             candidates=[shown[label] for label in candidates],
             scores={shown[label]: round(p, 4) for label, p in scores.items()},
@@ -860,9 +876,11 @@ class Fallback:
             entities={k: [[e[0], round(e[1], 3)] for e in v] for k, v in entities.items() if v},
             seconds=round(seconds, 3),
         )
-        trace["raw"] = f"{shown[best]} {scores[best]:.2f}, not a command {none:.2f}" + "".join(
+        trace["raw"] = f"{shown[took]} {scores[took]:.2f}, not a command {none:.2f}" + "".join(
             f"; {k}: " + ", ".join(f"\u201c{e[0]}\u201d {e[1]:.2f}" for e in v) for k, v in entities.items() if v
         )
+        if best != took:
+            trace["instead_of"] = {"command": shown[took], "why": "it takes none of what was heard"}
         if none >= scores[best]:
             trace["said"] = "not a command"
             return found

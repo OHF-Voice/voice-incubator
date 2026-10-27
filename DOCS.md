@@ -753,7 +753,10 @@ choose them.
   third of a second on a Raspberry Pi 5, however many commands are chosen.
   When it hears nothing in the sentence ("lights out", "how late is it"), its
   pick runs only if meaning puts the same command first, ahead of the
-  everyday requests that are no command ("thank you").
+  everyday requests that are no command ("thank you"). When its pick takes
+  none of what it heard, the surest command that does takes its place: "I
+  need cookies to be on the shopping list" is closest to What's on the
+  shopping list, which takes no item, and is Add to the shopping list.
 - A command's **versions** (on this satellite, a device by name, an area or
   floor by name) are one choice to both: what was said picks the version --
   "lights out in the bedroom" is Turn off the lights in an area or floor,

@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **GLiNER's pick takes what it heard**: one that can take none of it gives
+  way to the surest command that can. "I need cookies to be on the shopping
+  list" was What's on the shopping list (0.44, no item) and ran nothing;
+  it is Add to the shopping list (0.39) now.
 - **Weather**, a library group of its own (English): the weather now ("partly
   cloudy", not "partlycloudy"), on a day ("tomorrow", "Saturday", "this
   weekend"), this week, and whether it will rain or snow ("do I need an
