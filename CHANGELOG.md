@@ -2,6 +2,15 @@
 
 ## 0.2.0
 
+- **Announcements** (English): "announce dinner is ready" says it after a
+  chime on every other satellite, or those in the area or floor named,
+  turning their music down; a satellite busy with a call says it after.
+  Commands can announce anything (`announce:`, a template).
+- **Intercom** (English): "connect to the kitchen" joins this satellite and
+  the kitchen's: each one's microphone on the other's speaker, wake words off,
+  both rings blinking, until the button on either is pressed (or half an
+  hour). Needs the new firmware (MONITOR's `intercom`, `voice_call.end_intercom`,
+  `voice_call.is_intercom`).
 - **Several items checked off or removed at once**: "check apples and
   bananas off the shopping list", "remove eggs milk and bread from the list"
   -- each one on the list, unless one item is called that whole ("mac and

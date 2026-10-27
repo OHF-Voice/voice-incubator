@@ -108,6 +108,23 @@ def test_the_scene_or_script_heard():
         parse_command("x", {"description": "x", "examples": ["x"], "scene": "movie_time"})
 
 
+def test_announce_and_intercom():
+    announce = parse_command("a", {"description": "announce something", "require": [["announce"]],
+                                   "wildcard": {"slot": "message", "after": ["announce"], "to_end": True},
+                                   "announce": "{{ slots.message }}"})
+    assert announce.behavior.does == "announce" and announce.behavior.sequence() == []
+    assert announce.behavior.outcomes() == ("done", "no_satellites", "failed")
+    intercom = parse_command("i", {"description": "talk with a room", "require": [["connect"]],
+                                   "names": {"area": {"count": 1}}, "intercom": "connect"})
+    assert intercom.behavior.does == "intercom" and "busy" in intercom.behavior.outcomes()
+    with pytest.raises(ConfigError, match="announce: what to say"):
+        parse_command("x", {"description": "x", "examples": ["x"], "announce": " "})
+    with pytest.raises(ConfigError, match="intercom: one of connect"):
+        parse_command("x", {"description": "x", "examples": ["x"], "intercom": "listen"})
+    with pytest.raises(ConfigError, match="give one of"):
+        parse_command("x", {"description": "x", "examples": ["x"], "intercom": "connect", "announce": "hi"})
+
+
 def test_a_missing_scene_is_said_as_one():
     from voice_call.engine import _which  # pylint: disable=import-outside-toplevel
     from voice_call.languages.en import speech  # pylint: disable=import-outside-toplevel

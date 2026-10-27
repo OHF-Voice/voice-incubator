@@ -37,7 +37,10 @@ variables, which the sequence and the response template can both use:
 
 A timer command (``timer: cancel`` ...) is carried out by the app on the
 satellite's voice_timer_list (voice_call/timers.py), and says what it did unless
-the command has a response of its own. A music command (``music: play`` ...)
+the command has a response of its own. An announcement (``announce``) is said
+on the other satellites -- those in the areas or floor said, else every one --
+and the intercom (``intercom: connect``) joins this satellite and the one in
+the area said once this call ends: the app does both (``satellites``). A music command (``music: play`` ...)
 is carried out on a Music Assistant player (voice_call/music.py); its response
 also sees ``player`` (the one it acted on), ``players``, when it searched
 ``media`` (what it found), and when it moved the music ``source`` (the player
@@ -293,13 +296,16 @@ async def run(
     wake_word: dict[str, Any] | None = None,
     people: dict[str, Any] | None = None,
     home: dict[str, Any] | None = None,
+    satellites: Any = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
     of the satellite's area. ``calendar``: where alarms and reminders are, in
     a language that keeps them there. ``people``: everyone's own things, for
     a command on the speaker's (``mine``); ``home``: the home's (Settings),
-    for one on the home's without its own (``home``)."""
+    for one on the home's without its own (``home``). ``satellites``: the
+    other satellites, to announce on and connect the intercom to (the app:
+    ``others``, ``announce``, ``intercom_problem``, ``intercom``)."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     catalog = getattr(hass, "catalog", None)
@@ -362,6 +368,10 @@ async def run(
         return await _run_timer(hass, behavior, values, satellite, outcome, integration)
     if behavior.music:
         return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass))
+    if behavior.announce:
+        return await _run_announce(hass, behavior, values, satellite, outcome, satellites)
+    if behavior.intercom:
+        return await _run_intercom(hass, behavior, values, satellite, outcome, satellites)
 
     if behavior.intent:
         return await _run_intent(hass, behavior, values, satellite, outcome, checked.entities)
@@ -704,6 +714,64 @@ async def _run_timer(
             return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     outcome.timings["timer"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, plan.outcome, plan.levels or plan.speech)
+
+
+async def _run_announce(
+    hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any
+) -> Outcome:
+    """Say the announcement on the other satellites: those in the areas or
+    floor named, else every one. Each says it once it is free (after a call
+    there); this one says it was announced."""
+    slots, say = values["slots"], languages.speech()
+    placed = bool(slots.get("area") or slots.get("floor"))
+    where = str(values["place"].get("said") or "") if placed else ""
+    targets = satellites.others(satellite.key, values["place"]["areas"] if placed else None) if satellites is not None else []
+    if not targets:
+        return await _say(hass, behavior, values, outcome, "no_satellites", say.no_satellites(where))
+    assert behavior.announce is not None
+    try:
+        text = _tidy(await hass.render_template(behavior.announce, values))
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        outcome.error = f"announcement: {err}"
+        return await _say(hass, behavior, values, outcome, "failed", say.FAILED, {"error": outcome.error})
+    keys = [t["key"] for t in targets]
+    outcome.sequence = [{"announce": text, "satellites": keys}]
+    found = {"text": text, "satellites": [t["name"] for t in targets]}
+    if not text:
+        outcome.error = "nothing to announce"
+        return await _say(hass, behavior, values, outcome, "failed", say.FAILED, {**found, "error": outcome.error})
+    if not outcome.dry_run:
+        satellites.announce(keys, text, satellite.key)
+    return await _say(hass, behavior, values, outcome, "done", say.announced(where), found)
+
+
+async def _run_intercom(
+    hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any
+) -> Outcome:
+    """Join this satellite and the one in the area said, once this call has
+    ended: each one's microphone on the other's speaker, until the button on
+    either is pressed."""
+    slots, say = values["slots"], languages.speech()
+    areas = values["place"]["areas"] if slots.get("area") or slots.get("floor") else []
+    where = str(values["place"].get("said") or "")
+    targets = satellites.others(satellite.key, areas) if satellites is not None and areas else []
+    if not targets:
+        if satellite.area_id and satellite.area_id in areas:
+            return await _say(hass, behavior, values, outcome, "here", say.INTERCOM_HERE)
+        return await _say(hass, behavior, values, outcome, "no_satellites", say.no_satellites(where))
+    target = targets[0]
+    found = {"satellite": target}
+    problem = satellites.intercom_problem(satellite.key, target["key"])
+    if problem == "needs_firmware":
+        return await _say(hass, behavior, values, outcome, "needs_firmware", say.INTERCOM_FIRMWARE, found)
+    if problem:
+        return await _say(hass, behavior, values, outcome, "busy", say.intercom_busy(where), found)
+    outcome.sequence = [{"intercom": "connect", "satellite": target["key"]}]
+    if not outcome.dry_run:
+        satellites.intercom(satellite.key, target["key"])
+    catalog = getattr(hass, "catalog", None)
+    to = say.place(_where(slots, satellite, catalog)[1], to=True)
+    return await _say(hass, behavior, values, outcome, "done", say.connecting(to), found)
 
 
 def _calendar_ready(calendar: alarms.AlarmCalendar | None) -> bool:

@@ -42,9 +42,12 @@ Exactly what happens is one of ``script`` (a script entity, run with the
 variables as its data), ``scene`` (activated), ``action`` (one Home Assistant
 action or a list of them, as in a script), ``timer`` (an operation on the
 satellite's own timers: start, cancel, cancel_all, pause, resume, add, subtract,
-status; see voice_call/timers.py), or ``music`` (playing or controlling Music
+status; see voice_call/timers.py), ``music`` (playing or controlling Music
 Assistant's players: play, pause, next, volume_up ...; see voice_call/music.py),
-plus an optional ``response`` template that is spoken. A command may also only
+``announce`` (a template, said on the other satellites -- every one, or those
+in the areas or floor said) or ``intercom: connect`` (the satellite in the area
+said, both ways, until the button on either is pressed), plus an optional
+``response`` template that is spoken. A command may also only
 respond, or do nothing at all -- "never mind" -- which by default says nothing,
 not even the acknowledgement sound.
 
@@ -153,7 +156,15 @@ LISTEN_KEYS = (
     "lists",
     "wildcard",
 )
-DO_KEYS = ("script", "scene", "action", "intent", "timer", "music")
+DO_KEYS = ("script", "scene", "action", "intent", "timer", "music", "announce", "intercom")
+ANNOUNCE_OUTCOMES = ("done", "no_satellites", "failed")
+"""How an announcement can turn out: said (or to be, after a call there), or
+no other satellite where it was meant for."""
+INTERCOM_OUTCOMES = ("done", "no_satellites", "here", "busy", "needs_firmware", "failed")
+"""How connecting the intercom can turn out: connecting; no satellite in the
+area said, or only this one; that one is in a call, ringing or connected;
+either's firmware can't."""
+INTERCOM_OPERATIONS = ("connect",)
 HEARD = "heard"
 """A command's ``scene`` or ``script`` when it is the one whose name was heard."""
 OUTCOME_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -307,6 +318,12 @@ class Behavior:
     music: str | None = None
     """A music operation, done by the app on a Music Assistant player."""
 
+    announce: str | None = None
+    """A template, said by the app on the other satellites."""
+
+    intercom: str | None = None
+    """``connect``: the app joins this satellite and the one in the area said."""
+
     response: str | dict[str, Any] | None = None
     """A template, or one for each outcome (see ``response_for``); done's may
     be one for each level of verbosity (SPOKEN)."""
@@ -395,6 +412,10 @@ class Behavior:
             from .music import OUTCOMES as MUSIC_OUTCOMES  # pylint: disable=import-outside-toplevel
 
             return (*MUSIC_OUTCOMES[self.music], "failed")
+        if self.announce:
+            return ANNOUNCE_OUTCOMES
+        if self.intercom:
+            return INTERCOM_OUTCOMES
         if self.script or self.action:
             return None
         if self.intent:
@@ -417,6 +438,10 @@ class Behavior:
             return "timer"
         if self.music:
             return "music"
+        if self.announce:
+            return "announce"
+        if self.intercom:
+            return "intercom"
         # Only a response, or nothing at all: "never mind".
         return "respond" if self.texts("done") else "nothing"
 
@@ -439,7 +464,7 @@ class Behavior:
         if self.scene:
             scene = "{{ slots.entity }}" if self.scene == HEARD else self.scene
             return [{"action": "scene.turn_on", "target": {"entity_id": scene}}]
-        if self.timer or self.music or self.intent:
+        if self.timer or self.music or self.intent or self.announce or self.intercom:
             return []  # the app does these itself (voice_call/timers.py, music.py, actions.py)
         return copy.deepcopy(self.action or [])
 
@@ -748,6 +773,16 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         music = str(music)
         if music not in MUSIC_OPERATIONS:
             raise ConfigError(f"{where}.music: one of {', '.join(MUSIC_OPERATIONS)}")
+    announce = spec.get("announce")
+    if announce is not None:
+        announce = str(announce).strip()
+        if not announce:
+            raise ConfigError(f"{where}.announce: what to say (a template: {{{{ slots.message }}}})")
+    intercom = spec.get("intercom")
+    if intercom is not None:
+        intercom = str(intercom)
+        if intercom not in INTERCOM_OPERATIONS:
+            raise ConfigError(f"{where}.intercom: one of {', '.join(INTERCOM_OPERATIONS)}")
     response = _response(spec.get("response"), f"{where}.response")
     verbosity = _verbosity(spec.get("verbosity"), f"{where}.verbosity")
     intent = _intent(spec["intent"], f"{where}.intent") if spec.get("intent") else None
@@ -776,6 +811,8 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         intent=intent,
         timer=timer,
         music=music,
+        announce=announce,
+        intercom=intercom,
         response=response or None,
         verbosity=verbosity,
         mine=mine,

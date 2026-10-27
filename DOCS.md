@@ -816,6 +816,32 @@ satellite's area ("open the blinds"), a cover by name ("open the skylight"),
 and by type in an area or floor ("close the shades upstairs"). Locks are
 only by name, and "lock up" and "is everything locked" are every lock.
 
+## Announcements and intercom
+
+The library's **Announcements and intercom** group (English) works between
+satellites:
+
+- **Announce**: "announce dinner is ready", "tell everyone dinner is ready",
+  "announce dinner is ready in the kitchen", "announce upstairs that it's
+  bedtime". A chime, then the message, on every other satellite -- or those
+  in the area or on the floor named. Their music is turned down meanwhile. A
+  satellite in a call, ringing a timer or on the intercom says it once that is
+  over, within a minute; a call started meanwhile cuts it off.
+- **Intercom**: "connect to the kitchen", "call the bedroom voice assistant",
+  "drop in on the office". This satellite says "Connecting to the Kitchen.",
+  and once its call ends, both play a tone and what is said at each is heard
+  at the other. Neither answers its wake words meanwhile, and both rings
+  blink. The **button on either** ends it on both (another tone); so does
+  either disconnecting, a timer finishing on either, or half an hour. The
+  satellite in the area named is the first of them by name; one already in a
+  call, ringing or on the intercom is busy.
+
+A command of your own can announce something fixed or a template of what was
+heard (`announce: "Dinner is ready"`, `announce: "{{ slots.message }}"`), and
+connect the intercom (`intercom: connect`, with an area to listen for). Both
+need the satellites' firmware to be recent: the intercom says so when it
+isn't. Announcements are said in each satellite's voice.
+
 ## When nothing matches
 
 In order, each only when the one before found nothing:

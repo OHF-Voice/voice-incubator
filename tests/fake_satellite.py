@@ -62,6 +62,10 @@ class FakeSatellite:
     """Says in HELLO that it can stream outside calls, as newer firmware does."""
     monitoring: list[bool] = field(default_factory=list)
     """Every MONITOR the app sent: streaming, or not."""
+    intercom: list[bool] = field(default_factory=list)
+    """And whether each was for the intercom."""
+    heard: bytearray = field(default_factory=bytearray)
+    """Every AUDIO_OUT received, in order."""
     monitor_aec: bool = True
     """Says in HELLO that it streams the second capture too while monitored."""
     room_audio: bytes | None = None
@@ -125,6 +129,7 @@ class FakeSatellite:
                 self.ready.set()
         elif msg_type == Message.AUDIO_OUT:
             self.played += len(payload)
+            self.heard += payload
             self.audio_out.set()
         elif msg_type == Message.AUDIO_OUT_END:
             self.ends += 1
@@ -135,8 +140,10 @@ class FakeSatellite:
             self.events.append(event)
             _LOGGER.info("event %s %s", event.get("type"), event.get("data"))
         elif msg_type == Message.MONITOR:
-            active = bool(json.loads(payload).get("active"))
+            told = json.loads(payload)
+            active = bool(told.get("active"))
             self.monitoring.append(active)
+            self.intercom.append(bool(told.get("intercom")))
             if active and self._streaming is None:
                 self._streaming = asyncio.ensure_future(self._stream())
             elif not active and self._streaming is not None:

@@ -1,0 +1,47 @@
+# Between satellites: announcements, and the intercom.
+#
+# An announcement is said on the other satellites, after a chime: every one, or
+# those in the area or on the floor named. One in a call, ringing a timer or
+# joined by the intercom says it once that is over (within a minute).
+#
+# The intercom joins this satellite and the one in the area named, once this
+# call ends: what is said at each is heard at the other. Both stop answering
+# wake words and blink their rings until the button on either is pressed (or
+# after half an hour). Both need firmware that can.
+title: Announcements and intercom
+icon: mdi:bullhorn
+
+commands:
+  announce:
+    title: Announce
+    icon: mdi:bullhorn
+    description: announce something on the other satellites
+    # "Announce dinner is ready", "tell everyone dinner is ready", "announce
+    # dinner is ready upstairs", "announce in the kitchen that dinner is ready".
+    require: [[announce, broadcast, tell everyone, tell everybody]]
+    optional: [[that], [in, on, to], [the]]
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[message], [area, message], [floor, message]]
+    wildcard:
+      slot: message
+      after: [announce, broadcast, tell everyone, tell everybody, that]
+      to_end: true
+      max_words: 15
+    announce: "{{ slots.message }}"
+
+  intercom:
+    title: Intercom
+    icon: mdi:phone-in-talk
+    description: talk with another room through its satellite
+    # "Connect to the kitchen", "intercom the kitchen", "call the kitchen
+    # voice assistant", "drop in on the bedroom".
+    require: [[connect, intercom, call, drop in]]
+    optional: [[to, with, on], [the], [voice assistant, satellite]]
+    names:
+      area: {count: 1}
+    intercom: connect
+    needs:
+      - Give the satellites their areas (Satellites page), and the areas names
+        (Names page). The button on either satellite ends it.

@@ -35,14 +35,15 @@ function h(tag, attrs, ...children) {
 
 // Icons: a command's own (icon: mdi:…), else one for what it does. ICONS is
 // the subset of Material Design Icons in icons.js (scripts/make_icons.py).
-const KIND_ICONS = { respond: "mdi:message-text-outline", action: "mdi:flash-outline", script: "mdi:script-text-outline", scene: "mdi:palette", timer: "mdi:timer-outline", music: "mdi:music", nothing: "mdi:close-circle-outline" };
+const KIND_ICONS = { respond: "mdi:message-text-outline", action: "mdi:flash-outline", script: "mdi:script-text-outline", scene: "mdi:palette", timer: "mdi:timer-outline", music: "mdi:music", announce: "mdi:bullhorn", intercom: "mdi:phone-in-talk", nothing: "mdi:close-circle-outline" };
 
 // Whether a response says something when done: a plain one, or done's.
 const respondsWhenDone = (response) => Boolean(typeof response === "string" ? response
   : response && response.done && (typeof response.done === "string" || Object.values(response.done).some(Boolean)));
 
 function kindOf(spec) {
-  return spec.script ? "script" : spec.scene ? "scene" : spec.timer ? "timer" : spec.music ? "music" : spec.action ? "action"
+  return spec.script ? "script" : spec.scene ? "scene" : spec.timer ? "timer" : spec.music ? "music"
+    : spec.announce ? "announce" : spec.intercom ? "intercom" : spec.action ? "action"
     : respondsWhenDone(spec.response) ? "respond" : "nothing";
 }
 
@@ -831,17 +832,21 @@ async function pageCommand(id, prefill, query) {
   function behaviorEditor(target, yamlBox) {
     const wrap = h("div");
     const current = () => (target.script ? "script" : target.scene ? "scene" : target.intent ? "intent" : target.timer ? "timer" : target.music ? "music"
+      : target.announce ? "announce" : target.intercom ? "intercom"
       : (yamlBox.value || "").trim() ? "action" : respondsWhenDone(target.response) ? "respond" : "nothing");
     let mode = current();
     function render() {
-      const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["intent", "Run an intent"], ["timer", "A timer"], ["music", "Music"], ["nothing", "Nothing"]];
+      const choices = [["respond", "Only respond"], ["script", "Run a script"], ["scene", "Activate a scene"], ["action", "Run an action"], ["intent", "Run an intent"], ["timer", "A timer"], ["music", "Music"], ["announce", "Announce"], ["intercom", "Intercom"], ["nothing", "Nothing"]];
       const radios = h("div", { class: "row" }, ...choices.map(([value, label]) => h("label", {},
         h("input", { type: "radio", name: `do-${Math.random()}`, checked: mode === value, onchange: () => {
           // Responses for outcomes only the old kind had go (a script's own stay with an action).
           const scripted = (m) => m === "script" || m === "action";
-          if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "nothing" ? [] : value === "respond" ? ["done"] : value === "intent" ? INTENT_OUTCOMES : ["done", "failed"]);
+          const own = { intent: INTENT_OUTCOMES, announce: ["done", "no_satellites", "failed"], intercom: ["done", "no_satellites", "here", "busy", "needs_firmware", "failed"] };
+          if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "nothing" ? [] : value === "respond" ? ["done"] : own[value] || ["done", "failed"]);
           mode = value;
-          delete target.script; delete target.scene; delete target.timer; delete target.music; delete target.intent;
+          delete target.script; delete target.scene; delete target.timer; delete target.music; delete target.intent; delete target.announce; delete target.intercom;
+          if (value === "announce") target.announce = "{{ slots.message }}";
+          if (value === "intercom") target.intercom = "connect";
           if (value === "intent") target.intent = { name: "HassTurnOn", slots: { domain: "light" } };
           if (value === "timer") target.timer = "start";
           if (value === "music") target.music = "play";
@@ -874,6 +879,14 @@ async function pageCommand(id, prefill, query) {
         control = field("Music", h("select", { onchange: (e) => { target.music = e.target.value; keepOutcomes([...Object.keys(musicOutcomes()), "failed"]); render(); } },
           ...Object.entries(ops).map(([op, label]) => h("option", { value: op, selected: target.music === op }, label))),
           "On a Music Assistant player: one the command names (Target, or slots.area), else the satellite's own (its Sendspin player), or, to pause, skip or ask what's playing, whichever plays in the satellite's area. Playing searches Music Assistant for slots.query (free text: “play …”); slots.media_type (artist, album, track, playlist, radio) narrows it. Set the volume takes a percentage.");
+      } else if (mode === "announce") {
+        const said = h("textarea", { class: "code short", placeholder: "{{ slots.message }}", oninput: (e) => { target.announce = e.target.value; } });
+        said.value = target.announce || "";
+        control = field("What is announced", said,
+          "Said after a chime on the other satellites: those in the area or floor named, else every one. A template: {{ slots.message }} is free text heard (“announce …”). A satellite in a call says it after.");
+      } else if (mode === "intercom") {
+        control = h("p", { class: "muted small" }, "Connects this satellite and the one in the area named, once this call ends.",
+          hint("What is said at each is heard at the other. Both stop answering wake words and blink their rings until the button on either is pressed, or after half an hour. Listen for an area (Keywords); both satellites need firmware that can."));
       } else if (mode === "intent") {
         const intent = typeof target.intent === "string" ? { name: target.intent } : { ...(target.intent || {}) };
         const save = () => { target.intent = { name: intent.name, ...(intent.slots && Object.keys(intent.slots).length ? { slots: intent.slots } : {}), ...(intent.anywhere ? { anywhere: true } : {}), ...(intent.home ? { home: true } : {}) }; };
@@ -1003,6 +1016,18 @@ async function pageCommand(id, prefill, query) {
         return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "Responses"),
             hint(`Each outcome says its own sentence (shown) unless you give one here. Templates also see result.count, result.names and result.ids (what it acted on), result.unavailable, result.skipped (what couldn't do what it needs: said after the verbose response unless it uses it), and result.speech (Home Assistant's own). ${vars}`)),
           doneEditor("Turned on the lights {{ place.said }}", null, false),
+          h("div", { class: "grid2" }, ...rows));
+      }
+      if (mode === "announce" || mode === "intercom") {
+        const said = outcomeInfo()[mode] || {};
+        const labels = { no_satellites: "No other satellite there", here: "Only this one there", busy: "That one is busy", needs_firmware: "Firmware can't" };
+        for (const [key, example] of Object.entries(said)) {
+          if (key !== "done") rows.push(field(labels[key] || key, box(key, example, false)));
+        }
+        rows.push(field("If it fails", box("failed", info.failed, false)));
+        return h("div", {}, h("div", { class: "label-row" }, h("span", { class: "label" }, "Responses"),
+            hint(`Each outcome says its own sentence (shown) unless you give one here. ${mode === "announce" ? "Templates also see result.text (what is announced) and result.satellites (where)." : "Templates also see result.satellite (name, area_id)."} ${vars}`)),
+          doneEditor(said.done, null, false),
           h("div", { class: "grid2" }, ...rows));
       }
       if (mode === "music") {

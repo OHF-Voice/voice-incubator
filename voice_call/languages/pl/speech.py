@@ -91,6 +91,37 @@ def none_can(place: str, capability: str | None) -> str:
     return f"Nic {place} nie obsługuje {what}." if place else f"Nic nie obsługuje {what}."
 
 
+# ------------------------------------------------------- other satellites
+
+
+def announced(place: str) -> dict[str, str]:
+    """An announcement, said on the other satellites: every one, or those
+    ``place`` ("in the Kitchen", "upstairs")."""
+    return {"brief": "Ogłoszone.", "specific": f"Ogłoszone {place}." if place else "Ogłoszone wszędzie."}
+
+
+def no_satellites(place: str) -> str:
+    """No other satellite ``place`` ("in the Kitchen"; "" for anywhere)."""
+    return f"Nie ma innego satelity {place}." if place else "Nie ma innych satelitów."
+
+
+def connecting(to: str) -> str:
+    """The intercom, about to connect ``to`` there (``place(to=True)``)."""
+    return f"Łączę {to}."
+
+
+def intercom_busy(place: str) -> str:
+    """The satellite there is in a call, ringing or connected."""
+    return f"Satelita {place} jest teraz zajęty."
+
+
+INTERCOM_FIRMWARE = "Interkom wymaga nowszego firmware'u na obu satelitach."
+"""Either satellite's firmware can't connect the intercom."""
+
+INTERCOM_HERE = "Przecież tu jesteś."
+"""The intercom asked for the satellite's own area, with none other there."""
+
+
 EXAMPLE_NAMES = {
     "room": "Kuchnia",
     "player": "Głośnik w kuchni",

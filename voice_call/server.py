@@ -20,7 +20,7 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
-from . import actions, alarms, languages, people, skills, timers
+from . import actions, alarms, languages, people, skills, timers, tones
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
 from .calls import CallLog, CallRecord
@@ -99,6 +99,19 @@ THINKING_FADE = 0.03
 # the announcement (synthesis, then fetching the URL), and plays it out.
 ANNOUNCE_START_TIMEOUT = 10.0
 ANNOUNCE_TIMEOUT = 120.0
+
+# An announcement waits this long for a satellite busy with a call, a ringing
+# timer or the intercom, then is dropped there.
+ANNOUNCE_WAIT = 60.0
+
+# The intercom: how long the call that asked for it may take to end; how much
+# of one satellite's microphone may wait to reach the other (beyond it, the
+# audio is dropped, not queued: what is said must arrive now or not at all);
+# and how long it lasts, unless a button ends it first (a microphone left open
+# in an empty room).
+INTERCOM_START_WAIT = 30.0
+INTERCOM_BACKLOG = 64 * 1024
+INTERCOM_LIMIT = 30 * 60.0
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -546,9 +559,34 @@ class Session:
     monitoring: bool = False
     """What the device was last told (MONITOR): someone listens live, or a
     speaker is enrolled from it."""
+    monitoring_intercom: bool = False
+    """And whether it was told that is the intercom."""
+    intercom: "Intercom | None" = None
+    """Joined to another satellite: each one's microphone on the other's speaker."""
+    announcements: asyncio.Lock = field(default_factory=asyncio.Lock)
+    """One announcement at a time."""
+    announcing_now: asyncio.Task | None = None
+    """The announcement being said: a call starting cuts it off."""
 
     def __str__(self) -> str:
         return self.device_id
+
+
+@dataclass
+class Intercom:
+    """Two satellites joined, each one's microphone on the other's speaker,
+    until the button on either is pressed."""
+
+    a: str
+    b: str
+    """Who asked, and who was connected to (satellite keys)."""
+    started: float = field(default_factory=time.monotonic)
+    record: CallRecord | None = None
+    limit: asyncio.Task | None = None
+    ended: bool = False
+
+    def peer(self, key: str) -> str:
+        return self.b if key == self.a else self.a
 
 
 class VoiceCallApp:
@@ -1369,7 +1407,9 @@ class VoiceCallApp:
                             queue.get_nowait()
                         queue.put_nowait(None)
                     session.listeners.clear()
-                    session.monitoring = False
+                    session.monitoring = session.monitoring_intercom = False
+                    if session.intercom is not None:
+                        self._spawn(self.end_intercom(session.intercom, f"{self.satellite(session.satellite).name} disconnecting"))
                     enrollment = self.enrollment
                     if enrollment is not None and enrollment.satellite == session.satellite and enrollment.listening:
                         enrollment.state, enrollment.error = "failed", "The satellite disconnected"
@@ -1460,6 +1500,8 @@ class VoiceCallApp:
 
         if msg_type == Message.AUDIO_MONITOR:
             self._live(session, payload)
+            if session.intercom is not None:
+                self._to_peer(session, payload)
             return
 
         if msg_type == Message.AUDIO_MONITOR_AEC:
@@ -1551,6 +1593,9 @@ class VoiceCallApp:
                 session.announcing.set()
             elif kind == "announced":
                 session.announced.set()
+            elif kind == "intercom_end" and session.intercom is not None:
+                # The button, on either.
+                self._spawn(self.end_intercom(session.intercom, f"the button on {self.satellite(session.satellite).name}"))
             elif kind == "stop_timer" and session.ringing is not None and not session.ringing.done():
                 # The center button.
                 _LOGGER.info("[%s] Timer stopped by the button", session)
@@ -1638,13 +1683,14 @@ class VoiceCallApp:
         """Have the device stream outside calls while someone listens live, a
         speaker is enrolled from it or records a wake word there, and not
         otherwise."""
-        wanted = bool(session.listeners) or any(
+        intercom = session.intercom is not None
+        wanted = intercom or bool(session.listeners) or any(
             s is not None and s.satellite == session.satellite and s.listening
             for s in (self.enrollment, self.wake_recording)
         )
-        if wanted != session.monitoring and session.writer is not None:
-            session.monitoring = wanted
-            await self._send_json(session, Message.MONITOR, {"active": wanted})
+        if (wanted, intercom) != (session.monitoring, session.monitoring_intercom) and session.writer is not None:
+            session.monitoring, session.monitoring_intercom = wanted, intercom and wanted
+            await self._send_json(session, Message.MONITOR, {"active": wanted, "intercom": intercom and wanted})
 
     # ------------------------------------------------------------ speakers
 
@@ -1855,6 +1901,8 @@ class VoiceCallApp:
             aec_preroll_bytes=int(info.get("aec_preroll_bytes", 0)),
         )
         session.drained.clear()
+        if session.announcing_now is not None and not session.announcing_now.done():
+            session.announcing_now.cancel()  # someone wants it: the announcement waits no more
         if session.ringing is not None and not session.ringing.done():
             # The device already cut the alarm off when the call started.
             session.ringing.cancel()
@@ -2566,7 +2614,7 @@ class VoiceCallApp:
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
-            home=self.store.settings.get("home"),
+            home=self.store.settings.get("home"), satellites=self,
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
@@ -2970,6 +3018,8 @@ class VoiceCallApp:
     async def _ring(self, session: Session) -> None:
         """Say which timer finished, then sound the alarm until someone says
         "stop" (or wakes the satellite), or it times out."""
+        if session.intercom is not None:
+            await self.end_intercom(session.intercom, "a timer")
         record = self.calls.begin("timer", self.satellite(session.satellite).as_dict())
         deadline = time.monotonic() + self.options.timer_ring_seconds
         stopped_by = "timeout"
@@ -3019,6 +3069,153 @@ class VoiceCallApp:
         await self._event(session, "timer_stopped")
         if self.wake_words.model(STOP) is not None:
             await self._push_wake_models(session)
+
+    # ------------------------------------------------------ other satellites
+    # What commands announce on and connect the intercom to (actions.run's
+    # ``satellites``).
+
+    def others(self, source: str, areas: list[str] | None) -> list[dict[str, Any]]:
+        """The connected satellites but ``source``, in ``areas`` (None: every
+        one), by name: ``key``, ``name``, ``area_id``."""
+        out = []
+        for key, session in list(self.sessions.items()):
+            if key == source or session.writer is None:
+                continue
+            satellite = self.satellite(key)
+            if areas is None or satellite.area_id in areas:
+                out.append({"key": key, "name": satellite.name, "area_id": satellite.area_id})
+        return sorted(out, key=lambda s: str(s["name"]).lower())
+
+    def announce(self, keys: list[str], text: str, source: str) -> None:
+        """Say ``text`` on these satellites, each once it is free."""
+        for key in keys:
+            session = self.sessions.get(key)
+            if session is not None:
+                self._spawn(self._announce(session, text, source))
+
+    def _busy(self, session: Session) -> bool:
+        """In a call, ringing a timer or joined by the intercom."""
+        return (
+            session.call is not None
+            or (session.ringing is not None and not session.ringing.done())
+            or session.intercom is not None
+        )
+
+    async def _announce(self, session: Session, text: str, source: str) -> None:
+        """The chime and the announcement on one satellite, after a call, a
+        ringing timer or the intercom there -- or not at all, after
+        ANNOUNCE_WAIT. A call starting meanwhile cuts it off."""
+        record = self.calls.begin("announcement", self.satellite(session.satellite).as_dict())
+        record.stage("announcement", text=text, source=self.satellite(source).name if source else None)
+        async with session.announcements:
+            deadline = time.monotonic() + ANNOUNCE_WAIT
+            while self._busy(session) and session.writer is not None and time.monotonic() < deadline:
+                await asyncio.sleep(0.2)
+            if session.writer is None or self._busy(session):
+                self.calls.finish(record, "not announced", "disconnected" if session.writer is None else "still busy")
+                return
+            session.announcing_now = asyncio.current_task()
+            ending = "announced"
+            try:
+                await self._event(session, "announcement", active=True)
+                await self._play(session, tones.CHIME, paced=True)
+                await self._say(session, text, record, paced=True)
+            except asyncio.CancelledError:
+                ending = "cut off by a call"
+                raise
+            finally:
+                session.announcing_now = None
+                with contextlib.suppress(ConnectionError, OSError):
+                    await self._event(session, "announcement", active=False)
+                self.calls.finish(record, ending, text)
+
+    def intercom_problem(self, source: str, target: str) -> str | None:
+        """Why these two can't be joined: ``needs_firmware``, or ``busy`` (a
+        call, a ringing timer, the intercom, or someone enrolling or recording
+        there); None when they can."""
+        a, b = self.sessions.get(source), self.sessions.get(target)
+        if a is None or b is None or a.writer is None or b.writer is None:
+            return "busy"
+        if not (a.hello.get("intercom") and b.hello.get("intercom")):
+            return "needs_firmware"
+        recording = [s.satellite for s in (self.enrollment, self.wake_recording) if s is not None and s.listening]
+        if a.intercom is not None or (b.call is not None or b.intercom is not None) or self._busy(b) or {source, target} & set(recording):
+            return "busy"
+        return None
+
+    def intercom(self, source: str, target: str) -> None:
+        """Join them once the call that asked has ended."""
+        self._spawn(self._intercom_after_call(source, target))
+
+    async def _intercom_after_call(self, source: str, target: str) -> None:
+        session = self.sessions.get(source)
+        deadline = time.monotonic() + INTERCOM_START_WAIT
+        while session is not None and session.call is not None and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        await self._start_intercom(source, target)
+
+    async def _start_intercom(self, source: str, target: str) -> None:
+        """The connect tone on both, then each one's microphone on the other's
+        speaker; the devices stop answering wake words and show it."""
+        problem = self.intercom_problem(source, target)
+        if problem is not None:
+            _LOGGER.warning("Intercom %s -> %s not connected: %s", source, target, problem)
+            return
+        a, b = self.sessions[source], self.sessions[target]
+        intercom = Intercom(source, target)
+        intercom.record = self.calls.begin("intercom", self.satellite(source).as_dict())
+        intercom.record.stage("intercom", to=self.satellite(target).as_dict())
+        a.intercom = b.intercom = intercom
+        _LOGGER.info("[%s] Intercom with %s", a, b)
+        try:
+            await asyncio.gather(self._play(a, tones.CONNECTED), self._play(b, tones.CONNECTED))
+            for session in (a, b):
+                await self._set_monitor(session)
+        except (ConnectionError, OSError) as err:
+            await self.end_intercom(intercom, f"an error ({err})")
+            return
+        intercom.limit = self._spawn(self._intercom_limit(intercom))
+
+    async def _intercom_limit(self, intercom: Intercom) -> None:
+        await asyncio.sleep(INTERCOM_LIMIT)
+        await self.end_intercom(intercom, "its time limit")
+
+    def _to_peer(self, session: Session, chunk: bytes) -> None:
+        """One satellite's microphone, now, on the other's speaker: dropped
+        rather than queued when the other can't keep up."""
+        intercom = session.intercom
+        peer = self.sessions.get(intercom.peer(session.satellite)) if intercom is not None else None
+        if peer is None or peer.writer is None or peer.intercom is not intercom:
+            return
+        if peer.writer.transport.get_write_buffer_size() < INTERCOM_BACKLOG:
+            peer.writer.write(encode(Message.AUDIO_OUT, chunk))
+
+    async def end_intercom(self, intercom: Intercom, by: str) -> None:
+        """Both satellites back to themselves: no more streaming, the end tone,
+        wake words again."""
+        if intercom.ended:
+            return
+        intercom.ended = True
+        if intercom.limit is not None and intercom.limit is not asyncio.current_task():
+            intercom.limit.cancel()
+        _LOGGER.info("Intercom %s <-> %s ended by %s", intercom.a, intercom.b, by)
+        ended = []
+        for key in (intercom.a, intercom.b):
+            session = self.sessions.get(key)
+            if session is None or session.intercom is not intercom:
+                continue
+            session.intercom = None
+            with contextlib.suppress(ConnectionError, OSError):
+                await self._set_monitor(session)
+                # What was on its way from the other is not played; the device
+                # starts afresh (a cancelled stream is dropped until its end).
+                await self._send(session, Message.AUDIO_OUT_END)
+                ended.append(session)
+        for session in ended:
+            self._spawn(self._play(session, tones.ENDED))
+        if intercom.record is not None:
+            intercom.record.stage("intercom_end", by=by, seconds=round(time.monotonic() - intercom.started, 1))
+            self.calls.finish(intercom.record, "intercom ended", f"with {self.satellite(intercom.b).name}, ended by {by}")
 
     # ------------------------------------------------------------ speaker ID
 

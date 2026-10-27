@@ -122,7 +122,7 @@ def test_commands_are_listed_by_library_section():
     from voice_call.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
 
     sections, _ids = library_sections()
-    assert [s["file"] for s in sections] == ["basic", "climate", "home", "music", "timers", "weather"] and sections[0]["title"] == "Basics"
+    assert [s["file"] for s in sections] == ["basic", "climate", "home", "music", "satellites", "timers", "weather"] and sections[0]["title"] == "Basics"
     # Added from the library (library: music), else by id -- a numbered or
     # copied one too; made from scratch: none (Custom).
     assert library_of("anything", {"library": "music"}) == "music"

@@ -192,6 +192,21 @@ def intent_examples() -> dict[str, str]:
     }
 
 
+def satellite_examples() -> dict[str, dict[str, str]]:
+    """What announcing and the intercom say for each way they can turn out,
+    unless the command says its own: in the example room."""
+    say = languages.speech()
+    room = say.place([("area", say.EXAMPLE_NAMES["room"])])
+    return {
+        "announce": {"done": say.announced(room)["specific"], "no_satellites": say.no_satellites(room)},
+        "intercom": {
+            "done": say.connecting(say.place([("area", say.EXAMPLE_NAMES["room"])], to=True)),
+            "no_satellites": say.no_satellites(room), "here": say.INTERCOM_HERE,
+            "busy": say.intercom_busy(room), "needs_firmware": say.INTERCOM_FIRMWARE,
+        },
+    }
+
+
 class Api:
     def __init__(self, app: "VoiceCallApp") -> None:
         self.app = app
@@ -235,6 +250,7 @@ class Api:
                     "timer": timers.outcome_examples(),
                     "music": music.examples(),
                     "intent": intent_examples(),
+                    **satellite_examples(),
                     # ... and when done, by level of verbosity.
                     "timer_levels": timers.level_examples(),
                     "music_levels": music.level_examples(),
