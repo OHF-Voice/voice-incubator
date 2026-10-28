@@ -1770,7 +1770,13 @@ function placedSections(store, skillData, place, emptyText, library, words = [])
   const notAdded = (file) => {
     const missing = families.filter((f) => f.file === file && !f.versions.some((e) => libraryAdded(yours, e.id)));
     if (!missing.length) return null;
-    const add = async (entries) => { try { await addFromLibrary(entries); route(); } catch (err) { toast(err.message); } };
+    // One added: its page, as from the library. Several: here.
+    const add = async (entries) => {
+      try {
+        const result = await addFromLibrary(entries);
+        if (entries.length === 1) location.hash = `#/command/${result.id}`; else route();
+      } catch (err) { toast(err.message); }
+    };
     return h("div", { class: "not-added small muted" }, "Not added: ",
       missing.map((f, i) => [i ? ", " : "", h("button", { type: "button", class: "link", title: `Add ${f.title}`, onclick: () => add([defaultVersion(f)]) }, f.title)]),
       missing.length > 1 ? [" · ", h("button", { type: "button", class: "link", onclick: () => add(missing.map(defaultVersion)) }, "add all")] : null);
@@ -4002,10 +4008,16 @@ async function pageSettings() {
 
 // ------------------------------------------------------------------ router
 
+let routedPath = null;
+
 async function route() {
   stopPolling();
   const hash = location.hash || "#/home";
   const [path, query] = hash.slice(2).split("?");
+  // Another page opens at its top; the same one again (after a save) keeps
+  // its place.
+  if (path !== routedPath) window.scrollTo(0, 0);
+  routedPath = path;
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
