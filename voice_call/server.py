@@ -286,11 +286,6 @@ def tdt_choice(value: Any) -> str:
     return value if value in TDT_MODELS else DEFAULT_TDT
 
 
-# Shipped lower than the models' own manifests, per wake word (see
-# wake_words.VERIFIED_CUTOFF, and the "Two stages" and "Wake words" sections of
-# the README for the measurements behind them).
-DEFAULT_WAKE_CUTOFF = 0.2
-
 # How much audio from after the detection to add when the wake word ran into
 # the end of the pre-roll, and how close to that end counts as running into it.
 DEFAULT_WAKE_TAIL = 0.3
@@ -366,7 +361,7 @@ class Options:
     Negative disables it."""
     wake_probability_cutoff: float | None = None
     """Overrides the first-stage cutoff of every verified wake word (each has
-    its own: okay_nabu's is DEFAULT_WAKE_CUTOFF), never a custom word's, which
+    its own: wake_words.VERIFIED_CUTOFF), never a custom word's, which
     runs at its manifest's.
 
     The manifests ship 0.85, which assumes a voice at the device. Across a room
@@ -513,7 +508,6 @@ class WakeVerdict:
     window: bytes = b""
     ratio: float | None = None
     overturned: bool = False
-    retried: bool = False
 
 
 @dataclass
@@ -536,7 +530,6 @@ class Session:
     satellite: str = ""
     """The satellite's key (its MAC) once it has said HELLO."""
     hello: dict = field(default_factory=dict)
-    connected_at: float | None = None
     warned_quiet_aec: bool = False
     ringing: asyncio.Task | None = None
     """A finished timer ringing on this satellite."""
@@ -1176,8 +1169,8 @@ class VoiceCallApp:
         if not self.language.wake_ratio:
             return
         words = self.wake_words.scan()
-        for word_id in [w for w in self.wake_ratios if w not in words or not words[w].verified]:
-            del self.wake_ratios[word_id]
+        for gone in [w for w in self.wake_ratios if w not in words or not words[w].verified]:
+            del self.wake_ratios[gone]
         for word in words.values():
             if not word.verified or not word.phrases:
                 continue
@@ -1403,7 +1396,6 @@ class VoiceCallApp:
                     _cancel_stt(session.call)
                     session.call = None
                     session.writer = None
-                    session.connected_at = None
                     # Whoever listened hears the end: the device stopped streaming.
                     for queue in session.listeners:
                         while not queue.empty():
@@ -1545,7 +1537,6 @@ class VoiceCallApp:
             session.device_id = _device_id(info)
             session.hello = info
             session.satellite = _satellite_key(info, session.key)
-            session.connected_at = time.time()
             self.sessions[session.satellite] = session
             self._remember_satellite(session)
             _LOGGER.info("[%s] Device: %s", session, info)
@@ -2208,10 +2199,9 @@ class VoiceCallApp:
             if await self._audio_through(
                 call, call.preroll_bytes + tail, self.options.wake_tail + 0.5
             ):
-                verdict.retried = True
                 retry, retry_window = await self._verify_at(label, call, tail)
                 if retry.accepted or retry.split is not None:
-                    verdict = WakeVerdict(retry.accepted, retry, tail, retry_window, retried=True)
+                    verdict = WakeVerdict(retry.accepted, retry, tail, retry_window)
 
         if not verdict.accepted:
             # The thresholds Kaldi applies to the phrase and to its last word

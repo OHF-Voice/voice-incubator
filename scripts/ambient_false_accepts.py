@@ -26,7 +26,7 @@ import numpy as np
 from ai_edge_litert.interpreter import Interpreter
 from mmap_ninja.ragged import RaggedMmap
 
-STRIDE, WINDOW, MUTE = 3, 5, 100
+WINDOW, MUTE = 5, 100
 CUTOFFS = (0.3, 0.4, 0.5, 0.56, 0.69, 0.85)
 
 

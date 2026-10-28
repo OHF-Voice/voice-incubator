@@ -492,19 +492,9 @@ class Command:
     """One adapt-ctc intent for each combination, by name (``command_of``)."""
 
     @property
-    def takes_nothing(self) -> bool:
-        """Whether it can run with nothing heard (a combination of no slots)."""
-        return () in self.combinations
-
-    @property
     def takes_something(self) -> bool:
         """Whether some combination needs a name, number, value or text heard."""
         return any(self.combinations)
-
-    @property
-    def heard_slots(self) -> tuple[str, ...]:
-        """Every slot some combination hears, in order."""
-        return tuple(dict.fromkeys(slot for combination in self.combinations for slot in combination))
 
     def combination_for(self, heard: set[str] | frozenset[str]) -> tuple[str, ...] | None:
         """The combination these heard slots are, exactly; None if none is."""

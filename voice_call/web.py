@@ -39,7 +39,6 @@ from .commands import (
     parse_command,
     satellite_keys,
 )
-from .fallback import needs_heard_slots
 from .hass import VOICE_DOMAINS, HassError
 from .skills import LEVELS, SKILLS, available, skill_satellites
 from .skills import answer as skill_answer
@@ -306,7 +305,7 @@ class Api:
                     "satellites": list(command.satellites) if command.satellites is not None else None,
                     "does": command.behavior.does,
                     # Meaning can't run it: it needs a name, number, value or text heard.
-                    "needs_said": needs_heard_slots(command),
+                    "needs_said": command.takes_something,
                     # How much it says when done, and whether it only answers.
                     "verbosity": command.behavior.level,
                     "default_verbosity": command.behavior.default_verbosity,

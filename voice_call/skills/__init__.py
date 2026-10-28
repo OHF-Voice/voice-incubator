@@ -17,7 +17,7 @@ They are asked in ``SKILLS`` order, before the command fallback (meaning,
 the LLM) -- they are instant and never wrong: spelling first ("how do you
 spell weather" is not about the weather), then, unless the question is about
 now or here (``live.is_live``: left to the conversation agent, or the Unknown
-command), dates, clock arithmetic, units, arithmetic.
+command), dates, time from now, units, arithmetic.
 
 Each gets the question normalized (``common.normalize``): "What’s",
 "50°F", "12 × 8", "½ cup" and "$80" as a typed question, or another

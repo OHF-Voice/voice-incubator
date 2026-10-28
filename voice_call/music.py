@@ -106,8 +106,6 @@ OUTCOMES = {
 
 CONTROLS = ("pause", "resume", "stop", "next", "previous", "volume_up", "volume_down", "volume_set", "mute", "unmute", "status")
 """What any media player does, not only Music Assistant's."""
-KINDS = ("music", "tv")
-"""What ``slots.kind`` may pick: Music Assistant's players, or TVs."""
 VOLUME_SET = 4
 """MediaPlayerEntityFeature.VOLUME_SET: a volume can be set, not only stepped."""
 

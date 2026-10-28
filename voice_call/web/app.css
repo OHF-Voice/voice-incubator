@@ -137,9 +137,6 @@ h2.row { gap: 8px; align-items: center; }
 .group { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 .group .chips { flex: 1; }
 
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
-.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; }
-.tabs button.active { border-bottom-color: var(--accent); color: var(--accent); }
 
 .picker { position: relative; }
 .picker .results { position: absolute; z-index: 20; left: 0; right: 0; max-height: 280px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }

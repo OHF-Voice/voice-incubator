@@ -67,7 +67,7 @@ def _adjective(word: str) -> tuple[str, str, str, str] | None:
     """An adjective's forms with its noun: "чайна" -> чайна, чайні, чайних,
     чайної; "квадратний" -> квадратний, квадратні, квадратних,
     квадратного."""
-    for ending, (part, gender) in (("ий", ("ого", "m")), ("ій", ("ього", "m")), ("а", ("ої", "f")), ("е", ("ого", "n"))):
+    for ending, part in (("ий", "ого"), ("ій", "ього"), ("а", "ої"), ("е", "ого")):
         if word.endswith(ending) and len(word) > 4:
             stem = word[: -len(ending)]
             return word, stem + "і", stem + "их", stem + part

@@ -132,11 +132,6 @@ def features(audio: np.ndarray) -> np.ndarray:
 class WakeWord:
     """The on-device detector: mixednet-executor plus ``determine_detected``."""
 
-    # A fresh executor has to see this many sub-cutoff slices before its first
-    # detection. On a device that elapsed hours ago, so the bench starts warm --
-    # leaving it cold suppresses any wake word spoken in the first 3 s of a clip.
-    MIN_SLICES_BEFORE_DETECTION = 100
-
     def __init__(self, binary: Path, manifest: Path, scratch: Path) -> None:
         micro = json.loads(manifest.read_text())["micro"]
         self.binary = Path(binary)
@@ -161,6 +156,9 @@ class WakeWord:
     def detect(self, probabilities: np.ndarray, cutoff: int | None = None) -> int | None:
         """Sample index just past the first detection, or None."""
         cutoff = self.cutoff if cutoff is None else cutoff
+        # Warm: a fresh executor has to see 100 sub-cutoff slices before its
+        # first detection, which on a device elapsed hours ago. Cold, it would
+        # suppress any wake word spoken in the first 3 s of a clip.
         ignore = 0
         recent = np.zeros(self.window, dtype=np.int64)
         for i, probability in enumerate(probabilities):

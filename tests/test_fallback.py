@@ -11,7 +11,6 @@ from voice_call.fallback import (
     Fallback,
     by_meaning,
     chosen,
-    needs_heard_slots,
     parse_duration,
 )
 from voice_call.store import compile_store
@@ -147,9 +146,9 @@ def test_durations():
 
 def test_by_meaning(compiled):
     commands = compiled.commands
-    assert not needs_heard_slots(commands["what_time"])
-    assert needs_heard_slots(commands["lights_on"]) and commands["lights_on"].takes_nothing  # or an area, or a floor
-    assert needs_heard_slots(commands["add_item"]) and needs_heard_slots(commands["start_timer"])
+    assert not commands["what_time"].takes_something
+    assert commands["lights_on"].takes_something and () in commands["lights_on"].combinations  # or an area, or a floor
+    assert commands["add_item"].takes_something and commands["start_timer"].takes_something
     near = {"intent": "what_time", "similarity": 0.86, "next": "'tell me a joke'", "next_similarity": 0.7}
     assert by_meaning(near, commands["what_time"])[0]
     assert not by_meaning({**near, "similarity": 0.75}, commands["what_time"])[0]

@@ -386,7 +386,7 @@ def test_combinations_are_intents_of_their_own():
     }
     command = parse_command("lights_off", spec)
     assert list(command.intents) == ["lights_off", "lights_off:area", "lights_off:floor"]
-    assert command.takes_nothing and command.takes_something and command.heard_slots == ("area", "floor")
+    assert command.takes_something and command.combinations == ((), ("area",), ("floor",))
     # The first has the examples and the description; each hears exactly its slots.
     assert command.intents["lights_off"]["examples"] == ["lights off"] and "names" not in command.intents["lights_off"]
     assert "examples" not in command.intents["lights_off:area"] and "description" not in command.intents["lights_off:area"]

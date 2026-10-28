@@ -538,12 +538,6 @@ class Found:
     trace: dict[str, Any] = field(default_factory=dict)
 
 
-def needs_heard_slots(command: Command) -> bool:
-    """Whether some way of saying it needs something heard: a name, number,
-    value or free text (a combination that is not empty)."""
-    return command.takes_something
-
-
 def label_of(command: Command) -> str:
     """What meaning and the model step know a command by: its description.
     Commands that describe themselves alike are one choice to them -- the

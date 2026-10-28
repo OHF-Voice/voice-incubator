@@ -24,7 +24,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
