@@ -31,9 +31,10 @@ most wake words. learn-tv:
   - "Null direction", where the null points;
   - "Null coherence", how steady it is.
 
-The app still understands all of it. A HELLO with `aec_lead_samples` and
-`fallback`, and a CALL_START with `detector` and `swapped`, are read and
-recorded. Nothing in the app needs to change to bring it back.
+The app's side -- a HELLO with `aec_lead_samples`, a CALL_START with
+`detector` and `swapped`, and hearing a talker who stands in the null on the
+second capture -- was taken out on 2026-10-28. `APP.md` is what it did, and
+`app.patch` puts it back.
 
 ## How it did
 
@@ -65,25 +66,27 @@ words: learn-tv 10, the fallback 13, either 13, stock NS on the other unit 11.
 | `components/voice_call/` | The voice_call component as it was when learn-tv was taken out: the live one plus the fallback microphone, the swapped captures and the runtime gains |
 | `xmos/0001-Output-both-mics-echo-cancelled-PIPELINE_STAGE_AEC_M.patch` | The XMOS firmware change (`voice-kit-xmos-firmware`, branch `aec-both-mics`, commit `7ffef53`) |
 | `xmos/ffva_v1.3.101_aec_both_mics_upgrade.bin` | That firmware, built (md5 `8f93b6ac71c4bda417d1611d253447c4`, as the config pins it) |
+| `APP.md`, `app.patch` | The app's side: what it did, and the change that puts it back |
 | `docs/LEARN_TV_IMPLEMENTATION.md` | The spec it was built from |
 | `docs/REPORT.md`, `docs/REPORT-tables.md` | The test rig's results |
 | `docs/RIG_README.md` | The test rig's README (the rig itself, recordings and scripts: `~/opt/mic_tap/okay-nabu-tv`) |
 
 ## Bringing it back
 
-1. Copy `components/learn_tv/` into `my_components_voice_call/`.
-2. Bring back the voice_call component's fallback support. Either merge it from
+1. Put the app's side back (`APP.md`).
+2. Copy `components/learn_tv/` into `my_components_voice_call/`.
+3. Bring back the voice_call component's fallback support. Either merge it from
    `components/voice_call/`, or copy that over the live component if nothing
    else has changed since.
-3. Copy `voice-call-vpe-learn-tv.yaml` next to `voice-call-vpe.yaml`.
-4. Serve the XMOS firmware while it builds. The config fetches it from
+4. Copy `voice-call-vpe-learn-tv.yaml` next to `voice-call-vpe.yaml`.
+5. Serve the XMOS firmware while it builds. The config fetches it from
    `http://localhost:8765/`, so name the file as the config does:
 
    ```bash
    cp xmos/ffva_v1.3.101_aec_both_mics_upgrade.bin /tmp/xmos/example_ffva_int_fixed_delay_upgrade.bin
    cd /tmp/xmos && python3 -m http.server 8765
    ```
-5. Flash it, keeping the satellite's name:
+6. Flash it, keeping the satellite's name:
 
    ```bash
    esphome -s name voice-call-vpe-2 -s friendly_name "Voice Call VPE 2" run voice-call-vpe-learn-tv.yaml --device voice-call-vpe-2.local

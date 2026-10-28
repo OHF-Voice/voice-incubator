@@ -12,7 +12,6 @@ import socket
 from pathlib import Path
 
 import aiohttp
-import numpy as np
 import pytest
 
 from voice_call import people as people_mod
@@ -96,11 +95,7 @@ def test_calls_end_to_end(tmp_path):
 async def _scenario(tmp_path: Path) -> None:
     hass, hass_server = await fake_hass.serve()
     hass_port = hass_server.sockets[0].getsockname()[1]
-    # learn-tv firmware: its two captures delayed alike, and a fallback detector.
-    satellite = FakeSatellite(
-        mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0,
-        hello_extra={"aec_lead_samples": 0, "fallback": True},
-    )
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
     satellite_server = await serve(satellite)
     satellite_port = satellite_server.sockets[0].getsockname()[1]
 
@@ -127,8 +122,7 @@ async def _scenario(tmp_path: Path) -> None:
         await asyncio.wait_for(satellite.ready.wait(), 30)
 
         # "turn on the lights": the satellite's area is the target.
-        # Heard by mic 0 alone, which the satellite sends as the call.
-        detection = {"probability": 230, "max_probability": 255, "cutoff": 51, "detector": "fallback", "swapped": True}
+        detection = {"probability": 230, "max_probability": 255, "cutoff": 51}
         assert await satellite.call(read_call(CALLS / "call-15788.wav"), detection=detection) == "done"
         script = hass.scripts[-1]
         assert script["sequence"] == [{"action": "light.turn_on", "target": "{{ target }}"}]
@@ -149,7 +143,7 @@ async def _scenario(tmp_path: Path) -> None:
         start = record.stages[0]
         assert (start["probability"], start["max_probability"], start["cutoff"]) == (0.902, 1.0, 0.2)
         assert start["name"] == "Okay Nabu"
-        assert (start["detector"], start["swapped"], start["aec_lead"]) == ("fallback", True, 0)
+        assert start["aec_lead"] == 905  # how the captures line up, for a replay
         assert app.calls.list()[0]["wake"]["probability"] == 0.902
         # The list also says what was heard, what ran and what was said.
         listed = app.calls.list()[0]
@@ -730,19 +724,8 @@ async def _scenario(tmp_path: Path) -> None:
         assert record.outcome == "error"
         assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, that didn't work."
 
-        # The talker in learn-tv's null: the call capture lost them (a faint
-        # hum here) and the AEC capture has them. Heard on that one, start to end.
         hass.fail_scripts = False
         said = read_call(CALLS / "call-15788.wav")
-        hum = (np.sin(np.arange(len(said) // 2) * 2 * np.pi * 120 / 16000) * 30).astype("<i2").tobytes()
-        assert await satellite.call(hum, aec_pcm=said) == "done"
-        record = app.calls.recent[-1]
-        null = next(s for s in record.stages if s["stage"] == "talker_in_null")
-        assert null["used"] == "aec" and null["call_speech"] < 0.1 <= null["aec_speech"], null
-        assert next(s for s in record.stages if s["stage"] == "recognition")["command"] == "lights_on"
-        # An ordinary call isn't asked twice.
-        assert await satellite.call(said) == "done"
-        assert not any(s["stage"] == "talker_in_null" for s in app.calls.recent[-1].stages)
 
         # The wake word, and nothing said after it: the call ends 8 s on.
         assert await satellite.call(said[: int(1.5 * 32000)]) == "timeout"

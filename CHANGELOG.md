@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **learn-tv's app side set aside**, as its firmware was: no check for a
+  talker in the null (two Silero passes on every wake word), no HELLO
+  `aec_lead_samples` (the captures are the XMOS's 905 samples apart), no
+  CALL_START `detector` or `swapped`. Calls recorded with it still replay as
+  they were (`aec_lead`). `firmware/experiments/learn-tv/APP.md` and
+  `app.patch` bring it back.
 - **Commands grouped by what they're for**: Basics is split into Date and
   time, Lights and switches, Lists, Reminders and calendar, and Scenes and
   scripts; Set the temperature joins Climate; Never mind and a satellite's

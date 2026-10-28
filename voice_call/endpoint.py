@@ -19,8 +19,9 @@ the two, chunk by chunk.
 
 Silero hears the command louder when the wake word was quiet (``vad_gain``):
 it misses speech far below full scale, as a capture without AGC carries it
-(the learn-tv firmware's, ~-53 dBFS), and leaves the command unstarted. Only
-the VAD's copy is raised; what speech-to-text hears is as it came.
+(~-53 dBFS from the learn-tv firmware, now set aside), and leaves the
+command unstarted. Only the VAD's copy is raised; what speech-to-text hears
+is as it came.
 
 Silero also hears the wake word first (``warm``): started cold at the split,
 it scored a command said straight after it ~0.4, where it had heard speech
@@ -193,19 +194,6 @@ def vad_gain(wake: bytes) -> float:
     if loudest <= 0.0:
         return MAX_VAD_GAIN
     return float(np.clip(10 ** (VAD_LEVEL_DBFS / 20) / loudest, 1.0, MAX_VAD_GAIN))
-
-
-def wake_speech(wake: bytes) -> float:
-    """How much of ``wake`` (the wake word, as the endpointer warms on it)
-    Silero hears as speech, at its gain: about 0.3-0.8 in either capture of
-    an ordinary call; none in a capture whose null points at the talker."""
-    from pysilero_vad import SileroVoiceActivityDetector  # pylint: disable=import-outside-toplevel
-
-    vad = SileroVoiceActivityDetector()
-    pcm = _amplify(wake[: len(wake) // 2 * 2], vad_gain(wake))
-    chunk = _FRAME * BYTES_PER_SAMPLE
-    probs = [vad.process_chunk(pcm[i : i + chunk]) for i in range(0, len(pcm) - chunk + 1, chunk)]
-    return float(np.mean(np.asarray(probs) >= 0.5)) if probs else 0.0
 
 
 def _amplify(chunk: bytes, gain: float) -> bytes:

@@ -1,0 +1,414 @@
+diff --git b/voice_call/tests/fake_satellite.py a/voice_call/tests/fake_satellite.py
+index 44e28bbb..6f341a4b 100644
+--- b/voice_call/tests/fake_satellite.py
++++ a/voice_call/tests/fake_satellite.py
+@@ -72,7 +72,7 @@ class FakeSatellite:
+     """What its microphones hear between calls (looped), streamed on both
+     captures while monitored; else a quiet hum, on the first."""
+     hello_extra: dict = field(default_factory=dict)
+-    """More to say in HELLO (``intercom``)."""
++    """More to say in HELLO (learn-tv firmware's ``aec_lead_samples``, ``fallback``)."""
+ 
+     def __post_init__(self) -> None:
+         self.ready = asyncio.Event()
+diff --git b/voice_call/tests/test_app.py a/voice_call/tests/test_app.py
+index 867aab78..1a37a5f8 100644
+--- b/voice_call/tests/test_app.py
++++ a/voice_call/tests/test_app.py
+@@ -12,6 +12,7 @@ import socket
+ from pathlib import Path
+ 
+ import aiohttp
++import numpy as np
+ import pytest
+ 
+ from voice_call import people as people_mod
+@@ -95,7 +96,11 @@ def test_calls_end_to_end(tmp_path):
+ async def _scenario(tmp_path: Path) -> None:
+     hass, hass_server = await fake_hass.serve()
+     hass_port = hass_server.sockets[0].getsockname()[1]
+-    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
++    # learn-tv firmware: its two captures delayed alike, and a fallback detector.
++    satellite = FakeSatellite(
++        mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0,
++        hello_extra={"aec_lead_samples": 0, "fallback": True},
++    )
+     satellite_server = await serve(satellite)
+     satellite_port = satellite_server.sockets[0].getsockname()[1]
+ 
+@@ -122,7 +127,8 @@ async def _scenario(tmp_path: Path) -> None:
+         await asyncio.wait_for(satellite.ready.wait(), 30)
+ 
+         # "turn on the lights": the satellite's area is the target.
+-        detection = {"probability": 230, "max_probability": 255, "cutoff": 51}
++        # Heard by mic 0 alone, which the satellite sends as the call.
++        detection = {"probability": 230, "max_probability": 255, "cutoff": 51, "detector": "fallback", "swapped": True}
+         assert await satellite.call(read_call(CALLS / "call-15788.wav"), detection=detection) == "done"
+         script = hass.scripts[-1]
+         assert script["sequence"] == [{"action": "light.turn_on", "target": "{{ target }}"}]
+@@ -143,7 +149,7 @@ async def _scenario(tmp_path: Path) -> None:
+         start = record.stages[0]
+         assert (start["probability"], start["max_probability"], start["cutoff"]) == (0.902, 1.0, 0.2)
+         assert start["name"] == "Okay Nabu"
+-        assert start["aec_lead"] == 905  # how the captures line up, for a replay
++        assert (start["detector"], start["swapped"], start["aec_lead"]) == ("fallback", True, 0)
+         assert app.calls.list()[0]["wake"]["probability"] == 0.902
+         # The list also says what was heard, what ran and what was said.
+         listed = app.calls.list()[0]
+@@ -724,8 +730,19 @@ async def _scenario(tmp_path: Path) -> None:
+         assert record.outcome == "error"
+         assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "Sorry, that didn't work."
+ 
++        # The talker in learn-tv's null: the call capture lost them (a faint
++        # hum here) and the AEC capture has them. Heard on that one, start to end.
+         hass.fail_scripts = False
+         said = read_call(CALLS / "call-15788.wav")
++        hum = (np.sin(np.arange(len(said) // 2) * 2 * np.pi * 120 / 16000) * 30).astype("<i2").tobytes()
++        assert await satellite.call(hum, aec_pcm=said) == "done"
++        record = app.calls.recent[-1]
++        null = next(s for s in record.stages if s["stage"] == "talker_in_null")
++        assert null["used"] == "aec" and null["call_speech"] < 0.1 <= null["aec_speech"], null
++        assert next(s for s in record.stages if s["stage"] == "recognition")["command"] == "lights_on"
++        # An ordinary call isn't asked twice.
++        assert await satellite.call(said) == "done"
++        assert not any(s["stage"] == "talker_in_null" for s in app.calls.recent[-1].stages)
+ 
+         # The wake word, and nothing said after it: the call ends 8 s on.
+         assert await satellite.call(said[: int(1.5 * 32000)]) == "timeout"
+diff --git b/voice_call/tests/test_endpoint.py a/voice_call/tests/test_endpoint.py
+index 8c8b8e91..e2078683 100644
+--- b/voice_call/tests/test_endpoint.py
++++ a/voice_call/tests/test_endpoint.py
+@@ -349,7 +349,7 @@ def test_stt_hears_the_call_from_kaldis_split():
+         heard, info = stt_audio_for(agc_pcm, aec_pcm, split, preroll, aec_preroll, "aec", boost=True)(command)
+         assert info["channel"] == "aec" and 20 <= info["gain_db"] <= 30
+         assert abs(20 * np.log10(np.abs(heard).max()) + 3) < 0.1  # a -3 dBFS peak
+-    # Captures delayed alike (a call recorded with learn-tv's firmware: lead 0).
++    # Captures delayed alike (learn-tv's: the satellite says lead 0).
+     aec = (sound[:60000] * 0.056).astype("<i2").tobytes()
+     agc_pcm = sound[:60000].astype("<i2").tobytes()
+     heard, info = stt_audio_for(agc_pcm, aec, split, preroll, preroll, "aec", lead=0)(command)
+diff --git b/voice_call/tests/test_speakers.py a/voice_call/tests/test_speakers.py
+index 0f815ef9..5f6f43ac 100644
+--- b/voice_call/tests/test_speakers.py
++++ a/voice_call/tests/test_speakers.py
+@@ -85,7 +85,8 @@ def test_enrolled_speaker_and_someone_else(tmp_path, piper):
+ 
+ async def _scenario(tmp_path: Path, piper) -> None:
+     hass, hass_server = await fake_hass.serve()
+-    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
++    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0,
++                              hello_extra={"aec_lead_samples": 0})
+     satellite_server = await serve(satellite)
+     hass.device_areas[f"device-{MAC}"] = "kitchen"
+     (tmp_path / "commands.yaml").write_text(COMMANDS)
+diff --git b/voice_call/voice_call/endpoint.py a/voice_call/voice_call/endpoint.py
+index 5e4d3366..525e620f 100644
+--- b/voice_call/voice_call/endpoint.py
++++ a/voice_call/voice_call/endpoint.py
+@@ -19,9 +19,8 @@ the two, chunk by chunk.
+ 
+ Silero hears the command louder when the wake word was quiet (``vad_gain``):
+ it misses speech far below full scale, as a capture without AGC carries it
+-(~-53 dBFS from the learn-tv firmware, now set aside), and leaves the
+-command unstarted. Only the VAD's copy is raised; what speech-to-text hears
+-is as it came.
++(the learn-tv firmware's, ~-53 dBFS), and leaves the command unstarted. Only
++the VAD's copy is raised; what speech-to-text hears is as it came.
+ 
+ Silero also hears the wake word first (``warm``): started cold at the split,
+ it scored a command said straight after it ~0.4, where it had heard speech
+@@ -196,6 +195,19 @@ def vad_gain(wake: bytes) -> float:
+     return float(np.clip(10 ** (VAD_LEVEL_DBFS / 20) / loudest, 1.0, MAX_VAD_GAIN))
+ 
+ 
++def wake_speech(wake: bytes) -> float:
++    """How much of ``wake`` (the wake word, as the endpointer warms on it)
++    Silero hears as speech, at its gain: about 0.3-0.8 in either capture of
++    an ordinary call; none in a capture whose null points at the talker."""
++    from pysilero_vad import SileroVoiceActivityDetector  # pylint: disable=import-outside-toplevel
++
++    vad = SileroVoiceActivityDetector()
++    pcm = _amplify(wake[: len(wake) // 2 * 2], vad_gain(wake))
++    chunk = _FRAME * BYTES_PER_SAMPLE
++    probs = [vad.process_chunk(pcm[i : i + chunk]) for i in range(0, len(pcm) - chunk + 1, chunk)]
++    return float(np.mean(np.asarray(probs) >= 0.5)) if probs else 0.0
++
++
+ def _amplify(chunk: bytes, gain: float) -> bytes:
+     samples = np.frombuffer(chunk, dtype="<i2").astype(np.float64) * gain
+     return np.clip(samples, -32768, 32767).astype("<i2").tobytes()
+diff --git b/voice_call/voice_call/server.py a/voice_call/voice_call/server.py
+index 1577eff3..79974d8a 100644
+--- b/voice_call/voice_call/server.py
++++ a/voice_call/voice_call/server.py
+@@ -27,7 +27,7 @@ from .agent import KEEP_SECONDS, Agent
+ from .calls import CallLog, CallRecord
+ from .commands import VERBOSITY
+ from .discover import Device, Discovery
+-from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain
++from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain, wake_speech
+ from .endpoint import parse as parse_end_of_speech
+ from .fallback import (
+     DEFAULT_FALLBACK_MODEL,
+@@ -175,10 +175,45 @@ STT_PEAK = 10 ** (-3 / 20)
+ STT_MAX_GAIN = 10 ** (30 / 20)
+ 
+ 
++NULL_CALL_SPEECH = 0.1
++NULL_AEC_SPEECH = 0.25
++"""Silero's share of the wake word heard as speech, under which the call
++capture has lost the talker (learn-tv's null on them) and from which the AEC
++capture still has them: ordinary calls hear 0.3-0.8 in both."""
++
++
+ def _aec_shift(call: Call) -> int:
+     """Bytes to add to a position in the AGC capture for the same moment in
+     the AEC one: each pre-roll ends at the detection, less the AEC tap's lead."""
+-    return (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - AEC_LEAD_SAMPLES * 2
++    return (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - call.aec_lead * 2
++
++
++def _aec_lined_up(call: Call, start: int, end: int) -> bytes:
++    """The AEC capture from ``start`` to ``end`` of the AGC capture's timeline
++    (silence where it has nothing)."""
++    lo, hi = (start + _aec_shift(call)) & ~1, (end + _aec_shift(call)) & ~1
++    out = bytearray(max(0, hi - lo))
++    have_lo, have_hi = max(lo, 0), min(hi, len(call.aec) & ~1)
++    if have_hi > have_lo:
++        out[have_lo - lo : have_hi - lo] = call.aec[have_lo:have_hi]
++    return bytes(out)
++
++
++def _heard(call: Call, start: int, end: int) -> bytes:
++    """The call from ``start`` to ``end`` as heard: the call capture, or in
++    the null the AEC one lined up with it."""
++    return _aec_lined_up(call, start, end) if call.in_null else bytes(call.audio[start:end])
++
++
++def _aec_since(call: Call) -> bytes:
++    """In the null: what has come of the AEC capture since ``endpoint_pos``
++    (on the AGC capture's timeline), up to what the AGC capture has."""
++    end = min(len(call.audio), len(call.aec) - _aec_shift(call)) & ~1
++    if end <= call.endpoint_pos:
++        return b""
++    pcm = _aec_lined_up(call, call.endpoint_pos, end)
++    call.endpoint_pos = end
++    return pcm
+ 
+ 
+ def stt_audio_for(
+@@ -422,6 +457,10 @@ class Call:
+     speaker is identified from."""
+     aec_preroll_bytes: int = 0
+     """Where the detection falls in ``aec``; its pre-roll can differ from AGC's."""
++    aec_lead: int = AEC_LEAD_SAMPLES
++    """How far ``aec`` runs ahead of ``audio``, in samples: the XMOS's AEC tap
++    leads its AGC tap, unless the satellite says otherwise (HELLO
++    ``aec_lead_samples``; learn-tv's two captures are delayed alike)."""
+     command: bytearray = field(default_factory=bytearray)
+     last_audio: float | None = None
+     """When the AGC capture last arrived (monotonic)."""
+@@ -429,6 +468,11 @@ class Call:
+     finished: bool = False
+     endpointer: Endpointer | None = None
+     split_bytes: int = 0
++    in_null: bool = False
++    """The talker stood in learn-tv's null: the call capture lost their voice
++    and the AEC one is heard instead (endpointing, recognition, STT)."""
++    endpoint_pos: int = 0
++    """In the null: how far into ``aec`` the command has been taken."""
+     interrupted_ring: bool = False
+     """The call stopped a ringing timer: if it says nothing else, it was that."""
+     wake_start: float | None = None
+@@ -1875,14 +1919,21 @@ class VoiceCallApp:
+             for key in ("probability", "max_probability", "cutoff")
+             if isinstance(info.get(key), (int, float))
+         }
++        lead = session.hello.get("aec_lead_samples")
++        if isinstance(lead, int) and not isinstance(lead, bool) and lead >= 0:
++            session.call.aec_lead = lead
++        # With learn-tv: which detector heard it -- the null's, or mic 0 alone,
++        # in which case the satellite sent mic 0 as the call (swapped).
++        heard_by = {key: info[key] for key in ("detector", "swapped") if key in info}
+         record.stage(
+             "call_start",
+             wake_word=session.call.wake_word,
+             name=word.name if word is not None else None,
+             **detection,
++            **heard_by,
+             preroll=round(session.call.preroll_bytes / BYTE_RATE, 3),
+             aec_preroll=round(session.call.aec_preroll_bytes / BYTE_RATE, 3),
+-            aec_lead=AEC_LEAD_SAMPLES,
++            aec_lead=session.call.aec_lead,
+         )
+         _LOGGER.info(
+             "[%s] Call started: wake_word=%r%s pre-roll=%dms%s",
+@@ -1978,8 +2029,11 @@ class VoiceCallApp:
+         if call.endpointer is None:
+             return  # verification still running; audio keeps accumulating
+ 
+-        start = max(call.split_bytes, len(call.audio) - len(chunk))
+-        new_audio = bytes(call.audio[start:])
++        if call.in_null:
++            new_audio = _aec_since(call)
++        else:
++            start = max(call.split_bytes, len(call.audio) - len(chunk))
++            new_audio = bytes(call.audio[start:])
+         if not new_audio:
+             return
+         call.command += new_audio
+@@ -2069,6 +2123,30 @@ class VoiceCallApp:
+             return False
+         return result.split >= (call.preroll_bytes / BYTE_RATE) - TAIL_EDGE_SECONDS
+ 
++    async def _check_null(self, session: Session, call: Call) -> None:
++        """Whether the talker stood in learn-tv's null: the wake word, the
++        pre-roll's last WAKE_SECONDS (it ends at the detection), is not speech
++        in the call capture and is in the AEC one. Then the call is heard on
++        the AEC capture throughout -- verified, ended and recognized."""
++        if not call.aec_preroll_bytes:
++            return
++        end = call.preroll_bytes
++        start = max(0, end - int(WAKE_SECONDS * BYTE_RATE))
++        heard = await asyncio.to_thread(wake_speech, bytes(call.audio[start:end]))
++        if heard >= NULL_CALL_SPEECH:
++            return
++        # The AEC capture's pre-roll can trail the call's by a moment.
++        deadline = time.monotonic() + 0.5
++        while len(call.aec) < end + _aec_shift(call) and time.monotonic() < deadline and not call.finished:
++            await asyncio.sleep(0.02)
++        aec_heard = await asyncio.to_thread(wake_speech, _aec_lined_up(call, start, end))
++        call.in_null = aec_heard >= NULL_AEC_SPEECH
++        if call.record is not None:
++            call.record.stage("talker_in_null", call_speech=round(heard, 2), aec_speech=round(aec_heard, 2),
++                              used="aec" if call.in_null else "call")
++        if call.in_null:
++            _LOGGER.info("[%s] The talker is in the null: heard on the AEC capture", session)
++
+     async def _audio_through(self, call: Call, want: int, timeout: float) -> bool:
+         """Wait for the call to have ``want`` bytes. False if it never does."""
+         deadline = time.monotonic() + timeout
+@@ -2082,7 +2160,7 @@ class VoiceCallApp:
+         self, label: str, call: Call, offset: int
+     ) -> tuple[Any, bytes]:
+         """Verify the pre-roll-sized window that starts ``offset`` bytes in."""
+-        window = bytes(call.audio[offset : offset + call.preroll_bytes])
++        window = _heard(call, offset, offset + call.preroll_bytes)
+         result = await self.wake.verify(window, call.wake_word or None)
+         assert result is not None
+         _LOGGER.info(
+@@ -2106,7 +2184,7 @@ class VoiceCallApp:
+         off its end, and the second opinion on a `last`/`prefix` rejection.
+         A wake word with no verifier (a custom one) stands as detected."""
+         if call.wake_word and not self.wake.knows(call.wake_word):
+-            window = bytes(call.audio[: call.preroll_bytes])
++            window = _heard(call, 0, call.preroll_bytes)
+             if call.record is not None:
+                 call.record.stage("wake_unverified", wake_word=call.wake_word)
+             return WakeVerdict(True, VerifyResult(call.wake_word, accepted=True), 0, window)
+@@ -2153,7 +2231,17 @@ class VoiceCallApp:
+         return verdict
+ 
+     async def _verify(self, session: Session, call: Call) -> None:
++        await self._check_null(session, call)
+         verdict = await self._verify_wake(str(session), call)
++        if call.in_null and not verdict.accepted:
++            # Refused on the AEC capture: the call capture's verdict as well,
++            # as before the null was noticed, so that nothing is refused that
++            # was taken then. The call is heard on the AEC capture either way.
++            call.in_null = False
++            again = await self._verify_wake(str(session), call)
++            call.in_null = True
++            if again.accepted:
++                verdict = again
+         result = verdict.result
+ 
+         if not verdict.accepted:
+@@ -2170,13 +2258,17 @@ class VoiceCallApp:
+             )
+ 
+         self._place_split(call, verdict)
+-        wake = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
++        wake = _heard(call, max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)), call.split_bytes)
+         await self._start_stt(session, call)
+         call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(wake), warm=wake)
+         # Someone else talking ends the command, once the speaker is
+         # identified: when that is on, with profiles to identify them by.
+         call.endpointer.watch(call.endpointer.settings.end_on_other_voice and self.identifies())
+-        call.command += bytes(call.audio[call.split_bytes :])
++        if call.in_null:
++            call.endpoint_pos = call.split_bytes
++            call.command += _aec_since(call)
++        else:
++            call.command += bytes(call.audio[call.split_bytes :])
+         await self._event(session, "listening", stage="listening")
+         if call.endpointer.process(bytes(call.command)) and not call.finished:
+             self._command_ended(session, call)
+@@ -2194,11 +2286,14 @@ class VoiceCallApp:
+             return
+         start, gain = call.split_bytes, 1.0
+         audio: dict[str, Any] = {"channel": "agc", "from": round(call.split_bytes / BYTE_RATE, 3)}
+-        if voice.stt_audio != "agc" and not call.aec:
++        if call.in_null:
++            audio.update(channel="aec", why="the talker is in the null")
++            start = max(0, start + _aec_shift(call))
++        elif voice.stt_audio != "agc" and not call.aec:
+             audio["why"] = "no AEC capture"
+         elif voice.stt_audio != "agc":
+             audio["channel"] = "aec"
+-            shift = _aec_shift(call)
++            shift = (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - call.aec_lead * 2
+             start = max(0, start + shift)
+             if voice.stt_audio == "aec_boost":
+                 wake_start = (
+@@ -2228,7 +2323,8 @@ class VoiceCallApp:
+             return
+         if stream.audio["channel"] == "aec":
+             # Up to the end of the AGC capture, lined up.
+-            end = min(len(call.aec), len(call.audio) + _aec_shift(call)) & ~1
++            shift = (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - call.aec_lead * 2
++            end = min(len(call.aec), len(call.audio) + shift) & ~1
+             pcm = bytes(call.aec[stream.position : end])
+             if call.stt_gain != 1.0 and pcm:
+                 scaled = np.clip(np.frombuffer(pcm, dtype="<i2").astype(np.float32) * call.stt_gain, -32768, 32767)
+@@ -2373,6 +2469,9 @@ class VoiceCallApp:
+         else:
+             transcriber = await self._transcriber(satellite)
+         agc, aec = bytes(call.audio), bytes(call.aec)
++        if call.in_null:
++            # Heard as the AEC capture, on the AGC capture's timeline.
++            agc = _aec_lined_up(call, 0, len(call.audio))
+         stop = self._speaker_stop(call)
+         if stop is not None:
+             # Someone else's speech ended it: recognized up to the speaker's last word.
+@@ -2386,7 +2485,7 @@ class VoiceCallApp:
+                 (call.aec_preroll_bytes or call.preroll_bytes) // 2,
+                 capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
+                 boost=satellite.voice.stt_audio == "aec_boost",
+-                lead=AEC_LEAD_SAMPLES,
++                lead=call.aec_lead,
+             )
+         async with self._model_lock:
+             assert self.engine is not None
+diff --git b/voice_call/voice_call/web/app.js a/voice_call/voice_call/web/app.js
+index 85d43174..d80bf3b2 100644
+--- b/voice_call/voice_call/web/app.js
++++ a/voice_call/voice_call/web/app.js
+@@ -3511,7 +3511,7 @@ function stepGlance(stage) {
+   const d = stage;
+   switch (stage.stage) {
+     case "call_start":
+-      return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };
++      return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}${d.detector === "fallback" ? " · mic 0 only" : ""}` };
+     case "wake_kaldi":
+       return { title: d.offset ? "Verification, again" : "Verification", status: d.accepted ? "ok" : "bad", line: `${d.accepted ? `accepted${d.phrase ? ` “${d.phrase}”` : ""}` : wakeRejection(d)}${d.decode_ms !== undefined ? ` in ${took(d.decode_ms / 1000)}` : ""}` };
+     case "wake_ratio":
+@@ -3573,6 +3573,7 @@ function stepDetails(stage) {
+       data.probability !== undefined
+         ? ` · probability ${prob(data.probability)} (window average; highest ${prob(data.max_probability)}) against a cutoff of ${prob(data.cutoff)}`
+         : " · its firmware doesn't say the probability",
++      data.detector ? ` · heard by ${data.detector === "fallback" ? "mic 0 alone (the null missed it), so mic 0 is the call" : "the learn-tv null"}` : "",
+       ` · pre-roll ${num(data.preroll, 2)} s`);
+   }
+   if (name === "wake_kaldi") {

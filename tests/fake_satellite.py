@@ -72,7 +72,7 @@ class FakeSatellite:
     """What its microphones hear between calls (looped), streamed on both
     captures while monitored; else a quiet hum, on the first."""
     hello_extra: dict = field(default_factory=dict)
-    """More to say in HELLO (learn-tv firmware's ``aec_lead_samples``, ``fallback``)."""
+    """More to say in HELLO (``intercom``)."""
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()

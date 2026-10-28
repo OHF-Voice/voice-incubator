@@ -85,8 +85,7 @@ def test_enrolled_speaker_and_someone_else(tmp_path, piper):
 
 async def _scenario(tmp_path: Path, piper) -> None:
     hass, hass_server = await fake_hass.serve()
-    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0,
-                              hello_extra={"aec_lead_samples": 0})
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
     satellite_server = await serve(satellite)
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS)

@@ -816,8 +816,8 @@ firmware's own rule (`scripts/ambient_false_accepts.py`):
 A custom word (okay_beefcake, trained in the app) was the same gated or not:
 0.20/h at 0.3, 0.05/h at 0.4, none from 0.5. Where people talk the gate is
 open (81% of DiPCo), and that is where false accepts come from; the host
-verifies every wake word in any case. The fallback detector ran ungated
-already. Its slot goes to wake words.
+verifies every wake word in any case. learn-tv's fallback detector ran
+ungated already. Its slot goes to wake words.
 
 ## Two captures per call
 
@@ -873,65 +873,12 @@ Measure this with the talker at a realistic level. An earlier pass had AEC at
 a peak of 1226 out of 32767: everything was marginal and the ordering was
 noise. `scripts/make_cloud.py --gain 20` renders at a usable level.
 
-### learn-tv firmware
+### learn-tv (set aside)
 
-`voice-call-vpe-learn-tv.yaml` (beside `voice-call-vpe.yaml`, in the ESPHome
-checkout's `my_components_voice_call`) adds learn-tv
-(`mic_tap/okay-nabu-tv/LEARN_TV_IMPLEMENTATION.md`): a two-mic null on
-whatever has played for the last ~20 s, a TV. Its "learn-tv" switch in Home
-Assistant (kept across reboots) goes back and forth between that and the stock
-XMOS taps, to compare. In learn-tv mode both XMOS channels carry a mic after
-AEC (the aec-both-mics XMOS firmware, 1.3.101), so there is no AGC tap; the
-switch rewrites the XMOS stages, and the `learn_tv` microphone routes either:
-
-| channel | used for | learn-tv | stock |
-|---|---|---|---|
-| 0 | wake words | mic 0 with the null, gain 4 | NS, gain 4 |
-| 1 | the call (`call-*.wav`) | mic 0 with the null, gain 16 | AGC, gain 1 |
-| 2 | the second capture (`call-aec-*.wav`) | mic 0, gain 16 | NS, gain 16 |
-| 3 | a fallback wake detector (no VAD gate) | mic 0, gain 4 | off |
-
-The captures are no longer 56.5 ms apart in either mode (learn_tv delays its
-channels alike; NS and AGC leave the XMOS together): HELLO says
-`aec_lead_samples: 0`, and the app lines them up with that (the call's
-`call_start` step keeps it as `aec_lead`). A wake word only the fallback
-detector hears -- the talker stands where the null points -- is held 300 ms for
-the null's own detection, then starts a call with the captures swapped, so the
-app hears mic 0: CALL_START says `detector: "fallback"` and `swapped: true` (a
-session shows "mic 0 only"). The null learns nothing during a call, and keeps
-what it learned.
-
-When the null's own detector does hear it, barely, the call capture can still
-have lost the talker: a child's call, its wake word at 0.41 against a cutoff
-of 0.40, then 15 s of "no speech was heard" -- her voice was there at -30
-dBFS, but with 6-10 dB less of it below 1 kHz than mic 0 had, and Silero
-heard none of it. So the app looks at the wake word first, the pre-roll's last
-1.2 s in each capture (`voice_call/endpoint.py` `wake_speech`): under a tenth
-of it speech in the call capture and a quarter or more in the second, and the
-talker is in the null (`talker_in_null`). The call is then verified, ended,
-recognized and streamed to speech-to-text from the second capture, lined up
-with the first; and verified on the call capture too, when the second one's
-verdict is a refusal, so that nothing is refused that was taken before.
-Ordinary calls hear 0.3-0.8 of their wake word as speech in both captures.
-
-The null takes ~10 dB more off a talker it doesn't point at, and Silero VAD,
-on speech at -54 dBFS, missed the start of commands: 30% of a command's 32 ms
-chunks over 0.5 on a recorded call, against 73% four times louder. The
-capture stays as it is (speech-to-text hears it too); the endpointer raises
-only Silero's copy, by how quiet the wake word was (endpointing, above). Mic
-0's capture keeps the device's own speech after AEC, about 10 dB over the
-talker: the stock pipeline's NS and AGC hide that residue, learn-tv has
-neither.
-
-Two sensors show where the null points: "Null direction", in degrees from the
-mic axis (0 where a sound reaches mic 0 first, 90 broadside; a two-mic null
-can't tell a direction from its mirror about that axis), and "Null coherence",
-how steady it is (below ~10% it points nowhere). Both are unknown in stock
-mode and for the first 2 s.
-
-Unmeasured yet on a device: recognition on the learn-tv capture (no AGC or NS),
-the cost of a second detector next to learn-tv itself, and the gain over the
-stock path in a real room.
+A two-mic null on a TV, with a fallback detector on mic 0, ran on the second
+satellite until 2026-10-27. Its firmware, the app's side of it (the talker in
+the null, the swapped captures, `aec_lead_samples`), the write-ups and the
+numbers are in `firmware/experiments/learn-tv/`, with how to bring them back.
 
 ## Speaker identification
 

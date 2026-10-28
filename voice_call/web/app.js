@@ -3511,7 +3511,7 @@ function stepGlance(stage) {
   const d = stage;
   switch (stage.stage) {
     case "call_start":
-      return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}${d.detector === "fallback" ? " · mic 0 only" : ""}` };
+      return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };
     case "wake_kaldi":
       return { title: d.offset ? "Verification, again" : "Verification", status: d.accepted ? "ok" : "bad", line: `${d.accepted ? `accepted${d.phrase ? ` “${d.phrase}”` : ""}` : wakeRejection(d)}${d.decode_ms !== undefined ? ` in ${took(d.decode_ms / 1000)}` : ""}` };
     case "wake_ratio":
@@ -3573,7 +3573,6 @@ function stepDetails(stage) {
       data.probability !== undefined
         ? ` · probability ${prob(data.probability)} (window average; highest ${prob(data.max_probability)}) against a cutoff of ${prob(data.cutoff)}`
         : " · its firmware doesn't say the probability",
-      data.detector ? ` · heard by ${data.detector === "fallback" ? "mic 0 alone (the null missed it), so mic 0 is the call" : "the learn-tv null"}` : "",
       ` · pre-roll ${num(data.preroll, 2)} s`);
   }
   if (name === "wake_kaldi") {
