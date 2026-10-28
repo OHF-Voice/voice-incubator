@@ -831,7 +831,10 @@ class Engine:
         the name heard is a candidate (names may repeat: a Fan in the office
         and one in the bedroom). Said with a room, they are the ones there --
         none there, and nothing runs: the hint says why. Without one, a name
-        shared by several is the one in the satellite's area, when one is."""
+        shared by several is the one in the satellite's area; with none
+        there, nothing runs and the hint says where they are. A device heard
+        only from its own room (``local``) is the same: elsewhere, only with
+        its room said."""
         slots = decision.slots
         entities = list(slots.get("entity") or [])
         if not entities or decision.command is None:
@@ -848,22 +851,30 @@ class Engine:
         ))
         where = {c: self.entity_area(c) if self.entity_area is not None else None for c in candidates}
         areas = list(slots.get("area") or [])
+        item = names.get(entities[0]) or {}
+        device = item if isinstance(item, str) else item.get("name") or entities[0]
+        say = languages.speech()
+
+        def room(area_id: str) -> str:
+            area_item = ((compiled.data.get("names") or {}).get("areas") or {}).get(area_id) or {}
+            return area_item if isinstance(area_item, str) else area_item.get("name") or area_id
+
         if not areas:
-            if len(candidates) > len(entities):
-                here = [c for c in candidates if satellite.area_id and where[c] == satellite.area_id]
-                if here:
-                    slots["entity"] = here
-            return None
+            here = [c for c in candidates if satellite.area_id and where[c] == satellite.area_id]
+            shared = len(candidates) > len(entities)
+            if here and shared:
+                slots["entity"] = here
+            if here or not (shared or any(e in compiled.local for e in entities)):
+                return None
+            # Not here, and not to be guessed: where they are, said.
+            rooms = list(dict.fromkeys(room(where[c]) for c in candidates if where[c] is not None))
+            why = say.not_here(device, rooms)
+            return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
         fit = [c for c in candidates if where[c] in areas]
         if fit:
             slots["entity"] = fit
             return None
-        item = names.get(entities[0]) or {}
-        device = item if isinstance(item, str) else item.get("name") or entities[0]
-        area_item = ((compiled.data.get("names") or {}).get("areas") or {}).get(areas[0]) or {}
-        room = area_item if isinstance(area_item, str) else area_item.get("name") or areas[0]
-        say = languages.speech()
-        why = say.no_room(device) if all(where[c] is None for c in candidates) else say.not_in(device, room)
+        why = say.no_room(device) if all(where[c] is None for c in candidates) else say.not_in(device, room(areas[0]))
         return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
 
     def _greedy(self, log_probs: np.ndarray) -> str:

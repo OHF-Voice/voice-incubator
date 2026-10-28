@@ -290,6 +290,13 @@ def not_in(device: str, room: str) -> str:
     return f"pero {device} no está {_place(room, False)}"
 
 
+def not_here(device: str, rooms: list[str]) -> str:
+    """Why: the device said, by a name several share or one heard only in
+    its room, isn't in the satellite's, and no room was said: where it is."""
+    where = place([("area", room) for room in rooms])
+    return f"pero {device} no está aquí" + (", solo " + where if rooms else "")
+
+
 _WHICH = {"entity": "qué dispositivo", "area": "qué habitación", "floor": "qué planta", "scene": "qué escena", "script": "qué script"}
 _SLOTS = {
     "color": "qué color", "percentage": "qué porcentaje", "temperature": "qué temperatura", "volume": "qué volumen",

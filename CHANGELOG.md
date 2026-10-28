@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **A name in several rooms isn't guessed**: "turn on the lamp" from a room
+  with none, where others have one, does nothing and says where they are
+  ("…but there's no Lamp here, only in the Office and in the Bedroom"); it
+  used to turn one on. **Only from its room** (Names): a device that answers
+  to its name only from a satellite in its area, or with its room said
+  (`local: true`). Home Assistant's suggested aliases leave out one that is
+  the name again.
 - **The lists don't take what they have already**: adding to the shopping
   list or a to-do list leaves an item that is on it as it is ("Apples is
   already on the list.") and checks a checked-off one back on, rather than

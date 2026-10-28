@@ -2297,15 +2297,21 @@ async function pageNames() {
     const form = h("div");
     function edit(itemId, entry, suggestion) {
       const name = h("input", { type: "text", value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : ""), placeholder: "name" });
-      let aliases = entry && typeof entry !== "string" ? asList(entry.aliases) : (suggestion ? asList(suggestion.aliases) : []);
+      // Home Assistant's aliases, but not one that is the name again.
+      const same = (a, b) => String(a).toLowerCase().split(/\s+/).join(" ").trim() === String(b).toLowerCase().split(/\s+/).join(" ").trim();
+      let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
+        : (suggestion ? asList(suggestion.aliases).filter((a) => !same(a, suggestion.name)) : []);
+      const local = h("input", { type: "checkbox", checked: (store.local_names || []).includes(itemId) });
       fill(form, h("div", { class: "panel" },
         h("div", { class: "row" }, h("b", {}, itemId), suggestion ? h("span", { class: "muted small" }, "suggested from Home Assistant — edit before saving") : null),
         h("div", { class: "grid2" },
           field("Name", name),
           field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Echo Bee"), "Other names, and spellings the speech model uses (it writes ecobee as “Echo Bee”).")),
+        kind === "entity" ? h("label", { class: "row" }, local, "Only from its room",
+          hint("Heard by this name only from a satellite in its area, or with its room said. A name several devices share is always the one in the satellite's room.")) : null,
         h("div", { class: "row" },
           h("button", { class: "primary", onclick: async () => {
-            try { await api("PUT", `names/${plural}/${encodeURIComponent(itemId)}`, { name: name.value, aliases }); toast("Saved"); pageNames(); refreshStatus(); }
+            try { await api("PUT", `names/${plural}/${encodeURIComponent(itemId)}`, { name: name.value, aliases, ...(kind === "entity" ? { local: local.checked } : {}) }); toast("Saved"); pageNames(); refreshStatus(); }
             catch (err) { form.append(errorBox(err)); }
           } }, "Save"),
           h("button", { onclick: () => fill(form, ) }, "Cancel"))));
@@ -2315,7 +2321,8 @@ async function pageNames() {
       Object.keys(names).length ? h("table", {}, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {})),
         ...Object.entries(names).map(([itemId, entry]) => h("tr", {},
           h("td", {}, h("code", {}, itemId)),
-          h("td", {}, typeof entry === "string" ? entry : entry.name),
+          h("td", {}, typeof entry === "string" ? entry : entry.name,
+            (store.local_names || []).includes(itemId) ? h("span", { class: "badge", style: "margin-left:8px", title: "Heard by this name only from its room" }, "its room") : null),
           h("td", {}, typeof entry === "string" ? "" : asList(entry.aliases).join(", ")),
           h("td", { style: "text-align:right; white-space:nowrap" },
             h("button", { class: "link", onclick: () => edit(itemId, entry) }, "edit"),

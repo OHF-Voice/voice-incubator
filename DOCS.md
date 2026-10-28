@@ -332,7 +332,10 @@ all. A command has:
     that Home Assistant puts in the office -- names may repeat, one Fan per
     room. When none is there, nothing runs and the satellite says so ("…but
     there's no Fan in the Kitchen"). Without a room, a name several devices
-    share is the one in the satellite's own room. The room only picks the
+    share is the one in the satellite's own room; with none there, nothing
+    is guessed: "…but there's no Lamp here, only in the Office and in the
+    Bedroom". A device set **Only from its room** (Names) is the same however
+    few have its name. The room only picks the
     device out: Home Assistant is asked to turn on the fan, not the office.
     The library's device, cover, lock, brightness and thermostat commands
     take one.
@@ -1079,7 +1082,16 @@ What things are called when spoken, each pointing at one Home Assistant id.
 Nothing is taken from Home Assistant automatically: search for an entity,
 area or floor and its name and aliases are offered as a starting point. Add
 the spellings the speech model actually uses as aliases ("Echo Bee" for
-ecobee). Devices are limited to lights, switches, fans, covers, locks,
+ecobee). Home Assistant's suggestion is its entity's own name (else its
+friendly name), and its voice assistant aliases -- not one that is the name
+again.
+
+Several devices may share a name -- a Lamp in the office, one in the
+bedroom: each satellite hears the one in its room, and "the lamp in the
+bedroom" from anywhere. A device set **Only from its room** answers to its
+name only from a satellite in its area, or with its room said, even with no
+other of that name ("the overhead light" in the office, not from the
+kitchen). Devices are limited to lights, switches, fans, covers, locks,
 climate, media players, scenes, scripts, input booleans, valves, vacuums,
 sensors and binary sensors; an implied target may be any entity.
 

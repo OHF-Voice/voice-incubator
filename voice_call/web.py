@@ -337,6 +337,11 @@ class Api:
                 "sections": library_sections()[0],
                 # What things are called in the app's language; other languages' are hidden.
                 "names": {kind: names.get(kind) or {} for kind in NAME_KINDS},
+                # Devices heard by their name only from their own room.
+                "local_names": sorted(
+                    str(item_id) for item_id, entry in ((data.get("names") or {}).get("entities") or {}).items()
+                    if isinstance(entry, dict) and entry.get("local")
+                ),
                 "hidden_names": [
                     {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_names.items())
                 ],
@@ -428,7 +433,7 @@ class Api:
         aliases = [str(a).strip() for a in body.get("aliases") or [] if str(a).strip()]
         if not name:
             raise ConfigError("A name needs a name")
-        spec = {"name": name, **({"aliases": aliases} if aliases else {})}
+        spec = {"name": name, **({"aliases": aliases} if aliases else {}), "local": bool(body.get("local"))}
         compiled = self.app.store.put_name(
             request.match_info["kind"], request.match_info["id"], spec
         )

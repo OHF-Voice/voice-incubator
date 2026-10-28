@@ -136,6 +136,9 @@ class Compiled:
     """Lists with phrases in other languages but none in the app's: how
     many, by language. ``data``'s lists are the language's built-in ones
     (``Pack.lists``) with the home's own in it on top."""
+    local: frozenset[str] = frozenset()
+    """Devices heard by their name only from a satellite in their area, or
+    with their area said (``local``)."""
 
 
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
@@ -155,6 +158,9 @@ def language_name(code: str) -> str:
 
 
 NAME_FIELDS = ("name", "aliases")
+THING_FIELDS = ("local",)
+"""The thing's own, whatever language it is named in: ``local``, a device
+heard by its name only from a satellite in its area, or with its area said."""
 
 
 def name_in(entry: Any, here: str, default: str) -> Any:
@@ -179,7 +185,7 @@ def named_languages(entry: Any, default: str) -> list[str]:
     if not isinstance(entry, dict):
         return []
     own = [default] if any(entry.get(k) for k in NAME_FIELDS) else []
-    return own + [k for k, v in entry.items() if k not in NAME_FIELDS and v]
+    return own + [k for k, v in entry.items() if k not in NAME_FIELDS and k not in THING_FIELDS and v]
 
 
 def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
@@ -192,7 +198,10 @@ def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
         for item_id, entry in (items or {}).items():
             if isinstance(entry, dict):
                 for key in entry:
-                    if key not in NAME_FIELDS and not LANGUAGE_CODE.fullmatch(str(key)):
+                    if key in THING_FIELDS:
+                        if kind != "entities" or not isinstance(entry[key], bool):
+                            raise ConfigError(f"names.{kind}.{item_id}.{key}: true or false, for a device")
+                    elif key not in NAME_FIELDS and not LANGUAGE_CODE.fullmatch(str(key)):
                         raise ConfigError(f"names.{kind}.{item_id}: {key!r} is neither name, aliases nor a language code")
             said = name_in(entry, here, default)
             if said is not None:
@@ -297,9 +306,13 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
+    local = frozenset(
+        str(item_id) for item_id, entry in (names.get("entities") or {}).items()
+        if isinstance(entry, dict) and entry.get("local") and str(item_id) in said.get("entities", {})
+    )
     return Compiled(
         data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names,
-        hidden_lists,
+        hidden_lists, local,
     )
 
 
@@ -480,8 +493,12 @@ class Store:
         return self.update(edit)
 
     def put_name(self, kind: str, item_id: str, spec: dict[str, Any] | None) -> Compiled:
+        """Name a thing in the app's language (None: no longer), and set its
+        ``THING_FIELDS`` (``local``), kept whatever it is called in."""
         if kind not in NAME_KINDS:
             raise ConfigError(f"names: unknown kind {kind!r}")
+        spec = dict(spec) if spec is not None else None
+        local = spec.pop("local", None) if spec is not None else None
 
         def edit(document: dict[str, Any]) -> None:
             names = document["names"]
@@ -492,10 +509,12 @@ class Store:
             entry = plain(items.get(item_id))
             # What it is called in other languages than the app's stays.
             others = (
-                {k: v for k, v in entry.items() if k != here and k not in NAME_FIELDS}
+                {k: v for k, v in entry.items() if k != here and k not in NAME_FIELDS and k not in THING_FIELDS}
                 if isinstance(entry, dict)
                 else {}
             )
+            # Only from its room: as set, else as it was.
+            only_here = bool(local) if local is not None else bool(isinstance(entry, dict) and entry.get("local"))
             if here != default:
                 if isinstance(entry, str) or (isinstance(entry, dict) and any(entry.get(k) for k in NAME_FIELDS)):
                     base = {"name": entry} if isinstance(entry, str) else {k: entry[k] for k in NAME_FIELDS if k in entry}
@@ -504,6 +523,8 @@ class Store:
                 kept = {**base, **others, **({here: spec} if spec is not None else {})}
             else:
                 kept = {**(spec or {}), **others}
+            if kept and only_here:
+                kept["local"] = True
             if kept:
                 items[item_id] = kept
             else:

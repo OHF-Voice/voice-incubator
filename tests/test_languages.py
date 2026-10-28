@@ -128,6 +128,24 @@ def test_names_are_in_their_language(english, tmp_path):
     assert "kitchen" not in plain_names(store)
 
 
+def test_a_device_heard_only_from_its_room(english, tmp_path):
+    """``local`` is the device's, whatever it is called in: kept when it is
+    named in another language, and gone when it is no longer set."""
+    store = Store(tmp_path)
+    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "local": True})
+    assert store.load().local == frozenset({"light.office_lamp"})
+    languages.use("de")
+    store.put_name("entities", "light.office_lamp", {"name": "Lampe"})
+    entities = store.document()["names"]["entities"]
+    assert entities["light.office_lamp"] == {"name": "Lamp", "de": {"name": "Lampe"}, "local": True}
+    assert store.load().local == frozenset({"light.office_lamp"})
+    assert store.load().data["names"]["entities"]["light.office_lamp"] == {"name": "Lampe"}  # what adapt-ctc reads
+    store.put_name("entities", "light.office_lamp", {"name": "Lampe", "local": False})
+    assert "local" not in store.document()["names"]["entities"]["light.office_lamp"]
+    with pytest.raises(ConfigError, match="local: true or false, for a device"):
+        compile_store({"names": {"areas": {"office": {"name": "Office", "local": True}}}})
+
+
 def test_lists_are_in_their_language(english, tmp_path):
     # Every home has its language's lists; one of its own by that name, in
     # that language, takes its place. A value's phrases in another language

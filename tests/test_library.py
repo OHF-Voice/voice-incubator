@@ -155,6 +155,49 @@ def test_every_language_files_its_commands_as_english_does():
         assert {stem: titles[stem] for stem in theirs} == theirs, code
         assert {c: files[c] for c in their_files} == their_files, code
 
+
+def test_a_name_in_several_rooms():
+    """A name several devices share is the one in the satellite's room, or
+    the room said; with none there, nothing is guessed. One heard only from
+    its room (local) is the same, however many have it."""
+    from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_call.store import compile_store  # pylint: disable=import-outside-toplevel
+
+    ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
+    if not ctc.is_dir():
+        pytest.skip("no CTC model")
+    entries = [e for e in load_library() if e["file"] == "lights"]
+    store = {
+        "names": {
+            "entities": {
+                "light.office_lamp": {"name": "Lamp"}, "light.bedroom_lamp": {"name": "Lamp"},
+                "light.office_overhead": {"name": "Overhead Light", "local": True}, "light.porch": {"name": "Porch Light"},
+            },
+            "areas": {"office": "Office", "bedroom": "Bedroom", "kitchen": "Kitchen"},
+        },
+        "lists": {name: values for e in entries for name, values in e["lists"].items()},
+        "commands": {e["id"]: e["spec"] for e in entries},
+    }
+    engine = Engine(ctc, None, None, threads=2)
+    engine.build(compile_store(store))
+    engine.entity_area = {"light.office_lamp": "office", "light.bedroom_lamp": "bedroom", "light.office_overhead": "office",
+                          "light.porch": None}.get
+
+    def heard(text, area):
+        decision = engine.recognize_text(text, Satellite("s", area.title(), area, area.title()))
+        return decision.slots.get("entity") if decision.command else decision.message
+
+    assert heard("turn on the lamp", "office") == ["light.office_lamp"]
+    assert heard("turn on the lamp", "bedroom") == ["light.bedroom_lamp"]
+    assert heard("turn on the lamp in the bedroom", "kitchen") == ["light.bedroom_lamp"]
+    assert heard("turn on the lamp", "kitchen") == (
+        "It looks like you're trying to turn on a device, but there's no Lamp here, only in the Office and in the Bedroom.")
+    assert heard("turn on the overhead light", "office") == ["light.office_overhead"]
+    assert heard("turn on the overhead light", "kitchen").endswith("but there's no Overhead Light here, only in the Office.")
+    assert heard("turn on the overhead light in the office", "kitchen") == ["light.office_overhead"]
+    # One no other has, not only its room's: from anywhere.
+    assert heard("turn on the porch light", "kitchen") == ["light.porch"]
+
 def test_icons_are_material_design_names():
     base = {"description": "x", "examples": ["x"], "response": "ok"}
     assert parse_command("x", {**base, "icon": "mdi:lightbulb"})

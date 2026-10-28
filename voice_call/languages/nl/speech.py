@@ -199,6 +199,13 @@ def not_in(device: str, room: str) -> str:
     return f"maar {device} staat niet {_place('area', room, False)}"
 
 
+def not_here(device: str, rooms: list[str]) -> str:
+    """Why: the device said, by a name several share or one heard only in
+    its room, isn't in the satellite's, and no room was said: where it is."""
+    where = place([("area", room) for room in rooms])
+    return f"maar {device} staat hier niet" + (", alleen " + where if rooms else "")
+
+
 _WHICH = {"entity": "welk apparaat", "area": "welke kamer", "floor": "welke verdieping", "scene": "welke scène", "script": "welk script"}
 _SLOTS = {
     "color": "welke kleur", "percentage": "hoeveel procent", "temperature": "welke temperatuur", "volume": "hoe hard",
