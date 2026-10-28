@@ -2,6 +2,10 @@
 
 ## 0.2.0
 
+- **The app reaches "started"**: its health check asked `/api/status` from
+  the machine itself, which only the ingress proxy may reach, so the
+  Supervisor waited on it forever. It asks `/health` now, which says "ok" and
+  nothing else, and which the machine may ask too.
 - **learn-tv's app side set aside**, as its firmware was: no check for a
   talker in the null (two Silero passes on every wake word), no HELLO
   `aec_lead_samples` (the captures are the XMOS's 905 samples apart), no

@@ -72,6 +72,10 @@ _LOGGER = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "web"
 SAFE_ID = re.compile(r"[^a-z0-9_]+")
+HEALTH = "/health"
+"""What the container's health check asks for (the Dockerfile): "ok", and
+nothing else, so this machine may ask too -- the app shares its network."""
+LOOPBACK = ("127.0.0.1", "::1")
 
 
 async def start_web(app: "VoiceCallApp") -> web.AppRunner:
@@ -80,7 +84,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
 
     @web.middleware
     async def only_allowed(request: web.Request, handler):
-        if allow and request.remote not in allow:
+        if allow and request.remote not in allow and not (request.path == HEALTH and request.remote in LOOPBACK):
             raise web.HTTPForbidden(text="Only Home Assistant's ingress may connect")
         return await handler(request)
 
@@ -108,6 +112,7 @@ async def start_web(app: "VoiceCallApp") -> web.AppRunner:
         [
             web.get("/", api.index),
             web.static("/static", STATIC_DIR, append_version=True),
+            web.get(HEALTH, api.health),
             web.get("/api/status", api.status),
             web.get("/api/store", api.get_store),
             web.get("/api/commands/{id}", api.get_command),
@@ -214,6 +219,9 @@ class Api:
         return web.FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
     # ---------------------------------------------------------------- state
+
+    async def health(self, request: web.Request) -> web.Response:
+        return web.Response(text="ok")
 
     async def status(self, request: web.Request) -> web.Response:
         app = self.app

@@ -62,4 +62,4 @@ WORKDIR /
 COPY rootfs /
 
 HEALTHCHECK --start-period=10m \
-    CMD curl -sf http://127.0.0.1:8099/api/status > /dev/null || exit 1
+    CMD curl -sf http://127.0.0.1:8099/health > /dev/null || exit 1
