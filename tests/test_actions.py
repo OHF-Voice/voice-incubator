@@ -26,6 +26,8 @@ class StubHass:
         self.script_response: Any = None
         self.services: list[tuple[str, dict]] = []
         self.events: list[dict] = []
+        self.todo_items: dict[str, list[dict]] = {}
+        """To-do lists' items (todo.get_items), by entity."""
 
     async def execute_script(self, sequence, variables=None):
         if self.fail:
@@ -39,6 +41,8 @@ class StubHass:
         if self.fail:
             raise HassError("Timer not found")
         self.services.append((service, data))
+        if domain == "todo" and service == "get_items":
+            return {target["entity_id"]: {"items": list(self.todo_items.get(target["entity_id"], []))}}
         return {target["entity_id"]: {"timer_id": "9"}} if return_response else None
 
     async def fire_event(self, event_type, data):
@@ -497,3 +501,76 @@ def test_what_sensors_say():
     assert said("binary_sensor_state", {"entity": ["binary_sensor.front_door"], "asked": "closed"}) == "Yes, Front Door is closed."
     assert said("binary_sensor_state", {"entity": ["binary_sensor.basement"], "asked": "wet"}) == "Yes, Basement is wet."
     assert said("binary_sensor_state", {"entity": ["binary_sensor.basement"], "asked": "running"}) == "Basement is wet."
+
+
+SHOPPING = {
+    "adds_to_list": {"slot": "item", "list": "entity", "each": True},
+    "action": [{"repeat": {"for_each": "{{ items }}", "sequence": [{"action": "todo.add_item"}]}}],
+    "response": {"done": {
+        "specific": "Added {{ slots.item }} to the shopping list.",
+        "verbose": "{{ ('Added ' ~ added) if added else '' }}{{ ' and put ' ~ put_back ~ ' back' if put_back }}.",
+    }},
+}
+
+
+def test_what_the_list_has_is_not_added_again():
+    """Each item said: added, checked back on when it was checked off, or
+    left as it is when it is on the list -- the same words as spoken, apart
+    from emoji, case, an article, a quantity and a plural."""
+    hass = StubHass()
+    hass.todo_items["todo.shopping"] = [
+        {"summary": "🍎 Apples", "status": "needs_action"},
+        {"summary": "Milk 🥛", "status": "completed"},
+        {"summary": "Mac and Cheese", "status": "needs_action"},
+        {"summary": "Peas", "status": "needs_action"},
+    ]
+
+    def add(item, verbosity=None):
+        return run({**SHOPPING, **({"verbosity": verbosity} if verbosity else {})}, hass,
+                   {"entity": ["todo.shopping"], "item": item})
+
+    added = add("bananas")
+    assert (added.name, added.variables["items"], added.variables["back"]) == ("done", ["bananas"], [])
+    assert added.speech == "Added bananas to the shopping list."
+    # Checked off: checked back on, as the list has it; said as added but when verbose.
+    back = add("the milk")
+    assert (back.variables["items"], back.variables["back"]) == ([], ["Milk 🥛"])
+    assert back.speech == "Added Milk 🥛 to the shopping list."
+    assert add("milk and pears", "verbose").speech == "Added pears and put Milk 🥛 back."
+    # On it already: nothing to add, and said; with others, said after them.
+    there = add("two apples")
+    assert (there.name, there.speech) == ("already_on_list", "🍎 Apples is already on the list.")
+    assert add("apple and pears").speech == "Added pears to the shopping list. 🍎 Apples is already on the list."
+    assert add("mac and cheese").name == "already_on_list"  # one item, called that
+    # Not merely close in spelling: "pears" are not "peas".
+    assert add("pears").variables["items"] == ["pears"]
+    # Said twice, added once.
+    assert add("figs and figs").variables["items"] == ["figs"]
+    # A list that can't be read: all of it added.
+    hass.fail = True
+    assert run(SHOPPING, hass, {"entity": ["todo.shopping"], "item": "apples"}, dry_run=True).variables["items"] == ["apples"]
+
+
+def test_the_whole_of_it_unless_each():
+    hass = StubHass()
+    hass.todo_items["todo.chores"] = [{"summary": "Call mom", "status": "completed"}]
+    spec = {"adds_to_list": {"list": "todo.chores"}, "action": [{"action": "todo.add_item"}], "response": "ok"}
+    whole = run(spec, hass, {"item": "call mom and dad"})
+    assert (whole.variables["items"], whole.variables["back"]) == (["call mom and dad"], [])
+    again = run(spec, hass, {"item": "call mom"})
+    assert (again.variables["items"], again.variables["back"]) == ([], ["Call mom"])
+
+
+
+def test_the_librarys_shopping_list_says_what_it_did():
+    from voice_call.library import base  # pylint: disable=import-outside-toplevel
+
+    hass = StubHass()
+    hass.todo_items["todo.shopping"] = [{"summary": "🥛 Milk", "status": "completed"}, {"summary": "Eggs", "status": "needs_action"}]
+    spec = {k: v for k, v in base("todo/shopping_list_add").items() if k not in ("title", "library")}
+    slots = {"entity": ["todo.shopping"], "item": "pears and milk"}
+    assert run(spec, hass, slots).speech == "Added pears and 🥛 Milk to the shopping list."
+    verbose = run({**spec, "verbosity": "verbose"}, hass, slots)
+    assert verbose.speech == "Added pears to the shopping list and put 🥛 Milk back on it."
+    assert run({**spec, "verbosity": "verbose"}, hass, {**slots, "item": "milk"}).speech == "Put 🥛 Milk back on the shopping list."
+    assert run(spec, hass, {**slots, "item": "eggs"}).speech == "Eggs is already on the list."

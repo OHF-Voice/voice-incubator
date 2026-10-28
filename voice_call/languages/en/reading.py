@@ -52,9 +52,14 @@ MUSIC_TRAILING = re.compile(r"(?: please| for me| for us| on music assistant)+$"
 """Politeness around what to play (lowercase, without punctuation)."""
 
 BY = "by"
+"""Between a title and its artist: "so what by miles davis"."""
 AND = ("and",)
 """What joins items said together ("apples and bananas"): a word of its own."""
-"""Between a title and its artist: "so what by miles davis"."""
+PLURALS = (("ies", "y"), ("es", ""), ("s", ""))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "apples" is "apple", "berries"
+"berry". A word has one only when it is longer than the ending by three
+letters."""
 
 # ------------------------------------------------------------------- clock
 

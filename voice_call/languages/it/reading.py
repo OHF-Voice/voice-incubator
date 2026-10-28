@@ -34,9 +34,14 @@ filler the free text lost."""
 MUSIC_TRAILING = re.compile(r"(?: per favore| per piacere| per me| su music assistant)+$")
 
 BY = "di"
+"""Between a title and its artist: "kind of blue di miles davis"."""
 AND = ("e", "ed")
 """What joins items said together ("apples and bananas"): a word of its own."""
-"""Between a title and its artist: "kind of blue di miles davis"."""
+PLURALS = (("i", "o"), ("e", "a"), ("i", "e"))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "pomodori" is "pomodoro",
+"mele" "mela". A word has one only when it is longer than the ending by
+three letters."""
 
 # ------------------------------------------------------------------- clock
 

@@ -277,6 +277,21 @@ def test_an_item_on_a_list():
         command(on_list={"item": "light.kitchen"})
 
 
+def test_what_is_added_to_a_list():
+    from voice_call.commands import AddsToList  # pylint: disable=import-outside-toplevel
+
+    add = command(action=None, adds_to_list={"each": True}, response={"done": "ok", "already_on_list": "Got it."})
+    assert add.behavior.adds_to_list == AddsToList("item", "entity", True)
+    assert add.behavior.outcomes() == ("done", "failed", "already_on_list")
+    assert command(adds_to_list={"slot": "task", "list": "todo.chores"}).behavior.adds_to_list == AddsToList("task", "todo.chores")
+    with pytest.raises(ConfigError, match="adds_to_list.list: a to-do list"):
+        command(adds_to_list={"list": "light.kitchen"})
+    with pytest.raises(ConfigError, match="adds_to_list: no every"):
+        command(adds_to_list={"every": True})
+    with pytest.raises(ConfigError, match="adds_to_list.each: true or false"):
+        command(adds_to_list={"each": "yes"})
+
+
 def test_the_homes_own():
     weather = command(action=None, home="weather", response={"done": "ok", "not_set": "Set it up."})
     assert weather.behavior.home == "weather"

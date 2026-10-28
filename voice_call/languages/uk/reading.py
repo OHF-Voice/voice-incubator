@@ -46,9 +46,14 @@ MUSIC_LEADING = re.compile(r"^(?:мені |нам |трохи |якусь |як�
 MUSIC_TRAILING = re.compile(r"(?: будь ласка| мені| для мене| для нас| (?:у|в) music assistant)+$")
 
 BY = "від"
+"""Between a title and its artist, as said: "so what від miles davis"."""
 AND = ("і", "й", "та")
 """What joins items said together ("apples and bananas"): a word of its own."""
-"""Between a title and its artist, as said: "so what від miles davis"."""
+PLURALS = (("и", ""), ("і", ""), ("и", "а"), ("і", "а"), ("і", "я"), ("а", "о"))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "банани" is "банан", "груші"
+"груша", "яблука" "яблуко". A word has one only when it is longer than the
+ending by three letters."""
 
 # ------------------------------------------------------------------- clock
 

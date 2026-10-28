@@ -38,6 +38,10 @@ def test_sentences_without_markup():
     assert sentences_of("Turned on the lights.") == ["Turned on the lights."]
     assert sentences_of("") == [] and sentences_of("  **  ") == []
     assert sentences_of("2*3*4 = 24.") == ["2*3*4 = 24."]  # arithmetic, not markup
+    # Emoji aren't said: a shopping list's, an agent's.
+    assert sentences_of("On the shopping list: 🍎 Apples, 🥚 Eggs and Milk 🥛.") == ["On the shopping list: Apples, Eggs and Milk."]
+    assert sentences_of("👨‍👩‍👧 Snacks ✅") == ["Snacks"] and sentences_of("🇺🇸") == []
+    assert sentences_of("It's 72°F outside.") == ["It's 72°F outside."]
 
 
 @pytest.mark.skipif(not VOICE.exists(), reason="needs the English Piper voice")

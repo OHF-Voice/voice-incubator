@@ -35,6 +35,12 @@ def not_on_list(items: list[str]) -> str:
     return f"У списку немає: {join(items)}."
 
 
+def already_on_list(items: list[str]) -> str:
+    """What adding to a to-do list found on it already, not checked off
+    (``adds_to_list``)."""
+    return f"У списку вже є: {join(items)}."
+
+
 NOT_SET = "Це ще не налаштовано."
 WENT_WRONG = "Вибач, щось пішло не так."
 NO_COMMANDS = "Голосових команд ще немає. Додай їх у застосунку Voice Call."

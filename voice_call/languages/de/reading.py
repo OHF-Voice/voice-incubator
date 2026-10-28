@@ -38,6 +38,11 @@ MUSIC_TRAILING = re.compile(r"(?: bitte| für mich| für uns| ab| auf music assi
 BY = "von"
 AND = ("und",)
 """What joins items said together ("apples and bananas"): a word of its own."""
+PLURALS = (("en", ""), ("n", ""), ("e", ""))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "Birnen" is "Birne", "Brote"
+"Brot". A word has one only when it is longer than the ending by three
+letters."""
 
 # ------------------------------------------------------------------- clock
 

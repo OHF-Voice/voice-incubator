@@ -17,18 +17,29 @@ commands:
       bounded: true
       max_words: 8
     home: shopping_list
-    # Several at once, each an item of its own: "oranges and bananas".
+    # Each item said ("oranges and bananas": two), unless the list has one
+    # called that whole ("mac and cheese"); one the list has already isn't
+    # added again (already_on_list).
+    adds_to_list: {slot: item, list: entity, each: true}
     action:
-      repeat:
-        for_each: >-
-          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:i|oraz)\\s+', '|', true)).split('|')
-          | map('trim') | reject('eq', '') | list }}
-        sequence:
-          - action: todo.add_item
-            target:
-              entity_id: "{{ slots.entity }}"
-            data:
-              item: "{{ repeat.item }}"
+      # What isn't on the list is added; what was checked off is checked back on.
+      - repeat:
+          for_each: "{{ items }}"
+          sequence:
+            - action: todo.add_item
+              target:
+                entity_id: "{{ slots.entity }}"
+              data:
+                item: "{{ repeat.item }}"
+      - repeat:
+          for_each: "{{ back }}"
+          sequence:
+            - action: todo.update_item
+              target:
+                entity_id: "{{ slots.entity }}"
+              data:
+                item: "{{ repeat.item }}"
+                status: needs_action
     verbosity: specific
     response:
       done:
@@ -74,12 +85,28 @@ commands:
       bounded: true
       max_words: 8
     home: todo_list
+    # The whole of it: one the list has already isn't added again
+    # (already_on_list).
+    adds_to_list: {slot: item, list: entity}
     action:
-      action: todo.add_item
-      target:
-        entity_id: "{{ slots.entity }}"
-      data:
-        item: "{{ slots.item }}"
+      # What isn't on the list is added; what was checked off is checked back on.
+      - repeat:
+          for_each: "{{ items }}"
+          sequence:
+            - action: todo.add_item
+              target:
+                entity_id: "{{ slots.entity }}"
+              data:
+                item: "{{ repeat.item }}"
+      - repeat:
+          for_each: "{{ back }}"
+          sequence:
+            - action: todo.update_item
+              target:
+                entity_id: "{{ slots.entity }}"
+              data:
+                item: "{{ repeat.item }}"
+                status: needs_action
     verbosity: specific
     response:
       done:

@@ -37,6 +37,11 @@ MUSIC_TRAILING = re.compile(r"(?: alsjeblieft| alstublieft| af| voor mij| op mus
 BY = "van"
 AND = ("en",)
 """What joins items said together ("apples and bananas"): a word of its own."""
+PLURALS = (("en", ""), ("s", ""))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "appels" is "appel", "bananen"
+"banaan". A word has one only when it is longer than the ending by three
+letters."""
 
 # ------------------------------------------------------------------- clock
 

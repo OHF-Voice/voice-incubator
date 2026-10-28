@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **The lists don't take what they have already**: adding to the shopping
+  list or a to-do list leaves an item that is on it as it is ("Apples is
+  already on the list.") and checks a checked-off one back on, rather than
+  adding it again. Items are told apart by their words, apart from emoji,
+  case, an article, a number and the plural ("two apples" is "🍎 Apples"; not
+  by spelling: "pears" aren't "peas"). Commands: `adds_to_list`, the outcome
+  `already_on_list`, the variables `back`, `added` and `put_back`; each
+  language's `PLURALS`. **Emoji are never said**: a list item's or a reply's.
 - **The app reaches "started"**: its health check asked `/api/status` from
   the machine itself, which only the ingress proxy may reach, so the
   Supervisor waited on it forever. It asks `/health` now, which says "ok" and

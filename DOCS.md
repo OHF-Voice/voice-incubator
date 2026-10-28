@@ -721,7 +721,8 @@ target:
 - **Add to the shopping list**: "add milk to the shopping list", "put eggs
   on the list". Several at once are items of their own: "add oranges and
   bananas" is two, "eggs, milk and bread" three (split at "and" and commas,
-  in every language; "macaroni and cheese" is two as well).
+  in every language; "macaroni and cheese" is two as well, unless the list
+  has one called that).
 - **Check off the shopping list**: marks it done, and keeps it on the list
   as such -- "cross the milk off the shopping list", "check off eggs on the
   list", "mark bread as done on the list".
@@ -744,6 +745,23 @@ whole ("mac and cheese"). One that isn't on the list says so ("Bread isn't on
 the list."), after doing the others. A command of your own sees them as
 `items`, and its slot as them all, said ("Apples and Bananas"). Checking
 off, removing and reading are in the English library for now.
+
+Adding doesn't add what the list has already. Each item said is looked for
+on the list by its words -- apart from emoji, case, "the", a number and the
+plural, so "add two apples" finds "🍎 Apples", but "pears" isn't "peas":
+
+- **Not on the list**: added.
+- **Checked off**: checked back on, rather than added again. It is said as
+  added ("Added milk to the shopping list."), and as put back when verbose.
+- **On the list already**: left as it is, and said, after the others ("Added
+  pears to the shopping list. Apples is already on the list.").
+
+The to-do list's commands take what was said as one task ("call mom and
+dad"); a done one is checked back on too. A command of your own does the same
+with `adds_to_list` (`each` for several items at once): its sequence adds
+`items` and checks `back` back on.
+
+Emoji are never said: an item's ("🍎 Apples" is "Apples"), or a reply's.
 
 ## Weather
 

@@ -30,6 +30,13 @@ def not_on_list(items: list[str]) -> str:
     return f"{join(items)} {verb} on the list."
 
 
+def already_on_list(items: list[str]) -> str:
+    """What adding to a to-do list found on it already, not checked off
+    (``adds_to_list``)."""
+    verb = "is" if len(items) == 1 else "are"
+    return f"{join(items)} {verb} already on the list."
+
+
 NOT_SET = "That isn't set up yet."
 """A command on the home's own thing (``home``: its weather, thermostat,
 shopping list or to-do list) when neither it nor the home has one set."""

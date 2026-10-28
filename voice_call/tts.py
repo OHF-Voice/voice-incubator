@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from pathlib import Path
 
 import numpy as np
@@ -32,11 +33,20 @@ def _to_device_pcm(samples: np.ndarray, rate: int) -> bytes:
     return (clipped * 32767.0).astype("<i2").tobytes()
 
 
+EMOJI = re.compile(
+    "[ \t]*[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0E\uFE0F\u200D\u20E3\U000E0020-\U000E007F]+"
+)
+"""Emoji -- pictographs, symbols, flags, and what joins and colors them --
+with the space before them."""
+
+
 def sentences_of(text: str) -> list[str]:
     """What of ``text`` is said, in the pieces it is synthesized and played
     in, one after another: its sentences, without markdown (a conversation
-    agent's **bold** and bullets, which Piper reads as "asterisk"), a list's
-    items apart."""
+    agent's **bold** and bullets, which Piper reads as "asterisk") or emoji
+    (a shopping list's "🍎 Apples", which a voice may read as "red apple"),
+    a list's items apart."""
+    text = EMOJI.sub("", text)
     return [line.strip() for sentence in stream_to_sentences(text) for line in sentence.splitlines() if line.strip()]
 
 

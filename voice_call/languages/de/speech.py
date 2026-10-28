@@ -24,6 +24,12 @@ def not_on_list(items: list[str]) -> str:
     return f"{join(items)} {'steht' if len(items) == 1 else 'stehen'} nicht auf der Liste."
 
 
+def already_on_list(items: list[str]) -> str:
+    """What adding to a to-do list found on it already, not checked off
+    (``adds_to_list``)."""
+    return f"{join(items)} {'steht' if len(items) == 1 else 'stehen'} schon auf der Liste."
+
+
 NOT_SET = "Das ist noch nicht eingerichtet."
 WENT_WRONG = "Entschuldigung, da ist etwas schiefgelaufen."
 NO_COMMANDS = "Es sind noch keine Sprachbefehle eingerichtet. Füge welche in der Voice Call App hinzu."

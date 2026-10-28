@@ -30,10 +30,15 @@ MUSIC_LEADING = re.compile(r"^(?:un peu de |de la |du |des |un peu d')+")
 MUSIC_TRAILING = re.compile(r"(?: s'il te plaît| s'il vous plaît| pour moi| sur music assistant)+$")
 
 BY = "par"
-AND = ("et",)
-"""What joins items said together ("apples and bananas"): a word of its own."""
 """Between a title and its artist: "so what par miles davis" ("de" is too
 common to split on)."""
+AND = ("et",)
+"""What joins items said together ("apples and bananas"): a word of its own."""
+PLURALS = (("s", ""), ("x", ""))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "pommes" is "pomme", "gâteaux"
+"gâteau". A word has one only when it is longer than the ending by three
+letters."""
 
 # ------------------------------------------------------------------- clock
 

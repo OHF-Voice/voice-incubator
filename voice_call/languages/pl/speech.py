@@ -34,6 +34,12 @@ def not_on_list(items: list[str]) -> str:
     return f"Na liście nie ma: {join(items)}."
 
 
+def already_on_list(items: list[str]) -> str:
+    """What adding to a to-do list found on it already, not checked off
+    (``adds_to_list``)."""
+    return f"Na liście już jest: {join(items)}."
+
+
 NOT_SET = "To nie jest jeszcze skonfigurowane."
 WENT_WRONG = "Przepraszam, coś poszło nie tak."
 NO_COMMANDS = "Nie ma jeszcze żadnych poleceń głosowych. Dodaj je w aplikacji Voice Call."

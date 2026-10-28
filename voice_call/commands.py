@@ -118,6 +118,18 @@ the closest -- and none close is the outcome ``not_on_list``::
       slots: {entity: [todo.shopping_list]}
       on_list: {item: entity}
 
+``adds_to_list`` says a slot is what to add to a to-do list (``slot``,
+default ``item``; ``list``, one by id or ``entity``, the default): each item
+said, with ``each`` ("apples and bananas", unless the list has one called
+that whole), else the whole of it. One the list has already is not added
+again -- the same words, as ``actions.same_item`` reads them -- and one
+checked off is checked back on: the sequence adds ``items`` and checks
+``back`` back on. When it has every one already, the outcome is
+``already_on_list``::
+
+    shopping_list_add:
+      adds_to_list: {slot: item, list: entity, each: true}
+
 ``fallback`` lets the steps after keywords and examples run the command when
 nothing else matched (voice_call/fallback.py): ``meaning`` when a sentence is
 very close to it in meaning (the model hears what was said in it), ``llm``
@@ -204,6 +216,7 @@ COMMAND_KEYS = {
     "home",
     "supports",
     "on_list",
+    "adds_to_list",
     "fallback",
     "combinations",
     *LISTEN_KEYS,
@@ -302,6 +315,17 @@ class IntentCall:
         return {"name": self.name, "slots": dict(self.slots), **flags}
 
 
+@dataclass(frozen=True)
+class AddsToList:
+    """What a command adds to a to-do list (``adds_to_list``)."""
+
+    slot: str = "item"
+    list: str = "entity"
+    """A to-do list, or ``entity``: the command's target."""
+    each: bool = False
+    """Items said together are each one ("apples and bananas"), not one."""
+
+
 @dataclass
 class Behavior:
     """What happens when a command matches."""
@@ -347,6 +371,9 @@ class Behavior:
     on_list: dict[str, str] = field(default_factory=dict)
     """Slots that name an item on a to-do list, by the list: it can then turn
     out ``not_on_list``."""
+
+    adds_to_list: AddsToList | None = None
+    """What it adds to a to-do list: it can then turn out ``already_on_list``."""
 
     def response_for(self, outcome: str, level: str | None = None) -> str | None:
         """The template for this outcome; a plain response is for ``done``.
@@ -401,6 +428,7 @@ class Behavior:
             + (("not_set",) if self.home else ())
             + (("not_supported",) if self.supports else ())
             + (("not_on_list",) if self.on_list else ())
+            + (("already_on_list",) if self.adds_to_list else ())
         ))
 
     def _outcomes(self) -> tuple[str, ...] | None:
@@ -793,6 +821,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
     for slot, entity in on_list.items():
         if entity != "entity" and not re.fullmatch(r"todo\.[a-z0-9_]+", entity):
             raise ConfigError(f"{where}.on_list.{slot}: a to-do list (todo.…), or entity (its target's)")
+    adds_to_list = _adds_to_list(spec.get("adds_to_list"), f"{where}.adds_to_list")
     return Behavior(
         slots=_fixed_slots(spec.get("slots"), f"{where}.slots"),
         script=script,
@@ -809,7 +838,23 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         home=home,
         supports=supports,
         on_list=on_list,
+        adds_to_list=adds_to_list,
     )
+
+
+def _adds_to_list(value: Any, where: str) -> AddsToList | None:
+    if value is None:
+        return None
+    options = _mapping(value, where)
+    unknown = sorted(set(options) - {"slot", "list", "each"})
+    if unknown:
+        raise ConfigError(f"{where}: no {', '.join(unknown)} (slot, list, each)")
+    adds = AddsToList(str(options.get("slot", "item")), str(options.get("list", "entity")), options.get("each", False))
+    if not isinstance(adds.each, bool):
+        raise ConfigError(f"{where}.each: true or false")
+    if adds.list != "entity" and not re.fullmatch(r"todo\.[a-z0-9_]+", adds.list):
+        raise ConfigError(f"{where}.list: a to-do list (todo.…), or entity (its target's)")
+    return adds
 
 
 def _supports(value: Any, where: str) -> dict[str, str | None]:

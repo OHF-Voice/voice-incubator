@@ -35,6 +35,11 @@ MUSIC_TRAILING = re.compile(r"(?: por favor| para mí| para mi| para nosotros| e
 BY = "de"
 AND = ("y", "e")
 """What joins items said together ("apples and bananas"): a word of its own."""
+PLURALS = (("es", ""), ("s", ""))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "manzanas" is "manzana",
+"limones" "limon". A word has one only when it is longer than the ending by
+three letters."""
 
 # ------------------------------------------------------------------- clock
 

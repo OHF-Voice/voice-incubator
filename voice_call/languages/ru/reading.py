@@ -41,9 +41,14 @@ MUSIC_LEADING = re.compile(r"^(?:мне |нам |пожалуйста |немн�
 MUSIC_TRAILING = re.compile(r"(?: пожалуйста| для меня| для нас| в music assistant)+$")
 
 BY = "в исполнении"
+"""Between a title and its artist: "кукушка в исполнении кино"."""
 AND = ("и",)
 """What joins items said together ("apples and bananas"): a word of its own."""
-"""Between a title and its artist: "кукушка в исполнении кино"."""
+PLURALS = (("ы", ""), ("и", ""), ("и", "а"), ("ы", "а"), ("и", "о"))
+"""A plural's ending, and the singular's in its place, for telling an item said
+from one on a to-do list (actions.same_item): "бананы" is "банан", "груши"
+"груша", "яблоки" "яблоко". A word has one only when it is longer than the
+ending by three letters."""
 
 # ------------------------------------------------------------------- clock
 

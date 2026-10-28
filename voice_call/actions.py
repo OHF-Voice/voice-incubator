@@ -34,7 +34,12 @@ variables, which the sequence and the response template can both use:
                 about; ``timers``: the ones it listed
 ``items``       for a command on a to-do list's items (``on_list``): each
                 item said, as the list has it; the slot is them all, said
-                ("Apples and Bananas")
+                ("Apples and Bananas"). For one that adds to a list
+                (``adds_to_list``): what to add, as said
+``back``        for one that adds to a list: what it has checked off, to
+                check back on, as the list has them; ``added`` and
+                ``put_back`` say each kind ("apples and milk"), and the slot
+                is them all
 ==============  ============================================================
 
 A timer command (``timer: cancel`` ...) is carried out by the app on the
@@ -336,9 +341,21 @@ async def run(
             found, missing = found + items, missing + lost
             if items:
                 decision.slots = {**decision.slots, slot: languages.speech().join(items)}
+    adding: Adding | None = None
+    adds = behavior.adds_to_list
+    if adds is not None:
+        said = str(decision.slots.get(adds.slot) or "")
+        entity_id = adds.list if adds.list != "entity" else str((decision.slots.get("entity") or [""])[0])
+        if said and entity_id:
+            adding = await _adding(hass, entity_id, said, adds.each)
+            # What it adds; with nothing to, what the list has already.
+            shown = adding.items + adding.back or adding.already
+            decision.slots = {**decision.slots, adds.slot: _joined(shown)}
     values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word)
     if behavior.on_list:
         values["items"] = found
+    if adding is not None:
+        values.update(items=adding.items, back=adding.back, added=_joined(adding.items), put_back=_joined(adding.back))
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
@@ -349,6 +366,11 @@ async def run(
         if not found:
             return await _say(hass, behavior, values, outcome, "not_on_list", sentence)
         # Done on the others, and said, however little it says.
+        outcome.also_said = sentence
+    if adding is not None and adding.already:
+        sentence = _capital(languages.speech().already_on_list(adding.already))
+        if not adding.items and not adding.back:
+            return await _say(hass, behavior, values, outcome, "already_on_list", sentence)
         outcome.also_said = sentence
     if checked.cannot:
         named = bool(decision.slots.get("entity"))
@@ -429,6 +451,92 @@ async def _items_on(hass: HomeAssistant, entity_id: str, said: str) -> tuple[lis
             missing.append(part)
         found += [i for i in items if i not in found]
     return found, missing
+
+
+@dataclass
+class Adding:
+    """What adding to a to-do list comes to (``adds_to_list``)."""
+
+    items: list[str] = field(default_factory=list)
+    """Not on the list: to add, as said."""
+    back: list[str] = field(default_factory=list)
+    """On it, checked off: to check back on, as the list has them."""
+    already: list[str] = field(default_factory=list)
+    """On it and not checked off, as the list has them: not added again."""
+
+
+async def _adding(hass: HomeAssistant, entity_id: str, said: str, each: bool) -> Adding:
+    """What of ``said`` a to-do list has already (``same_item``): each item
+    (``each``; the whole, when the list has one called that), else the
+    whole. When the list can't be read, it is all added."""
+    parts = (split_items(said) or [said]) if each else [said]
+    try:
+        response = await hass.call_service(
+            "todo", "get_items", {"status": ["needs_action", "completed"]}, {"entity_id": entity_id}, return_response=True
+        )
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        _LOGGER.warning("Could not read %s: %s", entity_id, err)
+        return Adding(items=parts)
+    listed = [
+        (str(i.get("summary") or ""), i.get("status") == "completed")
+        for i in (((response or {}).get(entity_id) or {}).get("items")) or [] if isinstance(i, dict)
+    ]
+    if each and any(same_item(said, name) for name, _ in listed):
+        parts = [said]  # "macaroni and cheese"
+    adding = Adding()
+    for part in parts:
+        if any(same_item(part, earlier) for earlier in adding.items):
+            continue  # said twice
+        on = [(name, done) for name, done in listed if same_item(part, name)]
+        if not on:
+            adding.items.append(part)
+        elif all(done for _, done in on):
+            if on[0][0] not in adding.back:
+                adding.back.append(on[0][0])
+        else:
+            name = next(name for name, done in on if not done)
+            if name not in adding.already:
+                adding.already.append(name)
+    return adding
+
+
+def _joined(items: list[str]) -> str:
+    """Items said together ("apples and milk"); none, nothing."""
+    return languages.speech().join(items) if items else ""
+
+
+def same_item(said: str, item: str) -> bool:
+    """Whether ``said`` is ``item`` for adding it again: the same words as
+    spoken, apart from emoji, case, a leading article or quantity ("the 2
+    apples", "🍎 Apples"), and the last one's plural (the language's
+    ``PLURALS``: "apple"). Not merely close in spelling, as finding an item
+    to take off is: "pears" are not "peas"."""
+    said_words, item_words = _item_words(said), _item_words(item)
+    if not said_words or len(said_words) != len(item_words) or said_words[:-1] != item_words[:-1]:
+        return False
+    return bool(_forms(said_words[-1]) & _forms(item_words[-1]))
+
+
+def _item_words(text: str) -> list[str]:
+    """An item's words as spoken (emoji are none), without what leads them
+    that isn't the item: an article, or a quantity ("two", "a")."""
+    spellings = spoken_words(text, languages.current().code)
+    words = list(spellings[0]) if spellings else text.lower().split()
+    articles = set(languages.reading().ARTICLES)
+    numbers = languages.grammar("numbers")
+    while len(words) > 1 and (words[0] in articles or numbers.parse_num(words[0]) is not None):
+        words = words[1:]
+    return words
+
+
+def _forms(word: str) -> set[str]:
+    """``word``, and what it is with a plural's ending put back to the
+    singular's (``PLURALS``): "berries" is also "berry"."""
+    forms = {word}
+    for plural, singular in languages.reading().PLURALS:
+        if word.endswith(plural) and len(word) > len(plural) + 2:
+            forms.add(word[: -len(plural)] + singular)
+    return forms
 
 
 def _in_a_row(said: str, names: list[str]) -> list[str]:
