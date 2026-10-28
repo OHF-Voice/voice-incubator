@@ -6,7 +6,7 @@
 #               running ones: "een timer genaamd pasta"
 #   duration    "de timer van 5 minuten"
 # or it is the only one running.
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

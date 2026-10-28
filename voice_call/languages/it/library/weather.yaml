@@ -1,0 +1,25 @@
+# Weather (Italian), as the English library's weather.yaml.
+title: Weather
+icon: mdi:weather-partly-cloudy
+
+commands:
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: sapere che tempo fa
+    examples: ["che tempo fa [oggi]", "pioverà [oggi]", "com'è il meteo"]
+    require: [[meteo, che tempo, pioverà, previsioni]]
+    exclude: [manca, mancano, timer, quanto]
+    home: weather
+    response: >-
+      {%- set meteo = {'clear-night': 'sereno', 'cloudy': 'nuvoloso', 'exceptional': 'eccezionale',
+        'fog': 'nebbia', 'hail': 'grandine', 'lightning': 'temporale', 'lightning-rainy': 'temporale con pioggia',
+        'partlycloudy': 'parzialmente nuvoloso', 'pouring': 'pioggia forte', 'rainy': 'pioggia',
+        'snowy': 'neve', 'snowy-rainy': 'nevischio', 'sunny': 'sole', 'windy': 'vento',
+        'windy-variant': 'vento e nuvole'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      Tempo: {{ meteo.get(state, state) }}, con
+      {{ state_attr(slots.entity[0], 'temperature') | round }} gradi.
+    needs:
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).

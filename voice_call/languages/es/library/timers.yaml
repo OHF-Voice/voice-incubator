@@ -8,7 +8,7 @@
 #   duration    "el temporizador de 5 minutos"
 # or it is the only one running. Spanish names a timer after the word:
 # "temporizador de pizza".
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

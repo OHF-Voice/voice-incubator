@@ -1,0 +1,11 @@
+# About the satellite itself (Italian), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: non fare niente
+    # Said whole only: "annulla il timer" is the timer's.
+    examples: [lascia perdere, lascia stare, niente, annulla, non importa, fa niente]

@@ -1,0 +1,11 @@
+# About the satellite itself (Polish), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: nic nie robić
+    # Said whole only: "anuluj minutnik" is the timer's.
+    examples: [nieważne, nie ważne, zapomnij, zapomnij o tym, anuluj, nic, nic nie rób, już nic, nieistotne]

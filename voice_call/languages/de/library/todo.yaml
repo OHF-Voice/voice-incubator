@@ -1,0 +1,88 @@
+# Lists (German), as the English library's todo.yaml.
+title: Lists
+icon: mdi:format-list-checks
+
+commands:
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: etwas auf die Einkaufsliste setzen
+    require: [[setze, setz, füge, füg, schreibe, schreib, packe, pack], [einkaufsliste]]
+    optional: [[auf, zur, zu], [hinzu, dazu]]
+    wildcard:
+      slot: item
+      after: [setze, setz, füge, füg, schreibe, schreib, packe, pack]
+      before: [auf, zur, zu]
+      bounded: true
+      max_words: 8
+    home: shopping_list
+    # Several at once, each an item of its own: "oranges and bananas".
+    action:
+      repeat:
+        for_each: >-
+          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:und)\\s+', '|', true)).split('|')
+          | map('trim') | reject('eq', '') | list }}
+        sequence:
+          - action: todo.add_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Auf die Einkaufsliste gesetzt.
+        specific: "{{ slots.item }} steht auf der Einkaufsliste."
+
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: etwas von der Einkaufsliste nehmen
+    require: [[nimm, entferne, entfern, lösche, lösch, streiche, streich], [einkaufsliste]]
+    optional: [[von], [runter, herunter, weg]]
+    wildcard:
+      slot: item
+      after: [nimm, entferne, entfern, lösche, lösch, streiche, streich]
+      before: [von]
+      bounded: true
+      max_words: 5
+    home: shopping_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Von der Einkaufsliste genommen.
+        specific: "{{ slots.item }} von der Einkaufsliste genommen."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: etwas auf die Aufgabenliste setzen
+    require: [[setze, setz, füge, füg, schreibe, schreib], [aufgabenliste, to do liste, todo liste]]
+    optional: [[auf, zur, zu], [hinzu, dazu]]
+    wildcard:
+      slot: item
+      after: [setze, setz, füge, füg, schreibe, schreib]
+      before: [auf, zur, zu]
+      bounded: true
+      max_words: 8
+    home: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Auf die Aufgabenliste gesetzt.
+        specific: "{{ slots.item }} steht auf der Aufgabenliste."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).

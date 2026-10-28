@@ -234,14 +234,16 @@ there, for training a wake word that hears them better.
 
 ## Commands
 
-The Home page lists the commands as the library has them -- Basics, Covers
-and locks, Music, Timers -- with the ones you made from scratch first, under
-**Custom**, and the skills under **Questions**. A command from the library
+The Home page lists the commands as the library has them, a panel for each
+group -- Climate, Covers and locks, Date and time, Lights and switches,
+Lists, Music, Reminders and calendar, Satellites, Scenes and scripts,
+Sensors, Timers and alarms, Weather -- with the ones you made from scratch
+first, under **Custom**, and the skills last, under **Questions**. A command from the library
 stays in its section when you change it, rename it or duplicate it.
 
 **Add**, on the Home page or a satellite's, adds to that place: the
-library's commands and skills -- search them, or show one group (Basics,
-Covers and locks, Music, Timers, Questions) -- and, always at the top, a
+library's commands and skills -- search them, or show one group (the same
+groups, and Questions) -- and, always at the top, a
 custom command made from scratch. On a satellite's, what it already has from
 the Home is marked. Most of the
 library's commands come in **versions**, for what they act on; open one
@@ -525,7 +527,7 @@ data plus `outcome` and `response` (what was said), failed ones included.
 
 ## Timers
 
-Add the commands from the library's **Timers** group. Timers belong to the
+Add the commands from the library's **Timers and alarms** group. Timers belong to the
 satellite that set them: "set a pizza timer for ten minutes", "how long is
 left", "add two minutes to the pizza timer", "pause the timer", "cancel all
 timers". A timer is picked out by:
@@ -573,8 +575,9 @@ Calendar** in Home Assistant named **Voice Call**, which the app creates when
 it connects (Home Assistant's Local Calendar integration, built in). They
 outlive restarts, can be for another day or repeat, and show -- and can be
 changed -- in Home Assistant's calendar. Add **Set an alarm**, **Cancel an
-alarm** and **Say the alarms** from the **Timers** group, and **Remind me**,
-**Cancel a reminder** and **Say the reminders**:
+alarm** and **Say the alarms** from the **Timers and alarms** group, and
+**Remind me**, **Cancel a reminder** and **Say the reminders** from
+**Reminders and calendar**:
 
 - "set an alarm for 7 pm tomorrow", "wake me up at half past six", "an alarm
   for every weekday at 6:45", "set an alarm tomorrow at 8", "an alarm in 20
@@ -650,7 +653,7 @@ library's **Music** group:
   named. A TV that only steps its volume is stepped, and asked for a level
   says so ("TV can't be set to a volume."). The words are the `media_kinds`
   list.
-- **The satellite's own volume** -- what its dial sets: "turn yourself up",
+- **The satellite's own volume** (the **Satellites** group) -- what its dial sets: "turn yourself up",
   "speak up", "talk quieter", "set your volume to 40 percent". Commands see
   its speaker as `satellite.device_media_player`.
 - "move the music to the kitchen", "move the music upstairs", "send the music
@@ -690,7 +693,7 @@ rings, never paused, and the center button pauses and resumes it.
 
 ## Lights
 
-The library's **Basics** group turns lights on and off and sets their
+The library's **Lights and switches** group turns lights on and off and sets their
 brightness and color, each in the satellite's area ("turn on the lights"),
 in an area or floor named ("dim the lights upstairs"), or a light by name
 ("set the bed light to red"):
@@ -711,7 +714,7 @@ can't change color."; see [What a device can do](#what-a-device-can-do)).
 
 ## Lists
 
-The library's **Basics** group keeps a shopping list and a to-do list: the
+The library's **Lists** group keeps a shopping list and a to-do list: the
 home's (Settings page), or the to-do list a command is given as its implied
 target:
 
@@ -797,7 +800,7 @@ is given as its implied target:
   "auto_high", "low" keeps the rest of what it is set to: "auto_low" from
   "auto_high", "on_low" from "on_high".
 
-A thermostat by name or in an area is **Set the temperature** (Basics),
+A thermostat by name or in an area is **Set the temperature** (Climate),
 through Home Assistant's intent.
 
 ## Covers and locks
@@ -805,7 +808,7 @@ through Home Assistant's intent.
 The library's **Covers and locks** group opens and closes covers and locks and
 unlocks locks, and answers "is the garage door open?", "are the blinds closed
 in the bedroom?", "is the front door locked?" and "is everything locked?". The
-**Basics** group answers "are any lights on (upstairs)?".
+**Lights and switches** group answers "are any lights on (upstairs)?".
 
 - **By name** ("open the garage door", "lock the front door"): add a name for
   the cover or lock on the Names page. A binary sensor of the lock class can
@@ -850,8 +853,8 @@ satellite's.
 
 ## Announcements and intercom
 
-The library's **Announcements and intercom** group (English) works between
-satellites:
+**Announce** and **Intercom**, in the library's **Satellites** group
+(English), work between satellites:
 
 - **Announce**: "announce dinner is ready", "tell everyone dinner is ready",
   "announce dinner is ready in the kitchen", "announce upstairs that it's
@@ -1122,7 +1125,7 @@ Files from before this version (`commands.yaml` and the others) are copied
 to JSON once, and left as they were. The commands, written as YAML (the file
 is JSON), look like this; each is edited on its page, and names and lists on
 the Names page. One that follows the library is saved as `from` and what
-you set (`from: basic/turn_on_here`, `verbosity: brief`).
+you set (`from: lights/turn_on_here`, `verbosity: brief`).
 
 ```yaml
 language: en  # what the commands are said in, unless one says its own

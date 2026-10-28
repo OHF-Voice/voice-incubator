@@ -1,0 +1,89 @@
+# Lists (Russian), as the English library's todo.yaml.
+title: Lists
+icon: mdi:format-list-checks
+
+commands:
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: добавить что-нибудь в список покупок
+    # "Добавь молоко в список покупок": what is added as it was said.
+    require: [[добавь, добавьте, внеси, внесите, запиши, запишите], [список покупок, список продуктов, покупки]]
+    optional: [[в]]
+    wildcard:
+      slot: item
+      after: [добавь, добавьте, внеси, внесите, запиши, запишите]
+      before: [в]
+      bounded: true
+      max_words: 8
+    home: shopping_list
+    # Several at once, each an item of its own: "oranges and bananas".
+    action:
+      repeat:
+        for_each: >-
+          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:и)\\s+', '|', true)).split('|')
+          | map('trim') | reject('eq', '') | list }}
+        sequence:
+          - action: todo.add_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Добавлено в список покупок.
+        specific: "Добавлено в список покупок: {{ slots.item }}."
+
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: убрать что-нибудь из списка покупок
+    require: [[удали, удалите, убери, уберите, вычеркни, вычеркните], [списка покупок, списка продуктов, покупок]]
+    optional: [[из]]
+    wildcard:
+      slot: item
+      after: [удали, удалите, убери, уберите, вычеркни, вычеркните]
+      before: [из]
+      bounded: true
+      max_words: 5
+    home: shopping_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Удалено из списка покупок.
+        specific: "Удалено из списка покупок: {{ slots.item }}."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: добавить задачу в список дел
+    require: [[добавь, добавьте, запиши, запишите, внеси, внесите], [список дел, список задач, задачи, дела]]
+    optional: [[в]]
+    wildcard:
+      slot: item
+      after: [добавь, добавьте, запиши, запишите, внеси, внесите]
+      before: [в]
+      bounded: true
+      max_words: 8
+    home: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Добавлено в список дел.
+        specific: "Добавлено в список дел: {{ slots.item }}."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).

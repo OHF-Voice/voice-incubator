@@ -1,0 +1,28 @@
+# Date and time (Dutch), as the English library's time.yaml.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: weten hoe laat het is
+    examples: ["hoe laat is het [nu]"]
+    require: [[hoe laat, tijd]]
+    optional: [[is het], [nu], [wat is de]]
+    # Other times: "hoe laat gaat de winkel open", "hoe laat is het in Tokio".
+    exclude: [gaat, open, dicht, sluit, na, voor, tot, in]
+    response: "Het is {{ now().hour }} uur{{ (' ' ~ now().minute) if now().minute else '' }}."
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: de datum weten
+    examples: ["welke dag is het [vandaag]", "wat is de datum [vandaag]", "welke datum is het"]
+    require: [[datum, welke dag]]
+    optional: [[wat is de], [is het], [vandaag]]
+    response: >-
+      {%- set dagen = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'] -%}
+      {%- set maanden = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus',
+        'september', 'oktober', 'november', 'december'] -%}
+      Vandaag is het {{ dagen[now().weekday()] }} {{ now().day }} {{ maanden[now().month - 1] }}.

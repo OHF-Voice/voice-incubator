@@ -1,0 +1,91 @@
+# Lists (Ukrainian), as the English library's todo.yaml.
+title: Lists
+icon: mdi:format-list-checks
+
+commands:
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: додати щось до списку покупок
+    require: [[додай, додайте, запиши, запишіть, внеси, допиши], [список покупок, списку покупок, покупки, покупок,
+              список, списку]]
+    optional: [[до, в, у, на]]
+    wildcard:
+      slot: item
+      after: [додай, додайте, запиши, запишіть, внеси, допиши]
+      before: [до, в, у, на]
+      bounded: true
+      max_words: 8
+    home: shopping_list
+    # Several at once, each an item of its own: "oranges and bananas".
+    action:
+      repeat:
+        for_each: >-
+          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:і|й|та)\\s+', '|', true)).split('|')
+          | map('trim') | reject('eq', '') | list }}
+        sequence:
+          - action: todo.add_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Додано до списку покупок.
+        specific: "Додано {{ slots.item }} до списку покупок."
+
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: викреслити щось зі списку покупок
+    require: [[видали, видаліть, викресли, викресліть, прибери, вилучи], [список покупок, списку покупок, покупок,
+              список, списку]]
+    optional: [[зі, з, із]]
+    wildcard:
+      slot: item
+      after: [видали, видаліть, викресли, викресліть, прибери, вилучи]
+      before: [зі, з, із]
+      bounded: true
+      max_words: 5
+    home: shopping_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Викреслено зі списку покупок.
+        specific: "Викреслено {{ slots.item }} зі списку покупок."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: додати щось до списку справ
+    require: [[додай, додайте, запиши, запишіть, внеси], [список справ, списку справ, справи, справ, список завдань,
+              списку завдань, завдання]]
+    optional: [[до, в, у]]
+    wildcard:
+      slot: item
+      after: [додай, додайте, запиши, запишіть, внеси]
+      before: [до, в, у]
+      bounded: true
+      max_words: 8
+    home: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Додано до списку справ.
+        specific: "Додано {{ slots.item }} до списку справ."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).

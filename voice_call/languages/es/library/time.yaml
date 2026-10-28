@@ -1,0 +1,39 @@
+# Date and time (Spanish), as the English library's time.yaml.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: saber la hora
+    examples: ["qué hora es [ahora]", "dime la hora"]
+    require: [[qué hora, la hora]]
+    optional: [[es, son], [ahora, ya], [dime, me dices, sabes]]
+    # Other times: "a qué hora abre la tienda", "qué hora es en Tokio", "qué
+    # hora será dentro de 45 minutos" (that one is answered as a question).
+    exclude: [abre, abren, cierra, cierran, después, antes, hasta, en, será, dentro, media, minutos, horas]
+    response: >-
+      {%- set h = now().hour -%}
+      {%- set m = now().minute -%}
+      {%- if h == 0 and m == 0 -%}
+      Es medianoche.
+      {%- else -%}
+      {{ 'Es la una' if h == 1 else ('Son las veintiuna' if h == 21 else 'Son las ' ~ h) }}{{ (' y ' ~ m) if m else '' }}.
+      {%- endif -%}
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: saber la fecha
+    examples: ["qué día es hoy", "qué fecha es hoy", "a qué día estamos [hoy]", "cuál es la fecha de hoy"]
+    require: [[fecha, qué día]]
+    optional: [[es, estamos], [hoy], [cuál es la, dime la, a]]
+    # A date asked about: "qué día de la semana es el 4 de julio", "qué día
+    # cae Navidad" (those are answered as questions).
+    exclude: [semana, cae, caerá, cayó, después, antes, faltan, será]
+    response: >-
+      {%- set dias = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'] -%}
+      {%- set meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+        'septiembre', 'octubre', 'noviembre', 'diciembre'] -%}
+      Hoy es {{ dias[now().weekday()] }}, {{ now().day }} de {{ meses[now().month - 1] }}.

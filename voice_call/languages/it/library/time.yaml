@@ -1,0 +1,36 @@
+# Date and time (Italian), as the English library's time.yaml.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: sapere che ore sono
+    examples: ["che ore sono", "che ora è", "mi dici che ore sono"]
+    require: [[che ore, che ora]]
+    optional: [[sono, è], [adesso]]
+    # Other times: "a che ora chiude il negozio", "che ore sono a Tokyo", "che
+    # ore saranno tra 45 minuti" (that one is answered as a question).
+    exclude: [chiude, apre, dopo, prima, fino, sarà, saranno, tra, fra, minuti]
+    response: >-
+      {%- set h, m = now().hour, now().minute -%}
+      {%- if h == 12 and m == 0 -%}È mezzogiorno.
+      {%- elif h == 0 and m == 0 -%}È mezzanotte.
+      {%- elif h == 1 -%}È l'una{{ (' e ' ~ m) if m else '' }}.
+      {%- else -%}Sono le {{ h }}{{ (' e ' ~ m) if m else '' }}.
+      {%- endif -%}
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: sapere la data
+    examples: ["che giorno è oggi", "quanti ne abbiamo oggi", "qual è la data di oggi"]
+    require: [[data, che giorno, quanti ne abbiamo]]
+    optional: [[qual è la], [è], [oggi]]
+    exclude: [settimana, cade, cadrà, mancano, dopo, prima, sarà, era]
+    response: >-
+      {%- set giorni = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'] -%}
+      {%- set mesi = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto',
+        'settembre', 'ottobre', 'novembre', 'dicembre'] -%}
+      Oggi è {{ giorni[now().weekday()] }} {{ 'primo' if now().day == 1 else now().day }} {{ mesi[now().month - 1] }}.

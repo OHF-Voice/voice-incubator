@@ -1,0 +1,11 @@
+# About the satellite itself (French), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: ne rien faire
+    # Said whole only: "annule le minuteur" is the timer's.
+    examples: [laisse tomber, oublie, annule, rien, c'est pas grave]

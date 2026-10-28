@@ -1,0 +1,28 @@
+# Date and time (German), as the English library's time.yaml.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: die Uhrzeit wissen
+    examples: [wie spät ist es, wie viel uhr ist es]
+    require: [[wie spät, wie viel uhr, uhrzeit]]
+    optional: [[ist es, haben wir], [jetzt, gerade], [sag mir]]
+    # Other times: "wie spät öffnet der Laden", "wie viel Uhr ist es in Tokio".
+    exclude: [öffnet, schließt, macht, zu, auf, nach, vor, bis]
+    response: "Es ist {{ now().hour }} Uhr{{ (' ' ~ now().minute) if now().minute else '' }}."
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: das Datum wissen
+    examples: ["welcher tag ist heute", "welches datum [ist] heute", "der wievielte ist heute"]
+    require: [[datum, welcher tag, wievielte]]
+    optional: [[sag mir], [welches, was für ein], [ist, haben wir], [heute]]
+    response: >-
+      {%- set tage = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'] -%}
+      {%- set monate = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August',
+        'September', 'Oktober', 'November', 'Dezember'] -%}
+      Heute ist {{ tage[now().weekday()] }}, der {{ now().day }}. {{ monate[now().month - 1] }}.

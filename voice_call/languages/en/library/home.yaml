@@ -12,7 +12,7 @@
 # ("There aren't any shades in the Bedroom"), not nothing happening.
 #
 # Opening, closing, setting and asking about covers come in versions
-# (variants; see basic.yaml): by type in the satellite's area, a cover by name,
+# (variants; see README.md): by type in the satellite's area, a cover by name,
 # by type in an area or on a floor named. Locks have no versions: one is locked or unlocked
 # only by name, and "lock up" is every lock in the home.
 title: Covers and locks

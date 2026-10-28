@@ -311,8 +311,10 @@ a.tile:hover { border-color: var(--accent); text-decoration: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; }
 .dot.ok { background: var(--ok); }
 .dot.accent { background: var(--accent); }
-.section + .section { margin-top: 10px; }
-.section h3 { gap: 8px; color: var(--muted); }
+.commands-bar { margin: 22px 0 10px; }
+/* Its heading whole; on a phone, the search goes under it. */
+.commands-bar > h2 { min-width: max-content; }
+.section h3 { gap: 8px; color: var(--muted); margin-top: 0; }
 .not-added { margin: 6px 2px 0; line-height: 1.6; }
 /* What a command that follows the library takes from it: shown, not edited. */
 fieldset.locked { border: 0; padding: 0; margin: 0; min-width: 0; opacity: .7; }

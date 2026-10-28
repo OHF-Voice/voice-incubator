@@ -8,7 +8,7 @@
 # or it is the only one running. What they say is the language's (its speech
 # module's timer sentences). Asked for without how long ("metti un timer"), it
 # asks: "metti" would otherwise play music called "timer".
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

@@ -1,0 +1,290 @@
+# Lights and switches (Polish), as the English library's lights.yaml.
+title: Lights and switches
+icon: mdi:lightbulb-outline
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+
+commands:
+  # Lights here, in an area or on a floor named, or a device by name.
+  turn_on:
+    title: Turn on
+    icon: mdi:lightbulb-on-outline
+    description: włączyć światło
+    # "zapał": zapal as a speech-to-text often writes it.
+    require: [[światło, światła, świateł, lampę, lampy, lampki, oświetlenie], [włącz, włączyć, zapal, zapał, zapalić, zaświeć, zaświecić]]
+    optional: [[wszystkie, całe]]
+    exclude: [wyłącz, wyłączyć, zgaś, zgasić, kolor, koloru, jasność]
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
+    verbosity: beep
+    response:
+      done:
+        brief: Włączono światło.
+        specific: Włączono światło {{ place.said }}.
+        verbose: >-
+          {%- set ns = namespace(names=result.names or []) -%}
+          {%- set n = ns.names | count -%}
+          {%- set word = 'światło' if n == 1 else ('światła' if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'świateł') -%}
+          {%- if n == 0 or n > 4 -%}
+          Włączono {{ (n ~ ' ' ~ word) if n else 'światło' }} {{ place.said }}.
+          {%- else -%}
+          Włączono: {{ (ns.names[:-1] | join(', ') ~ ' i ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }}.
+          {%- endif -%}
+    variants:
+      here:
+        title: Turn on the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns on.
+      device:
+        <<: *device
+        title: Turn on a device by name
+        icon: mdi:toggle-switch-outline
+        description: włączyć urządzenie
+        require: [[włącz, włączyć, zapal, zapalić, uruchom, uruchomić]]
+        intent: HassTurnOn
+        response:
+          done:
+            brief: Włączono.
+            specific: >-
+              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set w = (name | lower).split(' ')[0] -%}
+              {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
+                else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
+              {{ name }} włączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
+            verbose: >-
+              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set w = (name | lower).split(' ')[0] -%}
+              {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
+                else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
+              {{ name }} {{ place.said }} włączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
+        needs:
+          - Add names for the devices it may turn on (Names page).
+      place:
+        <<: *place
+        title: Turn on the lights in an area or floor
+
+  turn_off:
+    title: Turn off
+    icon: mdi:lightbulb-off-outline
+    description: wyłączyć światło
+    require: [[światło, światła, świateł, lampę, lampy, lampki, oświetlenie], [wyłącz, wyłączyć, zgaś, zgasić]]
+    optional: [[wszystkie, całe], [w całym domu, wszędzie]]
+    exclude: [włącz, włączyć, zapal, zapał, zapalić]
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
+    verbosity: beep
+    response:
+      done:
+        brief: Wyłączono światło.
+        specific: Wyłączono światło {{ place.said }}.
+        verbose: >-
+          {%- set ns = namespace(names=result.names or []) -%}
+          {%- set n = ns.names | count -%}
+          {%- set word = 'światło' if n == 1 else ('światła' if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'świateł') -%}
+          {%- if n == 0 or n > 4 -%}
+          Wyłączono {{ (n ~ ' ' ~ word) if n else 'światło' }} {{ place.said }}.
+          {%- else -%}
+          Wyłączono: {{ (ns.names[:-1] | join(', ') ~ ' i ' ~ ns.names[-1]) if n > 1 else ns.names[0] }} {{ place.said }}.
+          {%- endif -%}
+    variants:
+      here:
+        title: Turn off the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns off.
+      device:
+        <<: *device
+        title: Turn off a device by name
+        icon: mdi:toggle-switch-off-outline
+        description: wyłączyć urządzenie
+        require: [[wyłącz, wyłączyć, zgaś, zgasić]]
+        intent: HassTurnOff
+        response:
+          done:
+            brief: Wyłączono.
+            specific: >-
+              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set w = (name | lower).split(' ')[0] -%}
+              {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
+                else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
+              {{ name }} wyłączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
+            verbose: >-
+              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set w = (name | lower).split(' ')[0] -%}
+              {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
+                else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
+              {{ name }} {{ place.said }} wyłączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
+        needs:
+          - Add names for the devices it may turn off (Names page).
+      place:
+        <<: *place
+        title: Turn off the lights in an area or floor
+
+  any_lights_on:
+    title: Are any lights on
+    icon: mdi:lightbulb-question
+    description: sprawdzić, które światła są włączone
+    # No example sentences: one said word for word carries no area or floor.
+    require: [[czy, które, jakie], [światło, światła, lampa, lampy, lampki],
+              [włączone, włączony, włączona, zapalone, zapalona, pali się, palą się, świeci się, świecą się]]
+    optional: [[jest, są, jakieś, któreś, nadal, wciąż, jeszcze]]
+    exclude: [włącz, wyłącz, zgaś, zapal]
+    response: >-
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], on=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' ' ~ place.said) if place.said else '' -%}
+      {%- for s in states.light if s.entity_id in exposed and (not ns.areas or area_id(s.entity_id) in ns.areas) and s.state == 'on' -%}
+      {%- set ns.on = ns.on + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.on | count -%}
+      {%- if count == 0 -%}
+      Nie, światła{{ where }} są wyłączone.
+      {%- elif count > 3 -%}
+      Tak,{{ where }} {{ ('są ' ~ count ~ ' włączone światła') if count % 10 in [2, 3, 4] and count % 100 not in [12, 13, 14]
+        else ('jest ' ~ count ~ ' włączonych świateł') }}.
+      {%- elif count > 1 -%}
+      Tak, {{ ns.on[:-1] | join(', ') ~ ' i ' ~ ns.on[-1] }} są włączone.
+      {%- else -%}
+      {%- set w = (ns.on[0] | lower).split(' ')[0] -%}
+      {%- set g = 'p' if w in ['światła', 'lampki', 'lampy'] or w[-1:] in ['y', 'i'] else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else 'm')) -%}
+      Tak, {{ ns.on[0] }} {{ 'są' if g == 'p' else 'jest' }} włączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
+      {%- endif -%}
+    variants:
+      here:
+        title: Are any lights on in this satellite's area
+        needs:
+          - The satellite's area (Satellites page) is the one it asks about.
+      device:
+        <<: *device
+        title: Is a device on, by name
+        icon: mdi:toggle-switch-outline
+        description: sprawdzić, czy urządzenie jest włączone
+        require: [[czy, jest, są]]
+        optional: [[jest, są, nadal, wciąż, jeszcze]]
+        names:
+          entity: {count: 1, domains: [light, switch, fan, input_boolean]}
+          area: {count: 1}
+        lists:
+          asked: {list: on_off}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set name = state_attr(e, 'friendly_name') or e -%}
+          {%- set w = (name | lower).split(' ')[0] -%}
+          {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
+            else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
+          {%- set end = {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] -%}
+          {%- set state = states(e) -%}
+          {%- set words = {'on': 'włączon' ~ end, 'off': 'wyłączon' ~ end, 'unavailable': 'niedostępn' ~ end} -%}
+          {%- set said = name ~ (' są ' if g == 'p' else ' jest ') ~ words[state] ~ '.' if state in words else name ~ ': stan nieznany.' -%}
+          {%- if state in ['on', 'off'] -%}
+          {{ 'Tak' if state == slots.asked else 'Nie' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the lights and switches it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are any lights on in an area or floor
+
+  set_brightness:
+    title: Set the brightness
+    icon: mdi:brightness-6
+    description: ustawić jasność światła
+    supports: brightness
+    require: [[jasność, jasności, procent]]
+    optional: [[ustaw, zmień, ściemnij, rozjaśnij, przyciemnij, zmniejsz, zwiększ, daj], [światło, światła, lampę, lampy, oświetlenie],
+               [jasność, jasności], [procent]]
+    # A question: "ile to jest 15 procent z 80"; the volume: "ustaw głośność na 30 procent".
+    exclude: [ile, jaki, jaka, jakie, oblicz, policz, wynosi, jest, głośność, głośności, muzykę, muzyki]
+    number: percentage
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
+    verbosity: beep
+    response:
+      done:
+        brief: Ustawiono jasność.
+        specific: >-
+          {{ (state_attr(slots.entity[0], 'friendly_name') ~ ': jasność ' ~ slots.percentage ~ ' procent.') if slots.entity
+          else ('Ustawiono jasność ' ~ place.said ~ ' na ' ~ slots.percentage ~ ' procent.') }}
+    variants:
+      here:
+        title: Set the brightness in this satellite's area
+      device:
+        <<: *device
+        title: Set the brightness of a light by name
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, percentage], [entity, area, percentage]]
+        needs:
+          - Add names for the lights it may dim (Names page).
+      place:
+        <<: *place
+        title: Set the brightness in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
+
+  light_color:
+    title: Set the light color
+    icon: mdi:format-color-fill
+    description: zmienić kolor światła
+    supports: color
+    # "Ustaw światło na niebiesko", "zmień kolor lampy na czerwony".
+    require: [[ustaw, zmień, zrób, kolor, koloru, przełącz, daj], [światło, światła, lampę, lampy, lampki, oświetlenie]]
+    optional: [[kolor, koloru], [na]]
+    lists:
+      color: {list: colors}
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
+    verbosity: beep
+    response:
+      done:
+        brief: Zmieniono kolor.
+        specific: >-
+          {%- set kolory = {'red': 'czerwony', 'orange': 'pomarańczowy', 'yellow': 'żółty', 'green': 'zielony',
+            'blue': 'niebieski', 'purple': 'fioletowy', 'pink': 'różowy', 'white': 'biały', 'turquoise': 'turkusowy', 'magenta': 'purpurowy'} -%}
+          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'Światło ' ~ place.said }} ma teraz kolor {{ kolory.get(slots.color, slots.color) }}.
+    variants:
+      here:
+        title: Set the light color in this satellite's area
+      device:
+        <<: *device
+        title: Set the color of a light by name
+        require: [[ustaw, zmień, zrób, kolor, koloru, przełącz, daj]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, color], [entity, area, color]]
+        needs:
+          - Add names for the lights it may color (Names page).
+      place:
+        <<: *place
+        title: Set the light color in an area or floor
+        combinations: [[area, color], [floor, color]]

@@ -139,7 +139,7 @@ parsing its YAML), when it is first opened.
 
 **Following the library** (`voice_call/library.py`, as Home Assistant's
 blueprints). A command added from it is saved as a reference, `from:
-basic/shopping_list_add`, plus what it sets itself (`library.SETTINGS`:
+todo/shopping_list_add`, plus what it sets itself (`library.SETTINGS`:
 satellites, disabled, verbosity, fallback, title, icon, its implied target
 `slots`, and `examples` added to the library's), and is resolved to the
 library's version when the commands are compiled (`store.compile_store`), so

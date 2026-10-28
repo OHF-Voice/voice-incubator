@@ -1,0 +1,59 @@
+# Climate (Spanish), as the English library's climate.yaml.
+title: Climate
+icon: mdi:thermostat
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+
+commands:
+  set_temperature:
+    title: Set the temperature
+    icon: mdi:thermometer
+    description: ajustar la temperatura
+    supports: temperature
+    require: [[temperatura, grados, grado, calefacción]]
+    optional: [[pon, sube, baja, ajusta, cambia, programa], [temperatura, calefacción, termostato], [grados, grado]]
+    # A question about degrees is not a setting: "cuántos grados Fahrenheit
+    # son 20 grados Celsius", "a qué temperatura está el salón".
+    exclude: [qué, cuánto, cuántos, cuántas, cómo, convierte, pasa, es, son, está, equivale, equivalen]
+    number: temperature
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
+    # Not seen at once, and a misheard number matters: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Temperatura ajustada.
+        specific: >-
+          He puesto {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'la temperatura ' ~ place.said }} a {{ slots.temperature | string | replace('.', ',') }} grados.
+    variants:
+      here:
+        title: Set the temperature in this satellite's area
+      device:
+        <<: *device
+        title: Set the temperature of a thermostat by name
+        names:
+          entity: {count: 1, domains: [climate]}
+          area: {count: 1}
+        combinations: [[entity, temperature], [entity, area, temperature]]
+        needs:
+          - Add names for the thermostats it may set (Names page).
+      place:
+        <<: *place
+        title: Set the temperature in an area or floor
+        combinations: [[area, temperature], [floor, temperature]]

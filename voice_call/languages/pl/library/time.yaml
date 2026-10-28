@@ -1,0 +1,55 @@
+# Date and time (Polish), as the English library's time.yaml.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: sprawdzić, która jest godzina
+    examples: ["która [jest] [teraz] godzina", "jaka jest [teraz] godzina", "podaj godzinę", "powiedz która godzina"]
+    require: [[która godzina, która ... godzina, jaka ... godzina, podaj godzinę]]
+    optional: [[jest, teraz, mamy], [powiedz, powiedz mi]]
+    # Other times: "o której otwierają sklep", "która będzie godzina za 45
+    # minut" (that one is answered as a question).
+    exclude: [będzie, była, po, przed, otwierają, otwiera, zamykają, zamyka, otwarte, czynne, wschodzi, zachodzi,
+              minut, minuty, godziny, godzin]
+    # The hour said as Polish says it, its ordinal: "Jest siódma trzydzieści".
+    response: >-
+      {%- set g = ['zero', 'pierwsza', 'druga', 'trzecia', 'czwarta', 'piąta', 'szósta', 'siódma', 'ósma',
+        'dziewiąta', 'dziesiąta', 'jedenasta', 'dwunasta', 'trzynasta', 'czternasta', 'piętnasta', 'szesnasta',
+        'siedemnasta', 'osiemnasta', 'dziewiętnasta', 'dwudziesta', 'dwudziesta pierwsza', 'dwudziesta druga',
+        'dwudziesta trzecia'] -%}
+      {%- set j = ['', 'jeden', 'dwa', 'trzy', 'cztery', 'pięć', 'sześć', 'siedem', 'osiem', 'dziewięć'] -%}
+      {%- set n = ['dziesięć', 'jedenaście', 'dwanaście', 'trzynaście', 'czternaście', 'piętnaście', 'szesnaście',
+        'siedemnaście', 'osiemnaście', 'dziewiętnaście'] -%}
+      {%- set t = ['', '', 'dwadzieścia', 'trzydzieści', 'czterdzieści', 'pięćdziesiąt'] -%}
+      {%- set h, m = now().hour, now().minute -%}
+      {%- set mm = ('zero ' ~ j[m]) if m < 10 else (n[m - 10] if m < 20 else t[m // 10] ~ ((' ' ~ j[m % 10]) if m % 10 else '')) -%}
+      {%- if h == 0 and m == 0 -%}Jest północ.
+      {%- else -%}Jest {{ g[h] }}{{ (' ' ~ mm) if m else '' }}.
+      {%- endif -%}
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: sprawdzić dzisiejszą datę
+    examples: ["jaki [jest] [dzisiaj|dziś] dzień", "jaki dzień [jest] [dzisiaj|dziś]", "jaka [jest] [dzisiaj|dziś] data",
+               "którego [dzisiaj|dziś] mamy", "który [dzisiaj|dziś] jest"]
+    require: [[data, datę, jaki dzień, jaki ... dzień, którego mamy, którego dzisiaj, którego dziś, który dzisiaj, który dziś]]
+    optional: [[jest, mamy], [dzisiaj, dziś], [podaj, powiedz, powiedz mi]]
+    # A date asked about: "jaki dzień tygodnia wypada 4 lipca", "jaki dzień
+    # będzie po środzie" (those are answered as questions).
+    exclude: [wypada, wypadnie, wypadł, wypadła, przypada, będzie, był, była, po, przed, ile,
+              stycznia, lutego, marca, kwietnia, maja, czerwca, lipca, sierpnia, września, października, listopada, grudnia]
+    # The day said as Polish says it, its ordinal: "dwudziesty października".
+    response: >-
+      {%- set dni = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela'] -%}
+      {%- set miesiace = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia',
+        'września', 'października', 'listopada', 'grudnia'] -%}
+      {%- set o = ['pierwszy', 'drugi', 'trzeci', 'czwarty', 'piąty', 'szósty', 'siódmy', 'ósmy', 'dziewiąty',
+        'dziesiąty', 'jedenasty', 'dwunasty', 'trzynasty', 'czternasty', 'piętnasty', 'szesnasty', 'siedemnasty',
+        'osiemnasty', 'dziewiętnasty', 'dwudziesty'] -%}
+      {%- set d = now().day -%}
+      {%- set dzien = o[d - 1] if d <= 20 else ('dwudziesty ' ~ o[d - 21] if d < 30 else ('trzydziesty' if d == 30 else 'trzydziesty pierwszy')) -%}
+      Dzisiaj jest {{ dni[now().weekday()] }}, {{ dzien }} {{ miesiace[now().month - 1] }}.

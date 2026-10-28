@@ -1,0 +1,13 @@
+# About the satellite itself (Ukrainian), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: нічого не робити
+    # Said whole only: "скасуй таймер" is the timer's.
+    # "Забути": "забудь" as the model often writes it.
+    examples: [забудь, "забудь [про це]", забути, нічого, не треба, "нічого не треба", скасуй, відміна, неважливо,
+               проїхали]

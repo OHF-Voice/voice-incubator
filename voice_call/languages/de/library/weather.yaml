@@ -1,0 +1,24 @@
+# Weather (German), as the English library's weather.yaml.
+title: Weather
+icon: mdi:weather-partly-cloudy
+
+commands:
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: das Wetter wissen
+    examples: ["wie ist das wetter [heute]", "wird es [heute] regnen", "wie wird das wetter"]
+    require: [[wetter, regnen, wettervorhersage, vorhersage]]
+    home: weather
+    response: >-
+      {%- set wetter = {'clear-night': 'klar', 'cloudy': 'bewölkt', 'exceptional': 'ungewöhnlich',
+        'fog': 'neblig', 'hail': 'Hagel', 'lightning': 'Gewitter', 'lightning-rainy': 'Gewitter mit Regen',
+        'partlycloudy': 'teilweise bewölkt', 'pouring': 'starker Regen', 'rainy': 'regnerisch',
+        'snowy': 'Schnee', 'snowy-rainy': 'Schneeregen', 'sunny': 'sonnig', 'windy': 'windig',
+        'windy-variant': 'windig und bewölkt'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      Es ist {{ wetter.get(state, state) }} bei
+      {{ state_attr(slots.entity[0], 'temperature') | round }} Grad.
+    needs:
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).

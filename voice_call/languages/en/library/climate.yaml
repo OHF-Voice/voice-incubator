@@ -1,7 +1,7 @@
 # The home's thermostat (the Settings page), or one a command is given (its
 # implied target): what it's set to and how warm it is inside, setting it,
-# its mode (heat, cool, off ...), and its fan. A thermostat by name, or in an area, is Set the temperature
-# (Basics), through Home Assistant's intent.
+# its mode (heat, cool, off ...), and its fan. A thermostat by name, or in an
+# area, is Set the temperature, through Home Assistant's intent.
 #
 # Setting the temperature sets the one the thermostat keeps: in heat and cool
 # mode it keeps two, and Home Assistant refuses one alone. Modes are the
@@ -14,11 +14,63 @@ icon: mdi:thermostat
 
 # What the commands share (merged into them with <<, or as a whole).
 shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
   needs: &needs
     - Set the home's thermostat on the Settings page, or give it one of its own
       (its implied target).
 
 commands:
+  set_temperature:
+    title: Set the temperature
+    icon: mdi:thermometer
+    description: set the temperature
+    supports: temperature
+    require: [[set, temperature, degrees]]
+    optional: [[set], [temperature], [to, at], [degrees], [in, on], [the]]
+    # A question about degrees is not a setting: "what's 20 degrees C in
+    # Fahrenheit" (the units skill).
+    exclude: [what, "what's", how, convert]
+    number: temperature
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
+    # Not seen at once, and a misheard number matters: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Set the temperature.
+        specific: >-
+          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          else 'the temperature ' ~ place.said }} to {{ slots.temperature }} degrees.
+    variants:
+      here:
+        title: Set the temperature in this satellite's area
+      device:
+        <<: *device
+        title: Set the temperature of a thermostat by name
+        names:
+          entity: {count: 1, domains: [climate]}
+          area: {count: 1}
+        combinations: [[entity, temperature], [entity, area, temperature]]
+        needs:
+          - Add names for the thermostats it may set (Names page).
+      place:
+        <<: *place
+        title: Set the temperature in an area or floor
+        combinations: [[area, temperature], [floor, temperature]]
+
   thermostat:
     title: Ask the thermostat
     icon: mdi:thermostat

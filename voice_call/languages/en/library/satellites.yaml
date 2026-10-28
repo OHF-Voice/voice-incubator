@@ -1,4 +1,5 @@
-# Between satellites: announcements, and the intercom.
+# The satellites: announcements between them, the intercom, a satellite's own
+# volume, and never mind.
 #
 # An announcement is said on the other satellites, after a chime: every one, or
 # those in the area or on the floor named. One in a call, ringing a timer or
@@ -8,8 +9,8 @@
 # call ends: what is said at each is heard at the other. Both stop answering
 # wake words and blink their rings until the button on either is pressed (or
 # after half an hour). Both need firmware that can.
-title: Announcements and intercom
-icon: mdi:bullhorn
+title: Satellites
+icon: mdi:speaker-wireless
 
 commands:
   announce:
@@ -46,3 +47,56 @@ commands:
     needs:
       - Give the satellites their areas (Satellites page), and the areas names
         (Names page). The button on either satellite ends it.
+
+  # The satellite's own speaker, whatever plays on it: what its dial sets.
+  own_volume_up:
+    title: Turn yourself up
+    icon: mdi:volume-plus
+    description: turn up the satellite's own volume
+    examples: [speak up, talk louder, turn yourself up, turn up your volume]
+    require: [[turn yourself up, turn up your volume, turn your volume up, your volume up, speak up, talk louder, speak louder]]
+    action:
+      action: media_player.volume_up
+      target:
+        entity_id: "{{ satellite.device_media_player }}"
+    verbosity: beep
+
+  own_volume_down:
+    title: Turn yourself down
+    icon: mdi:volume-minus
+    description: turn down the satellite's own volume
+    examples: [turn yourself down, turn down your volume, talk quieter, speak more quietly]
+    require: [[turn yourself down, turn down your volume, turn your volume down, your volume down, talk quieter, talk softer, speak more quietly, speak softer]]
+    action:
+      action: media_player.volume_down
+      target:
+        entity_id: "{{ satellite.device_media_player }}"
+    verbosity: beep
+
+  own_volume_set:
+    title: Set your volume
+    icon: mdi:volume-equal
+    description: set the satellite's own volume
+    require: [[your volume]]
+    optional: [[set, change, make], [to], [percent]]
+    number: percentage
+    action:
+      action: media_player.volume_set
+      target:
+        entity_id: "{{ satellite.device_media_player }}"
+      data:
+        volume_level: "{{ slots.percentage / 100 }}"
+    verbosity: beep
+    response:
+      done:
+        brief: Done.
+        specific: My volume is at {{ slots.percentage }}%.
+
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: never mind, cancel the request
+    # Said whole only: "cancel the timer" is the timer's. Nothing to do, and by
+    # default nothing said, not even a sound: the satellite stops listening.
+    # Give it a response (Only respond) or a beep to hear that it did.
+    examples: [never mind, nevermind, forget it, "cancel [that]", nothing]

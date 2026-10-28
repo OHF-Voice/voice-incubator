@@ -9,7 +9,7 @@
 # or it is the only one running. A timer is a "minutnik", or a "timer" (said
 # "tajmer"); an alarm a "budzik". Asked for without how long ("włącz
 # minutnik"), it asks: "włącz" would otherwise play music called "minutnik".
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

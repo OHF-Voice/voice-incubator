@@ -1,0 +1,30 @@
+# Weather (Russian), as the English library's weather.yaml.
+title: Weather
+icon: mdi:weather-partly-cloudy
+
+commands:
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: узнать погоду
+    examples: ["какая [сегодня] погода", "какая погода [на улице]", "что с погодой", "будет ли [сегодня] дождь",
+               "что там с погодой", "какая сейчас погода"]
+    require: [[погода, погоду, погоды, погодой, дождь, дождя, прогноз, прогноз погоды]]
+    # Not a timer's time: "сколько осталось".
+    exclude: [осталось, таймер, сколько]
+    home: weather
+    response: >-
+      {%- set weather = {'clear-night': 'ясно', 'cloudy': 'облачно', 'exceptional': 'необычная погода',
+        'fog': 'туман', 'hail': 'град', 'lightning': 'гроза', 'lightning-rainy': 'гроза с дождём',
+        'partlycloudy': 'переменная облачность', 'pouring': 'ливень', 'rainy': 'дождь',
+        'snowy': 'снег', 'snowy-rainy': 'мокрый снег', 'sunny': 'солнечно', 'windy': 'ветрено',
+        'windy-variant': 'ветрено и облачно'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      {%- set t = state_attr(slots.entity[0], 'temperature') | round | int -%}
+      {%- set n = t if t >= 0 else -t -%}
+      {%- set word = 'градус' if n % 10 == 1 and n % 100 != 11 else
+        ('градуса' if n % 10 in [2, 3, 4] and (n % 100 < 12 or n % 100 > 14) else 'градусов') -%}
+      Сейчас {{ weather.get(state, state) }}, {{ t }} {{ word }}.
+    needs:
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).

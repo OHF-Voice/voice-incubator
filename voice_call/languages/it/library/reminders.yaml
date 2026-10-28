@@ -1,0 +1,36 @@
+# Reminders and calendar (Italian), as the English library's reminders.yaml.
+title: Reminders and calendar
+icon: mdi:calendar-clock
+
+commands:
+  remind_me:
+    title: Remember something
+    icon: mdi:note-edit-outline
+    description: farsi ricordare qualcosa
+    # "Ricordami di annaffiare le piante", "ricordami di portare fuori la spazzatura".
+    require: [[ricordami, ricordatemi]]
+    optional: [[di]]
+    wildcard:
+      slot: reminder
+      after: [di, ricordami, ricordatemi]
+      to_end: true
+      max_words: 10
+    # The speaker's own to-do list, when anyone has one (People page).
+    slots:
+      entity: [todo.reminders]
+    mine: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.reminder }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Te lo ricorderò.
+        specific: "Te lo ricorderò: {{ slots.reminder }}."
+    needs:
+      - Point it at a to-do list (todo.reminders here). Where someone has a
+        to-do list of their own (People page), theirs, and they must be
+        recognized.

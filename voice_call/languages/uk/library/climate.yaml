@@ -1,0 +1,65 @@
+# Climate (Ukrainian), as the English library's climate.yaml.
+title: Climate
+icon: mdi:thermostat
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+
+commands:
+  set_temperature:
+    title: Set the temperature
+    icon: mdi:thermometer
+    description: встановити температуру
+    supports: temperature
+    require: [[температуру, температура, градусів, градуси, градус, градуса, опалення]]
+    optional: [[встанови, встановіть, постав, зроби, підніми, знизь, зміни, налаштуй], [температуру, опалення,
+               термостат], [градусів, градуси, градус, градуса], [на, до]]
+    # A question about degrees is not a setting: "скільки буде 20 градусів
+    # Цельсія за Фаренгейтом", "яка температура у вітальні".
+    exclude: [скільки, яка, який, що, переведи, конвертуй, цельсія, фаренгейта, цельсієм, фаренгейтом]
+    number: temperature
+    intent:
+      name: HassClimateSetTemperature
+      slots: {temperature: "{{ slots.temperature }}"}
+    # Not seen at once, and a misheard number matters: said.
+    verbosity: specific
+    response:
+      done:
+        brief: Температуру встановлено.
+        specific: >-
+          {%- set t = slots.temperature | float -%}
+          {%- set n = t | int -%}
+          {%- set said = n if t == n else (t | string | replace('.', ' кома ')) -%}
+          {%- set word = 'градуса' if t != n else ('градус' if n % 10 == 1 and n % 100 != 11 else ('градуси'
+            if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'градусів')) -%}
+          {{ (state_attr(slots.entity[0], 'friendly_name') ~ ':') if slots.entity
+          else 'Температуру ' ~ place.said ~ ' встановлено на' }} {{ said }} {{ word }}.
+    variants:
+      here:
+        title: Set the temperature in this satellite's area
+      device:
+        <<: *device
+        title: Set the temperature of a thermostat by name
+        names:
+          entity: {count: 1, domains: [climate]}
+          area: {count: 1}
+        combinations: [[entity, temperature], [entity, area, temperature]]
+        needs:
+          - Add names for the thermostats it may set (Names page).
+      place:
+        <<: *place
+        title: Set the temperature in an area or floor
+        combinations: [[area, temperature], [floor, temperature]]

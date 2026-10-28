@@ -1,0 +1,27 @@
+# The time and the date now. A time from now ("what time will it be in 45
+# minutes") is a question: the clock skill's.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: tell the time
+    examples: [what time is it]
+    require: [[what time]]
+    optional: [[is it, it is], [right now, now], [tell me]]
+    # Other times: "what time does the store close", "what time will it be in
+    # 45 minutes" (that one is answered as a question).
+    exclude: [does, do, close, open, after, before, until, from, alarm, alarms, will, would, minutes, minute, hours,
+              hour]
+    response: "It's {{ now().strftime('%-I:%M %p') }}."
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: tell the date
+    examples: ["what's the date [today]", "what day is it [today]"]
+    require: [[date, what day]]
+    optional: [[tell me], [what is, whats, what's], [today]]
+    response: "Today is {{ now().strftime('%A, %B %-d') }}."

@@ -10,7 +10,7 @@
 # module's timer sentences): "Таймер «пицца» запущен". Asked for without how
 # long ("поставь таймер"), it asks: "поставь" would otherwise play music
 # called "таймер".
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

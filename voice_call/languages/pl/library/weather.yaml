@@ -1,0 +1,28 @@
+# Weather (Polish), as the English library's weather.yaml.
+title: Weather
+icon: mdi:weather-partly-cloudy
+
+commands:
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: sprawdzić pogodę
+    examples: ["jaka jest [dzisiaj|dziś] pogoda", "jaka będzie [dzisiaj|dziś] pogoda", "czy [dzisiaj|dziś] będzie padać",
+               "jaka jest prognoza pogody"]
+    require: [[pogoda, pogody, pogodę, prognoza, prognozę, padać, deszcz]]
+    # Not a timer's time: "ile czasu zostało".
+    exclude: [zostało, minutnik, minutniku, ile]
+    home: weather
+    response: >-
+      {%- set pogoda = {'clear-night': 'Jest pogodnie', 'cloudy': 'Jest pochmurno', 'exceptional': 'Pogoda jest wyjątkowa',
+        'fog': 'Jest mgła', 'hail': 'Pada grad', 'lightning': 'Jest burza', 'lightning-rainy': 'Jest burza z deszczem',
+        'partlycloudy': 'Jest częściowe zachmurzenie', 'pouring': 'Leje deszcz', 'rainy': 'Pada deszcz',
+        'snowy': 'Pada śnieg', 'snowy-rainy': 'Pada śnieg z deszczem', 'sunny': 'Jest słonecznie', 'windy': 'Jest wietrznie',
+        'windy-variant': 'Jest wietrznie i pochmurno'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      {%- set t = state_attr(slots.entity[0], 'temperature') | round | int -%}
+      {%- set unit = 'stopień' if t | abs == 1 else ('stopnie' if t | abs % 10 in [2, 3, 4] and t | abs % 100 not in [12, 13, 14] else 'stopni') -%}
+      {{ pogoda.get(state, 'Pogoda: ' ~ state) }}, {{ t }} {{ unit }}.
+    needs:
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).

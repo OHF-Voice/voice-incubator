@@ -1,0 +1,26 @@
+# Weather (Spanish), as the English library's weather.yaml.
+title: Weather
+icon: mdi:weather-partly-cloudy
+
+commands:
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: saber el tiempo que hace
+    examples: ["qué tiempo hace [hoy]", "va a llover [hoy]", "cómo está el tiempo [hoy]", "qué tiempo va a hacer"]
+    require: [[tiempo, llover, lluvia, previsión, pronóstico]]
+    # Not a timer's time: "cuánto tiempo queda".
+    exclude: [queda, quedan, falta, faltan, temporizador, cuánto]
+    home: weather
+    response: >-
+      {%- set tiempo = {'clear-night': 'despejado', 'cloudy': 'nublado', 'exceptional': 'un tiempo excepcional',
+        'fog': 'con niebla', 'hail': 'granizando', 'lightning': 'con tormenta', 'lightning-rainy': 'con tormenta y lluvia',
+        'partlycloudy': 'parcialmente nublado', 'pouring': 'lloviendo mucho', 'rainy': 'lluvioso',
+        'snowy': 'nevando', 'snowy-rainy': 'con aguanieve', 'sunny': 'soleado', 'windy': 'con viento',
+        'windy-variant': 'con viento y nubes'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      Está {{ tiempo.get(state, state) }} y hace
+      {{ state_attr(slots.entity[0], 'temperature') | round }} grados.
+    needs:
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).

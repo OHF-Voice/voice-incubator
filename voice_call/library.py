@@ -1,12 +1,13 @@
 """The command library, and the commands that follow it.
 
 The library (voice_call/languages/<code>/library/*.yaml) is example commands
-shipped with the app, by section; a command with versions (``variants``) is
-a family of commands, one for each of ``here``, ``device`` and ``place``.
+shipped with the app, a file for each section (Lights and switches, Date and
+time, ...); a command with versions (``variants``) is a family of commands,
+one for each of ``here``, ``device`` and ``place``.
 
 **A command added from the library follows it** (as a Home Assistant
 blueprint's automations do): it is saved as a reference -- ``from:
-basic/shopping_list_add`` -- with what you set on top (``SETTINGS``: where it
+todo/shopping_list_add`` -- with what you set on top (``SETTINGS``: where it
 runs, how much it says, the steps when nothing matches, its implied target,
 example sentences of your own, its title and icon), and is the library's
 version as the app has it now: a fix to the library reaches it. Changing
@@ -63,8 +64,11 @@ LIBRARY_ONLY = ("needs", "variants", "formerly")
 
 
 def library_files(code: str | None = None) -> list[tuple[Path, dict[str, Any]]]:
+    """The library's files, ``[(path, data)]``, by title: its sections as the
+    Home page and the library list them."""
     yaml = YAML(typ="safe")
-    return [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in sorted(library_dir(code).glob("*.yaml"))]
+    files = [(path, plain(yaml.load(path.read_text("utf-8")) or {})) for path in library_dir(code).glob("*.yaml")]
+    return sorted(files, key=lambda file: str(file[1].get("title") or file[0].stem).lower())
 
 
 def library_versions(family_id: str, spec: dict[str, Any]) -> list[tuple[str, str | None, dict[str, Any]]]:

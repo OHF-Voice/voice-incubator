@@ -1,0 +1,24 @@
+# Weather (Dutch), as the English library's weather.yaml.
+title: Weather
+icon: mdi:weather-partly-cloudy
+
+commands:
+  weather:
+    title: What's the weather
+    icon: mdi:weather-partly-cloudy
+    description: het weer weten
+    examples: ["hoe is het weer [vandaag]", "gaat het [vandaag] regenen", "wat voor weer wordt het"]
+    require: [[weer, regenen, weersvoorspelling, voorspelling]]
+    home: weather
+    response: >-
+      {%- set weer = {'clear-night': 'helder', 'cloudy': 'bewolkt', 'exceptional': 'uitzonderlijk',
+        'fog': 'mistig', 'hail': 'hagel', 'lightning': 'onweer', 'lightning-rainy': 'onweer met regen',
+        'partlycloudy': 'half bewolkt', 'pouring': 'zware regen', 'rainy': 'regenachtig',
+        'snowy': 'sneeuw', 'snowy-rainy': 'natte sneeuw', 'sunny': 'zonnig', 'windy': 'winderig',
+        'windy-variant': 'winderig en bewolkt'} -%}
+      {%- set state = states(slots.entity[0]) -%}
+      Het is {{ weer.get(state, state) }} bij
+      {{ state_attr(slots.entity[0], 'temperature') | round }} graden.
+    needs:
+      - Set the home's weather entity on the Settings page, or give it one of its
+        own (its implied target).

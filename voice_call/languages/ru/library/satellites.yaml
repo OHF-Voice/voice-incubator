@@ -1,0 +1,11 @@
+# About the satellite itself (Russian), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: ничего не делать
+    # Said whole only: "отмени таймер" is the timer's.
+    examples: [неважно, забудь, отмена, отмени, ничего, не надо, проехали, забей, ничего не надо]

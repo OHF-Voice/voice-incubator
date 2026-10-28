@@ -1,0 +1,11 @@
+# About the satellite itself (Dutch), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: niets doen
+    # Said whole only: "annuleer de timer" is the timer's.
+    examples: [laat maar, laat maar zitten, vergeet het, annuleer, niets, niks]

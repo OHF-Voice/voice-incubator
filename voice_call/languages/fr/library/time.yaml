@@ -1,0 +1,28 @@
+# Date and time (French), as the English library's time.yaml.
+title: Date and time
+icon: mdi:clock-outline
+
+commands:
+  what_time:
+    title: What time is it
+    icon: mdi:clock-outline
+    description: savoir l'heure
+    examples: ["quelle heure est il", "il est quelle heure"]
+    require: [[quelle heure, l'heure]]
+    optional: [[est il, il est], [maintenant], [dis moi]]
+    # Other times: "à quelle heure ferme le magasin", "quelle heure est-il à Tokyo".
+    exclude: [ferme, ouvre, après, avant, jusqu'à, à]
+    response: "Il est {{ now().hour }} {{ 'heure' if now().hour == 1 else 'heures' }}{{ (' ' ~ now().minute) if now().minute else '' }}."
+
+  what_date:
+    title: What's the date
+    icon: mdi:calendar-today
+    description: savoir la date
+    examples: ["quel jour sommes nous", "quelle est la date [aujourd'hui]", "on est quel jour"]
+    require: [[date, quel jour]]
+    optional: [[quelle est la], [sommes nous, on est, est on], [aujourd'hui]]
+    response: >-
+      {%- set jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] -%}
+      {%- set mois = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août',
+        'septembre', 'octobre', 'novembre', 'décembre'] -%}
+      Nous sommes le {{ jours[now().weekday()] }} {{ now().day }} {{ mois[now().month - 1] }}.

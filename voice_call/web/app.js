@@ -1744,8 +1744,8 @@ function skillItem(skill) {
     h("span", { class: "badge accent" }, "skill"));
 }
 
-// Commands and skills grouped by what they're for: your own (Custom)
-// first, then the library's sections, then the skills (Questions).
+// Commands and skills grouped by what they're for, a panel each: your own
+// (Custom) first, then the library's sections, then the skills (Questions).
 // `place`: every one (null), or those that run on a satellite (its key).
 // With the `library`, a section you have commands from says which of its
 // commands you have none of, to add. `words`: only those that say them all
@@ -1762,7 +1762,7 @@ function placedSections(store, skillData, place, emptyText, library, words = [])
     const section = (store.details[id] || {}).library || "";
     (bySection[section] = bySection[section] || []).push(id);
   }
-  const section = (title, iconName, items, after) => h("div", { class: "section" },
+  const section = (title, iconName, items, after) => h("div", { class: "panel section" },
     h("h3", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(items.length))),
     h("div", { class: "list" }, items), after || null);
   const yours = Object.keys(store.commands || {});
@@ -1781,7 +1781,7 @@ function placedSections(store, skillData, place, emptyText, library, words = [])
     if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id)), notAdded(s.file)));
   }
   if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map((skill) => skillItem(skill))));
-  return out.length ? out : [h("p", { class: "muted small" }, emptyText)];
+  return out.length ? out : [h("div", { class: "panel muted small" }, emptyText)];
 }
 
 function satelliteTile(s, wake) {
@@ -1849,13 +1849,12 @@ async function pageHome(query) {
     state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
     h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
       : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
-    h("div", { class: "panel" },
-      h("div", { class: "row" },
-        heading("h2", "Commands and skills", "Each runs on every satellite, or on some: set it on its page. Where two take the same sentence, one on some satellites goes first there.", { class: "grow", style: "margin:0" }),
-        search,
-        sats.length ? filter : null,
-        h("button", { class: "primary", onclick: () => newCommandDialog() }, "Add")),
-      sections),
+    h("div", { class: "row commands-bar" },
+      heading("h2", "Commands and skills", "Each runs on every satellite, or on some: set it on its page. Where two take the same sentence, one on some satellites goes first there.", { class: "grow", style: "margin:0" }),
+      search,
+      sats.length ? filter : null,
+      h("button", { class: "primary", onclick: () => newCommandDialog() }, "Add")),
+    sections,
     h("div", { class: "panel" }, h("div", { class: "list" }, unknownItem)),
   );
 }

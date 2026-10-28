@@ -1,0 +1,11 @@
+# About the satellite itself (Spanish), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: no hacer nada
+    # Said whole only: "cancela el temporizador" is the timer's.
+    examples: [olvídalo, déjalo, da igual, no importa, cancela, cancelar, nada, es igual]

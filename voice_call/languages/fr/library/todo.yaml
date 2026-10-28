@@ -1,0 +1,88 @@
+# Lists (French), as the English library's todo.yaml.
+title: Lists
+icon: mdi:format-list-checks
+
+commands:
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: ajouter quelque chose à la liste de courses
+    require: [[ajoute, ajouter, rajoute, mets, note], [liste de courses, liste des courses]]
+    optional: [[à, sur, dans]]
+    wildcard:
+      slot: item
+      after: [ajoute, ajouter, rajoute, mets, note]
+      before: [à, sur, dans]
+      bounded: true
+      max_words: 8
+    home: shopping_list
+    # Several at once, each an item of its own: "oranges and bananas".
+    action:
+      repeat:
+        for_each: >-
+          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:et)\\s+', '|', true)).split('|')
+          | map('trim') | reject('eq', '') | list }}
+        sequence:
+          - action: todo.add_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Ajouté à la liste de courses.
+        specific: "{{ slots.item }} ajouté à la liste de courses."
+
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: enlever quelque chose de la liste de courses
+    require: [[enlève, enlever, retire, supprime, efface, raye], [liste de courses, liste des courses]]
+    optional: [[de, des, du]]
+    wildcard:
+      slot: item
+      after: [enlève, enlever, retire, supprime, efface, raye]
+      before: [de, des, du]
+      bounded: true
+      max_words: 5
+    home: shopping_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Enlevé de la liste de courses.
+        specific: "{{ slots.item }} enlevé de la liste de courses."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: ajouter quelque chose à la liste des tâches
+    require: [[ajoute, rajoute, mets, note], [liste de tâches, liste des tâches, liste de choses à faire]]
+    optional: [[à, sur, dans]]
+    wildcard:
+      slot: item
+      after: [ajoute, rajoute, mets, note]
+      before: [à, sur, dans]
+      bounded: true
+      max_words: 8
+    home: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Ajouté à la liste des tâches.
+        specific: "{{ slots.item }} ajouté à la liste des tâches."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).

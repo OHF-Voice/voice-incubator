@@ -1,0 +1,45 @@
+# Scenes and scripts (Ukrainian), as the English library's scenes.yaml.
+title: Scenes and scripts
+icon: mdi:palette
+
+commands:
+  # A scene or a script by its name (Names page): "make it cozy", "movie
+  # time", "good night". Names may repeat -- a Cozy in the living room and one
+  # in the bedroom -- and then it is the one in the room said, else in the
+  # satellite's area.
+  scene:
+    title: Activate a scene
+    icon: mdi:palette
+    description: увімкнути сцену
+    optional: [[увімкни, активуй, запусти, постав], [сцену, режим]]
+    exclude: [яка, який, що, чи]
+    names:
+      entity: {count: 1, domains: [scene]}
+      area: {count: 1}
+    combinations: [[entity], [entity, area]]
+    scene: heard
+    verbosity: beep
+    response:
+      done:
+        brief: "Готово."
+        specific: "Увімкнено: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+    needs:
+      - Add names for the scenes it may activate (Names page). One in each room
+        may share a name ("cozy").
+
+  script:
+    title: Run a script
+    icon: mdi:script-text-outline
+    description: запустити скрипт
+    optional: [[запусти, виконай], [скрипт]]
+    exclude: [яка, який, що, чи]
+    names:
+      entity: {count: 1, domains: [script]}
+      area: {count: 1}
+    combinations: [[entity], [entity, area]]
+    script: heard
+    needs:
+      - Add names for the scripts it may run (Names page). A script gets slots,
+        satellite, speaker and target as variables. To have something said, it
+        ends with stop and a response_variable holding a mapping with speech
+        in it (text alone fails); without, the acknowledgement sound.

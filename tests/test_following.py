@@ -20,21 +20,23 @@ def english():
 
 
 def test_the_librarys_version_with_its_settings():
-    theirs = base("basic/turn_on_here")
-    spec = resolve("lights", {"from": "basic/turn_on_here", "satellites": ["sat1"], "verbosity": "brief", "examples": ["lights on"]})
-    assert spec["require"] == theirs["require"] and spec["title"] == theirs["title"] and spec["library"] == "basic"
+    theirs = base("lights/turn_on_here")
+    spec = resolve("lights", {"from": "lights/turn_on_here", "satellites": ["sat1"], "verbosity": "brief", "examples": ["lights on"]})
+    assert spec["require"] == theirs["require"] and spec["title"] == theirs["title"] and spec["library"] == "lights"
     assert spec["satellites"] == ["sat1"] and spec["verbosity"] == "brief"
     assert spec["examples"] == [*(theirs.get("examples") or []), "lights on"]  # beside the library's
     # Its own implied target in place of the library's; null: none.
-    shopping = resolve("s", {"from": "basic/shopping_list_add", "slots": {"entity": ["todo.groceries"]}})
+    shopping = resolve("s", {"from": "todo/shopping_list_add", "slots": {"entity": ["todo.groceries"]}})
     assert shopping["slots"] == {"entity": ["todo.groceries"]}
-    assert "verbosity" not in resolve("s", {"from": "basic/shopping_list_add", "verbosity": None})
+    assert "verbosity" not in resolve("s", {"from": "todo/shopping_list_add", "verbosity": None})
     with pytest.raises(ConfigError, match="require can't be changed while it follows the library"):
-        resolve("x", {"from": "basic/turn_on_here", "require": [["lights"]]})
-    with pytest.raises(ConfigError, match="basic/nope is not in the library"):
-        resolve("x", {"from": "basic/nope"})
-    # One moved to another section is found there.
+        resolve("x", {"from": "lights/turn_on_here", "require": [["lights"]]})
+    with pytest.raises(ConfigError, match="lights/nope is not in the library"):
+        resolve("x", {"from": "lights/nope"})
+    # One moved to another section is found there: Basics was split up.
     assert resolve("w", {"from": "basic/weather"})["library"] == "weather"
+    assert resolve("l", {"from": "basic/turn_on_here"})["library"] == "lights"
+    assert resolve("v", {"from": "music/own_volume_up"})["library"] == "satellites"
 
 
 def test_saved_as_what_differs():
@@ -45,7 +47,7 @@ def test_saved_as_what_differs():
 
 
 def test_copies_from_before_follow_the_library():
-    theirs = base("basic/turn_on_here")
+    theirs = base("lights/turn_on_here")
     document = {"commands": {
         # As added then: the library's keys, and what was set since.
         "turn_on_here": {**theirs, "examples": [*(theirs.get("examples") or []), "lights on"], "satellites": ["sat1"]},
@@ -53,7 +55,7 @@ def test_copies_from_before_follow_the_library():
         # An older version: its keys are the library's now.
         "shopping_list_add": {"title": "Add to the shopping list", "library": "basic", "description": "old",
                               "require": [["add"], ["list"]], "response": "Added."},
-        "what_time_de": {**base("basic/what_time", "de"), "language": "de"},
+        "what_time_de": {**base("time/what_time", "de"), "language": "de"},
         "start_timer_2": {**base("timers/start_timer")},
         "gone": {"description": "x", "examples": ["x"], "library": "basic"},
         "mine": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
@@ -61,10 +63,11 @@ def test_copies_from_before_follow_the_library():
     changed = migrate(document)
     commands = document["commands"]
     assert sorted(changed) == ["shopping_list_add", "start_timer", "start_timer_2", "turn_on_here", "what_time_de"]
-    assert commands["turn_on_here"] == {"from": "basic/turn_on_here", "satellites": ["sat1"], "examples": ["lights on"]}
+    assert commands["turn_on_here"] == {"from": "lights/turn_on_here", "satellites": ["sat1"], "examples": ["lights on"]}
     assert commands["start_timer"] == {"from": "timers/start_timer", "verbosity": "verbose"}
-    assert commands["shopping_list_add"] == {"from": "basic/shopping_list_add"}
-    assert commands["what_time_de"] == {"from": "basic/what_time", "language": "de"}
+    # One from a section since split up: from where it is now.
+    assert commands["shopping_list_add"] == {"from": "todo/shopping_list_add"}
+    assert commands["what_time_de"] == {"from": "time/what_time", "language": "de"}
     assert commands["start_timer_2"] == {"from": "timers/start_timer"}
     assert commands["gone"]["library"] == "basic" and commands["mine"]["response"] == "Noon."  # left as they were
     compiled = compile_store(document)

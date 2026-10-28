@@ -11,7 +11,7 @@
 # the running "піца" loosely.
 #
 # The model may hear "таймер" as "тамер", "таймера" as "тамера".
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

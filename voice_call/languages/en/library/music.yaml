@@ -369,50 +369,6 @@ commands:
         title: Unmute an area or floor
         combinations: [[area], [floor], [area, kind], [floor, kind]]
 
-  # The satellite's own speaker, whatever plays on it: what its dial sets.
-  own_volume_up:
-    title: Turn yourself up
-    icon: mdi:volume-plus
-    description: turn up the satellite's own volume
-    examples: [speak up, talk louder, turn yourself up, turn up your volume]
-    require: [[turn yourself up, turn up your volume, turn your volume up, your volume up, speak up, talk louder, speak louder]]
-    action:
-      action: media_player.volume_up
-      target:
-        entity_id: "{{ satellite.device_media_player }}"
-    verbosity: beep
-
-  own_volume_down:
-    title: Turn yourself down
-    icon: mdi:volume-minus
-    description: turn down the satellite's own volume
-    examples: [turn yourself down, turn down your volume, talk quieter, speak more quietly]
-    require: [[turn yourself down, turn down your volume, turn your volume down, your volume down, talk quieter, talk softer, speak more quietly, speak softer]]
-    action:
-      action: media_player.volume_down
-      target:
-        entity_id: "{{ satellite.device_media_player }}"
-    verbosity: beep
-
-  own_volume_set:
-    title: Set your volume
-    icon: mdi:volume-equal
-    description: set the satellite's own volume
-    require: [[your volume]]
-    optional: [[set, change, make], [to], [percent]]
-    number: percentage
-    action:
-      action: media_player.volume_set
-      target:
-        entity_id: "{{ satellite.device_media_player }}"
-      data:
-        volume_level: "{{ slots.percentage / 100 }}"
-    verbosity: beep
-    response:
-      done:
-        brief: Done.
-        specific: My volume is at {{ slots.percentage }}%.
-
   shuffle_on:
     title: Shuffle
     icon: mdi:shuffle-variant

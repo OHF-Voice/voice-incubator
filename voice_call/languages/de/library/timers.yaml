@@ -7,7 +7,7 @@
 #   duration    "der 5 Minuten Timer"
 # or it is the only one running. What they say is the language's (its speech
 # module's timer sentences).
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

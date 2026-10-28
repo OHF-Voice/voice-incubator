@@ -210,7 +210,7 @@ async def test_covers_and_locks_by_name(hass: HomeAssistant, hass_ws_client) -> 
 
 async def test_are_any_lights_on(hass: HomeAssistant) -> None:
     home = await _home(hass)
-    spec = command("basic", "any_lights_on")
+    spec = command("lights", "any_lights_on")
     assert _say(hass, spec, _variables({}, home.kitchen, "Kitchen")) == (
         "Yes, Kitchen Ceiling and Kitchen Lamp are on in the Kitchen."
     )
@@ -225,7 +225,7 @@ async def test_are_any_lights_on(hass: HomeAssistant) -> None:
     # What isn't exposed to Assist isn't counted; asked by name, it is.
     EXPOSED.discard("light.kitchen_lamp")
     assert _say(hass, spec, _variables({}, home.kitchen, "Kitchen")) == "Yes, Kitchen Ceiling is on in the Kitchen."
-    device = command("basic", "any_lights_on", "device")
+    device = command("lights", "any_lights_on", "device")
     assert _say(hass, device, _variables({"entity": ["light.kitchen_lamp"], "asked": "on"})) == "Yes, Kitchen Lamp is on."
 
 

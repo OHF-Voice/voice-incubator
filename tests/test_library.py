@@ -122,16 +122,38 @@ def test_commands_are_listed_by_library_section():
     from voice_call.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
 
     sections, _ids = library_sections()
-    assert [s["file"] for s in sections] == ["basic", "climate", "home", "music", "satellites", "sensors", "timers", "weather"] and sections[0]["title"] == "Basics"
+    # By title, as the Home page and the library list them.
+    assert [s["title"] for s in sections] == [
+        "Climate", "Covers and locks", "Date and time", "Lights and switches", "Lists", "Music",
+        "Reminders and calendar", "Satellites", "Scenes and scripts", "Sensors", "Timers and alarms", "Weather"]
+    assert [s["file"] for s in sections] == [
+        "climate", "home", "time", "lights", "todo", "music", "reminders", "satellites", "scenes", "sensors", "timers", "weather"]
     # Added from the library (library: music), else by id -- a numbered or
     # copied one too; made from scratch: none (Custom).
     assert library_of("anything", {"library": "music"}) == "music"
     assert [library_of(i, {}) for i in ("lights_on", "lights_on_2", "lights_on_copy", "pause_timer_copy_3", "my_lights")] == [
-        "basic", "basic", "basic", "timers", None]
+        "lights", "lights", "lights", "timers", None]
     # A version, its family, and what a family was before it had versions.
     assert [library_of(i, {}) for i in ("play_music_device_2", "turn_on_place", "turn_on", "device_off", "open_cover")] == [
-        "music", "basic", "basic", "basic", "home"]
+        "music", "lights", "lights", "lights", "home"]
 
+
+
+def test_every_language_files_its_commands_as_english_does():
+    """A command is in the same section in every language, and a section has
+    the same title and icon: the Home page and the library group them alike."""
+    from voice_call.library import library_files  # pylint: disable=import-outside-toplevel
+
+    def sections(code):
+        files = library_files(code)
+        return ({path.stem: (data["title"], data["icon"]) for path, data in files},
+                {command_id: path.stem for path, data in files for command_id in data["commands"]})
+
+    titles, files = sections("en")
+    for code in languages.codes():
+        theirs, their_files = sections(code)
+        assert {stem: titles[stem] for stem in theirs} == theirs, code
+        assert {c: files[c] for c in their_files} == their_files, code
 
 def test_icons_are_material_design_names():
     base = {"description": "x", "examples": ["x"], "response": "ok"}

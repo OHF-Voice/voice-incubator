@@ -1,0 +1,12 @@
+# About the satellite itself (German), as the English library's satellites.yaml.
+title: Satellites
+icon: mdi:speaker-wireless
+
+commands:
+  never_mind:
+    title: Never mind
+    icon: mdi:close-circle-outline
+    description: nichts tun
+    # Said whole only: "brich den Timer ab" is the timer's. Nothing to do, and
+    # by default nothing said, not even a sound: the satellite stops listening.
+    examples: [vergiss es, egal, abbrechen, nichts, schon gut]

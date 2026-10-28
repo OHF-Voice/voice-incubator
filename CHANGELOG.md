@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **Commands grouped by what they're for**: Basics is split into Date and
+  time, Lights and switches, Lists, Reminders and calendar, and Scenes and
+  scripts; Set the temperature joins Climate; Never mind and a satellite's
+  own volume join announcements and the intercom as Satellites; Timers is
+  Timers and alarms. The Home page and the library list the same groups, in
+  the same order (by title), the Home page a panel for each. Commands added
+  from Basics follow it where it went (`from: basic/what_time` is Date and
+  time's).
 - **Time from now** in place of clock arithmetic ("what time is 45 minutes
   after 3 pm", seldom asked at home): "what time will it be in 45 minutes"
   ("It'll be 5:05 PM.") and "how long until 5 pm" ("40 minutes from now."),

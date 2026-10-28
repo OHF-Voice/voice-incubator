@@ -593,7 +593,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert not {"needs", "variants", "formerly"} & set(spec)
             assert (await http.delete("/api/commands/play_music_device")).status == 200
             # Several at once, rebuilt once; a copy of one you have gets a number.
-            batch = [{"file": "timers", "id": "pause_timer"}, {"file": "timers", "id": "timer_status"}, {"file": "basic", "id": "what_time"}]
+            batch = [{"file": "timers", "id": "pause_timer"}, {"file": "timers", "id": "timer_status"}, {"file": "time", "id": "what_time"}]
             added = await (await http.post("/api/library/add", json={"entries": batch})).json()
             assert added["ids"] == ["pause_timer", "timer_status", "what_time_2"]
             assert {"pause_timer", "timer_status", "what_time_2"} <= set(app.engine.compiled.commands)
@@ -1103,7 +1103,7 @@ async def _calendar(tmp_path: Path) -> None:
     satellite_port = satellite_server.sockets[0].getsockname()[1]
     (tmp_path / "commands.yaml").write_text(_library_commands(
         ("timers", "set_alarm"), ("timers", "cancel_alarm"), ("timers", "alarm_status"),
-        ("basic", "reminder_status"), ("basic", "remind_me"),
+        ("reminders", "reminder_status"), ("reminders", "remind_me"),
     ))
     app = VoiceCallApp(
         Options(

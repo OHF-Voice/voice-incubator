@@ -15,7 +15,7 @@
 # device or a place named. Alarms and reminders with a time are events on the
 # Voice Call calendar in Home Assistant, which the app makes, and ring the
 # satellite that set them.
-title: Timers
+title: Timers and alarms
 icon: mdi:timer-outline
 
 commands:

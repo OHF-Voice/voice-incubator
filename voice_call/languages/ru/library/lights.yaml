@@ -1,0 +1,279 @@
+# Lights and switches (Russian), as the English library's lights.yaml.
+title: Lights and switches
+icon: mdi:lightbulb-outline
+
+# What the versions add to a command (merged into them with <<).
+shared:
+  device: &device
+    names:
+      entity: {count: 1, domains: [light, switch, fan, media_player, input_boolean, climate]}
+      area: {count: 1}
+    # A room with the device picks it out: the one of that name there.
+    combinations: [[entity], [entity, area]]
+  place: &place
+    names:
+      area: {count: 1}
+      floor: {count: 1}
+    combinations: [[area], [floor]]
+    needs:
+      - Add names for the areas and floors it may act in (Names page).
+
+commands:
+  # Lights here, in an area or on a floor named, or a device by name.
+  turn_on:
+    title: Turn on
+    icon: mdi:lightbulb-on-outline
+    description: включить свет
+    require: [[включи, включите, включить, включай, зажги, зажгите, вруби, врубите],
+              [свет, лампу, лампы, лампочку, лампочки, люстру, люстры, светильник, светильники, освещение, подсветку]]
+    optional: [[весь, всю, все]]
+    exclude: [выключи, выключите, выключить, погаси, погасите, выруби]
+    intent:
+      name: HassTurnOn
+      slots: {domain: light}
+    verbosity: beep
+    response:
+      done:
+        brief: Свет включён.
+        specific: Свет включён {{ place.said }}.
+        verbose: >-
+          {%- set ns = namespace(names=result.names or []) -%}
+          {%- set n = ns.names | count -%}
+          {%- if n == 0 or n > 4 -%}
+          Свет включён {{ place.said }}.
+          {%- else -%}
+          Включено {{ place.said }}: {{ (ns.names[:-1] | join(', ') ~ ' и ' ~ ns.names[-1]) if n > 1 else ns.names[0] }}.
+          {%- endif -%}
+    variants:
+      here:
+        title: Turn on the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns on.
+      device:
+        <<: *device
+        title: Turn on a device by name
+        icon: mdi:toggle-switch-outline
+        description: включить устройство
+        require: [[включи, включите, включить, включай, вруби, врубите, запусти, запустите]]
+        intent: HassTurnOn
+        response:
+          done:
+            brief: Включено.
+            specific: "Включено: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            verbose: "Включено {{ place.said }}: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the devices it may turn on (Names page).
+      place:
+        <<: *place
+        title: Turn on the lights in an area or floor
+
+  turn_off:
+    title: Turn off
+    icon: mdi:lightbulb-off-outline
+    description: выключить свет
+    require: [[выключи, выключите, выключить, выключай, погаси, погасите, потуши, потушите, выруби, вырубите],
+              [свет, лампу, лампы, лампочку, лампочки, люстру, люстры, светильник, светильники, освещение, подсветку]]
+    optional: [[весь, всю, все], [дома, во всем доме, везде]]
+    exclude: [включи, включите, включить, зажги]
+    intent:
+      name: HassTurnOff
+      slots: {domain: light}
+    verbosity: beep
+    response:
+      done:
+        brief: Свет выключен.
+        specific: Свет выключен {{ place.said }}.
+        verbose: >-
+          {%- set ns = namespace(names=result.names or []) -%}
+          {%- set n = ns.names | count -%}
+          {%- if n == 0 or n > 4 -%}
+          Свет выключен {{ place.said }}.
+          {%- else -%}
+          Выключено {{ place.said }}: {{ (ns.names[:-1] | join(', ') ~ ' и ' ~ ns.names[-1]) if n > 1 else ns.names[0] }}.
+          {%- endif -%}
+    variants:
+      here:
+        title: Turn off the lights in this satellite's area
+        needs:
+          - The lights in the satellite's area (Satellites page) are the ones it
+            turns off.
+      device:
+        <<: *device
+        title: Turn off a device by name
+        icon: mdi:toggle-switch-off-outline
+        description: выключить устройство
+        require: [[выключи, выключите, выключить, выключай, выруби, вырубите, останови, остановите]]
+        intent: HassTurnOff
+        response:
+          done:
+            brief: Выключено.
+            specific: "Выключено: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            verbose: "Выключено {{ place.said }}: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        needs:
+          - Add names for the devices it may turn off (Names page).
+      place:
+        <<: *place
+        title: Turn off the lights in an area or floor
+
+  any_lights_on:
+    title: Are any lights on
+    icon: mdi:lightbulb-question
+    description: узнать, где горит свет
+    # No example sentences: one said word for word carries no area or floor.
+    require: [[горит, горят, включен, включена, включено, включены],
+              [свет, лампа, лампы, лампочка, лампочки, люстра, светильник, светильники]]
+    optional: [[ли], [еще, сейчас, где]]
+    exclude: [включи, включите, выключи, выключите, погаси, зажги]
+    response: >-
+      {%- set named = slots.area or slots.floor -%}
+      {%- set ns = namespace(areas=slots.area or [], on=[]) -%}
+      {%- for f in slots.floor or [] -%}
+      {%- set ns.areas = ns.areas + (floor_areas(f) | list) -%}
+      {%- endfor -%}
+      {%- if not named and satellite.area_id -%}
+      {%- set ns.areas = [satellite.area_id] -%}
+      {%- endif -%}
+      {%- set where = (' ' ~ place.said) if place.said else '' -%}
+      {%- for s in states.light if s.entity_id in exposed and (not ns.areas or area_id(s.entity_id) in ns.areas) and s.state == 'on' -%}
+      {%- set ns.on = ns.on + [s.name] -%}
+      {%- endfor -%}
+      {%- set count = ns.on | count -%}
+      {%- set lamps = 'светильник' if count % 10 == 1 and count % 100 != 11 else
+        ('светильника' if count % 10 in [2, 3, 4] and (count % 100 < 12 or count % 100 > 14) else 'светильников') -%}
+      {%- if count == 0 -%}
+      Нет, свет{{ where }} не горит.
+      {%- elif count > 3 -%}
+      Да,{{ where }} горит {{ count }} {{ lamps }}.
+      {%- else -%}
+      Да, горит: {{ (ns.on[:-1] | join(', ') ~ ' и ' ~ ns.on[-1]) if count > 1 else ns.on[0] }}.
+      {%- endif -%}
+    variants:
+      here:
+        title: Are any lights on in this satellite's area
+        needs:
+          - The satellite's area (Satellites page) is the one it asks about.
+      device:
+        <<: *device
+        title: Is a device on, by name
+        icon: mdi:toggle-switch-outline
+        description: узнать, включено ли устройство
+        # "Торшер включён?", "включена ли лампа?": the state is the question.
+        require: null
+        optional: [[ли], [еще, сейчас]]
+        names:
+          entity: {count: 1, domains: [light, switch, fan, input_boolean]}
+          area: {count: 1}
+        lists:
+          asked: {list: on_off}
+        combinations: [[entity, asked], [entity, area, asked]]
+        response: >-
+          {%- set e = slots.entity[0] -%}
+          {%- set name = state_attr(e, 'friendly_name') or e -%}
+          {%- set last = (name.split(' ')[0] | lower)[-1:] -%}
+          {%- set g = 'f' if last in ['а', 'я'] else ('n' if last in ['о', 'е'] else 'm') -%}
+          {%- set state = states(e) -%}
+          {%- set words = {'on': {'m': 'включён', 'f': 'включена', 'n': 'включено'},
+            'off': {'m': 'выключен', 'f': 'выключена', 'n': 'выключено'},
+            'unavailable': {'m': 'недоступен', 'f': 'недоступна', 'n': 'недоступно'}} -%}
+          {%- set said = name ~ ' ' ~ (words[state][g] if state in words else 'в неизвестном состоянии') ~ '.' -%}
+          {%- if state in ['on', 'off'] -%}
+          {{ 'Да' if state == slots.asked else 'Нет' }}, {{ said }}
+          {%- else -%}
+          {{ said }}
+          {%- endif -%}
+        needs:
+          - Add names for the lights and switches it may ask about (Names page).
+      place:
+        <<: *place
+        title: Are any lights on in an area or floor
+
+  set_brightness:
+    title: Set the brightness
+    icon: mdi:brightness-6
+    description: изменить яркость света
+    supports: brightness
+    require: [[яркость, яркости, процентов, процента, процент]]
+    optional: [[поставь, установи, сделай, измени, выставь, включи, убавь, прибавь],
+               [свет, лампу, лампы, люстру, светильник, подсветку], [яркость]]
+    # A question: "сколько будет 15 процентов от 80"; and the music's volume.
+    exclude: [сколько, какая, какой, чему, будет, от, громкость, громкости]
+    number: percentage
+    intent:
+      name: HassLightSet
+      slots: {brightness: "{{ slots.percentage }}"}
+    verbosity: beep
+    response:
+      done:
+        brief: Яркость изменена.
+        specific: >-
+          {%- set p = slots.percentage | int -%}
+          {%- set word = 'процент' if p % 10 == 1 and p % 100 != 11 else
+            ('процента' if p % 10 in [2, 3, 4] and (p % 100 < 12 or p % 100 > 14) else 'процентов') -%}
+          {%- if slots.entity -%}
+          {{ state_attr(slots.entity[0], 'friendly_name') }}: яркость {{ p }} {{ word }}.
+          {%- else -%}
+          Яркость {{ place.said }}: {{ p }} {{ word }}.
+          {%- endif -%}
+    variants:
+      here:
+        title: Set the brightness in this satellite's area
+      device:
+        <<: *device
+        title: Set the brightness of a light by name
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, percentage], [entity, area, percentage]]
+        needs:
+          - Add names for the lights it may dim (Names page).
+      place:
+        <<: *place
+        title: Set the brightness in an area or floor
+        combinations: [[area, percentage], [floor, percentage]]
+
+  light_color:
+    title: Set the light color
+    icon: mdi:format-color-fill
+    description: изменить цвет света
+    supports: color
+    # "Сделай свет красным", "включи синий свет", "поменяй цвет лампы на зелёный".
+    # "Делай": "сделай" as the model often hears it.
+    require: [[сделай, сделайте, делай, поставь, включи, включите, смени, поменяй, измени, переключи, цвет],
+              [свет, лампу, лампы, лампочку, люстру, светильник, подсветку]]
+    optional: [[цвет]]
+    lists:
+      color: {list: colors}
+    intent:
+      name: HassLightSet
+      slots: {color: "{{ slots.color }}"}
+    verbosity: beep
+    response:
+      done:
+        brief: Цвет изменён.
+        specific: >-
+          {%- set colors = {'red': 'красный', 'orange': 'оранжевый', 'yellow': 'жёлтый', 'green': 'зелёный',
+            'blue': 'синий', 'purple': 'фиолетовый', 'pink': 'розовый', 'white': 'белый', 'turquoise': 'бирюзовый', 'magenta': 'пурпурный'} -%}
+          {%- set c = colors.get(slots.color, slots.color) -%}
+          {%- if slots.entity -%}
+          {{ state_attr(slots.entity[0], 'friendly_name') }}: {{ c }} цвет.
+          {%- else -%}
+          Свет {{ place.said }} теперь {{ c }}.
+          {%- endif -%}
+    variants:
+      here:
+        title: Set the light color in this satellite's area
+      device:
+        <<: *device
+        title: Set the color of a light by name
+        require: [[сделай, сделайте, делай, поставь, включи, включите, смени, поменяй, измени, переключи, цвет]]
+        names:
+          entity: {count: 1, domains: [light]}
+          area: {count: 1}
+        combinations: [[entity, color], [entity, area, color]]
+        needs:
+          - Add names for the lights it may color (Names page).
+      place:
+        <<: *place
+        title: Set the light color in an area or floor
+        combinations: [[area, color], [floor, color]]

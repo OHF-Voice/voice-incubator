@@ -1,0 +1,88 @@
+# Lists (Dutch), as the English library's todo.yaml.
+title: Lists
+icon: mdi:format-list-checks
+
+commands:
+  shopping_list_add:
+    title: Add to the shopping list
+    icon: mdi:cart-plus
+    description: iets op de boodschappenlijst zetten
+    require: [[zet, voeg, schrijf, doe], [boodschappenlijst, boodschappenlijstje]]
+    optional: [[op, aan], [toe, erbij]]
+    wildcard:
+      slot: item
+      after: [zet, voeg, schrijf, doe]
+      before: [op, aan, toe]
+      bounded: true
+      max_words: 8
+    home: shopping_list
+    # Several at once, each an item of its own: "oranges and bananas".
+    action:
+      repeat:
+        for_each: >-
+          {{ (slots.item | regex_replace('\\s*,\\s*|\\s+(?:en)\\s+', '|', true)).split('|')
+          | map('trim') | reject('eq', '') | list }}
+        sequence:
+          - action: todo.add_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Op de boodschappenlijst gezet.
+        specific: "{{ slots.item }} staat op de boodschappenlijst."
+
+  shopping_list_remove:
+    title: Take off the shopping list
+    icon: mdi:cart-minus
+    description: iets van de boodschappenlijst halen
+    require: [[haal, verwijder, streep], [boodschappenlijst, boodschappenlijstje]]
+    optional: [[van, op], [af, door, weg]]
+    wildcard:
+      slot: item
+      after: [haal, verwijder, streep]
+      before: [van, door, op]
+      bounded: true
+      max_words: 5
+    home: shopping_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Van de boodschappenlijst gehaald.
+        specific: "{{ slots.item }} van de boodschappenlijst gehaald."
+
+  todo_add:
+    title: Add to the to-do list
+    icon: mdi:format-list-checks
+    description: iets op de takenlijst zetten
+    require: [[zet, voeg, schrijf], [takenlijst, to do lijst, todolijst]]
+    optional: [[op, aan], [toe, erbij]]
+    wildcard:
+      slot: item
+      after: [zet, voeg, schrijf]
+      before: [op, aan, toe]
+      bounded: true
+      max_words: 8
+    home: todo_list
+    action:
+      action: todo.add_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ slots.item }}"
+    verbosity: specific
+    response:
+      done:
+        brief: Op de takenlijst gezet.
+        specific: "{{ slots.item }} staat op de takenlijst."
+    needs:
+      - Set the home's to-do list on the Settings page, or give it one of its
+        own (its implied target).
