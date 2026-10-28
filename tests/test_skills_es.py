@@ -29,9 +29,10 @@ def spanish():
         ("¿Cuál es la media de cuatro, ocho y doce?", "Es 8.", "arithmetic"),
         # "Y" joins tens and units, and a list.
         ("¿Cuál es la media de treinta y cinco y cuarenta y cinco?", "Es 40.", "arithmetic"),
-        ("¿Qué hora es 45 minutos después de las 15?", "Son las 15 y 45.", "clock"),
-        ("¿Qué hora será 90 minutos antes del mediodía?", "Son las 10 y 30.", "clock"),
-        ("¿Qué hora es una hora y media después de las tres de la tarde?", "Son las 16 y 30.", "clock"),
+        ("¿Qué hora será dentro de 45 minutos?", "Serán las 17 y 5.", "clock"),
+        ("¿Cuánto falta para las cinco de la tarde?", "Faltan 40 minutos.", "clock"),
+        ("¿Qué hora será dentro de hora y media?", "Serán las 17 y 50.", "clock"),
+        ("¿Cuánto falta para las 17 y 20?", "Falta una hora.", "clock"),
         ("¿2024 es bisiesto?", "Sí.", "dates"),
         ("¿Qué día de la semana es el 4 de julio de 2026?", "Es sábado.", "dates"),
         ("¿Cuándo es Navidad?", "El 25 de diciembre.", "dates"),
@@ -94,7 +95,7 @@ def test_live_questions(question):
 
 def test_morning_and_last_are_not_live():
     # "De la mañana" is a time of day; "el último" a date, not the news.
-    assert skills.answer("¿Qué hora es 30 minutos después de las siete de la mañana?").text == "Son las 7 y 30."
+    assert skills.answer("¿Cuánto falta para las siete de la mañana?").text == "Faltan 14 horas y 40 minutos."
     assert skills.answer("¿Cuál es el último mes del año?").text == "Es diciembre."
 
 

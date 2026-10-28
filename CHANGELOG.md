@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **Time from now** in place of clock arithmetic ("what time is 45 minutes
+  after 3 pm", seldom asked at home): "what time will it be in 45 minutes"
+  ("It'll be 5:05 PM.") and "how long until 5 pm" ("40 minutes from now."),
+  the next 5 o'clock to come, in all nine languages. The question skill keeps
+  its id (`clock`) and its 12- or 24-hour setting. The library's **What time
+  is it** and **How long is left** leave these to it ("hoe lang nog tot 17
+  uur" was a timer's).
 - **Pause, skip and the volume on any media player**: with nothing named,
   whatever plays in the satellite's area (its own music first), a TV among
   them; "the music" is Music Assistant's players only, "the TV" the TVs

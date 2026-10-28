@@ -33,8 +33,9 @@ commands:
     examples: ["che ore sono", "che ora è", "mi dici che ore sono"]
     require: [[che ore, che ora]]
     optional: [[sono, è], [adesso]]
-    # Other times: "a che ora chiude il negozio", "che ore sono a Tokyo".
-    exclude: [chiude, apre, dopo, prima, fino, sarà]
+    # Other times: "a che ora chiude il negozio", "che ore sono a Tokyo", "che
+    # ore saranno tra 45 minuti" (that one is answered as a question).
+    exclude: [chiude, apre, dopo, prima, fino, sarà, saranno, tra, fra, minuti]
     response: >-
       {%- set h, m = now().hour, now().minute -%}
       {%- if h == 12 and m == 0 -%}È mezzogiorno.

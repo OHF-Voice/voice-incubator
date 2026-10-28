@@ -100,6 +100,8 @@ commands:
     examples: ["hoeveel tijd is er nog over", "hoe lang loopt de timer nog"]
     require: [[hoe lang, hoeveel tijd], [nog, over, resterend]]
     optional: [[is er, loopt, heeft], [op], [timer], [minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam], [van]]
+    # A time of day: "hoe lang nog tot 17 uur" (a question).
+    exclude: [tot, totdat, middernacht, middag]
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}

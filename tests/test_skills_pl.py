@@ -32,9 +32,9 @@ def polish():
         ("Średnia z dwudziestu pięciu i trzydziestu pięciu", "To 30.", "arithmetic"),
         ("Ile to jest dwa i pół razy cztery?", "To 10.", "arithmetic"),
         ("Dwa do potęgi dziesiątej", "To 1024.", "arithmetic"),
-        ("Która godzina będzie 45 minut po piętnastej?", "Będzie piętnasta czterdzieści pięć.", "clock"),
-        ("Która była godzina 90 minut przed południem?", "Była dziesiąta trzydzieści.", "clock"),
-        ("Która godzina będzie półtorej godziny po trzeciej po południu?", "Będzie szesnasta trzydzieści.", "clock"),
+        ("Która godzina będzie za 45 minut?", "Będzie siedemnasta zero pięć.", "clock"),
+        ("Ile jeszcze do siedemnastej?", "Jeszcze 40 minut.", "clock"),
+        ("Która godzina będzie za półtorej godziny?", "Będzie siedemnasta pięćdziesiąt.", "clock"),
         ("Czy 2024 jest przestępny?", "Tak.", "dates"),
         ("Jaki dzień tygodnia będzie 4 lipca 2026?", "To sobota.", "dates"),
         ("Kiedy jest Boże Narodzenie?", "Dwudziestego piątego grudnia.", "dates"),
@@ -110,7 +110,7 @@ def test_live_questions(question):
 
 def test_morning_and_last_are_not_live():
     # "Rano" is a time of day; "ostatni" a date, not the news.
-    assert skills.answer("Która godzina będzie 30 minut po siódmej rano?").text == "Będzie siódma trzydzieści."
+    assert skills.answer("Ile jeszcze do siódmej rano?").text == "Jeszcze 14 godzin i 40 minut."
     assert skills.answer("Jaki jest ostatni miesiąc roku?").text == "To grudzień."
 
 

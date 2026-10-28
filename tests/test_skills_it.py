@@ -29,10 +29,10 @@ def italian():
         ("Quanto fa 100 diviso 7?", "Fa 14,29.", "arithmetic"),
         ("Qual è la media di quattro, otto e dodici?", "Fa 8.", "arithmetic"),
         ("Cinque elevato alla terza", "Fa 125.", "arithmetic"),
-        ("Che ore sono 45 minuti dopo le 15?", "Sono le 15 e 45.", "clock"),
-        ("Che ora sarà 90 minuti prima di mezzogiorno?", "Sono le 10 e 30.", "clock"),
-        ("Che ore sono un'ora e mezza dopo le tre del pomeriggio?", "Sono le 16 e 30.", "clock"),
-        ("Che ore sono 15 minuti dopo l'una?", "È l'una e 15.", "clock"),
+        ("Che ore saranno tra 45 minuti?", "Saranno le 17 e 5.", "clock"),
+        ("Quanto manca a mezzogiorno?", "Mancano 19 ore e 40 minuti.", "clock"),
+        ("Che ore saranno tra un'ora e mezza?", "Saranno le 17 e 50.", "clock"),
+        ("Quanto manca alle 17 e 20?", "Manca un'ora.", "clock"),
         ("Il 2024 è bisestile?", "Sì.", "dates"),
         ("Che giorno della settimana è il 4 luglio 2026?", "È sabato.", "dates"),
         ("Quand'è la Festa della Repubblica?", "Il 2 giugno.", "dates"),
@@ -68,8 +68,9 @@ def test_said_back_in_full():
         "5 miglia sono 8,047 chilometri.")
     assert skills.answer("Quanti millilitri ci sono in mezzo litro?").to_json()["levels"]["verbose"] == (
         "In mezzo litro ci sono 500 millilitri.")
-    assert skills.answer("Che ore sono 45 minuti dopo le 15?").to_json()["levels"]["verbose"] == (
-        "45 minuti dopo le 15 sono le 15 e 45.")
+    levels = skills.answer("Quanto manca alle 17?").to_json()["levels"]
+    assert levels == {"brief": "40 minuti.", "specific": "Mancano 40 minuti.", "verbose": "Alle 17 mancano 40 minuti."}
+    assert skills.answer("Che ore saranno tra mezz'ora?").to_json()["levels"]["brief"] == "Le 16 e 50."
 
 
 def test_days_until(monkeypatch):

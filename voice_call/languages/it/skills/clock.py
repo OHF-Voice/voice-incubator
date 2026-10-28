@@ -1,40 +1,35 @@
-"""How Italian asks clock arithmetic ("che ore sono 45 minuti dopo le 15",
-"che ora sarà un'ora e mezza prima di mezzogiorno") and says a time: on a
-24-hour clock, "le 16 e 45", "l'una e 5", "mezzogiorno", as the app says one
+"""How Italian asks times from now ("che ore saranno tra 45 minuti", "quanto
+manca alle 17") and says them: on a 24-hour clock, "le 17 e 5", "l'una e 5",
+"mezzogiorno", as the app says one; "mancano 40 minuti"
 (voice_call/skills/clock.py)."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
 from .. import reading
 from ..speech import clock as said_clock
+from ..speech import duration
 from .numbers import N, clean, fold, parse_num
 
-EXAMPLES = ("che ore sono 45 minuti dopo le 15", "che ora sarà 90 minuti prima di mezzogiorno")
+EXAMPLES = ("che ore saranno tra 45 minuti", "quanto manca alle 17")
 
 HOURS = 24
 """The clock it answers in unless set: "le 16 e 45"."""
 
 
 def parse_clock(s):
-    """Minutes into the day of a time said ("le 15", "le tre del pomeriggio",
-    "le sette e mezza", "l'una", "mezzogiorno"), with the preposition before
-    it ("delle 15", "dell'una", "di mezzogiorno"); None."""
-    s = re.sub(r"^(?:de|da|a)ll(e |')", r"l\1", s.strip())
-    s = re.sub(r"^(?:di|da|a) ", "", s)
-    found = reading.clock(s)
-    if found is None:
-        return None
-    hour, minute, meridiem = found
-    if meridiem == "pm" and hour < 12:
-        hour += 12
-    elif meridiem == "am" and hour == 12:
-        hour = 0
-    return hour * 60 + minute
+    """A time said ("le 15", "le tre del pomeriggio", "le sette e mezza",
+    "l'una", "mezzogiorno"), with the preposition before it ("alle 15",
+    "all'una", "a mezzogiorno", "fino alle 15"): (hour, minute, meridiem);
+    None."""
+    s = re.sub(r"^(?:fino |prima )", "", s.strip())
+    s = re.sub(r"^(?:de|da|a)ll(e |')", r"l\1", s)
+    s = re.sub(r"^(?:di|da|a|per) ", "", s)
+    return reading.clock(s)
 
 
 _PARTS = {"mezzo": 30, "mezza": 30, "un quarto": 15, "tre quarti": 45}
@@ -74,29 +69,36 @@ def show_clock(mins, hours=24):
     return f"{said_clock((h % 12) or 12, m)} {part}"
 
 
-_ASK = (
-    r"(?:che or[ae] (?:e|sono|sara|saranno|era|erano|sarebbe|sarebbero|fa|fanno|fara|faranno)|a che ora (?:e|sara)"
-    r"|che or[ae]|quale ora|quanto fa|cosa fa)"
+_ASK = r"(?:che or[ae] (?:sara|saranno|e|sono|fara|faranno)|che ora)"
+_IN = re.compile(rf"{_ASK} (?:tra|fra) (?P<a>.+)|(?:tra|fra) (?P<b>.+?),? {_ASK}")
+_UNTIL = re.compile(
+    r"(?:quanto|quanto tempo|quanti minuti|quante ore) (?:ci |mi |ti )?(?:manca|mancano|resta|restano)"
+    r"(?: ancora)? (?P<time>.+)"
 )
 
 
-def solve(q, hours=24):
-    """The time, and what was asked ("45 minuti dopo le 15"); None."""
-    s = fold(clean(q))
-    m = re.fullmatch(rf"{_ASK} ((.+?) (dopo|prima) (.+))", s)
-    if not m:
-        return None
-    length, t = minutes(m.group(2)), parse_clock(m.group(4))
-    if length is None or t is None:
-        return None
-    return show_clock(int(t + (-length if m.group(3) == "prima" else length)), hours), m.group(1)
-
-
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    if not found:
-        return None
-    said, asked = found
-    verb = "è" if said.startswith(("l'", "mezzogiorno", "mezzanotte")) else "sono"
-    return reply(said, text, f"{asked} {verb} {said}", brief=f"{said[:1].upper()}{said[1:]}.",
-                 specific=f"{verb.capitalize()} {said}.")
+def answer(text: str, settings: Settings, now):
+    s = fold(clean(text))
+    if m := _IN.fullmatch(s):
+        amount = m.group("a") or m.group("b")
+        length = minutes(amount)
+        if length is None:
+            return None
+        hour, minute = later(now, length)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        verb = "sarà" if then.startswith(("l'", "mezzogiorno", "mezzanotte")) else "saranno"
+        return reply(then, text, f"Tra {amount} {verb} {then}", specific=f"{verb.capitalize()} {then}.")
+    if m := _UNTIL.fullmatch(s):
+        found = parse_clock(m.group("time"))
+        if found is None:
+            return None
+        wait = until(now, *found)
+        if wait == 0:
+            return reply("Adesso", text, "Ci siamo", specific="Ci siamo.")
+        hour, minute = later(now, wait)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        said = duration(wait * 60)
+        verb = "manca" if said.startswith(("un ", "un'", "una ")) else "mancano"
+        at = f"al{then}" if then.startswith(("le ", "l'")) else f"a {then}"
+        return reply(said, text, f"{at[:1].upper()}{at[1:]} {verb} {said}", specific=f"{verb.capitalize()} {said}.")
+    return None

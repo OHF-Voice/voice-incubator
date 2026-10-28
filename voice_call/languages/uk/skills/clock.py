@@ -1,39 +1,36 @@
-"""How Ukrainian asks clock arithmetic ("котра година буде через 45 хвилин після
-п'ятнадцятої", "котра година була за 90 хвилин до полудня") and says a time:
-on a 24-hour clock, its hour an ordinal, "шістнадцята сорок п'ять", as the
-app says one (voice_call/skills/clock.py)."""
+"""How Ukrainian asks times from now ("котра година буде через 45 хвилин",
+"скільки ще до сімнадцятої") and says them: on a 24-hour clock, its hour an
+ordinal, "сімнадцята п'ять", as the app says one; "ще сорок хвилин"
+(voice_call/skills/clock.py)."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
 from .. import reading
 from ..numerals import ordinal
 from ..speech import _minutes as minute_words
 from ..speech import clock as said_clock
+from ..speech import duration
 from .numbers import N, clean, parse_num, said
 
-EXAMPLES = ("котра година буде через 45 хвилин після п'ятнадцятої", "котра година була за 90 хвилин до полудня")
+EXAMPLES = ("котра година буде через 45 хвилин", "скільки ще до сімнадцятої")
 
 HOURS = 24
 """The clock it answers in unless set: "шістнадцята сорок п'ять"."""
 
-
-def parse_clock(s):
-    """Minutes into the day of a time said ("15", "третьої дня", "пів на
-    третю", "полудня"); None."""
-    found = reading.clock(s)
-    if found is None:
-        return None
-    hour, minute, meridiem = found
-    if meridiem == "pm" and hour < 12:
-        hour += 12
-    elif meridiem == "am" and hour == 12:
-        hour = 0
-    return hour * 60 + minute
+_AMOUNT = re.compile(
+    rf"(?:(?P<n>{N}) )?(?P<unit>хвилин[уи]?|годин[уи]?|півгодини)(?P<half> з половиною)?"
+    rf"(?: (?:і|й) (?P<more>{N}) хвилин[уи]?)?"
+)
+_ASK = r"(?:котра|яка) (?:зараз )?(?:година )?буде(?: година)?"
+_IN = re.compile(rf"{_ASK} через (?P<a>.+)|через (?P<b>.+?),? {_ASK}")
+_UNTIL = re.compile(
+    r"скільки(?: (?:ще|залишилося|залишилось|лишилося|лишилось|часу|хвилин|годин|у мене|у нас))* до (?P<time>.+)"
+)
 
 
 def show_clock(mins, hours=24):
@@ -49,31 +46,21 @@ def show_clock(mins, hours=24):
     return f"{said_clock((h % 12) or 12, m)} {part}"
 
 
-_UNITS = r"(хвилин[уи]?|годин[уи]?|півгодини|секунд[уи]?)"
-
-
-def solve(q, hours=24):
-    """The time, what was asked ("через 45 хвилин після 15"), and whether it
-    was asked of the past; None."""
-    s = clean(q)
-    m = re.fullmatch(
-        rf"(?:(?:котра|яка) (?:зараз )?(?:година )?|о котрій (?:годині )?)(?:(буде|була|є) )?(?:година )?"
-        rf"((через |за )?(?:{N} )?{_UNITS}( з половиною)? (після|до|перед) (.+))",
-        s,
-    )
+def minutes_in(s):
+    """"45 хвилин", "годину", "півтори години", "півгодини", "2 години і 10
+    хвилин" as minutes; None."""
+    m = _AMOUNT.fullmatch(s)
     if not m:
         return None
-    tense, asked, shift, number, unit, half, rel, at = m.groups()
-    value = parse_num(number) if number else (0.5 if unit == "півгодини" else 1.0)
-    t = parse_clock(at)
-    if value is None or t is None or (shift == "через " and rel != "після") or (shift == "за " and rel == "після"):
+    if m.group("unit") == "півгодини":
+        return 30
+    value = parse_num(m.group("n")) if m.group("n") else 1.0  # "через годину"
+    more = parse_num(m.group("more")) if m.group("more") else 0
+    if value is None or more is None:
         return None
-    minutes = value * (60 if unit.startswith(("годин", "півгодини")) else 1 / 60 if unit.startswith("секунд") else 1)
-    minutes += (30 if unit.startswith("годин") else 0.5) if half else 0
-    if unit == "півгодини":
-        minutes = 30
-    found = show_clock(round(t + (minutes if rel == "після" else -minutes)), hours)
-    return found, asked, tense == "була"
+    value += 0.5 if m.group("half") else 0
+    minutes = value * (60 if m.group("unit").startswith("годин") else 1) + more
+    return minutes if minutes > 0 else None
 
 
 def _hours_said(text: str) -> str:
@@ -91,11 +78,24 @@ def _hours_said(text: str) -> str:
     return re.sub(r"\b(після|до) (\d{1,2})(?:[:.](\d{2}))?(?![\d,])", said, text)
 
 
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    if not found:
-        return None
-    time, asked, past = found
-    verb = "була" if past else "буде"
-    return reply(time, text, f"{said(_hours_said(asked))} {verb} {time}", brief=f"{time[:1].upper()}{time[1:]}.",
-                 specific=f"{verb.capitalize()} {time}.")
+def answer(text: str, settings: Settings, now):
+    s = clean(text)
+    if m := _IN.fullmatch(s):
+        amount = m.group("a") or m.group("b")
+        minutes = minutes_in(amount)
+        if minutes is None:
+            return None
+        hour, minute = later(now, minutes)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        return reply(then, text, f"{said(f'Через {amount}')} буде {then}", specific=f"Буде {then}.")
+    if m := _UNTIL.fullmatch(s):
+        found = reading.clock(m.group("time"))
+        if found is None:
+            return None
+        wait = until(now, *found)
+        if wait == 0:
+            return reply("Зараз", text, "Це вже зараз", specific="Це вже зараз.")
+        time = said(_hours_said(f"до {m.group('time')}"))
+        spoken = duration(wait * 60)
+        return reply(spoken, text, f"{time[:1].upper()}{time[1:]} ще {spoken}", specific=f"Ще {spoken}.")
+    return None

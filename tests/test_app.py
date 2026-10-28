@@ -406,7 +406,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert skill(listed, "clock")["settings"] == {"hours": 12} and not skill(listed, "clock")["settings_set"]
             assert (await http.put("/api/skills/clock", json={"settings": {"hours": 24}})).status == 200
             assert app.store.settings["skill_settings"] == {"clock": {"hours": 24}}
-            assert await said("what time is 45 minutes after 3 pm") == "It's 15:45."
+            assert await said("what time will it be in 45 minutes") == "It'll be 17:05."
             units = skill(listed, "units")["settings"]
             edited = [u for u in units["units"] if u["name"] != "stone"]
             edited.append({"name": "nautical mile", "measures": "length", "size": 1852, "also": ["nmi"]})
@@ -430,13 +430,13 @@ async def _scenario(tmp_path: Path) -> None:
             for skill_id in ("clock", "units"):
                 assert (await http.put(f"/api/skills/{skill_id}", json={"settings": None})).status == 200
             assert "skill_settings" not in app.store.settings
-            assert await said("what time is 45 minutes after 3 pm") == "It's 3:45 PM."
+            assert await said("what time will it be in 45 minutes") == "It'll be 5:05 PM."
             # Stored settings that can't be used (edited by hand): the built-in ones.
             app.store.settings["skill_settings"] = {"clock": {"hours": 13}}
             listed = await (await http.get("/api/skills")).json()
             assert skill(listed, "clock")["settings_error"] == "hours: 12 or 24"
             app.configure_skills()
-            assert await said("what time is 45 minutes after 3 pm") == "It's 3:45 PM."
+            assert await said("what time will it be in 45 minutes") == "It'll be 5:05 PM."
             del app.store.settings["skill_settings"]
             app.configure_skills()
 

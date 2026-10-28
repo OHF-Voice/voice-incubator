@@ -125,8 +125,12 @@ commands:
     require: [[ile], [zostało, pozostało, brakuje]]
     optional: [[czasu, jeszcze], [na, do, w], [minutniku, minutnika, minutnik, timerze, timera, budziku, budzika, końca],
                [o nazwie, nazwany]]
-    # A date: "ile dni zostało do świąt".
-    exclude: [dni, dzień, tygodni, tygodnie, tygodnia, miesięcy, miesiące, lat, roku]
+    # A date: "ile dni zostało do świąt"; a time of day: "ile zostało do
+    # siedemnastej" (a question).
+    exclude: [dni, dzień, tygodni, tygodnie, tygodnia, miesięcy, miesiące, lat, roku, pierwszej, drugiej, trzeciej,
+              czwartej, piątej, szóstej, siódmej, ósmej, dziewiątej, dziesiątej, jedenastej, dwunastej, trzynastej,
+              czternastej, piętnastej, szesnastej, siedemnastej, osiemnastej, dziewiętnastej, dwudziestej, północy,
+              południa, wpół]
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, after: [minutniku, minutnika, minutnik, o nazwie, nazwany]}

@@ -984,7 +984,8 @@ the next step:
 - **Spelling**: "how do you spell necessary".
 - **Dates**: "what day is Christmas", "is 2028 a leap year", "how many days
   until Halloween".
-- **Clock arithmetic**: "what time is 90 minutes after 2 pm".
+- **Time from now**: "what time will it be in 45 minutes", "how long until
+  5 pm".
 - **Unit conversions**: "how many cups in a quart", "100 Fahrenheit in
   Celsius", "5 miles in kilometers".
 - **Math**: "what's twelve times eight", "15 percent of 80".
@@ -1030,7 +1031,7 @@ Its page has the skill's **settings** too, the same wherever it's added:
   a date with its year for one that happens once ("June 20 2027"). The
   built-in ones are US holidays; change them, take them out, or add your own
   ("my birthday").
-- **Clock arithmetic**: a 12-hour ("4:45 PM") or 24-hour ("16:45") clock.
+- **Time from now**: a 12-hour ("4:45 PM") or 24-hour ("16:45") clock.
 - **Math**: its precision, as Unit conversions'.
 
 Built-in units and holidays you haven't changed follow updates to the app.

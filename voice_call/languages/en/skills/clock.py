@@ -1,75 +1,89 @@
-"""How English asks clock arithmetic ("what time is 45 minutes after 3 pm",
-"what's ninety minutes before noon") and says a time ("4:45 PM";
+"""How English asks times from now ("what time will it be in 45 minutes", "how
+long until 5 pm") and says them ("It'll be 5:05 PM.", "40 minutes from now.";
 voice_call/skills/clock.py)."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
-from .numbers import NUM_RE, WORD_NUM, N, clean, parse_num
+from .. import reading
+from ..speech import clock as said_clock
+from ..speech import duration
+from .numbers import NUM_RE, clean, parse_num
 
-EXAMPLES = ("what time is 45 minutes after 3 pm", "what's ninety minutes before noon")
+EXAMPLES = ("what time will it be in 45 minutes", "how long until 5 pm")
 
 HOURS = 12
 """The clock it answers in unless set: "4:45 PM"."""
 
-NUM_RE_GROUPLESS = rf"(?:{NUM_RE})"
+_N = rf"(?:{NUM_RE})"
+_AMOUNT = re.compile(
+    rf"(?P<n>{_N}) ?(?P<unit>minutes?|hours?)(?: and (?P<half>a half|a quarter))?(?: and (?P<more>{_N}) minutes?)?"
+)
+_WORDS = {"half an hour": 30, "a half hour": 30, "half hour": 30, "a quarter of an hour": 15,
+          "quarter of an hour": 15, "a quarter hour": 15, "three quarters of an hour": 45}
+_IN = re.compile(
+    r"(?:what time (?:will|would) it be in (?P<a>.+)"
+    r"|what time (?:will|would) it be (?P<b>.+) from now"
+    r"|what time is it (?:going to be )?in (?P<c>.+)"
+    r"|what(?:'s| is) the time (?:going to be )?in (?P<d>.+)"
+    r"|what time is (?P<e>.+) from now"
+    r"|in (?P<f>.+?),? what time (?:will|would) it be)"
+)
+_UNTIL = re.compile(
+    r"how (?:long|much time|much longer|many minutes|many hours) (?:is it |is there |do (?:i|we) have |have (?:i|we) got )?"
+    r"(?:until|till|til|before|to go until) (?:it(?:'s| is) )?(?:(?:.+ )?at )?(?P<time>.+)"
+)
 
 
-def parse_clock(s):
-    s = s.strip().lower().replace(".", "")
-    if s in ("noon", "midday"):
-        return 12 * 60
-    if s == "midnight":
-        return 0
-    m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a m|p m)?", s)
+def minutes_in(s):
+    """"45 minutes", "an hour and a half", "2 hours and 10 minutes", "half an
+    hour" as minutes; None."""
+    s = s.strip()
+    if s in _WORDS:
+        return _WORDS[s]
+    m = _AMOUNT.fullmatch(s)
     if not m:
         return None
-    h, mi, ap = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").replace(" ", "")
-    if h > 23 or mi > 59 or (ap and h > 12):
+    n = parse_num(m.group("n"))
+    if n is None:
         return None
-    if ap == "pm" and h != 12:
-        h += 12
-    if ap == "am" and h == 12:
-        h = 0
-    return h * 60 + mi
+    n += {"a half": 0.5, "a quarter": 0.25}.get(m.group("half") or "", 0)
+    minutes = n * (60 if m.group("unit").startswith("hour") else 1)
+    if m.group("more"):
+        more = parse_num(m.group("more"))
+        if more is None:
+            return None
+        minutes += more
+    return minutes if minutes > 0 else None
 
 
-def _clock_digits(s):
-    """"two pm" -> "2 pm", "seven thirty am" -> "7:30 am", for parse_clock."""
-    words = s.strip().split()
-    meridiem = [w for w in words if w.replace(".", "") in ("am", "pm")]
-    numbers = [w for w in words if w not in meridiem]
-    if not numbers or any(w not in WORD_NUM for w in numbers):
-        return s
-    hour = WORD_NUM[numbers[0]]
-    minute = sum(WORD_NUM[w] for w in numbers[1:])
-    return f"{hour}:{minute:02d} {' '.join(meridiem)}".strip()
+def show_clock(hour, minute, hours=12):
+    """"5:05 PM", "noon"; on 24 hours, "17:05"."""
+    return f"{hour}:{minute:02d}" if hours == 24 else said_clock(hour, minute)
 
 
-def show_clock(mins, hours=12):
-    mins %= 1440
-    h, m = divmod(mins, 60)
-    if hours == 24:
-        return f"{h}:{m:02d}"
-    return f"{(h % 12) or 12}:{m:02d} {'AM' if h < 12 else 'PM'}"
-
-
-def solve(q, hours=12):
-    """The time, and what was asked ("45 minutes after 3 pm"); None."""
-    s = clean(q)
-    if m := re.fullmatch(rf"(?:what(?: is|'s)|what time is) ({NUM_RE_GROUPLESS} (?:minutes?|hours?) (?:before|after|from|past) .+)", s):
-        inner = re.fullmatch(rf"{N} (minutes?|hours?) (before|after|from|past) (.+)", m.group(1))
-        v, u, rel, t = parse_num(inner.group(1)), inner.group(2), inner.group(3), parse_clock(_clock_digits(inner.group(4)))
-        if v is not None and t is not None:
-            delta = v * (60 if u.startswith("hour") else 1)
-            return show_clock(int(t + (-delta if rel == "before" else delta)), hours), m.group(1)
+def answer(text: str, settings: Settings, now):
+    s = clean(text)
+    if m := _IN.fullmatch(s):
+        amount = next(g for g in m.groups() if g)
+        minutes = minutes_in(amount)
+        if minutes is None:
+            return None
+        then = show_clock(*later(now, minutes), settings.hours)
+        return reply(then, text, f"In {amount} it'll be {then}", specific=f"It'll be {then}.")
+    if m := _UNTIL.fullmatch(s):
+        found = reading.clock(m.group("time"))
+        if found is None:
+            return None
+        hour, minute, meridiem = found
+        wait = until(now, hour, minute, meridiem)
+        if wait == 0:
+            return reply("Now", text, "It's that time now", specific="It's that time now.")
+        then = show_clock(*later(now, wait), settings.hours)
+        said = duration(wait * 60)
+        return reply(said, text, f"{then} is {said} from now", specific=f"{said[:1].upper()}{said[1:]} from now.")
     return None
-
-
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    return reply(found[0], text, f"{found[1]} is {found[0]}") if found else None

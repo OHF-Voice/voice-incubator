@@ -41,8 +41,8 @@ commands:
     examples: ["która [jest] [teraz] godzina", "jaka jest [teraz] godzina", "podaj godzinę", "powiedz która godzina"]
     require: [[która godzina, która ... godzina, jaka ... godzina, podaj godzinę]]
     optional: [[jest, teraz, mamy], [powiedz, powiedz mi]]
-    # Other times: "o której otwierają sklep", "która będzie godzina 45 minut
-    # po piętnastej" (that one is answered as a question).
+    # Other times: "o której otwierają sklep", "która będzie godzina za 45
+    # minut" (that one is answered as a question).
     exclude: [będzie, była, po, przed, otwierają, otwiera, zamykają, zamyka, otwarte, czynne, wschodzi, zachodzi,
               minut, minuty, godziny, godzin]
     # The hour said as Polish says it, its ordinal: "Jest siódma trzydzieści".

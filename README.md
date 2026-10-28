@@ -1655,7 +1655,7 @@ results). When no command is meant -- after the CTC matcher, and around the
 command fallback -- a question still gets an answer:
 
 1. **Skills** (`voice_call/skills/`, one module each, Questions on the Home
-   page): spelling, dates, clock arithmetic, unit conversions, arithmetic --
+   page): spelling, dates, time from now, unit conversions, arithmetic --
    grammars that must parse the whole question *and* compute an answer, or
    let it fall through. Before the command fallback: they are instant and
    never wrong when they answer. Spelling first ("how do you spell weather"

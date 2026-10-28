@@ -1,37 +1,52 @@
-"""How Polish asks clock arithmetic ("która godzina będzie 45 minut po
-piętnastej?", "która była godzina półtorej godziny przed południem?") and
-says a time: on a 24-hour clock, its hour as Polish says it, "piętnasta
-czterdzieści pięć", as the app says one (voice_call/skills/clock.py)."""
+"""How Polish asks times from now ("która godzina będzie za 45 minut?", "ile
+jeszcze do siedemnastej?") and says them: on a 24-hour clock, its hour as
+Polish says it, "siedemnasta pięć", as the app says one; "jeszcze 40 minut"
+(voice_call/skills/clock.py)."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
 from .. import reading
 from ..speech import clock as said_clock
-from .numbers import N, clean, fold, parse_num
+from ..speech import duration
+from .numbers import clean, fold, parse_num
 
-EXAMPLES = ("która godzina będzie 45 minut po piętnastej", "która była godzina 90 minut przed południem")
+EXAMPLES = ("która godzina będzie za 45 minut", "ile jeszcze do siedemnastej")
 
 HOURS = 24
 """The clock it answers in unless set: "szesnasta czterdzieści pięć"."""
 
+# Read without diacritics ("bedzie"), the words taken from the question as said.
+_FIXED = {"pol godziny": 30, "kwadrans": 15, "trzy kwadranse": 45}
+_AMOUNT = re.compile(r"(?:(?P<n>.+?) )?(?P<unit>minut\w*|godzin\w*|kwadrans\w*)(?: i (?P<part>pol|kwadrans)| i (?P<more>.+?) minut\w*)?")
+_ASK = r"(?:(?:ktora|jaka) (?:godzina )?bedzie(?: godzina)?)"
+_IN = re.compile(rf"{_ASK} za (?P<a>.+)|za (?P<b>.+?),? {_ASK}")
+_UNTIL = re.compile(
+    r"(?:ile|ile czasu|ile minut|ile godzin|jak dlugo)(?: (?:jeszcze|zostalo|pozostalo|czasu|mamy|mam))*"
+    r" do (?P<time>.+)"
+)
 
-def parse_clock(s):
-    """Minutes into the day of a time said ("piętnastej", "trzeciej po
-    południu", "wpół do trzeciej", "15:30", "południem"); None."""
-    found = reading.clock(s)
-    if found is None:
+
+def minutes_in(s, folded):
+    """"45 minut", "godzinę", "półtorej godziny", "pół godziny", "2 godziny i
+    10 minut" as minutes (``folded`` read, ``s`` its numbers); None."""
+    if folded in _FIXED:
+        return _FIXED[folded]
+    m = _AMOUNT.fullmatch(folded)
+    if not m:
         return None
-    hour, minute, meridiem = found
-    if meridiem == "pm" and hour < 12:
-        hour += 12
-    elif meridiem == "am" and hour == 12:
-        hour = 0
-    return hour * 60 + minute
+    n = parse_num(s[m.start("n"):m.end("n")]) if m.group("n") else 1.0  # "godzinę"
+    more = parse_num(s[m.start("more"):m.end("more")]) if m.group("more") else 0
+    if n is None or more is None:
+        return None
+    unit = m.group("unit")
+    per = 60 if unit.startswith("godzin") else 15 if unit.startswith("kwadrans") else 1
+    minutes = n * per + {"pol": 30, "kwadrans": 15}.get(m.group("part") or "", 0) + more
+    return minutes if minutes > 0 else None
 
 
 def show_clock(mins, hours=24):
@@ -47,43 +62,26 @@ def show_clock(mins, hours=24):
     return f"{said} {part}"
 
 
-# "Która godzina będzie 45 minut po 15", "która będzie 45 minut po
-# piętnastej", "ile to jest godzinę po 15", "jaka godzina była 2 godziny
-# przed 10".
-_ASKED = re.compile(
-    r"(?:ktora (?:(?:godzina )?(?:jest|bedzie|byla|to)|godzina)(?: godzina)?|jaka (?:(?:godzina )?(?:jest|bedzie|byla)|godzina)"
-    r"(?: godzina)?|ile to (?:jest|bedzie)|ile jest|o ktorej (?:jest|bedzie))"
-    rf" ((?:{N} )?(minut\w*|godzin\w*|kwadrans\w*)( i pol| i kwadrans)? (po|przed) (.+))"
-)
-
-
-def solve(q, hours=24):
-    """The time, the verb asked with ("będzie"), and what was asked ("45
-    minut po piętnastej"); None."""
-    s = clean(q)
-    m = _ASKED.fullmatch(fold(s))
-    if not m:
-        return None
-    said = s[m.start(1):m.end(1)]
-    number, unit, extra, rel, at = m.group(2), m.group(3), m.group(4), m.group(5), m.group(6)
-    if number:
-        v = parse_num(number)
-    else:
-        v = 1.0  # "godzinę", "kwadrans"
-    t = parse_clock(at)
-    if v is None or t is None:
-        return None
-    per = 60 if unit.startswith("godzin") else 15 if unit.startswith("kwadrans") else 1
-    delta = v * per + (30 if extra == " i pol" else 15 if extra else 0)
-    verb = next((w for w in ("bedzie", "byla") if f" {w} " in f" {fold(s)} "), "jest")
-    found = show_clock(int(t + (-delta if rel == "przed" else delta)), hours)
-    return found, {"bedzie": "będzie", "byla": "była"}.get(verb, "jest"), said
-
-
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    if not found:
-        return None
-    said, verb, asked = found
-    return reply(said, text, f"{asked} {verb} {said}", brief=f"{said[:1].upper()}{said[1:]}.",
-                 specific=f"{verb.capitalize()} {said}.")
+def answer(text: str, settings: Settings, now):
+    s = clean(text)
+    folded = fold(s)
+    if m := _IN.fullmatch(folded):
+        part = "a" if m.group("a") else "b"
+        amount = s[m.start(part):m.end(part)]
+        minutes = minutes_in(amount, m.group(part))
+        if minutes is None:
+            return None
+        hour, minute = later(now, minutes)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        return reply(then, text, f"Za {amount} będzie {then}", specific=f"Będzie {then}.")
+    if m := _UNTIL.fullmatch(folded):
+        time = s[m.start("time"):m.end("time")]
+        found = reading.clock(time)
+        if found is None:
+            return None
+        wait = until(now, *found)
+        if wait == 0:
+            return reply("Teraz", text, "To już teraz", specific="To już teraz.")
+        said = duration(wait * 60)
+        return reply(said, text, f"Do {time} jeszcze {said}", specific=f"Jeszcze {said}.")
+    return None

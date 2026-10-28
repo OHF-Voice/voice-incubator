@@ -101,6 +101,8 @@ commands:
     examples: ["combien de temps reste t il", "il reste combien de temps"]
     require: [[combien], [reste, restant, reste t il]]
     optional: [[de temps], [il], [sur], [minuteur, minuterie, timer], [minutes, minute, secondes, seconde, heures, heure], [appelé, nommé], [de]]
+    # A time of day: "combien de temps reste-t-il avant midi" (a question).
+    exclude: [jusqu'à, jusqu'au, avant, d'ici, midi, minuit]
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, after: [minuteur, minuterie, timer, appelé, nommé], max_words: 3}

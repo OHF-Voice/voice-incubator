@@ -1,49 +1,35 @@
-"""How Russian asks clock arithmetic ("который час будет через 45 минут после
-15:00?", "сколько времени будет за полтора часа до полудня?") and says a
-time: on a 24-hour clock, "16:30", as the app says one
-(voice_call/skills/clock.py).
-
-"Через ... после" is after, "за ... до" before; the time it is from is read
-as an alarm's ("трёх часов дня", "полудня", "половины восьмого")."""
+"""How Russian asks times from now ("который час будет через 45 минут?",
+"сколько ещё до пяти часов?") and says them: on a 24-hour clock, "17:05", as
+the app says one; "ещё 40 минут" (voice_call/skills/clock.py). The time it is
+until is read as an alarm's ("пяти часов вечера", "полуночи", "половины
+восьмого")."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
 from .. import reading
 from ..speech import clock as said_clock
+from ..speech import duration
 from .numbers import N, clean, parse_num
 
-EXAMPLES = ("который час будет через 45 минут после 15:00", "сколько времени будет за 90 минут до полудня")
+EXAMPLES = ("который час будет через 45 минут", "сколько ещё до пяти часов")
 
 HOURS = 24
 """The clock it answers in unless set: "16:45"."""
 
-_AMOUNT = (
+_AMOUNT = re.compile(
     rf"(?:(?P<n>{N}) )?(?P<unit>минут[уы]?|час(?:а|ов)?|полчаса|полтора часа|полторы минуты|четверть часа)"
-    rf"(?: с половиной)?"
+    rf"(?P<half> с половиной)?(?: и (?P<more>{N}) минут[уы]?)?"
 )
-_ASKED = re.compile(
-    rf"(?:который (?:сейчас )?час|сколько (?:сейчас )?времени|какое (?:сейчас )?время|во сколько|что за время)"
-    rf"(?: будет| было| получится)? (?P<asked>(?P<rel>через|за) {_AMOUNT} (?P<dir>после|до) (?P<from>.+))"
+_ASK = r"(?:который (?:сейчас )?час|сколько (?:сейчас )?времени|какое (?:сейчас )?время)(?: будет)?"
+_IN = re.compile(rf"{_ASK} через (?P<a>.+)|через (?P<b>.+?),? {_ASK}")
+_UNTIL = re.compile(
+    r"сколько(?: (?:ещё|еще|осталось|остаётся|остается|времени|минут|часов|у меня|у нас))* до (?P<time>.+)"
 )
-
-
-def parse_clock(s):
-    """Minutes into the day of a time said ("15:00", "трёх часов дня",
-    "полудня", "половины восьмого"); None."""
-    found = reading.clock(s)
-    if found is None:
-        return None
-    hour, minute, meridiem = found
-    if meridiem == "pm" and hour < 12:
-        hour += 12
-    elif meridiem == "am" and hour == 12:
-        hour = 0
-    return hour * 60 + minute
 
 
 def show_clock(mins, hours=24):
@@ -55,44 +41,42 @@ def show_clock(mins, hours=24):
     return f"{said_clock((h % 12) or 12, m)} {part}"
 
 
-def _minutes(amount: str | None, unit: str, half: bool) -> float | None:
-    """How many minutes "45 минут", "полтора часа", "2 часа с половиной"
-    are."""
-    if unit == "полчаса":
-        return 30
-    if unit == "полтора часа":
-        return 90
-    if unit == "полторы минуты":
-        return 1.5
-    if unit == "четверть часа":
-        return 15
-    value = parse_num(amount) if amount else 1.0  # "через час"
-    if value is None:
-        return None
-    value += 0.5 if half else 0
-    return value * (60 if unit.startswith("час") else 1)
-
-
-def solve(q, hours=24):
-    """The time, and what was asked ("через 45 минут после 15:00"); None."""
-    s = clean(q)
-    m = _ASKED.fullmatch(s)
+def minutes_in(s):
+    """"45 минут", "час", "полтора часа", "2 часа с половиной", "час и 10
+    минут" as minutes; None."""
+    m = _AMOUNT.fullmatch(s)
     if not m:
         return None
-    if (m.group("rel") == "через") != (m.group("dir") == "после"):
-        return None  # "через ... до", "за ... после": not said
-    delta = _minutes(m.group("n"), m.group("unit"), " с половиной" in m.group("asked"))
-    start = parse_clock(m.group("from"))
-    if delta is None or start is None:
+    unit = m.group("unit")
+    fixed = {"полчаса": 30, "полтора часа": 90, "полторы минуты": 1.5, "четверть часа": 15}.get(unit)
+    if fixed is not None:
+        return fixed
+    value = parse_num(m.group("n")) if m.group("n") else 1.0  # "через час"
+    more = parse_num(m.group("more")) if m.group("more") else 0
+    if value is None or more is None:
         return None
-    sign = 1 if m.group("dir") == "после" else -1
-    return show_clock(int(start + sign * delta), hours), m.group("asked")
+    value += 0.5 if m.group("half") else 0
+    minutes = value * (60 if unit.startswith("час") else 1) + more
+    return minutes if minutes > 0 else None
 
 
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    if not found:
-        return None
-    said, asked = found
-    return reply(said, text, f"{asked} будет {said}", brief=f"{said[:1].upper()}{said[1:]}.",
-                 specific=f"Будет {said}.")
+def answer(text: str, settings: Settings, now):
+    s = clean(text)
+    if m := _IN.fullmatch(s):
+        amount = m.group("a") or m.group("b")
+        minutes = minutes_in(amount)
+        if minutes is None:
+            return None
+        hour, minute = later(now, minutes)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        return reply(then, text, f"Через {amount} будет {then}", specific=f"Будет {then}.")
+    if m := _UNTIL.fullmatch(s):
+        found = reading.clock(m.group("time"))
+        if found is None:
+            return None
+        wait = until(now, *found)
+        if wait == 0:
+            return reply("Сейчас", text, "Это уже сейчас", specific="Это уже сейчас.")
+        said = duration(wait * 60)
+        return reply(said, text, f"До {m.group('time')} ещё {said}", specific=f"Ещё {said}.")
+    return None

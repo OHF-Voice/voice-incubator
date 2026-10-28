@@ -108,6 +108,8 @@ commands:
     examples: ["quanto tempo manca", "quanto manca al timer"]
     require: [[quanto], [manca, mancano, rimane, resta]]
     optional: [[tempo], [al, sul], [timer, contaminuti], [minuti, minuto, secondi, secondo, ore, ora], [chiamato], [di]]
+    # A time of day: "quanto manca alle 17" (a question).
+    exclude: [alle, all'una, fino, mezzogiorno, mezzanotte]
     lists:
       timer_name: {list: running_timers}
     wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}

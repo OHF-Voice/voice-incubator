@@ -1,36 +1,50 @@
-"""How Spanish asks clock arithmetic ("¿qué hora es 45 minutos después de las
-15?", "¿qué hora será hora y media antes del mediodía?") and says a time: on a
-24-hour clock, "las 15 y 45", as the app says one (voice_call/skills/clock.py)."""
+"""How Spanish asks times from now ("¿qué hora será dentro de 45 minutos?",
+"¿cuánto falta para las 17?") and says them: on a 24-hour clock, "las 17 y
+5", as the app says one; "faltan 40 minutos" (voice_call/skills/clock.py)."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
 from .. import reading
 from ..speech import clock as said_clock
-from .numbers import N, clean, loose, parse_num
+from ..speech import duration
+from .numbers import clean, loose, parse_num
 
-EXAMPLES = ("qué hora es 45 minutos después de las 15", "qué hora será 90 minutos antes del mediodía")
+EXAMPLES = ("qué hora será dentro de 45 minutos", "cuánto falta para las 17")
 
 HOURS = 24
 """The clock it answers in unless set: "las 16 y 45"."""
 
+_FIXED = {"media hora": 30, "hora y media": 90, "hora y cuarto": 75, "un cuarto de hora": 15, "cuarto de hora": 15,
+          "tres cuartos de hora": 45}
+_AMOUNT = re.compile(r"(?P<n>.+?) (?P<unit>minutos?|horas?)(?: y (?P<part>media|cuarto)| y (?P<more>.+?) minutos?)?")
+_ASK = r"(?:qué hora (?:será|es|va a ser|sería))"
+_IN = re.compile(loose(rf"{_ASK} (?:dentro de|en|de aquí a) (?P<a>.+)|(?:dentro de|en) (?P<b>.+?),? {_ASK}"))
+_UNTIL = re.compile(loose(
+    r"(?:cuánto|cuánto tiempo|cuántos minutos|cuántas horas) (?:me |nos |te )?(?:falta|faltan|queda|quedan)"
+    r"(?: todavía| aún)? (?:para|hasta) (?:que sean )?(?:(?:.+ )?a )?(?:el )?(?P<time>.+)"
+))
 
-def parse_clock(s):
-    """Minutes into the day of a time said ("las 15", "las tres de la tarde",
-    "las dos y media", "mediodía"); None."""
-    found = reading.clock(s)
-    if found is None:
+
+def minutes_in(s):
+    """"45 minutos", "una hora", "una hora y media", "media hora", "2 horas y
+    10 minutos" as minutes; None."""
+    if s in _FIXED:
+        return _FIXED[s]
+    m = _AMOUNT.fullmatch(s)
+    if not m:
         return None
-    hour, minute, meridiem = found
-    if meridiem == "pm" and hour < 12:
-        hour += 12
-    elif meridiem == "am" and hour == 12:
-        hour = 0
-    return hour * 60 + minute
+    n = parse_num(m.group("n"))
+    more = parse_num(m.group("more")) if m.group("more") else 0
+    if n is None or more is None:
+        return None
+    part = {"media": 30, "cuarto": 15}.get(m.group("part") or "", 0)
+    minutes = n * (60 if m.group("unit").startswith("hora") else 1) + part + more
+    return minutes if minutes > 0 else None
 
 
 def show_clock(mins, hours=24):
@@ -45,31 +59,28 @@ def show_clock(mins, hours=24):
     return f"{said} {part}"
 
 
-def solve(q, hours=24):
-    """The time, and what was asked ("45 minutos después de las 15"); None."""
-    s = clean(q)
-    m = re.fullmatch(
-        loose(
-            rf"(?:qué hora (?:es|será|era|sería)|a qué hora (?:es|será)|qué hora|cuál es la hora)"
-            rf" ((?:{N} )?(minutos?|horas?)( y media| y cuarto)? (después|antes) (?:de |del )(.+))"
-        ),
-        s,
-    )
-    if not m:
-        return None
-    v = parse_num(m.group(2)) if m.group(2) else 1.0  # "hora y media"
-    unit, extra, rel, t = m.group(3), m.group(4), m.group(5), parse_clock(m.group(6))
-    if v is None or t is None:
-        return None
-    delta = v * (60 if unit.startswith("hora") else 1) + (30 if extra == " y media" else 15 if extra else 0)
-    return show_clock(int(t + (-delta if rel.startswith("a") else delta)), hours), m.group(1)
-
-
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    if not found:
-        return None
-    said, asked = found
-    verb = "es" if said.startswith(("la ", "mediodía", "medianoche")) else "son"
-    return reply(said, text, f"{asked} {verb} {said}", brief=f"{said[:1].upper()}{said[1:]}.",
-                 specific=f"{verb.capitalize()} {said}.")
+def answer(text: str, settings: Settings, now):
+    s = clean(text)
+    if m := _IN.fullmatch(s):
+        amount = m.group("a") or m.group("b")
+        minutes = minutes_in(amount)
+        if minutes is None:
+            return None
+        hour, minute = later(now, minutes)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        verb = "será" if then.startswith(("la ", "mediodía", "medianoche")) else "serán"
+        return reply(then, text, f"Dentro de {amount} {verb} {then}", specific=f"{verb.capitalize()} {then}.")
+    if m := _UNTIL.fullmatch(s):
+        found = reading.clock(m.group("time"))
+        if found is None:
+            return None
+        wait = until(now, *found)
+        if wait == 0:
+            return reply("Ya", text, "Ya es la hora", specific="Ya es la hora.")
+        hour, minute = later(now, wait)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        said = duration(wait * 60)
+        verb = "falta" if said.startswith(("un ", "una ")) else "faltan"
+        at = f"el {then}" if then.startswith("mediodía") else f"la {then}" if then.startswith("medianoche") else then
+        return reply(said, text, f"Para {at} {verb} {said}", specific=f"{verb.capitalize()} {said}.")
+    return None

@@ -28,10 +28,12 @@ from voice_call.skills.live import is_live
         ("what date is christmas", "It's December 25.", "dates"),
         ("Is 2024 a leap year?", "Yes.", "dates"),
         ("What is the last month of the year?", "It's December.", "dates"),
-        ("what time is 45 minutes after 3 pm", "It's 3:45 PM.", "clock"),
+        ("what time will it be in 45 minutes", "It'll be 5:05 PM.", "clock"),
+        ("how long until 5 pm", "40 minutes from now.", "clock"),
         # As a transcript writes them.
         ("Is twenty twenty four a leap year?", "Yes.", "dates"),
-        ("What is ninety minutes after two PM?", "It's 3:30 PM.", "clock"),
+        ("What time will it be in an hour and a half?", "It'll be 5:50 PM.", "clock"),
+        ("How long until five PM?", "40 minutes from now.", "clock"),
         ("What is the average of four? Eight and twelve?", "It's 8.", "arithmetic"),
         ("How should you spell rhythm?", "Rhythm is spelled R, H, Y, T, H, M.", "spelling"),
         ("What is zero degrees Celsius in Fahrenheit?", "It's 32 degrees Fahrenheit.", "units"),
@@ -53,7 +55,8 @@ def test_exact_answers(question, said, skill):
         ("how many ounces are in a cup", "8.", "There are 8 fluid ounces in a cup."),
         ("what is 5 miles in kilometers", "8.047 kilometers.", "5 miles is 8.047 kilometers."),
         ("convert 100 fahrenheit to celsius", "37.8 degrees Celsius.", "100 degrees Fahrenheit is 37.8 degrees Celsius."),
-        ("what time is 45 minutes after 3 pm", "3:45 PM.", "45 minutes after 3 pm is 3:45 PM."),
+        ("what time will it be in 45 minutes", "5:05 PM.", "In 45 minutes it'll be 5:05 PM."),
+        ("how long until midnight", "7 hours and 40 minutes.", "Midnight is 7 hours and 40 minutes from now."),
         # Said back as asked, where the skill can't say it with the answer.
         ("Is 2024 a leap year?", "Yes.", "Is 2024 a leap year? Yes."),
         ("How do you spell rhythm?", "R, H, Y, T, H, M.", "Rhythm. R, H, Y, T, H, M. Rhythm."),
@@ -108,7 +111,8 @@ def test_live_questions(question):
         ("How do you spell ‘rhythm’?", "Rhythm is spelled R, H, Y, T, H, M.", "spelling"),
         ("When is April Fools’ Day?", "It's April 1.", "dates"),
         ("What day of the week is July 4th, 2026?", "It's Saturday.", "dates"),
-        ("What time is 45 minutes after 3 p.m.?", "It's 3:45 PM.", "clock"),
+        ("How long until 5 p.m.?", "40 minutes from now.", "clock"),
+        ("What time will it be in 1½ hours?", "It'll be 5:50 PM.", "clock"),
     ],
 )
 def test_written_out(question, said, skill):
@@ -383,8 +387,8 @@ def test_holidays(monkeypatch):
 
 
 def test_24_hour_clock():
-    assert answered("what time is 45 minutes after 3 pm", clock={"hours": 24}) == "It's 15:45."
-    assert answered("what's ninety minutes before 1 am", clock={"hours": 24}) == "It's 23:30."
+    assert answered("what time will it be in 45 minutes", clock={"hours": 24}) == "It'll be 17:05."
+    assert answered("what time will it be in 8 hours", clock={"hours": 24}) == "It'll be 0:20."
     assert SKILLS["clock"].settings.store({"hours": 12}) is None
 
 

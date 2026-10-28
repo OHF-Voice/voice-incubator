@@ -35,8 +35,8 @@ commands:
     require: [[qué hora, la hora]]
     optional: [[es, son], [ahora, ya], [dime, me dices, sabes]]
     # Other times: "a qué hora abre la tienda", "qué hora es en Tokio", "qué
-    # hora es 45 minutos después de las 3" (that one is answered as a question).
-    exclude: [abre, abren, cierra, cierran, después, antes, hasta, en, será]
+    # hora será dentro de 45 minutos" (that one is answered as a question).
+    exclude: [abre, abren, cierra, cierran, después, antes, hasta, en, será, dentro, media, minutos, horas]
     response: >-
       {%- set h = now().hour -%}
       {%- set m = now().minute -%}

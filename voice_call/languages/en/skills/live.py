@@ -40,6 +40,8 @@ LIVE_EXCEPTIONS = [
     r"\b(what is|what's) (a|an) [a-z]+\??$",
     # A weight in pounds is not money.
     r"\b(kilos?|kilograms?|kg|grams?|g|ounces?|oz|stones?|tons?|tonnes?|lbs?)\b.*\bin pounds\b",
+    # The time some minutes from now, not in some place.
+    r"\bwhat(?: time is it|(?:'s| is) the time)(?= (?:going to be )?in .*\b(?:minutes?|hours?)\b)",
 ]
 CURRENCIES = re.compile(r"\b(euros?|dollars?|pounds?|yen|pesos?)\b")
 

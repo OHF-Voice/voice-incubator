@@ -1,34 +1,50 @@
-"""How French asks clock arithmetic ("quelle heure est-il 45 minutes après 15
-heures", "quelle heure sera-t-il 90 minutes avant midi") and says a time: on
-a 24-hour clock, "15 heures 45", "midi" (voice_call/skills/clock.py)."""
+"""How French asks times from now ("quelle heure sera-t-il dans 45 minutes",
+"combien de temps jusqu'à 17 heures") and says them: on a 24-hour clock, "17
+heures 5", "midi"; "dans 40 minutes" (voice_call/skills/clock.py)."""
 
 from __future__ import annotations
 
 import re
 
-from voice_call.skills.clock import Settings
+from voice_call.skills.clock import Settings, later, until
 from voice_call.skills.common import reply
 
 from .. import reading
-from .numbers import N, clean, parse_num
+from ..speech import duration
+from .numbers import clean, parse_num
 
-EXAMPLES = ("quelle heure est il 45 minutes après 15 heures", "quelle heure sera t il 90 minutes avant midi")
+EXAMPLES = ("quelle heure sera t il dans 45 minutes", "combien de temps jusqu'à 17 heures")
 
 HOURS = 24
 
+_FIXED = {"une demi heure": 30, "demi heure": 30, "un quart d'heure": 15, "quart d'heure": 15,
+          "trois quarts d'heure": 45}
+_AMOUNT = re.compile(r"(?P<n>.+?) (?P<unit>minutes?|heures?)(?: et (?P<part>demie|quart)| et (?P<more>.+?) minutes?| (?P<bare>\d+))?")
+_ASK = r"(?:quelle heure (?:sera t il|il sera|est ce qu'il sera|est il)|il sera quelle heure)"
+_IN = re.compile(rf"{_ASK} dans (?P<a>.+)|dans (?P<b>.+?),? {_ASK}")
+_UNTIL = re.compile(
+    r"(?:combien de temps|combien de minutes|combien d'heures)"
+    r"(?: (?:reste t il|il reste|me reste t il|nous reste t il|il me reste|il nous reste|y a t il|il y a))?(?: encore)?"
+    r" (?:jusqu'à|jusqu'au|avant|d'ici) (?:(?:.+ )?à )?(?P<time>.+)"
+)
 
-def parse_clock(s):
-    """Minutes into the day of a time said ("15 heures", "trois heures de
-    l'après-midi", "sept heures et demie", "midi"); None."""
-    found = reading.clock(s)
-    if found is None:
+
+def minutes_in(s):
+    """"45 minutes", "une heure", "une heure et demie", "une demi-heure", "2
+    heures et 10 minutes" as minutes; None."""
+    if s in _FIXED:
+        return _FIXED[s]
+    m = _AMOUNT.fullmatch(s)
+    if not m:
         return None
-    hour, minute, meridiem = found
-    if meridiem == "pm" and hour < 12:
-        hour += 12
-    elif meridiem == "am" and hour == 12:
-        hour = 0
-    return hour * 60 + minute
+    n = parse_num(m.group("n"))
+    more = m.group("more") or m.group("bare")
+    more = parse_num(more) if more else 0
+    if n is None or more is None:
+        return None
+    part = {"demie": 30, "quart": 15}.get(m.group("part") or "", 0)
+    minutes = n * (60 if m.group("unit").startswith("h") else 1) + part + more
+    return minutes if minutes > 0 else None
 
 
 def show_clock(mins, hours=24):
@@ -44,25 +60,25 @@ def show_clock(mins, hours=24):
     return said
 
 
-def solve(q, hours=24):
-    s = clean(q)
-    m = re.fullmatch(
-        rf"(?:quelle heure (?:est il|sera t il|était il|il sera|il était)|il sera quelle heure|il était quelle heure"
-        rf"|qu'est ce que|c'est quoi|combien font|combien fait)"
-        rf" ({N} (minutes|minute|heures|heure) (avant|après) (.+))",
-        s,
-    )
-    if not m:
-        return None
-    v, unit, rel, t = parse_num(m.group(2)), m.group(3), m.group(4), parse_clock(m.group(5))
-    if v is None or t is None:
-        return None
-    delta = v * (60 if unit.startswith("h") else 1)
-    return show_clock(int(t + (-delta if rel == "avant" else delta)), hours), m.group(1)
-
-
-def answer(text: str, settings: Settings):
-    found = solve(text, settings.hours)
-    if not found:
-        return None
-    return reply(found[0], text, f"{found[1]}, ça donne {found[0]}", specific=f"Ça donne {found[0]}.")
+def answer(text: str, settings: Settings, now):
+    s = clean(text)
+    if m := _IN.fullmatch(s):
+        amount = m.group("a") or m.group("b")
+        minutes = minutes_in(amount)
+        if minutes is None:
+            return None
+        hour, minute = later(now, minutes)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        return reply(then, text, f"Dans {amount}, il sera {then}", specific=f"Il sera {then}.")
+    if m := _UNTIL.fullmatch(s):
+        found = reading.clock(m.group("time"))
+        if found is None:
+            return None
+        wait = until(now, *found)
+        if wait == 0:
+            return reply("Maintenant", text, "C'est l'heure", specific="C'est l'heure.")
+        hour, minute = later(now, wait)
+        then = show_clock(hour * 60 + minute, settings.hours)
+        said = duration(wait * 60)
+        return reply(said, text, f"{then[:1].upper()}{then[1:]}, c'est dans {said}", specific=f"Dans {said}.")
+    return None
