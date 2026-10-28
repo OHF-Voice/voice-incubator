@@ -2245,13 +2245,17 @@ class VoiceCallApp:
         # Everything after the wake phrase is command audio, including what
         # arrived while the decode was running. The split is measured from the
         # start of the window that was decoded, which the retry moves. This cut
-        # is for endpointing; recognition finds the wake phrase again.
+        # is for endpointing and speech-to-text; recognition finds the wake
+        # phrase again.
         result, offset = verdict.result, verdict.offset
-        call.split_bytes = (
-            offset + ms_to_bytes(result.split * 1000)
-            if result.split
-            else call.preroll_bytes
-        )
+        split = offset + ms_to_bytes(result.split * 1000) if result.split else call.preroll_bytes
+        if verdict.overturned:
+            # Kaldi refused it for aligning badly, and its end can fall inside
+            # the wake word: "okay na|bu, turn on the light" was heard "Able to
+            # turn on the light?". The command starts no earlier than the
+            # satellite's detection, where the pre-roll ends.
+            split = max(split, call.preroll_bytes)
+        call.split_bytes = split
         if result.wake_start is not None:
             call.wake_start = offset / BYTE_RATE + result.wake_start
         if call.record is not None:

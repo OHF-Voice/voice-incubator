@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **The wake word stays out of the command when Kaldi's refusal is
+  overturned**: Kaldi refuses a wake word it aligns badly, and that
+  alignment's end can fall inside it; overturned on the ratio, the command
+  started there ("okay na|bu, turn on overhead light" heard "Able to turn on
+  overhead light?", and not recognized). It starts no earlier than the
+  satellite's detection now.
 - **A name in several rooms isn't guessed**: "turn on the lamp" from a room
   with none, where others have one, does nothing and says where they are
   ("…but there's no Lamp here, only in the Office and in the Bedroom"); it
