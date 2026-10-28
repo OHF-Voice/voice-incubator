@@ -64,13 +64,13 @@ commands:
         'pouring': 'very rainy', 'rainy': 'rainy', 'snowy': 'snowy', 'snowy-rainy': 'sleety', 'sunny': 'sunny',
         'windy': 'windy', 'windy-variant': 'windy'} -%}
       {%- set day = slots.day | default('today') -%}
-      {%- set names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
+      {%- set weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
       {%- set today = now().date() -%}
       {%- if day == 'weekend' -%}
         {%- set offsets = [0] if today.weekday() == 6 else [(5 - today.weekday()) % 7, (6 - today.weekday()) % 7] -%}
       {%- else -%}
         {%- set offsets = [0 if day == 'today' else 1 if day == 'tomorrow' else 2 if day == 'day_after_tomorrow'
-          else (names.index(day) - today.weekday()) % 7] -%}
+          else (weekdays.index(day) - today.weekday()) % 7] -%}
       {%- endif -%}
       {%- set ns = namespace(out=[]) -%}
       {%- for offset in offsets -%}
@@ -155,13 +155,13 @@ commands:
       {%- set what = slots.what | default('rain') -%}
       {%- set falls = ['rainy', 'pouring', 'lightning-rainy', 'snowy-rainy', 'hail'] if what == 'rain' else ['snowy', 'snowy-rainy'] -%}
       {%- set day = slots.day | default('today') -%}
-      {%- set names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
+      {%- set weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
       {%- set today = now().date() -%}
       {%- if day == 'weekend' -%}
         {%- set offsets = [0] if today.weekday() == 6 else [(5 - today.weekday()) % 7, (6 - today.weekday()) % 7] -%}
       {%- else -%}
         {%- set offsets = [0 if day == 'today' else 1 if day == 'tomorrow' else 2 if day == 'day_after_tomorrow'
-          else (names.index(day) - today.weekday()) % 7] -%}
+          else (weekdays.index(day) - today.weekday()) % 7] -%}
       {%- endif -%}
       {%- set ns = namespace(likely=[], chance=0, other='', known=false) -%}
       {%- for offset in offsets -%}

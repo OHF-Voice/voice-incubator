@@ -59,8 +59,8 @@ commands:
         response:
           done:
             brief: Aangezet.
-            specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} aangezet."
-            verbose: "{{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }} aangezet."
+            specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} aangezet."
+            verbose: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }} aangezet."
         needs:
           - Add names for the devices it may turn on (Names page).
       place:
@@ -107,8 +107,8 @@ commands:
         response:
           done:
             brief: Uitgezet.
-            specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} uitgezet."
-            verbose: "{{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }} uitgezet."
+            specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} uitgezet."
+            verbose: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }} uitgezet."
         needs:
           - Add names for the devices it may turn off (Names page).
       place:
@@ -167,7 +167,7 @@ commands:
           {%- set e = slots.entity[0] -%}
           {%- set state = states(e) -%}
           {%- set words = {'on': 'aan', 'off': 'uit', 'unavailable': 'niet bereikbaar', 'unknown': 'onbekend'} -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ words.get(state, state) ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' is ' ~ words.get(state, state) ~ '.' -%}
           {%- if state in ['on', 'off'] -%}
           {{ 'Ja' if state == slots.asked else 'Nee' }}, {{ said }}
           {%- else -%}
@@ -196,7 +196,7 @@ commands:
       done:
         brief: Helderheid ingesteld.
         specific: >-
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Licht ' ~ place.said }} op {{ slots.percentage }} procent gezet.
     variants:
       here:
@@ -234,7 +234,7 @@ commands:
         specific: >-
           {%- set kleuren = {'red': 'rood', 'orange': 'oranje', 'yellow': 'geel', 'green': 'groen',
             'blue': 'blauw', 'purple': 'paars', 'pink': 'roze', 'white': 'wit', 'turquoise': 'turquoise', 'magenta': 'magenta'} -%}
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Licht ' ~ place.said }} is nu {{ kleuren.get(slots.color, slots.color) }}.
     variants:
       here:

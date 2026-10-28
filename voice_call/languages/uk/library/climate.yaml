@@ -45,7 +45,7 @@ commands:
           {%- set said = n if t == n else (t | string | replace('.', ' кома ')) -%}
           {%- set word = 'градуса' if t != n else ('градус' if n % 10 == 1 and n % 100 != 11 else ('градуси'
             if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'градусів')) -%}
-          {{ (state_attr(slots.entity[0], 'friendly_name') ~ ':') if slots.entity
+          {{ (names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) ~ ':') if slots.entity
           else 'Температуру ' ~ place.said ~ ' встановлено на' }} {{ said }} {{ word }}.
     variants:
       here:

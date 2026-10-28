@@ -64,10 +64,10 @@ class StubTimers:
         return self.running
 
 
-def run(spec, hass, slots=None, integration=None, dry_run=False):
+def run(spec, hass, slots=None, integration=None, dry_run=False, names=None):
     command = parse_command("c", {"description": "do it", "examples": ["do it"], **spec})
     decision = Decision({"transcript": "do it"}, command, command.behavior, "command", slots=slots or {})
-    return asyncio.run(actions.run(hass, decision, SATELLITE, None, dry_run, integration))
+    return asyncio.run(actions.run(hass, decision, SATELLITE, None, dry_run, integration, names=names))
 
 
 PAUSE = {"timer": "pause", "response": {"done": "Paused.", "no_timers": "Nothing to pause.", "already": "{{ result.speech }} Say resume."}}
@@ -574,3 +574,22 @@ def test_the_librarys_shopping_list_says_what_it_did():
     assert verbose.speech == "Added pears to the shopping list and put 🥛 Milk back on it."
     assert run({**spec, "verbosity": "verbose"}, hass, {**slots, "item": "milk"}).speech == "Put 🥛 Milk back on the shopping list."
     assert run(spec, hass, {**slots, "item": "eggs"}).speech == "Eggs is already on the list."
+
+
+def test_a_device_is_said_by_its_name_on_the_names_page():
+    """Not as Home Assistant names it ("GW2000B Humidity"): the library's
+    replies, and where it acted, by the Names page's names."""
+    from voice_call.library import base  # pylint: disable=import-outside-toplevel
+
+    hass = StubHass()
+    hass.fake.states["sensor.gw2000b_humidity"] = ("54", {"friendly_name": "GW2000B Humidity", "unit_of_measurement": "%"})
+    names = actions.said_names({
+        "entities": {"sensor.gw2000b_humidity": {"name": "Outdoor Humidity", "aliases": ["humidity outside"]}},
+        "areas": {"kitchen": "Galley"},
+    })
+    spec = {k: v for k, v in base("sensors/sensor_value").items() if k not in ("title", "library")}
+    slots = {"entity": ["sensor.gw2000b_humidity"]}
+    assert run(spec, hass, slots, names=names).speech == "Outdoor Humidity is 54 percent."
+    assert run(spec, hass, slots).speech == "GW2000B Humidity is 54 percent."  # not named: Home Assistant's
+    assert run({"response": "Done {{ place.said }}."}, hass, {}, names=names).speech == "Done in the Galley."
+

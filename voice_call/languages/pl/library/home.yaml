@@ -77,7 +77,7 @@ commands:
           done:
             brief: Otwieram.
             specific: >-
-              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
               {%- set w = (name | lower).split(' ')[0] -%}
               {{ name }} się {{ 'otwierają' if w in ['drzwi', 'rolety', 'żaluzje', 'zasłony', 'okna', 'drzwiczki', 'wrota']
                 or w[-1:] in ['y', 'i'] else 'otwiera' }}.
@@ -134,7 +134,7 @@ commands:
           done:
             brief: Zamykam.
             specific: >-
-              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
               {%- set w = (name | lower).split(' ')[0] -%}
               {{ name }} się {{ 'zamykają' if w in ['drzwi', 'rolety', 'żaluzje', 'zasłony', 'okna', 'drzwiczki', 'wrota']
                 or w[-1:] in ['y', 'i'] else 'zamyka' }}.
@@ -163,7 +163,7 @@ commands:
       done:
         brief: Zablokowano.
         specific: >-
-          {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+          {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
           {%- set w = (name | lower).split(' ')[0] -%}
           {%- set g = 'p' if w in ['drzwi', 'drzwiczki', 'wrota'] or w[-1:] in ['y', 'i']
             else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else 'm')) -%}
@@ -190,7 +190,7 @@ commands:
       done:
         brief: Odblokowano.
         specific: >-
-          {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+          {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
           {%- set w = (name | lower).split(' ')[0] -%}
           {%- set g = 'p' if w in ['drzwi', 'drzwiczki', 'wrota'] or w[-1:] in ['y', 'i']
             else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else 'm')) -%}
@@ -274,7 +274,7 @@ commands:
         combinations: [[entity, asked], [entity, area, asked]]
         response: >-
           {%- set e = slots.entity[0] -%}
-          {%- set name = state_attr(e, 'friendly_name') or e -%}
+          {%- set name = names.get(e, state_attr(e, 'friendly_name')) or e -%}
           {%- set w = (name | lower).split(' ')[0] -%}
           {%- set g = 'p' if w in ['drzwi', 'rolety', 'żaluzje', 'zasłony', 'okna', 'drzwiczki', 'wrota'] or w[-1:] in ['y', 'i']
             else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else 'm')) -%}
@@ -317,7 +317,7 @@ commands:
       {%- else -%}
       {%- set state = states(e) -%}
       {%- endif -%}
-      {%- set name = state_attr(e, 'friendly_name') or e -%}
+      {%- set name = names.get(e, state_attr(e, 'friendly_name')) or e -%}
       {%- set w = (name | lower).split(' ')[0] -%}
       {%- set g = 'p' if w in ['drzwi', 'drzwiczki', 'wrota'] or w[-1:] in ['y', 'i']
         else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else 'm')) -%}

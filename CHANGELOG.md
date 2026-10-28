@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **Devices are said by their names on the Names page**, not Home
+  Assistant's ("Outdoor Humidity is 54 percent.", not "GW2000B Humidity"):
+  the library's replies, the app's own ("Ecobee can't …"), what an intent
+  acted on, music players, and rooms and floors (`place.said`). Templates
+  see `names`, by entity id.
 - **Okay Nabu's cutoff is 0.4** (was 0.2): at 0.2 the satellite fired before
   the wake word was over, which is how the command came to begin inside it.
   A cutoff set on the Wake words page still wins.

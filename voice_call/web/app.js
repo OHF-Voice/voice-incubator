@@ -1077,7 +1077,7 @@ async function pageCommand(id, prefill, query) {
       })() : null;
       return h("div", {}, doneEditor(mode === "script" ? "Spoken response template; without one, the script's speech is said" : "Spoken response template, e.g. Turned on the lights {{ place.said }}", null, false),
         h("div", { class: "grid2" }, ...rows), extra,
-        h("p", { class: "muted small" }, "Optional.", hint(`${vars} place says where it acted: place.said (“in the Kitchen”), place.here, place.areas. Nothing to say plays a short sound.`)));
+        h("p", { class: "muted small" }, "Optional.", hint(`${vars} place says where it acted: place.said (“in the Kitchen”), place.here, place.areas; names[entity id], what a device is called (its name on the Names page). Nothing to say plays a short sound.`)));
     }
     renderBehavior = render;
     render();

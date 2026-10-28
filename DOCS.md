@@ -509,7 +509,8 @@ The action, the script and the response template all see:
 | `wake_word` | `id`, `name` and `phrase` of the wake word that started it (none each when typed) |
 | `target` | `entity_id` from the slots (a room said with a device only picks it out), else `area_id`/`floor_id`, else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
-| `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
+| `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown; by the rooms' names on the Names page), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
+| `names` | what each device is called when said: its name on the Names page, else Home Assistant's, by entity id -- every one named there, and the command's own: `{{ names[slots.entity[0]] }}`, or for another, `{{ names.get(e, state_attr(e, 'friendly_name')) }}` (not in the `voice_call_command` event) |
 | `exposed` | the entity ids exposed to Assist (not in the `voice_call_command` event) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 

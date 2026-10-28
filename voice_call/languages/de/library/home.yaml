@@ -74,7 +74,7 @@ commands:
         response:
           done:
             brief: Wird geöffnet.
-            specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} wird geöffnet."
+            specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} wird geöffnet."
         needs:
           - Add names for the covers it may open (Names page).
       place:
@@ -128,7 +128,7 @@ commands:
         response:
           done:
             brief: Wird geschlossen.
-            specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} wird geschlossen."
+            specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} wird geschlossen."
         needs:
           - Add names for the covers it may close (Names page).
       place:
@@ -154,7 +154,7 @@ commands:
     response:
       done:
         brief: Wird abgeschlossen.
-        specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} wird abgeschlossen."
+        specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} wird abgeschlossen."
     needs:
       - Add names for the locks it may lock (Names page).
 
@@ -176,7 +176,7 @@ commands:
     response:
       done:
         brief: Wird aufgeschlossen.
-        specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} wird aufgeschlossen."
+        specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} wird aufgeschlossen."
     needs:
       - Add names for the locks it may unlock (Names page). Anyone the satellite
         hears can unlock them; keep it to the satellites that should with a
@@ -259,7 +259,7 @@ commands:
           {%- set state = states(e) -%}
           {%- set words = {'open': 'offen', 'closed': 'geschlossen', 'opening': 'am Öffnen',
             'closing': 'am Schließen', 'unavailable': 'nicht erreichbar', 'unknown': 'unbekannt'} -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ' ist ' ~ words.get(state, state) ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' ist ' ~ words.get(state, state) ~ '.' -%}
           {%- if state in ['open', 'closed'] -%}
           {{ 'Ja' if state == slots.asked else 'Nein' }}, {{ said }}
           {%- else -%}
@@ -295,7 +295,7 @@ commands:
       {%- set words = {'locked': 'abgeschlossen', 'unlocked': 'aufgeschlossen', 'jammed': 'blockiert',
         'locking': 'am Abschließen', 'unlocking': 'am Aufschließen', 'open': 'offen',
         'unavailable': 'nicht erreichbar', 'unknown': 'unbekannt'} -%}
-      {%- set said = state_attr(e, 'friendly_name') ~ ' ist ' ~ words.get(state, state) ~ '.' -%}
+      {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' ist ' ~ words.get(state, state) ~ '.' -%}
       {%- if state in ['locked', 'unlocked'] -%}
       {{ 'Ja' if state == slots.asked else 'Nein' }}, {{ said }}
       {%- else -%}

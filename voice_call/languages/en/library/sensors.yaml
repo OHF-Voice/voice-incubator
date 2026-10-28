@@ -24,7 +24,7 @@ commands:
     combinations: [[entity], [entity, area]]
     response: >-
       {%- set e = slots.entity[0] -%}
-      {%- set name = state_attr(e, 'friendly_name') -%}
+      {%- set name = names.get(e, state_attr(e, 'friendly_name')) -%}
       {%- set state = states(e) -%}
       {%- set number = state | float(none) -%}
       {%- set unit = state_attr(e, 'unit_of_measurement') -%}
@@ -65,7 +65,7 @@ commands:
     combinations: [[entity, asked], [entity, area, asked]]
     response: >-
       {%- set e = slots.entity[0] -%}
-      {%- set name = state_attr(e, 'friendly_name') -%}
+      {%- set name = names.get(e, state_attr(e, 'friendly_name')) -%}
       {%- set state = states(e) -%}
       {%- set words = {'door': ['open', 'closed'], 'garage_door': ['open', 'closed'], 'window': ['open', 'closed'],
         'opening': ['open', 'closed'], 'lock': ['unlocked', 'locked'], 'moisture': ['wet', 'dry'],

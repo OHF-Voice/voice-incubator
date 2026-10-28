@@ -22,7 +22,7 @@ commands:
     response:
       done:
         brief: "Klaar."
-        specific: "{{ state_attr(slots.entity[0], 'friendly_name') }} geactiveerd."
+        specific: "{{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} geactiveerd."
     needs:
       - Add names for the scenes it may activate (Names page). One in each room
         may share a name ("cozy").

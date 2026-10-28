@@ -47,7 +47,7 @@ commands:
             ('градуса' if n % 10 in [2, 3, 4] and (n % 100 < 12 or n % 100 > 14) else 'градусов')) -%}
           {%- set said = (t | string | replace('.', ',')) ~ ' ' ~ word -%}
           {%- if slots.entity -%}
-          {{ state_attr(slots.entity[0], 'friendly_name') }}: установлено {{ said }}.
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}: установлено {{ said }}.
           {%- else -%}
           Установлено {{ said }} {{ place.said }}.
           {%- endif -%}

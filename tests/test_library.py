@@ -246,6 +246,7 @@ def test_every_response_template_renders(language):
             {"datetime": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=n)).isoformat(), "condition": "rainy",
              "temperature": 15, "templow": 8, "precipitation_probability": 60} for n in range(7)]},
         "exposed": ["light.ceiling", "light.lamp"],
+        "names": {"light.ceiling": "Ceiling Light"},
     }
     lights = None
     for entry in load_library():

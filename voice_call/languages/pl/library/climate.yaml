@@ -44,7 +44,7 @@ commands:
           {%- set n = t | int -%}
           {%- set unit = 'stopnia' if t != n else ('stopień' if n == 1 else ('stopnie' if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14] else 'stopni')) -%}
           {%- set said = (n if t == n else t) | string | replace('.', ',') -%}
-          {{ (state_attr(slots.entity[0], 'friendly_name') ~ ': temperatura ' ~ said ~ ' ' ~ unit ~ '.') if slots.entity
+          {{ (names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) ~ ': temperatura ' ~ said ~ ' ' ~ unit ~ '.') if slots.entity
           else ('Ustawiono temperaturę ' ~ place.said ~ ' na ' ~ said ~ ' ' ~ unit ~ '.') }}
     variants:
       here:

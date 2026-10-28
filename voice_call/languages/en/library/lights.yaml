@@ -53,7 +53,7 @@ shared:
                 {{ [[((state_attr(repeat.item, 'brightness') or 0) / 2.55) | round(0) + slots.step | int, 1] | max, 100] | min | int }}
   brightness_said: &brightness_said
     no_lights: >-
-      {{ (state_attr(slots.entity[0], 'friendly_name') ~ ' is off.') if slots.entity
+      {{ (names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) ~ ' is off.') if slots.entity
       else 'No lights are on ' ~ place.said ~ '.' }}
 
 commands:
@@ -97,8 +97,8 @@ commands:
         response:
           done:
             brief: Turned it on.
-            specific: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }}.
-            verbose: Turned on {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
+            specific: Turned on {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}.
+            verbose: Turned on {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }}.
         needs:
           - Add names for the devices it may turn on (Names page).
       place:
@@ -145,8 +145,8 @@ commands:
         response:
           done:
             brief: Turned it off.
-            specific: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }}.
-            verbose: Turned off {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}.
+            specific: Turned off {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}.
+            verbose: Turned off {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }}.
         needs:
           - Add names for the devices it may turn off (Names page).
       place:
@@ -207,7 +207,7 @@ commands:
         response: >-
           {%- set e = slots.entity[0] -%}
           {%- set state = states(e) -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' is ' ~ state ~ '.' -%}
           {%- if state in ['on', 'off'] -%}
           {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
           {%- else -%}
@@ -236,7 +236,7 @@ commands:
       done:
         brief: Set the brightness.
         specific: >-
-          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          Set {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }} to {{ slots.percentage }}%.
     variants:
       here:
@@ -272,7 +272,7 @@ commands:
       done:
         brief: Changed the color.
         specific: >-
-          Turned {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          Turned {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }} {{ slots.color }}.
     variants:
       here:
@@ -307,7 +307,7 @@ commands:
       done:
         brief: Brighter.
         specific: >-
-          Turned up {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          Turned up {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }}.
     variants:
       here:
@@ -341,7 +341,7 @@ commands:
       done:
         brief: Dimmer.
         specific: >-
-          Turned down {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          Turned down {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }}.
     variants:
       here:
@@ -379,7 +379,7 @@ commands:
       done:
         brief: Changed the white.
         specific: >-
-          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          Set {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }} to {{ slots.color_temperature }} kelvin.
     variants:
       here:

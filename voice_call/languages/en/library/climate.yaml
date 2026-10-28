@@ -52,7 +52,7 @@ commands:
       done:
         brief: Set the temperature.
         specific: >-
-          Set {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          Set {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the temperature ' ~ place.said }} to {{ slots.temperature }} degrees.
     variants:
       here:

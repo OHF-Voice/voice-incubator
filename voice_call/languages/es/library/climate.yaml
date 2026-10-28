@@ -39,7 +39,7 @@ commands:
       done:
         brief: Temperatura ajustada.
         specific: >-
-          He puesto {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          He puesto {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'la temperatura ' ~ place.said }} a {{ slots.temperature | string | replace('.', ',') }} grados.
     variants:
       here:

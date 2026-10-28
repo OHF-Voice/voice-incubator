@@ -62,13 +62,13 @@ commands:
           done:
             brief: Włączono.
             specific: >-
-              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
               {%- set w = (name | lower).split(' ')[0] -%}
               {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
                 else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
               {{ name }} włączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
             verbose: >-
-              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
               {%- set w = (name | lower).split(' ')[0] -%}
               {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
                 else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
@@ -120,13 +120,13 @@ commands:
           done:
             brief: Wyłączono.
             specific: >-
-              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
               {%- set w = (name | lower).split(' ')[0] -%}
               {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
                 else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
               {{ name }} wyłączon{{ {'m': 'y', 'f': 'a', 'n': 'e', 'p': 'e'}[g] }}.
             verbose: >-
-              {%- set name = state_attr(slots.entity[0], 'friendly_name') or slots.entity[0] -%}
+              {%- set name = names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) or slots.entity[0] -%}
               {%- set w = (name | lower).split(' ')[0] -%}
               {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
                 else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
@@ -192,7 +192,7 @@ commands:
         combinations: [[entity, asked], [entity, area, asked]]
         response: >-
           {%- set e = slots.entity[0] -%}
-          {%- set name = state_attr(e, 'friendly_name') or e -%}
+          {%- set name = names.get(e, state_attr(e, 'friendly_name')) or e -%}
           {%- set w = (name | lower).split(' ')[0] -%}
           {%- set g = 'p' if w in ['drzwi', 'światła', 'rolety', 'żaluzje', 'zasłony', 'okna', 'lampki', 'lampy', 'głośniki']
             else ('f' if w[-1:] == 'a' else ('n' if w[-1:] in ['o', 'e', 'ę'] else ('p' if w[-1:] in ['y', 'i'] else 'm'))) -%}
@@ -230,7 +230,7 @@ commands:
       done:
         brief: Ustawiono jasność.
         specific: >-
-          {{ (state_attr(slots.entity[0], 'friendly_name') ~ ': jasność ' ~ slots.percentage ~ ' procent.') if slots.entity
+          {{ (names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) ~ ': jasność ' ~ slots.percentage ~ ' procent.') if slots.entity
           else ('Ustawiono jasność ' ~ place.said ~ ' na ' ~ slots.percentage ~ ' procent.') }}
     variants:
       here:
@@ -269,7 +269,7 @@ commands:
         specific: >-
           {%- set kolory = {'red': 'czerwony', 'orange': 'pomarańczowy', 'yellow': 'żółty', 'green': 'zielony',
             'blue': 'niebieski', 'purple': 'fioletowy', 'pink': 'różowy', 'white': 'biały', 'turquoise': 'turkusowy', 'magenta': 'purpurowy'} -%}
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Światło ' ~ place.said }} ma teraz kolor {{ kolory.get(slots.color, slots.color) }}.
     variants:
       here:

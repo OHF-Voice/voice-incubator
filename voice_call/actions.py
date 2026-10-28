@@ -24,6 +24,10 @@ variables, which the sequence and the response template can both use:
                 picks it out), else ``area_id``/``floor_id``, else the
                 satellite's area: ``target: "{{ target }}"``
 ``command``     ``id``, ``description``, ``text`` (what was heard)
+``names``       what each device is called when said: its name on the
+                Names page, else Home Assistant's -- by entity id, every one
+                named there and the command's own (``names[slots.entity[0]]``;
+                another: ``names.get(e, state_attr(e, 'friendly_name'))``)
 ``place``       where it acts: ``here`` (only the satellite's area),
                 ``said`` ("in the Kitchen", "upstairs"; empty when unknown),
                 ``areas`` (ids; a floor's every area)
@@ -174,6 +178,7 @@ def variables(
     text: str,
     catalog: Any = None,
     wake_word: dict[str, Any] | None = None,
+    names: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     target: dict[str, list[str]] = {}
     # Named devices are the target; a room said with them only picked them
@@ -192,7 +197,8 @@ def variables(
         "wake_word": wake_word or NO_WAKE_WORD,
         "target": target,
         "command": {"id": command.id, "description": command.description, "text": text},
-        "place": place(slots, satellite, catalog),
+        "place": place(slots, satellite, catalog, names),
+        "names": device_names([str(e) for e in slots.get("entity") or []], catalog, names),
         # What a question about a place counts: what is exposed to Assist
         # (not known: every entity the app knows of).
         "exposed": sorted(exposed if exposed is not None else getattr(catalog, "entities", None) or []),
@@ -202,7 +208,7 @@ def variables(
 NO_WAKE_WORD = {"id": None, "name": None, "phrase": None}
 """``wake_word`` when nothing woke the satellite (typed on the web page)."""
 
-PRIVATE = ("exposed",)
+PRIVATE = ("exposed", "names")
 """Variables left out of the command event and the call's record: long, and
 the same every time."""
 
@@ -248,23 +254,29 @@ async def render_said(
     return (said or None), None
 
 
-def place(slots: dict[str, Any], satellite: Satellite, catalog: Any = None) -> dict[str, Any]:
+def place(
+    slots: dict[str, Any], satellite: Satellite, catalog: Any = None, names: dict[str, dict[str, str]] | None = None
+) -> dict[str, Any]:
     """Where a command acts: the areas, floors and devices it names, or else
     the satellite's area. ``here`` when that is only the satellite's area --
     a device in no known area is not here. ``said`` is where, as the
-    language says it ("in the Kitchen")."""
-    here, places, areas = _where(slots, satellite, catalog)
+    language says it ("in the Kitchen"), by the Names page's names."""
+    here, places, areas = _where(slots, satellite, catalog, names)
     return {"here": here, "said": languages.speech().place(places), "areas": areas}
 
 
-def _where(slots: dict[str, Any], satellite: Satellite, catalog: Any) -> tuple[bool, list[tuple[str, str]], list[str]]:
+def _where(
+    slots: dict[str, Any], satellite: Satellite, catalog: Any, names: dict[str, dict[str, str]] | None = None
+) -> tuple[bool, list[tuple[str, str]], list[str]]:
     """place(), with where it is said to be as ``("area" | "floor", name)``."""
     own = satellite.area_id
+    area_names, floor_names = (names or {}).get("areas") or {}, (names or {}).get("floors") or {}
     named_areas = [str(a) for a in slots.get("area") or []]
     floors = [str(f) for f in slots.get("floor") or []]
     entities = [str(e) for e in slots.get("entity") or []]
     if not (named_areas or floors or entities):
-        return True, [("area", satellite.area_name)] if satellite.area_name else [], [own] if own else []
+        name = area_names.get(own or "") or satellite.area_name
+        return True, [("area", name)] if name else [], [own] if own else []
     areas = list(named_areas)
     entity_areas: list[str] = []
     if catalog is not None:
@@ -279,14 +291,19 @@ def _where(slots: dict[str, Any], satellite: Satellite, catalog: Any) -> tuple[b
     here = bool(own) and not unplaced and (not floors or areas == [own]) and set(areas) == {own}
 
     def area_name(area_id: str) -> str:
+        if area_id in area_names:
+            return area_names[area_id]
         if area_id == own and satellite.area_name:
             return satellite.area_name
         area = catalog.areas.get(area_id) if catalog is not None else None
         return area.name if area is not None else area_id.replace("_", " ").title()
 
     if floors:
-        names = [catalog.floors[f].name if catalog is not None and f in catalog.floors else f.replace("_", " ") for f in floors]
-        return here, [("floor", name) for name in names], areas
+        said = [
+            floor_names.get(f) or (catalog.floors[f].name if catalog is not None and f in catalog.floors else f.replace("_", " "))
+            for f in floors
+        ]
+        return here, [("floor", name) for name in said], areas
     return here, [("area", area_name(a)) for a in (named_areas or list(dict.fromkeys(entity_areas)))], areas
 
 
@@ -304,6 +321,7 @@ async def run(
     people: dict[str, Any] | None = None,
     home: dict[str, Any] | None = None,
     satellites: Any = None,
+    names: dict[str, dict[str, str]] | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
@@ -351,7 +369,7 @@ async def run(
             # What it adds; with nothing to, what the list has already.
             shown = adding.items + adding.back or adding.already
             decision.slots = {**decision.slots, adds.slot: _joined(shown)}
-    values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word)
+    values = variables(command, decision.slots, satellite, speaker, decision.transcript, catalog, wake_word, names)
     if behavior.on_list:
         values["items"] = found
     if adding is not None:
@@ -375,27 +393,27 @@ async def run(
     if checked.cannot:
         named = bool(decision.slots.get("entity"))
         capability, value = _lacking(behavior.supports, checked.cannot[0], decision.slots, catalog)
-        names = _names(checked.cannot, catalog)
+        unable = _names(checked.cannot, values["names"], catalog)
         if checked.nothing:
             sentence = (
-                languages.speech().cannot(names, capability, value) if named
+                languages.speech().cannot(unable, capability, value) if named
                 else languages.speech().none_can(str(values["place"].get("said") or ""), capability)
             )
-            return await _say(hass, behavior, values, outcome, "not_supported", _capital(sentence), {"cannot": names})
+            return await _say(hass, behavior, values, outcome, "not_supported", _capital(sentence), {"cannot": unable})
         # Left out of a device list, or of an intent's place: said when verbose.
         if named or behavior.intent:
-            outcome.skipped = names
-            outcome.skipped_said = _capital(languages.speech().cannot(names, capability, value))
+            outcome.skipped = unable
+            outcome.skipped_said = _capital(languages.speech().cannot(unable, capability, value))
     if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
         return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     if behavior.timer:
         return await _run_timer(hass, behavior, values, satellite, outcome, integration)
     if behavior.music:
-        return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass))
+        return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass), names)
     if behavior.announce:
         return await _run_announce(hass, behavior, values, satellite, outcome, satellites)
     if behavior.intercom:
-        return await _run_intercom(hass, behavior, values, satellite, outcome, satellites)
+        return await _run_intercom(hass, behavior, values, satellite, outcome, satellites, names)
 
     if behavior.intent:
         return await _run_intent(hass, behavior, values, satellite, outcome, checked.entities)
@@ -651,10 +669,32 @@ def _lacking(needs: dict[str, str | None], entity_id: str, slots: dict[str, Any]
     return next(iter(needs), None), None
 
 
-def _names(entity_ids: list[str], catalog: Any) -> list[str]:
-    """Devices as Home Assistant names them."""
+def _names(entity_ids: list[str], said: dict[str, str], catalog: Any) -> list[str]:
+    """Devices as said: their names on the Names page (``device_names``),
+    else Home Assistant's."""
     entities = getattr(catalog, "entities", None) or {}
-    return [entities[e].name if e in entities else e for e in entity_ids]
+    return [said.get(e) or (entities[e].name if e in entities else e) for e in entity_ids]
+
+
+def said_names(names: dict[str, Any] | None) -> dict[str, dict[str, str]]:
+    """What things are called when they are spoken of: each one's name on the
+    Names page (a store's names, in the app's language), by kind."""
+    out: dict[str, dict[str, str]] = {}
+    for kind, items in (names or {}).items():
+        out[kind] = {}
+        for item_id, entry in (items or {}).items():
+            name = entry if isinstance(entry, str) else (entry or {}).get("name") if isinstance(entry, dict) else None
+            if name:
+                out[kind][str(item_id)] = str(name)
+    return out
+
+
+def device_names(entity_ids: list[str], catalog: Any, names: dict[str, dict[str, str]] | None) -> dict[str, str]:
+    """Every device named on the Names page, and ``entity_ids`` as Home
+    Assistant names them where they aren't: what each is called when said."""
+    entities = getattr(catalog, "entities", None) or {}
+    said = {e: entities[e].name for e in entity_ids if e in entities}
+    return {**said, **((names or {}).get("entities") or {})}
 
 
 def _capital(text: str) -> str:
@@ -751,9 +791,11 @@ async def _run_intent(
             if target.get("type") == "entity":
                 (unavailable if target.get("id") in gone else acted).append(target)
         speech = speech or str(((response.get("speech") or {}).get("plain") or {}).get("speech") or "")
+    said = values["names"]
     found = {
-        "count": len(acted), "names": [t.get("name") or t.get("id") for t in acted], "ids": [t.get("id") for t in acted],
-        "unavailable": [t.get("name") or t.get("id") for t in unavailable], "speech": speech,
+        "count": len(acted), "names": [said.get(t.get("id")) or t.get("name") or t.get("id") for t in acted],
+        "ids": [t.get("id") for t in acted],
+        "unavailable": [said.get(t.get("id")) or t.get("name") or t.get("id") for t in unavailable], "speech": speech,
     }
     if acted:
         return await _say(hass, behavior, values, outcome, "done", speech, found)
@@ -766,7 +808,10 @@ async def _run_intent(
     if "feature" in reasons:
         capability = next(iter(behavior.supports), None)
         catalog = getattr(hass, "catalog", None)
-        sentence = say.cannot(_names([str(e) for e in slots["entity"]], catalog), capability) if named else say.none_can(where, capability)
+        sentence = (
+            say.cannot(_names([str(e) for e in slots["entity"]], values["names"], catalog), capability) if named
+            else say.none_can(where, capability)
+        )
         return await _say(hass, behavior, values, outcome, "not_supported", _capital(sentence), found)
     if reasons:
         return await _say(hass, behavior, values, outcome, "no_devices", say.nothing_there(where), found)
@@ -856,7 +901,8 @@ async def _run_announce(
 
 
 async def _run_intercom(
-    hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any
+    hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any,
+    names: dict[str, dict[str, str]] | None = None,
 ) -> Outcome:
     """Join this satellite and the one in the area said, once this call has
     ended: each one's microphone on the other's speaker, until the button on
@@ -880,7 +926,7 @@ async def _run_intercom(
     if not outcome.dry_run:
         satellites.intercom(satellite.key, target["key"])
     catalog = getattr(hass, "catalog", None)
-    to = say.place(_where(slots, satellite, catalog)[1], to=True)
+    to = say.place(_where(slots, satellite, catalog, names)[1], to=True)
     return await _say(hass, behavior, values, outcome, "done", say.connecting(to), found)
 
 
@@ -953,9 +999,10 @@ async def _run_music(
     satellite: Satellite,
     outcome: Outcome,
     music: music_ops.Music,
+    names: dict[str, dict[str, str]] | None = None,
 ) -> Outcome:
     """Find the player (and, to play, the music), carry it out (unless a dry
-    run), and say how it went."""
+    run), and say how it went. ``names``: the Names page's (said_names)."""
     operation = behavior.music
     assert operation is not None
     slots = values["slots"]
@@ -978,9 +1025,14 @@ async def _run_music(
     except (HassError, ConnectionError, OSError, TimeoutError, ValueError) as err:
         outcome.error = str(err)
         return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
+    # Each said by its name on the Names page, where it has one.
+    for entity_id, player in players.items():
+        player.name = values["names"].get(entity_id) or player.name
     trace["players"] = {k: p.as_dict() for k, p in players.items()}
     if operation == "move":
-        return await _move_music(hass, behavior, values, satellite, outcome, music, players, own, named, nearby, sent, started)
+        return await _move_music(
+            hass, behavior, values, satellite, outcome, music, players, own, named, nearby, sent, started, names
+        )
     choosing = "play" if operation == "radio" and not music_ops.generic(query) else operation
     choice = music_ops.choose(choosing, players, own, named, nearby, music.paused_by_voice(satellite.key), sent)
     chosen = choice.players
@@ -988,7 +1040,7 @@ async def _run_music(
         **values,
         "player": chosen[0].as_dict() if chosen else None,
         "players": [p.as_dict() for p in chosen],
-        "place": _players_place(chosen, satellite, getattr(hass, "catalog", None)) if chosen else values["place"],
+        "place": _players_place(chosen, satellite, getattr(hass, "catalog", None), names) if chosen else values["place"],
     }
     if choice.outcome:
         return await _say(hass, behavior, values, outcome, choice.outcome, languages.speech().MUSIC_SAID[choice.outcome])
@@ -1087,6 +1139,7 @@ async def _move_music(
     nearby: list[str],
     sent: list[str],
     started: float,
+    names: dict[str, dict[str, str]] | None = None,
 ) -> Outcome:
     """The music playing here to the player the command names, queue and
     all (Music Assistant's ``transfer_queue``)."""
@@ -1105,7 +1158,7 @@ async def _move_music(
         **values,
         "player": target.as_dict(),
         "players": [target.as_dict()],
-        "place": _players_place([target], satellite, catalog),
+        "place": _players_place([target], satellite, catalog, names),
     }
     data = {"source_player": source.entity_id, "auto_play": True}
     target_ids = {"entity_id": [target.entity_id]}
@@ -1142,7 +1195,9 @@ def _all_music_players(hass: HomeAssistant) -> list[str]:
     return [p.entity_id for p in catalog.music_players()] if catalog is not None else []
 
 
-def _players_place(players: list[music_ops.Player], satellite: Satellite, catalog: Any) -> dict[str, Any]:
+def _players_place(
+    players: list[music_ops.Player], satellite: Satellite, catalog: Any, names: dict[str, dict[str, str]] | None = None
+) -> dict[str, Any]:
     """Where music acts: the players' areas (the satellite's own player is
     where it is)."""
     areas = []
@@ -1154,7 +1209,7 @@ def _players_place(players: list[music_ops.Player], satellite: Satellite, catalo
             areas.append(entity.area_id if entity is not None else None)
     here = bool(areas) and all(a is not None and a == satellite.area_id for a in areas)
     known = [a for a in dict.fromkeys(areas) if a]
-    said = place({"area": known}, satellite, catalog)["said"] if known else ""
+    said = place({"area": known}, satellite, catalog, names)["said"] if known else ""
     return {"here": here, "said": said, "areas": known}
 
 

@@ -65,8 +65,8 @@ commands:
         response:
           done:
             brief: Увімкнено.
-            specific: "Увімкнено: {{ state_attr(slots.entity[0], 'friendly_name') }}."
-            verbose: "Увімкнено {{ place.said }}: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Увімкнено: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
+            verbose: "Увімкнено {{ place.said }}: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the devices it may turn on (Names page).
       place:
@@ -117,8 +117,8 @@ commands:
         response:
           done:
             brief: Вимкнено.
-            specific: "Вимкнено: {{ state_attr(slots.entity[0], 'friendly_name') }}."
-            verbose: "Вимкнено {{ place.said }}: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Вимкнено: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
+            verbose: "Вимкнено {{ place.said }}: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the devices it may turn off (Names page).
       place:
@@ -181,7 +181,7 @@ commands:
           {%- set e = slots.entity[0] -%}
           {%- set state = states(e) -%}
           {%- set verb = 'горить' if e.startswith('light.') else 'працює' -%}
-          {%- set name = state_attr(e, 'friendly_name') -%}
+          {%- set name = names.get(e, state_attr(e, 'friendly_name')) -%}
           {%- if state == 'on' -%}
           {{ 'Так' if slots.asked == 'on' else 'Ні' }}, {{ name }} {{ verb }}.
           {%- elif state == 'off' -%}
@@ -217,7 +217,7 @@ commands:
           {%- set p = slots.percentage | int -%}
           {%- set word = 'відсоток' if p % 10 == 1 and p % 100 != 11 else ('відсотки' if p % 10 in [2, 3, 4]
             and p % 100 not in [12, 13, 14] else 'відсотків') -%}
-          {{ (state_attr(slots.entity[0], 'friendly_name') ~ ': яскравість') if slots.entity
+          {{ (names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) ~ ': яскравість') if slots.entity
           else 'Яскравість ' ~ place.said ~ ':' }} {{ p }} {{ word }}.
     variants:
       here:
@@ -261,7 +261,7 @@ commands:
             'purple': ['фіолетовий', 'фіолетове'], 'pink': ['рожевий', 'рожеве'], 'white': ['білий', 'біле'], 'turquoise': ['бірюзовий', 'бірюзове'], 'magenta': ['пурпуровий', 'пурпурове']} -%}
           {%- set color = colors.get(slots.color, [slots.color, slots.color]) -%}
           {%- if slots.entity -%}
-          {{ state_attr(slots.entity[0], 'friendly_name') }}: колір {{ color[0] }}.
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}: колір {{ color[0] }}.
           {%- else -%}
           Світло {{ place.said }} тепер {{ color[1] }}.
           {%- endif -%}

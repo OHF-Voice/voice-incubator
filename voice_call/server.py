@@ -876,6 +876,12 @@ class VoiceCallApp:
             "voices": len(self.speakers.profiles.speakers) if self.speakers is not None else None,
         }
 
+    def said_names(self) -> dict[str, dict[str, str]]:
+        """What things are called when spoken of: their names on the Names
+        page, in the app's language (actions.said_names)."""
+        compiled = self.engine.compiled if self.engine is not None else None
+        return actions.said_names(compiled.data.get("names") if compiled is not None else None)
+
     def beep_elsewhere(self) -> str:
         """``settings.json`` ``beep_elsewhere``: what a command that beeps
         says when it acted out of the satellite's area (actions.BEEP_ELSEWHERE
@@ -2517,7 +2523,7 @@ class VoiceCallApp:
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
-            home=self.store.settings.get("home"), satellites=self,
+            home=self.store.settings.get("home"), satellites=self, names=self.said_names(),
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))

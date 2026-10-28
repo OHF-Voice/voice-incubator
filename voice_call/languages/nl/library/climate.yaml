@@ -39,7 +39,7 @@ commands:
       done:
         brief: Temperatuur ingesteld.
         specific: >-
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Temperatuur ' ~ place.said }} op {{ slots.temperature | string | replace('.', ',') }} graden gezet.
     variants:
       here:

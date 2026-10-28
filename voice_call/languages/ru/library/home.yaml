@@ -79,7 +79,7 @@ commands:
         response:
           done:
             brief: Открываю.
-            specific: "Открываю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Открываю: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the covers it may open (Names page).
       place:
@@ -134,7 +134,7 @@ commands:
         response:
           done:
             brief: Закрываю.
-            specific: "Закрываю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Закрываю: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the covers it may close (Names page).
       place:
@@ -160,7 +160,7 @@ commands:
     response:
       done:
         brief: Запираю.
-        specific: "Запираю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "Запираю: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the locks it may lock (Names page).
 
@@ -181,7 +181,7 @@ commands:
     response:
       done:
         brief: Отпираю.
-        specific: "Отпираю: {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "Отпираю: {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the locks it may unlock (Names page). Anyone the satellite
         hears can unlock them; keep it to the satellites that should with a
@@ -262,7 +262,7 @@ commands:
         combinations: [[entity, asked], [entity, area, asked]]
         response: >-
           {%- set e = slots.entity[0] -%}
-          {%- set name = state_attr(e, 'friendly_name') or e -%}
+          {%- set name = names.get(e, state_attr(e, 'friendly_name')) or e -%}
           {%- set last = (name.split(' ')[0] | lower)[-1:] -%}
           {%- set g = 'f' if last in ['а', 'я'] else ('n' if last in ['о', 'е'] else ('p' if last in ['и', 'ы'] else 'm')) -%}
           {%- set ending = {'m': '', 'f': 'а', 'n': 'о', 'p': 'ы'}[g] -%}
@@ -304,7 +304,7 @@ commands:
       {%- else -%}
       {%- set state = states(e) -%}
       {%- endif -%}
-      {%- set name = state_attr(e, 'friendly_name') or e -%}
+      {%- set name = names.get(e, state_attr(e, 'friendly_name')) or e -%}
       {%- set last = (name.split(' ')[0] | lower)[-1:] -%}
       {%- set g = 'f' if last in ['а', 'я', 'ь'] else ('n' if last in ['о', 'е'] else ('p' if last in ['и', 'ы'] else 'm')) -%}
       {%- set ending = {'m': '', 'f': 'а', 'n': 'о', 'p': 'ы'}[g] -%}

@@ -88,7 +88,7 @@ commands:
         response:
           done:
             brief: Opening it.
-            specific: "Opening {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Opening {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the covers it may open (Names page).
       place:
@@ -144,7 +144,7 @@ commands:
         response:
           done:
             brief: Closing it.
-            specific: "Closing {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Closing {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the covers it may close (Names page).
       place:
@@ -209,7 +209,7 @@ commands:
           name: HassSetPosition
           slots: {position: "{{ slots.percentage }}"}
         response:
-          done: "Setting {{ state_attr(slots.entity[0], 'friendly_name') }} to {{ slots.percentage }}%."
+          done: "Setting {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} to {{ slots.percentage }}%."
         needs:
           - Add names for the covers it may set (Names page).
       place:
@@ -235,7 +235,7 @@ commands:
     response:
       done:
         brief: Locking it.
-        specific: "Locking {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "Locking {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the locks it may lock (Names page).
 
@@ -257,7 +257,7 @@ commands:
     response:
       done:
         brief: Unlocking it.
-        specific: "Unlocking {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "Unlocking {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the locks it may unlock (Names page). Anyone the satellite
         hears can unlock them; keep it to the satellites that should with a
@@ -340,7 +340,7 @@ commands:
         response: >-
           {%- set e = slots.entity[0] -%}
           {%- set state = states(e) -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' is ' ~ state ~ '.' -%}
           {%- if state in ['open', 'closed'] -%}
           {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
           {%- else -%}
@@ -373,7 +373,7 @@ commands:
       {%- else -%}
       {%- set state = states(e) -%}
       {%- endif -%}
-      {%- set said = state_attr(e, 'friendly_name') ~ ' is ' ~ state ~ '.' -%}
+      {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' is ' ~ state ~ '.' -%}
       {%- if state in ['locked', 'unlocked'] -%}
       {{ 'Yes' if state == slots.asked else 'No' }}, {{ said }}
       {%- else -%}

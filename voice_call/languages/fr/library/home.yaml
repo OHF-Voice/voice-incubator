@@ -72,7 +72,7 @@ commands:
         response:
           done:
             brief: Ouverture en cours.
-            specific: "J'ouvre {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "J'ouvre {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the covers it may open (Names page).
       place:
@@ -126,7 +126,7 @@ commands:
         response:
           done:
             brief: Fermeture en cours.
-            specific: "Je ferme {{ state_attr(slots.entity[0], 'friendly_name') }}."
+            specific: "Je ferme {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
         needs:
           - Add names for the covers it may close (Names page).
       place:
@@ -152,7 +152,7 @@ commands:
     response:
       done:
         brief: Verrouillage en cours.
-        specific: "Je verrouille {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "Je verrouille {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the locks it may lock (Names page).
 
@@ -174,7 +174,7 @@ commands:
     response:
       done:
         brief: Déverrouillage en cours.
-        specific: "Je déverrouille {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "Je déverrouille {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the locks it may unlock (Names page). Anyone the satellite
         hears can unlock them; keep it to the satellites that should with a
@@ -259,7 +259,7 @@ commands:
           {%- set state = states(e) -%}
           {%- set words = {'open': 'ouvert', 'closed': 'fermé', 'opening': 'en train de s\'ouvrir',
             'closing': 'en train de se fermer', 'unavailable': 'indisponible', 'unknown': 'inconnu'} -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ' : ' ~ words.get(state, state) ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' : ' ~ words.get(state, state) ~ '.' -%}
           {%- if state in ['open', 'closed'] -%}
           {{ 'Oui' if state == slots.asked else 'Non' }}, {{ said }}
           {%- else -%}
@@ -295,7 +295,7 @@ commands:
       {%- set words = {'locked': 'verrouillé', 'unlocked': 'déverrouillé', 'jammed': 'bloqué',
         'locking': 'en cours de verrouillage', 'unlocking': 'en cours de déverrouillage', 'open': 'ouvert',
         'unavailable': 'indisponible', 'unknown': 'inconnu'} -%}
-      {%- set said = state_attr(e, 'friendly_name') ~ ' : ' ~ words.get(state, state) ~ '.' -%}
+      {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' : ' ~ words.get(state, state) ~ '.' -%}
       {%- if state in ['locked', 'unlocked'] -%}
       {{ 'Oui' if state == slots.asked else 'Non' }}, {{ said }}
       {%- else -%}

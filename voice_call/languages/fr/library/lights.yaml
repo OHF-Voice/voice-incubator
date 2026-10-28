@@ -59,8 +59,8 @@ commands:
         response:
           done:
             brief: C'est allumé.
-            specific: "J'ai allumé {{ state_attr(slots.entity[0], 'friendly_name') }}."
-            verbose: "J'ai allumé {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}."
+            specific: "J'ai allumé {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
+            verbose: "J'ai allumé {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }}."
         needs:
           - Add names for the devices it may turn on (Names page).
       place:
@@ -107,8 +107,8 @@ commands:
         response:
           done:
             brief: C'est éteint.
-            specific: "J'ai éteint {{ state_attr(slots.entity[0], 'friendly_name') }}."
-            verbose: "J'ai éteint {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}."
+            specific: "J'ai éteint {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
+            verbose: "J'ai éteint {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }}."
         needs:
           - Add names for the devices it may turn off (Names page).
       place:
@@ -167,7 +167,7 @@ commands:
           {%- set e = slots.entity[0] -%}
           {%- set state = states(e) -%}
           {%- set words = {'on': 'allumé', 'off': 'éteint', 'unavailable': 'indisponible', 'unknown': 'inconnu'} -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ' est ' ~ words.get(state, state) ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ' est ' ~ words.get(state, state) ~ '.' -%}
           {%- if state in ['on', 'off'] -%}
           {{ 'Oui' if state == slots.asked else 'Non' }}, {{ said }}
           {%- else -%}
@@ -197,7 +197,7 @@ commands:
       done:
         brief: Luminosité réglée.
         specific: >-
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Lumière ' ~ place.said }} à {{ slots.percentage }} pour cent.
     variants:
       here:
@@ -236,7 +236,7 @@ commands:
         specific: >-
           {%- set couleurs = {'red': 'rouge', 'orange': 'orange', 'yellow': 'jaune', 'green': 'vert',
             'blue': 'bleu', 'purple': 'violet', 'pink': 'rose', 'white': 'blanc', 'turquoise': 'turquoise', 'magenta': 'magenta'} -%}
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Lumière ' ~ place.said }} en {{ couleurs.get(slots.color, slots.color) }}.
     variants:
       here:

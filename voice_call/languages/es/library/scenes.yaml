@@ -22,7 +22,7 @@ commands:
     response:
       done:
         brief: "Hecho."
-        specific: "He activado {{ state_attr(slots.entity[0], 'friendly_name') }}."
+        specific: "He activado {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
       - Add names for the scenes it may activate (Names page). One in each room
         may share a name ("cozy").

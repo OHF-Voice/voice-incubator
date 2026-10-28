@@ -59,8 +59,8 @@ commands:
         response:
           done:
             brief: Acceso.
-            specific: "Ho acceso {{ state_attr(slots.entity[0], 'friendly_name') }}."
-            verbose: "Ho acceso {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}."
+            specific: "Ho acceso {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
+            verbose: "Ho acceso {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }}."
         needs:
           - Add names for the devices it may turn on (Names page).
       place:
@@ -106,8 +106,8 @@ commands:
         response:
           done:
             brief: Spento.
-            specific: "Ho spento {{ state_attr(slots.entity[0], 'friendly_name') }}."
-            verbose: "Ho spento {{ state_attr(slots.entity[0], 'friendly_name') }} {{ place.said }}."
+            specific: "Ho spento {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
+            verbose: "Ho spento {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }} {{ place.said }}."
         needs:
           - Add names for the devices it may turn off (Names page).
       place:
@@ -166,7 +166,7 @@ commands:
           {%- set e = slots.entity[0] -%}
           {%- set state = states(e) -%}
           {%- set words = {'on': 'acceso', 'off': 'spento', 'unavailable': 'non disponibile', 'unknown': 'sconosciuto'} -%}
-          {%- set said = state_attr(e, 'friendly_name') ~ ': ' ~ words.get(state, state) ~ '.' -%}
+          {%- set said = names.get(e, state_attr(e, 'friendly_name')) ~ ': ' ~ words.get(state, state) ~ '.' -%}
           {%- if state in ['on', 'off'] -%}
           {{ 'Sì' if state == slots.asked else 'No' }}, {{ said }}
           {%- else -%}
@@ -196,7 +196,7 @@ commands:
       done:
         brief: Luminosità regolata.
         specific: >-
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Luce ' ~ place.said }} al {{ slots.percentage }} per cento.
     variants:
       here:
@@ -234,7 +234,7 @@ commands:
         specific: >-
           {%- set colori = {'red': 'rosso', 'orange': 'arancione', 'yellow': 'giallo', 'green': 'verde',
             'blue': 'blu', 'purple': 'viola', 'pink': 'rosa', 'white': 'bianco', 'turquoise': 'turchese', 'magenta': 'magenta'} -%}
-          {{ state_attr(slots.entity[0], 'friendly_name') if slots.entity
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'Luce ' ~ place.said }}: {{ colori.get(slots.color, slots.color) }}.
     variants:
       here:
