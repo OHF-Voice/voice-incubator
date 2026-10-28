@@ -69,8 +69,11 @@ VERIFIED_CUTOFF: dict[str, float] = {
     #   hey_mycroft  16.7  9.4    5.1   2.7   0.9
     #
     # The verifier accepted none of them at any cutoff. "Hey Mycroft" at 0.7
-    # still finds 95% of synthetic wake words against 90% at 0.9.
-    "okay_nabu": 0.2,
+    # still finds 95% of synthetic wake words against 90% at 0.9. Okay Nabu at
+    # 0.2 fired before the wake word was over, at home: Kaldi then saw part of
+    # it, refused it for aligning badly, and the command began inside it ("Able
+    # to turn on overhead light?"); 0.4, as that home uses.
+    "okay_nabu": 0.4,
     "hey_jarvis": 0.5,
     "hey_mycroft": 0.7,
 }

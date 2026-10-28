@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **Okay Nabu's cutoff is 0.4** (was 0.2): at 0.2 the satellite fired before
+  the wake word was over, which is how the command came to begin inside it.
+  A cutoff set on the Wake words page still wins.
+- **A satellite's own silence that ends a command**: under Input on its page,
+  over every satellite's (End of speech, Settings).
 - **The wake word stays out of the command when Kaldi's refusal is
   overturned**: Kaldi refuses a wake word it aligns badly, and that
   alignment's end can fall inside it; overturned on the ratio, the command

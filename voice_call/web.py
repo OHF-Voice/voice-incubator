@@ -26,6 +26,7 @@ from adapt_ctc.template import TemplateError, expand
 from . import languages, music, timers
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
+from .endpoint import LIMITS
 from .endpoint import parse as parse_end_of_speech
 from .enrollment import PASSAGE
 from .commands import (
@@ -716,6 +717,9 @@ class Api:
                         if k in stored
                     },
                     "voice_used": satellite.voice.__dict__,
+                    # The silence that ends a command: its own (absent: every satellite's).
+                    "silence_seconds": stored.get("silence_seconds"),
+                    "silence_seconds_every": app.end_of_speech().silence_seconds,
                     "device_media_player": satellite.device_media_player,
                     # Picked here, or else found: its Sendspin client's player.
                     "media_player_picked": bool(stored.get("media_player")),
@@ -785,6 +789,18 @@ class Api:
                 entry.pop("stt_always", None)
             else:
                 entry["stt_always"] = always
+        if "silence_seconds" in body:
+            # Its own pause that ends a command; null: as every satellite.
+            entry.pop("silence_seconds", None)
+            if body["silence_seconds"] not in (None, ""):
+                low, high = LIMITS["silence_seconds"]
+                try:
+                    seconds = float(body["silence_seconds"])
+                except (TypeError, ValueError):
+                    seconds = -1.0
+                if not low <= seconds <= high:
+                    raise ConfigError(f"silence_seconds: from {low:g} to {high:g}")
+                entry["silence_seconds"] = round(seconds, 2)
         if "icon" in body:
             icon = str(body["icon"] or "")
             if icon and not ICON.match(icon):

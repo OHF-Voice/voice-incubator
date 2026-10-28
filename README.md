@@ -656,8 +656,10 @@ at the Voice PE (`scripts/false_accepts.py --wake-word ...`), per hour:
 | hey_mycroft | 16.7 | 9.4 | 5.1 | **2.7** | 0.9 |
 
 The verifier accepted none of them at any cutoff, but each firing lights the
-ring and ducks the music until it is refused, so the cutoffs are 0.2, 0.5 and
-0.7. "Hey Mycroft" is the trigger-happy one: at 0.7 it still finds 95% of the
+ring and ducks the music until it is refused, so the cutoffs are 0.4, 0.5 and
+0.7. Okay Nabu was 0.2 until it fired before the wake word was over, at home:
+Kaldi saw part of it and refused it for aligning badly, and the command began
+inside it ("Able to turn on overhead light?"). "Hey Mycroft" is the trigger-happy one: at 0.7 it still finds 95% of the
 synthetic wake words against 90% at 0.9.
 
 ### Custom wake words

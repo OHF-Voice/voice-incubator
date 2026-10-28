@@ -848,15 +848,20 @@ class VoiceCallApp:
         ``max_command_seconds``."""
         return EndOfSpeech(silence_seconds=self.options.silence_seconds, max_seconds=self.options.max_command_seconds)
 
-    def end_of_speech(self) -> EndOfSpeech:
+    def end_of_speech(self, satellite: str | None = None) -> EndOfSpeech:
         """``settings.json`` ``end_of_speech`` (the Settings page) over
-        ``end_of_speech_base``."""
+        ``end_of_speech_base`` -- and the ``silence_seconds`` of
+        ``satellite``'s own (its page), when it has one."""
         base = self.end_of_speech_base()
         try:
-            return parse_end_of_speech(self.store.settings.get("end_of_speech"), base)
+            settings = parse_end_of_speech(self.store.settings.get("end_of_speech"), base)
         except ValueError as err:
             _LOGGER.warning("Ignoring end_of_speech in settings.json: %s", err)
-            return base
+            settings = base
+        own = (self.store.satellites.get(satellite) or {}).get("silence_seconds") if satellite else None
+        if isinstance(own, (int, float)) and not isinstance(own, bool):
+            settings = replace(settings, silence_seconds=float(own))
+        return settings
 
     def end_of_speech_status(self) -> dict[str, Any]:
         """For the Settings page: what is used, what is set there, and the
@@ -2172,7 +2177,7 @@ class VoiceCallApp:
         self._place_split(call, verdict)
         wake = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
         await self._start_stt(session, call)
-        call.endpointer = Endpointer(self.end_of_speech(), gain=vad_gain(wake), warm=wake)
+        call.endpointer = Endpointer(self.end_of_speech(session.satellite), gain=vad_gain(wake), warm=wake)
         # Someone else talking ends the command, once the speaker is
         # identified: when that is on, with profiles to identify them by.
         call.endpointer.watch(call.endpointer.settings.end_on_other_voice and self.identifies())

@@ -358,3 +358,41 @@ def test_stt_hears_the_call_from_kaldis_split():
     # Without an AEC capture: the AGC one, and why.
     heard, info = stt_audio_for(agc_pcm, b"", split, preroll, preroll, "aec")(command)
     assert info == {"channel": "agc", "from": 1.875, "why": "no AEC capture"} and np.allclose(heard, wanted)
+
+
+def test_a_satellite_ends_commands_after_its_own_silence(tmp_path):
+    """Its page's silence_seconds over every satellite's (Settings): saved
+    through the API, in range, and gone again when emptied."""
+    import asyncio  # pylint: disable=import-outside-toplevel
+    import socket  # pylint: disable=import-outside-toplevel
+
+    import aiohttp  # pylint: disable=import-outside-toplevel
+
+    from voice_call.server import Options, VoiceCallApp  # pylint: disable=import-outside-toplevel
+    from voice_call.web import start_web  # pylint: disable=import-outside-toplevel
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    app = VoiceCallApp(Options(host="127.0.0.1", port=1, hass_url="http://127.0.0.1:1", hass_token="x",
+                               data_dir=tmp_path, http_host="127.0.0.1", http_port=port))
+    app.store.settings["end_of_speech"] = {"silence_seconds": 0.8}
+
+    async def scenario():
+        runner = await start_web(app)
+        url = f"http://127.0.0.1:{port}/api/satellites/office"
+        try:
+            async with aiohttp.ClientSession() as http:
+                assert (await http.put(url, json={"silence_seconds": 0.5})).status == 200
+                assert app.store.satellites["office"]["silence_seconds"] == 0.5
+                assert app.end_of_speech("office").silence_seconds == 0.5
+                assert app.end_of_speech("kitchen").silence_seconds == app.end_of_speech().silence_seconds == 0.8
+                response = await http.put(url, json={"silence_seconds": 9})
+                assert response.status == 400 and "from 0.3 to 5" in (await response.json())["error"]
+                assert (await http.put(url, json={"silence_seconds": None})).status == 200
+                assert "silence_seconds" not in app.store.satellites["office"]
+                assert app.end_of_speech("office").silence_seconds == 0.8
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(scenario())

@@ -1905,6 +1905,8 @@ async function pageSatellite(key, opened) {
   const voice = voicePicker(tts, own.tts_voice, settings.tts_voice || "", ttsLanguage);
   const sttAudio = sttAudioSelect(own.stt_audio, settings.stt_audio || "agc");
   const sttRuns = sttRunsSelect(own.stt_always, !!settings.stt_always);
+  const silence = h("input", { type: "number", min: 0.3, max: 5, step: 0.1, value: s.silence_seconds ?? "",
+    placeholder: String(s.silence_seconds_every), style: "max-width:6em" });
   const speakOn = h("select", {},
     h("option", { value: "", selected: !own.speak_on }, s.device_media_player ? `This satellite (${s.device_media_player})` : "This satellite (its media player isn't in Home Assistant)"),
     ...voices.media_players.filter((m) => m.entity_id !== s.device_media_player).map((m) => h("option", { value: m.entity_id, selected: own.speak_on === m.entity_id }, `${m.name} (${m.entity_id})`)));
@@ -1917,9 +1919,11 @@ async function pageSatellite(key, opened) {
   const groups = [
     settingsGroup("music", "Music", s.media_player ? playerName(s.media_player) : "no player found", opened,
       h("div", { class: "row" }, field("Player", player, "Where music asked for here plays. Its Sendspin player in Music Assistant unless you pick another."))),
-    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language, used.stt && used.stt_audio !== "agc" ? (used.stt_audio === "aec_boost" ? "AEC, boosted" : "AEC") : null, used.stt_always ? "always" : null].filter(Boolean).join(" · "), opened,
+    settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language, used.stt && used.stt_audio !== "agc" ? (used.stt_audio === "aec_boost" ? "AEC, boosted" : "AEC") : null, used.stt_always ? "always" : null, s.silence_seconds != null ? `ends after ${s.silence_seconds} s` : null].filter(Boolean).join(" · "), opened,
       h("div", { class: "row" }, field("Speech-to-text", stt, "Commands are matched on the audio first; the speech-to-text entity writes the words when they're needed: free text, example sentences, hints."), field("Language", sttLanguage),
-        field("Audio", sttAudio, STT_AUDIO_HINT), field("Runs", sttRuns, STT_RUNS_HINT))),
+        field("Audio", sttAudio, STT_AUDIO_HINT), field("Runs", sttRuns, STT_RUNS_HINT)),
+      h("div", { class: "row" }, field("Silence that ends a command", h("label", { class: "row" }, silence, "seconds"),
+        `How long a pause ends a command said here. Empty: every satellite's (${s.silence_seconds_every} s), set on the Settings page (End of speech).`))),
     settingsGroup("output", "Output", [used.tts || "Piper", used.tts_language, used.tts_voice, used.speak_on ? `on ${used.speak_on}` : null].filter(Boolean).join(" · "), opened,
       h("div", { class: "row" }, field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
         field("Speak on", speakOn, "With a text-to-speech entity: this satellite, or another media player. The acknowledgement sound stays here."))),
@@ -1931,6 +1935,7 @@ async function pageSatellite(key, opened) {
         stt: stt.value || null, tts: tts.value || null, tts_voice: voice.value || null, speak_on: speakOn.value || null,
         stt_language: languageValue(sttLanguage, true), tts_language: languageValue(ttsLanguage, true),
         stt_audio: sttAudio.value || null, stt_always: sttRunsValue(sttRuns),
+        silence_seconds: silence.value === "" ? null : Number(silence.value),
       });
       toast("Saved"); pageSatellite(key, new Set(groups.filter((g) => g.open).map((g) => g.dataset.group)));
     } catch (err) { toast(err.message); }

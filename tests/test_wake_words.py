@@ -76,7 +76,7 @@ def test_catalog(tmp_path):
     assert "vad" not in catalog and "stop" not in catalog
     assert catalog["hey_jarvis"].name == "Hey Jarvis" and not catalog["hey_jarvis"].custom
     # Verified words run low; custom ones at their manifest's cutoff.
-    assert catalog["okay_nabu"].verified and catalog["okay_nabu"].cutoff == 0.2
+    assert catalog["okay_nabu"].verified and catalog["okay_nabu"].cutoff == 0.4
     assert catalog["hey_mycroft"].cutoff == 0.7
     tater = catalog["hey_tater"]
     assert tater.custom and not tater.verified and tater.cutoff == 0.97
@@ -85,7 +85,7 @@ def test_catalog(tmp_path):
 
     model = words.model("hey_tater")
     assert model is not None and model.wake_word == "hey_tater" and model.probability_cutoff == 0.97
-    assert words.model("okay_nabu").probability_cutoff == 0.2
+    assert words.model("okay_nabu").probability_cutoff == 0.4
     assert words.model("vad").is_vad and words.model("stop") is not None
     assert words.model("broken") is None and "broken" in words.errors
 
@@ -181,7 +181,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             assert nabu["verified"] and "okay now" in nabu["verifier"]["confusables"]
             assert nabu["verifier"]["pronunciations"]["nabu"] == "n ˈæ b u"
             assert nabu["defaults"]["thresholds"]["theta_competitor"] == 0.1
-            assert nabu["defaults"]["second_opinion"] == 1.3 and nabu["defaults"]["cutoff"] == 0.2
+            assert nabu["defaults"]["second_opinion"] == 1.3 and nabu["defaults"]["cutoff"] == 0.4
 
             # The custom word at its own cutoff, and not verified: the
             # detection stands. (This recording says "okay nabu", which is
@@ -234,7 +234,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             assert entry.thresholds.theta_competitor == 0.2 and len(entry.confusables) == len(body["confusables"])
             assert app.store.wake_tuning["okay_nabu"]["thresholds"] == {"theta_competitor": 0.2}
             assert app.wake_ratios["okay_nabu"].threshold == 1.1
-            async with http.put(f"{base}/wake_words/okay_nabu", json={"confusables": nabu["verifier"]["confusables"], "cutoff": 0.2}) as response:
+            async with http.put(f"{base}/wake_words/okay_nabu", json={"confusables": nabu["verifier"]["confusables"], "cutoff": 0.4}) as response:
                 assert response.status == 200
             assert "okay_nabu" not in app.store.wake_tuning and app.wake_ratios["okay_nabu"].threshold == 1.3
 

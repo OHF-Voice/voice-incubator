@@ -181,7 +181,9 @@ quiet long enough. **End of speech**, on the Settings page, sets how:
 - **Speech to start** (0.2 s): speech before the command has begun. Until
   then, silence ends nothing.
 - **Silence to end** (the app's `silence_seconds` option, 1 s): silence
-  after speech that ends the command.
+  after speech that ends the command. A satellite can have its own, under
+  **Input** on its page (**Silence that ends a command**): a quick one in the
+  kitchen, a patient one where people pause.
 - **Speech to resume** (0.1 s): speech in a row that starts that silence
   over; a shorter sound (a cough, a click) only pauses it.
 - **Longest command** (15 s, from the wake word): it stops listening then,
@@ -1226,7 +1228,7 @@ commands:
   and for Ukrainian Tetiana, a slower "high" voice: the medium one drops
   digits); without them the app says which are missing.
 - `wake_cutoff`: the satellite detector's probability cutoff for the
-  checked wake words (default: each its own -- 0.2 for Okay Nabu, 0.5 for Hey
+  checked wake words (default: each its own -- 0.4 for Okay Nabu, 0.5 for Hey
   Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again
   here, so it can be generous. A cutoff set on the Wake words page wins.
 - `speaker_threshold`: how closely a voice must match to be identified.
