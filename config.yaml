@@ -3,7 +3,7 @@ version: 0.2.0
 slug: voice_labs
 name: Voice Labs
 description: Voice satellites with your own commands, recognized on this machine
-url: https://github.com/OHF-Voice/apps-experimental/tree/master/voice_labs
+url: https://github.com/OHF-Voice/voice-labs
 arch:
   - amd64
   - aarch64

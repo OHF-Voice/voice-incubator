@@ -1,6 +1,6 @@
 """The Voice Labs integration in Home Assistant, from the app's side.
 
-The integration (custom_components/voice_labs, installed with HACS) gives each
+The integration (OHF-Voice/voice-labs, installed with HACS) gives each
 satellite a device of its own -- with its own area -- and a voice_timer_list
 entity for its timers. The app:
 
@@ -32,7 +32,8 @@ RUNNING = ("active", "paused")
 
 NOT_INSTALLED = (
     "The Voice Labs integration is not installed in Home Assistant. Install it "
-    "with HACS and restart Home Assistant to give satellites devices, areas and timers."
+    "with HACS (github.com/OHF-Voice/voice-labs) and restart Home Assistant to give "
+    "satellites devices, areas and timers."
 )
 
 

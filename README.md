@@ -64,8 +64,8 @@ one call at a time:
    folder; none, `electric_piano`), made by `scripts/make_sounds.py` with
    FluidSynth.
 
-Commands, names, satellites and debugging are described for users in
-[DOCS.md](DOCS.md).
+Commands, names, satellites and debugging are described for users in the
+guide, [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs)'s README.
 
 ## Run
 
@@ -279,9 +279,9 @@ and copies (`Satellite.first`).
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| `custom_components/voice_labs/` | the Home Assistant integration (HACS): satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers |
+| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers |
 | `firmware/` | the satellites' ESPHome firmware (a copy of `~/opt/esphome/my_components_voice_labs`), and set-aside experiments: learn-tv, voice calls over the native API |
-| `hass_tests/` | the integration's tests, run with a Home Assistant core checkout's fixtures (see its conftest) |
+| `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |
 | `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
 | `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
 | `config.yaml`, `Dockerfile`, `rootfs/`, `script/stage_build` | the Home Assistant app; `stage_build` copies the English models the app doesn't download, and wyoming-wake-kaldi, into `local/` for the image |
@@ -1141,7 +1141,7 @@ nothing.
 ## Timers and the Voice Labs integration
 
 Timers live in Home Assistant, on a `voice_timer_list` entity per satellite,
-provided by the Voice Labs integration (`custom_components/voice_labs`). That
+provided by the Voice Labs integration (OHF-Voice/voice-labs). That
 entity platform is the `timer_list` integration from the
 `claude/timer-list-entity-local-d25403` branch -- not yet merged -- with its
 domain renamed so the two cannot clash, and with `InMemoryTimerListEntity`
@@ -1344,7 +1344,7 @@ the Voice Labs integration reads the players from the Music Assistant
 integration's client (`entry.runtime_data.mass.players`), finds the one whose
 device has the satellite's MAC -- or wraps the Sendspin protocol player that
 has it -- and returns its entity with the satellite
-(`custom_components/voice_labs/music.py`). The app re-registers satellites
+(the integration's `music.py`). The app re-registers satellites
 when Home Assistant's registries change, so a player added later is found.
 Without the integration the app guesses: `up` + the MAC, else the only Music
 Assistant player whose device is ESPHome's model named like the satellite

@@ -14,8 +14,8 @@ copy of it, brought up to date when it changes.
 | `experiments/learn-tv/` | The learn-tv wake word front end, taken out of the firmware on 2026-10-27 (its own README) |
 | `archive/esphome-native-voice-labs/` | An earlier design, as patches against ESPHome: voice calls over the native API |
 
-The Home Assistant side, the Voice Labs integration, is `custom_components/voice_labs`
-in this repo.
+The Home Assistant side, the Voice Labs integration, is
+[OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs).
 
 ## Building and flashing
 

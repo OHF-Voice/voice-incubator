@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **The integration and the guide moved to
+  [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs)**: install
+  the integration from there with HACS; its README is the user guide, and the
+  app's documentation tab says how to get started. The app's `url` points
+  there.
 - **Piper's voices are downloaded when first used**, from
   [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) at a
   pinned revision (its catalog for US and British English is in the app,
