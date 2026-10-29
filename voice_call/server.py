@@ -24,6 +24,7 @@ from . import actions, alarms, languages, people, skills, timers, tones
 from .duplex import Duplex
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
+from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
 from .discover import Device, Discovery
@@ -434,6 +435,9 @@ class Call:
     wake_start: float | None = None
     """Seconds from the start of the call to the start of the wake word, as
     Kaldi placed it."""
+    utterance: Utterance | None = None
+    """The wake word it was, as other satellites may have heard it too
+    (arbitration): one of them answers."""
     record: CallRecord | None = None
     live_bytes: int = 0
     """How much of the AGC capture someone listening live has been given (or
@@ -598,6 +602,8 @@ class VoiceCallApp:
         # wake word or just speech". Its `confusable` test is left alone.
         self.wake_ratios: dict[str, WakeRatio] = {}
         """The second opinion, per verified wake word (built at start)."""
+        self.arbiter = Arbiter()
+        """Which satellite answers a wake word several heard."""
         self.speech = Speech(
             root / "models/piper" / self.language.piper,
             root / "sounds/acknowledge.mp3",
@@ -1904,6 +1910,7 @@ class VoiceCallApp:
             aec_preroll=round(session.call.aec_preroll_bytes / BYTE_RATE, 3),
             aec_lead=AEC_LEAD_SAMPLES,
         )
+        session.call.utterance = self.arbiter.heard(session.satellite, session.call.wake_word, detection.get("probability"))
         _LOGGER.info(
             "[%s] Call started: wake_word=%r%s pre-roll=%dms%s",
             session,
@@ -2173,11 +2180,19 @@ class VoiceCallApp:
         return verdict
 
     async def _verify(self, session: Session, call: Call) -> None:
+        self._measure_wake(session, call)
         verdict = await self._verify_wake(str(session), call)
         result = verdict.result
 
         if not verdict.accepted:
+            await self.arbiter.answers(call.utterance, session.satellite, False)
             return await self._wake_rejected(session, call, verdict)
+        if not await self.arbiter.answers(call.utterance, session.satellite, True):
+            return await self._answered_elsewhere(session, call)
+        if call.utterance is not None and len(call.utterance.heard) > 1:
+            _LOGGER.info("[%s] Answering here: it heard the wake word best", session)
+            if call.record is not None:
+                call.record.stage("wake_arbitration", **call.utterance.to_json())
         if verdict.overturned:
             _LOGGER.info(
                 "[%s] Wake %s rejection overturned on the ratio (%.2f)",
@@ -2283,6 +2298,36 @@ class VoiceCallApp:
             marks["kaldi_split"] = call.split_bytes / BYTE_RATE
             if call.wake_start is not None:
                 marks["kaldi_wake_start"] = call.wake_start
+
+    def _measure_wake(self, session: Session, call: Call) -> None:
+        """How well this satellite heard the wake word (arbitration.levels):
+        on the AEC capture's pre-roll, else the call's."""
+        if call.utterance is None:
+            return
+        aec = call.aec_preroll_bytes and len(call.aec) >= call.aec_preroll_bytes
+        pcm = bytes(call.aec[: call.aec_preroll_bytes]) if aec else bytes(call.audio[: call.preroll_bytes])
+        found = levels(pcm)
+        clarity = None if found is None else found[0] - found[1]
+        self.arbiter.measured(call.utterance, session.satellite, clarity)
+        if len(call.utterance.heard) > 1:
+            _LOGGER.info(
+                "[%s] Wake word heard by %d satellites: here %s above the background (%s)",
+                session, len(call.utterance.heard), "?" if clarity is None else f"{clarity:.1f} dB",
+                "AEC" if aec else "AGC",
+            )
+
+    async def _answered_elsewhere(self, session: Session, call: Call) -> None:
+        """Hang up: another satellite heard this wake word better, and
+        answers it (arbitration). The firmware flashes the ring dimly."""
+        utterance = call.utterance
+        winner = utterance.winner if utterance is not None else None
+        name = self.satellite(winner).name if winner else "another satellite"
+        _LOGGER.info("[%s] Answered by %s, which heard it better", session, name)
+        call.finished = True
+        if call.record is not None:
+            call.record.stage("answered_elsewhere", by=winner, name=name, **(utterance.to_json() if utterance else {}))
+            self.calls.finish(call.record, "answered elsewhere", f"answered by {name}", self._call_audio(call))
+        await self._hang_up(session, "answered_elsewhere")
 
     async def _wake_rejected(self, session: Session, call: Call, verdict: WakeVerdict) -> None:
         """Hang up on a wake word neither stage would accept.

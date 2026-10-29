@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- **One wake word, one answer**: heard by several satellites within a
+  second, whatever their areas, it is answered by the one that heard it best
+  (the wake word furthest above the background, on the echo-cancelled
+  audio); the others end their call (`answered_elsewhere`), and new firmware
+  flashes their ring dimly. Sessions record each one's measure.
 - **The Names page decides what voice acts on**: only the devices added
   there, each under its area (Home Assistant's, unless set there for voice),
   and **controlled from** anywhere, its area (by name only from a satellite

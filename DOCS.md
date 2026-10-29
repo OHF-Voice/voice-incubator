@@ -116,6 +116,13 @@ Saving rebuilds the wake word's checker, a few seconds on a Raspberry Pi;
 **Restore its defaults** undoes everything changed. What you change is kept
 in `wake_words.json`.
 
+**Heard by several satellites.** The same wake word heard by more than one
+satellite within a second is one person speaking, whatever their areas: the
+satellite that heard it best answers -- the wake word furthest above the
+background, on its echo-cancelled audio -- and the others flash their ring
+dimly and stop. A satellite alone answers as quickly as ever. A session says
+which answered ("answered by Kitchen VPE"), with how well each heard it.
+
 ### Listening and speaking
 
 The app listens and speaks with models of its own, or with Home Assistant's

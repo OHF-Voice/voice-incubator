@@ -12,8 +12,8 @@ from voice_call.discover import Device
 from voice_call.server import Options, VoiceCallApp
 
 from . import fake_hass
-from .fake_satellite import FakeSatellite, serve
-from .test_app import free_port, pytestmark, wait_for  # noqa: F401 - skipped without the models
+from .fake_satellite import FakeSatellite, read_call, serve
+from .test_app import CALLS, free_port, pytestmark, wait_for  # noqa: F401 - skipped without the models
 
 KITCHEN, BEDROOM = "aabbccddeeff", "112233445566"
 
@@ -116,6 +116,21 @@ async def _scenario(tmp_path) -> None:
         ended = next(r for r in reversed(app.calls.recent) if r.kind == "intercom")
         assert ended.outcome == "intercom ended" and "the button on" in ended.summary
         await wait_for(lambda: bytes(kitchen.heard).endswith(tones.ENDED))
+
+        # One "okay nabu" heard by both: the one that heard it better answers,
+        # the other ends its call ("answered_elsewhere"). The bedroom's is
+        # farther: quieter, in more noise, on its echo-cancelled capture.
+        said = read_call(CALLS / "call-15788.wav")
+        near = np.frombuffer(said, dtype="<i2").astype(np.float64)
+        far = near * 0.1 + np.random.default_rng(2).normal(0, 300, near.size)
+        far = np.clip(far, -32768, 32767).astype("<i2").tobytes()
+        ended = await asyncio.gather(kitchen.call(said, aec_pcm=said), bedroom.call(said, aec_pcm=far))
+        assert ended[0] != "answered_elsewhere" and ended[1] == "answered_elsewhere", ended
+        elsewhere = next(r for r in reversed(app.calls.recent) if r.outcome == "answered elsewhere")
+        assert elsewhere.summary == "answered by kitchen"
+        heard = next(s for s in elsewhere.stages if s["stage"] == "answered_elsewhere")["heard"]
+        clarity = {h["satellite"]: h["clarity"] for h in heard}
+        assert clarity[KITCHEN] > clarity[BEDROOM]
     finally:
         runner.cancel()
         await app.stop()
