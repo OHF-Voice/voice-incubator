@@ -323,10 +323,14 @@ fieldset.locked { border: 0; padding: 0; margin: 0; min-width: 0; opacity: .7; }
 .devices-area h3 { gap: 8px; margin: 0 0 4px; }
 table.devices { table-layout: fixed; }
 table.devices td { overflow-wrap: anywhere; }
-table.devices th:nth-child(1) { width: 28%; }
-table.devices th:nth-child(2) { width: 19%; }
-table.devices th:nth-child(3) { width: 17%; }
+table.devices th:nth-child(1) { width: 30%; }
+table.devices th:nth-child(2) { width: 22%; }
+table.devices th:nth-child(3) { width: 22%; }
 table.devices th:nth-child(5) { width: 7.5em; }
+/* A device's names in its area and in the whole house, as edited. */
+.names-part { margin: 12px 0; }
+.names-part h4 { margin: 0 0 6px; font-size: 0.92rem; }
+.names-part > label { display: block; margin-top: 6px; }
 /* On a phone, a device to a block: each field on its own line, labelled. */
 @media (max-width: 640px) {
   table.devices, table.devices tbody, table.devices tr, table.devices td { display: block; width: auto; }

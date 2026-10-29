@@ -765,6 +765,19 @@ def said_names(names: dict[str, Any] | None) -> dict[str, dict[str, str]]:
     return out
 
 
+def device_said(devices: dict[str, Any], area_of: Any, area_id: str | None) -> dict[str, str]:
+    """What each device added on the Names page (store.Device) is called when
+    spoken of on a satellite in ``area_id``: a name of its area's there, else
+    its whole house name -- else, heard only with its area said, its area's."""
+    out = {}
+    for entity_id, device in devices.items():
+        there = area_id is not None and area_of(entity_id) == area_id
+        name = next(iter((device.here if there else ()) or device.house or device.here), None)
+        if name:
+            out[entity_id] = name
+    return out
+
+
 def device_names(entity_ids: list[str], catalog: Any, names: dict[str, dict[str, str]] | None) -> dict[str, str]:
     """Every device named on the Names page, and ``entity_ids`` as Home
     Assistant names them where they aren't: what each is called when said."""

@@ -433,7 +433,7 @@ HassClimateSetTemperature … -- instead of an action, and the library's
 commands for lights, the thermostat, covers and locks do. An intent runs on
 what was heard: each device named (by its entity id), or the devices of its
 kind added on the Names page to each area or floor named, else to the
-satellite's area -- each by name, not by name only, whether exposed to Assist
+satellite's area -- each part of its area, whether exposed to Assist
 or not. An unavailable device is said, not counted as done. Its other slots are the command's
 (`domain: light`, `brightness: "{{ slots.percentage }}"`: a template sees
 the same variables as a response). `anywhere: true` means the whole home
@@ -516,7 +516,7 @@ The action, the script and the response template all see:
 | `command` | `id`, `description`, `text` (what was heard) |
 | `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown; by the rooms' names on the Names page), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
 | `names` | what each device is called when said: its name on the Names page, else Home Assistant's, by entity id -- every one named there, and the command's own: `{{ names[slots.entity[0]] }}`, or for another, `{{ names.get(e, state_attr(e, 'friendly_name')) }}` (not in the `voice_call_command` event) |
-| `devices` | what is meant as part of an area: the devices added on the Names page (not by name only), each with its area there -- `devices.get(s.entity_id) in place.areas` (not in the `voice_call_command` event) |
+| `devices` | what is meant as part of an area: the devices added on the Names page and part of their area, each with its area there -- `devices.get(s.entity_id) in place.areas` (not in the `voice_call_command` event) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 
 A script is called with these as its data, so its fields see them. What it
@@ -1096,30 +1096,42 @@ entity's own name (else its friendly name), and its voice assistant aliases
 
 **Devices.** Voice acts only on the devices added here -- Home Assistant's
 exposure to Assist doesn't count -- each listed under its area: Home
-Assistant's, unless you pick another for voice. Each is **controlled from**:
+Assistant's, unless you pick another for voice. A device has two lists of
+names:
 
-| | by its name | as part of its area ("turn on the lights") |
-|---|---|---|
-| **Anywhere** (the default) | from every satellite | yes |
-| **Its area** | only from a satellite in its area -- not even with the area said elsewhere | yes |
-| **By name only** | from every satellite | no |
-| **Only implicitly** | no name | yes |
+- **In its area**: heard from a satellite there ("the lamp" in the office).
+  Also from other areas with the area said ("the lamp in the office"),
+  unless you turn that off. No other device in the area may have one.
+- **In the whole house**: heard from every satellite ("the office lamp"). No
+  other device may have one.
 
-"Turn on the lights" in an area is its lights added here, but those by name
-only: a night light by name only stays as it is, and is still "the night
-light". "Close the blinds" is its blinds, "pause" what plays there, "is
-everything locked" every lock added.
+Adding a device fills both from Home Assistant: its name without the area in
+its area, and with the area in the whole house -- "Office Lamp" in the Office
+is "Lamp" there and "Office Lamp" everywhere. Clear the whole house names and
+it is heard only in its area; clear both and it has no name.
 
-Several devices may share a name -- a Lamp in the office, one in the
-bedroom: each satellite hears the one in its area, and "the lamp in the
-bedroom" from anywhere; from an area with none, nothing is guessed. Devices
-are limited to lights, switches, fans, covers, locks, climate, media players,
-scenes, scripts, input booleans, valves, vacuums, sensors and binary sensors;
-an implied target may be any entity.
+On a satellite in its area, its area's names go first: "the lamp" there is
+that lamp, even if another device's whole house name is "Lamp". Heard where
+it is no device's, or where two have it (Home Assistant moved a device into
+an area with a name it has), nothing runs and the reply says why; the Names
+page shows a name two devices share. When voice speaks of a device it uses
+the name you'd use where you are: "the lamp" in the office, "the office lamp"
+elsewhere.
+
+A light, cover, valve, lock, door or window sensor, thermostat or media
+player is also **part of its area**, unless you turn that off: "turn on the
+lights" there is its lights added here, "close the blinds" its blinds,
+"pause" what plays there, "is everything locked" every lock added, "is
+anything open" every door and window. A night light not part of its area
+stays as it is, and is still "the night light". Devices are limited to
+lights, switches, fans, covers, locks, climate, media players, scenes,
+scripts, input booleans, valves, vacuums, sensors and binary sensors; an
+implied target may be any entity.
 
 A name is in the language it was given in. In another language than your
-commands', a thing's name and aliases go under the language's code,
-beside its others; only the app's language's are heard and shown:
+commands', a thing's name and aliases (and a device's whole house names,
+`house`) go under the language's code, beside its others; only the app's
+language's are heard and shown:
 
 ```yaml
 names:

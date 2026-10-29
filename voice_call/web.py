@@ -52,7 +52,9 @@ from .store import (
     file_language,
     language_name,
     lists_in,
+    name_clashes,
     names_in,
+    phrase_key,
     plain,
 )
 from . import library as following
@@ -339,14 +341,12 @@ class Api:
                 "sections": library_sections()[0],
                 # What things are called in the app's language; other languages' are hidden.
                 "names": {kind: names.get(kind) or {} for kind in NAME_KINDS},
-                # Every device added (all voice acts on): how it is reached, its
-                # area set here (None: Home Assistant's), and Home Assistant's.
-                "devices": {
-                    str(item_id): {"reach": device.reach, "area": device.area, "ha_area": self._ha_area(str(item_id))}
-                    for item_id, device in (
-                        (i, device_of(e)) for i, e in ((data.get("names") or {}).get("entities") or {}).items()
-                    )
-                },
+                # Every device added (all voice acts on): its names in its area
+                # and in the whole house, whether it is part of its area and
+                # heard elsewhere with its area said, its area set here (None:
+                # Home Assistant's) and Home Assistant's, and the names it
+                # shares where they are heard (store.name_clashes).
+                "devices": self._devices_json(data, here, default),
                 "hidden_names": [
                     {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_names.items())
                 ],
@@ -437,19 +437,68 @@ class Api:
         entity = catalog.entities.get(entity_id) if catalog is not None else None
         return entity.area_id if entity is not None else None
 
+    def _devices_json(self, data: dict[str, Any], here: str, default: str) -> dict[str, dict[str, Any]]:
+        devices = {str(i): device_of(e, here, default) for i, e in ((data.get("names") or {}).get("entities") or {}).items()}
+        clashes = name_clashes(devices, lambda e: devices[e].area or self._ha_area(e))
+        return {
+            item_id: {
+                "here": list(device.here), "house": list(device.house), "implicit": device.implicit,
+                "with_area": device.with_area, "area": device.area, "ha_area": self._ha_area(item_id),
+                "clashes": clashes.get(item_id, []),
+            }
+            for item_id, device in devices.items()
+        }
+
+    def _area_label(self, area_id: str) -> str:
+        """An area as the Names page calls it, else Home Assistant."""
+        compiled = self.app.engine.compiled if self.app.engine is not None else None
+        entry = (((compiled.data.get("names") or {}).get("areas") or {}).get(area_id) if compiled is not None else None) or {}
+        catalog = self.app.hass.catalog
+        area = catalog.areas.get(area_id) if catalog is not None else None
+        return (entry if isinstance(entry, str) else entry.get("name")) or (area.name if area is not None else area_id)
+
+    def _device_label(self, entity_id: str) -> str:
+        catalog = self.app.hass.catalog
+        entity = catalog.entities.get(entity_id) if catalog is not None else None
+        return f"{entity.name} ({entity_id})" if entity is not None and entity.name else entity_id
+
+    def _unique(self, entity_id: str, here: list[str], house: list[str], area: str | None) -> None:
+        """Refuses a name another device has where it is heard: one of its
+        area's names there, or a whole house name."""
+        others = {e: d for e, d in self.app.voice_devices().items() if e != entity_id}
+        for name in here if area else ():
+            taken = next((e for e, d in others.items() if self.app.entity_area(e) == area
+                          and phrase_key(name) in {phrase_key(n) for n in d.here}), None)
+            if taken is not None:
+                raise ConfigError(f"“{name}” is already {self._device_label(taken)}'s name in the {self._area_label(area)}")
+        for name in house:
+            taken = next((e for e, d in others.items() if phrase_key(name) in {phrase_key(n) for n in d.house}), None)
+            if taken is not None:
+                raise ConfigError(f"“{name}” is already {self._device_label(taken)}'s whole house name")
+
     async def put_name(self, request: web.Request) -> web.Response:
         body = _clean(await request.json())
+        kind, item_id = request.match_info["kind"], request.match_info["id"]
         name = str(body.get("name") or "").strip()
         aliases = [str(a).strip() for a in body.get("aliases") or [] if str(a).strip()]
-        # A device's own: how it is reached, its area for voice (empty: Home Assistant's).
-        own = {k: (body.get(k) or None) for k in ("reach", "area") if k in body}
-        if not name and own.get("reach") != "implicit":
-            raise ConfigError("A name needs a name")
-        spec = {"name": name, **({"aliases": aliases} if aliases else {}), **own}
-        compiled = self.app.store.put_name(
-            request.match_info["kind"], request.match_info["id"], spec
-        )
-        return await self._saved(compiled)
+        if kind != "entities":
+            if not name:
+                raise ConfigError("A name needs a name")
+            spec = {"name": name, **({"aliases": aliases} if aliases else {})}
+            return await self._saved(self.app.store.put_name(kind, item_id, spec))
+        # A device: its names in its area and in the whole house (left out:
+        # the same), whether it is part of its area and heard elsewhere with
+        # it said, and its area for voice (empty: Home Assistant's).
+        house = [str(h).strip() for h in body.get("house") or [] if str(h).strip()] if "house" in body else None
+        own = {k: body[k] for k in ("implicit", "with_area") if k in body}
+        if "area" in body:
+            own["area"] = body.get("area") or None
+        area = own.get("area") if "area" in own else self.app.entity_area(item_id)
+        area = area or self._ha_area(item_id)
+        here = [n for n in [name, *aliases] if n]
+        self._unique(item_id, here, house if house is not None else here, area)
+        spec = {"name": name, **({"aliases": aliases} if aliases else {}), **({"house": house} if house is not None else {}), **own}
+        return await self._saved(self.app.store.put_name(kind, item_id, spec))
 
     async def delete_name(self, request: web.Request) -> web.Response:
         compiled = self.app.store.put_name(request.match_info["kind"], request.match_info["id"], None)

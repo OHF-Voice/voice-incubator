@@ -52,7 +52,7 @@ from adapt_ctc.config import WakeConfig, parse_config
 from adapt_ctc.matcher import IntentResult, Recognition, Recognizer
 from adapt_ctc.morphology import alternated, alternations, elided, elisions, endings, word_forms
 from adapt_ctc.report import to_json
-from adapt_ctc.text import sentence_key, spoken_words
+from adapt_ctc.text import name_units, sentence_key, spoken_words
 from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
@@ -60,7 +60,7 @@ from adapt_ctc.config import ConfigError, _phrase
 from . import languages, skills
 from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots
 from .fallback import kin, label_of
-from .store import Compiled, Device
+from .store import Compiled, Device, phrase_key
 from .voices import TypedText, VoiceChoice
 
 _LOGGER = logging.getLogger(__name__)
@@ -827,63 +827,105 @@ class Engine:
         }
 
     def fit_devices(self, decision: Decision, compiled: Compiled, satellite: Satellite) -> dict[str, Any] | None:
-        """The devices a command names, by where they are. Every device with
-        the name heard is a candidate (names may repeat: a Fan in the office
-        and one in the bedroom). Said with a room, they are the ones there --
-        none there, and nothing runs: the hint says why. Without one, a name
-        shared by several is the one in the satellite's area; with none
-        there, nothing runs and the hint says where they are. One controlled
-        only from its area (``reach: area``, the Names page) is heard only
-        from a satellite there, not even with its area said elsewhere."""
+        """The devices a command names, by the names heard and where each is
+        heard (the Names page): a name of the satellite's area's devices
+        there, else a whole house name; with an area said, a name of that
+        area's devices (heard so from elsewhere: ``with_area``), else a whole
+        house name of one there. A name not heard from here, or one more than
+        one device has there, runs nothing: the hint says why. The command's
+        own target (a device it names itself) is as it is."""
         slots = decision.slots
-        entities = list(slots.get("entity") or [])
+        entities = [str(e) for e in slots.get("entity") or []]
         if not entities or decision.command is None:
             return None
-        names = (compiled.data.get("names") or {}).get("entities") or {}
+        if decision.behavior is not None and [str(e) for e in decision.behavior.slots.get("entity") or []] == entities:
+            return None
+        devices = compiled.devices
+        code = languages.current().code
+        area_of = self.entity_area or (lambda _entity_id: None)
 
-        def said(entity_id: str) -> set[str]:
-            item = names.get(entity_id) or {}
-            item = {"name": item} if isinstance(item, str) else item
-            return {" ".join(str(n).lower().split()) for n in [item.get("name") or entity_id, *(item.get("aliases") or [])]}
+        def keys(name: str) -> set[str]:
+            return {" ".join(units) for units in name_units(name, code)} | {phrase_key(name)}
 
-        candidates = list(dict.fromkeys(
-            other for entity_id in entities for other in [entity_id, *names] if other == entity_id or said(other) & said(entity_id)
-        ))
-        where = {c: self.entity_area(c) if self.entity_area is not None else None for c in candidates}
-        areas = list(slots.get("area") or [])
-        item = names.get(entities[0]) or {}
-        device = item if isinstance(item, str) else item.get("name") or entities[0]
+        here_keys = {e: set().union(*(keys(n) for n in d.here)) for e, d in devices.items() if d.here}
+        house_keys = {e: set().union(*(keys(n) for n in d.house)) for e, d in devices.items() if d.house}
+        said_areas = [str(a) for a in slots.get("area") or []]
+        own = satellite.area_id
         say = languages.speech()
-        # Controlled only from its area: elsewhere, it isn't there to hear.
-        candidates = [
-            c for c in candidates
-            if (compiled.devices.get(c) or Device()).reach != "area" or (satellite.area_id and where[c] == satellite.area_id)
-        ]
-        if not candidates:
-            why = say.not_here(device, [])
-            return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
 
         def room(area_id: str) -> str:
             area_item = ((compiled.data.get("names") or {}).get("areas") or {}).get(area_id) or {}
             return area_item if isinstance(area_item, str) else area_item.get("name") or area_id
 
-        if not areas:
-            here = [c for c in candidates if satellite.area_id and where[c] == satellite.area_id]
-            # More with the names heard than were heard ("lamp" and "fan" are two).
-            shared = len(candidates) > max(len([e for e in entities if e in candidates]), 1)
-            if here or not shared:
-                slots["entity"] = here or candidates
-                return None
-            # Not here, and not to be guessed: where they are, said.
-            rooms = list(dict.fromkeys(room(where[c]) for c in candidates if where[c] is not None))
-            why = say.not_here(device, rooms)
+        def refused(why: str) -> dict[str, Any]:
             return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
-        fit = [c for c in candidates if where[c] in areas]
-        if fit:
-            slots["entity"] = fit
-            return None
-        why = say.no_room(device) if all(where[c] is None for c in candidates) else say.not_in(device, room(areas[0]))
-        return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
+
+        def written(phrase: str) -> str:
+            """The name heard as the Names page writes it."""
+            return next((n for d in devices.values() for n in d.phrases if phrase in keys(n)), phrase)
+
+        def in_area(phrase: str, area: str | None) -> list[str]:
+            return [e for e, k in here_keys.items() if area and phrase in k and area_of(e) == area]
+
+        found: list[str] = []
+        for phrase, entity_id in self._names_heard(decision, entities, devices, keys):
+            if phrase is None or entity_id not in devices:
+                found.append(entity_id)  # named by what the Names page doesn't name, or without its words
+                continue
+            house = [e for e, k in house_keys.items() if phrase in k]
+            label = written(phrase)
+            if said_areas:
+                hits: list[str] = []
+                for area in said_areas:
+                    there = [e for e in in_area(phrase, area) if area == own or devices[e].with_area]
+                    there = there or [e for e in house if area_of(e) == area]
+                    if len(there) > 1:
+                        return refused(say.several(label))
+                    hits += there
+                if not hits:
+                    heard_there = [e for area in said_areas for e in in_area(phrase, area)]
+                    anywhere = [e for e in devices if phrase in here_keys.get(e, ()) or phrase in house_keys.get(e, ())]
+                    if heard_there:  # a name heard only there
+                        return refused(say.not_here(label, [room(said_areas[0])]))
+                    if all(area_of(e) is None for e in anywhere):
+                        return refused(say.no_room(label))
+                    return refused(say.not_in(label, room(said_areas[0])))
+            else:
+                hits = in_area(phrase, own) or house
+                if len(hits) > 1:
+                    return refused(say.several(label))
+                if not hits:
+                    rooms = list(dict.fromkeys(room(area_of(e)) for e in here_keys if phrase in here_keys[e] and area_of(e)))
+                    return refused(say.not_here(label, rooms))
+            found += hits
+        slots["entity"] = list(dict.fromkeys(found))
+        return None
+
+    @staticmethod
+    def _names_heard(
+        decision: Decision, entities: list[str], devices: dict[str, Device], keys: Any
+    ) -> list[tuple[str | None, str]]:
+        """Each device name heard, as ``(phrase, entity id)``: from the
+        matcher's spans, else (the fallback's) the longest of the device's
+        names in the transcript -- None when it isn't there."""
+        result = decision.intent
+        if result is not None:
+            spans = [(u.meaning.phrase, u.meaning.name_id) for u in result.spans if u.role == "name" and u.meaning.name_type == "entity"]
+            if spans:
+                return [(phrase, str(entity_id)) for phrase, entity_id in spans]
+        recognition = decision.recognition or {}
+        text = recognition.get("tdt_transcript") or recognition.get("transcript") or ""
+        words = re.findall(r"[^\W_]+", str(text).lower())
+        said = f" {' '.join(words)} "
+        out: list[tuple[str | None, str]] = []
+        for entity_id in entities:
+            device = devices.get(entity_id)
+            heard = sorted(
+                (k for n in (device.phrases if device is not None else ()) for k in keys(n) if f" {k} " in said),
+                key=len, reverse=True,
+            )
+            out.append((heard[0] if heard else None, entity_id))
+        return out
 
     def _greedy(self, log_probs: np.ndarray) -> str:
         ids, previous = [], None

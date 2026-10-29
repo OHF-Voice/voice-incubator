@@ -372,7 +372,7 @@ def test_intents_through_the_integration_or_rest():
 def test_the_questions_count_the_devices_added_to_the_area():
     """The questions the library answers itself (are any lights on, is
     everything locked) see the devices added on the Names page, each in its
-    area there, but those by name only -- not what is exposed to Assist; the
+    area there, but those not part of it -- not what is exposed to Assist; the
     command's event and record leave them out."""
     from voice_call.hass import Catalog, Entity  # pylint: disable=import-outside-toplevel
     from voice_call.store import Device  # pylint: disable=import-outside-toplevel
@@ -384,7 +384,7 @@ def test_the_questions_count_the_devices_added_to_the_area():
         "light.night": Entity("light.night", "Night Light", area_id="kitchen"),
         "light.exposed": Entity("light.exposed", "Exposed", area_id="kitchen"),
     }, exposed={"light.exposed"})
-    devices = {"light.kitchen_ceiling": Device(), "light.lamp": Device(area="kitchen"), "light.night": Device(reach="name")}
+    devices = {"light.kitchen_ceiling": Device(), "light.lamp": Device(area="kitchen"), "light.night": Device(implicit=False)}
     spec = {"response": "{{ devices | dictsort | map('join', '=') | join(',') }}"}
     command = parse_command("c", {"description": "do it", "examples": ["do it"], **spec})
     decision = Decision({"transcript": "do it"}, command, command.behavior, "command", slots={})
@@ -607,10 +607,29 @@ def test_a_device_is_said_by_its_name_on_the_names_page():
 
 
 
+def test_a_device_is_said_as_it_is_heard_there():
+    """A device spoken of on a satellite in its area by its area's name, and
+    elsewhere by its whole house name -- else, heard only with its area said,
+    by its area's."""
+    from voice_call.store import Device  # pylint: disable=import-outside-toplevel
+
+    devices = {
+        "light.office_lamp": Device(None, ("Lamp",), ("Office Lamp",)),
+        "light.overhead": Device(None, ("Overhead Light",), ()),
+        "light.porch": Device(None, (), ("Porch Light",)),
+        "light.night": Device(),
+    }
+    area = {"light.office_lamp": "office", "light.overhead": "office"}.get
+    assert actions.device_said(devices, area, "office") == {
+        "light.office_lamp": "Lamp", "light.overhead": "Overhead Light", "light.porch": "Porch Light"}
+    assert actions.device_said(devices, area, "kitchen") == {
+        "light.office_lamp": "Office Lamp", "light.overhead": "Overhead Light", "light.porch": "Porch Light"}
+
+
 def test_without_a_name_the_devices_added_to_the_area():
     """As voice sees it (devices given): "turn on the lights" acts on the
     lights added to the satellite's area on the Names page, each by name --
-    in their area there, but those by name only, Assist's exposure aside."""
+    in their area there, but those not part of it, Assist's exposure aside."""
     from voice_call.store import Device  # pylint: disable=import-outside-toplevel
 
     hass = CapableHass()
@@ -624,11 +643,11 @@ def test_without_a_name_the_devices_added_to_the_area():
         outcome = asyncio.run(actions.run(hass, decision, SATELLITE, None, devices=devices))
         return outcome, [i["slots"].get("name") for i in hass.fake.intents]
 
-    devices = {"light.kitchen_ceiling": Device(), "light.kitchen_strip": Device(reach="name"),
-               "light.desk_lamp": Device(reach="implicit", area="kitchen")}
+    devices = {"light.kitchen_ceiling": Device(), "light.kitchen_strip": Device(implicit=False),
+               "light.desk_lamp": Device(area="kitchen")}
     outcome, named = turned_on(devices)
-    assert sorted(named) == ["light.desk_lamp", "light.kitchen_ceiling"]  # the strip by name only; the lamp moved here
+    assert sorted(named) == ["light.desk_lamp", "light.kitchen_ceiling"]  # the strip not part of its area; the lamp moved here
     assert outcome.speech in ("Kitchen Ceiling, Desk Lamp.", "Desk Lamp, Kitchen Ceiling.")
     # None of the kind added there: said so, and no intent.
-    outcome, named = turned_on({"light.kitchen_strip": Device(reach="name")})
+    outcome, named = turned_on({"light.kitchen_strip": Device(implicit=False)})
     assert (outcome.name, named) == ("no_devices", [])

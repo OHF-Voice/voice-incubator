@@ -109,7 +109,7 @@ def test_names_are_in_their_language(english, tmp_path):
     compiled = compile_store(data)
     assert compiled.data["names"]["areas"] == {"kitchen": {"name": "Küche", "aliases": ["Kochecke"]}, "keller": "Keller"}
     assert compiled.hidden_names == {"en": 1}
-    with pytest.raises(ConfigError, match="neither name, aliases nor a language code"):
+    with pytest.raises(ConfigError, match="neither name, aliases, house nor a language code"):
         compile_store({"names": {"areas": {"kitchen": {"name": "Küche", "German": "Küche"}}}})
 
     # Naming it in the app's language keeps its other names, and so does
@@ -129,35 +129,96 @@ def test_names_are_in_their_language(english, tmp_path):
 
 
 def test_a_devices_own_whatever_it_is_called_in(english, tmp_path):
-    """How a device is reached (reach) and its area for voice are its own,
-    whatever it is called in: kept when it is named in another language. One
-    only implicit has no name; removed, it is gone."""
+    """A device's names in its area and in the whole house (``house``: left
+    out, the same; empty, none) are in each language it is called in; its
+    area for voice and whether it is part of its area and heard with its area
+    said elsewhere are its own, kept when it is named in another language. One
+    only part of its area has no name; removed, it is gone."""
     from voice_call.store import Device  # pylint: disable=import-outside-toplevel
 
     store = Store(tmp_path)
-    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "reach": "area", "area": "office"})
-    assert store.load().devices == {"light.office_lamp": Device("area", "office")}
+    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "house": ["Office Lamp"], "area": "office", "with_area": False})
+    assert store.load().devices == {"light.office_lamp": Device("office", ("Lamp",), ("Office Lamp",), with_area=False)}
     languages.use("de")
-    store.put_name("entities", "light.office_lamp", {"name": "Lampe"})
+    store.put_name("entities", "light.office_lamp", {"name": "Lampe", "house": []})
     entities = store.document()["names"]["entities"]
-    assert entities["light.office_lamp"] == {"name": "Lamp", "de": {"name": "Lampe"}, "reach": "area", "area": "office"}
-    assert store.load().data["names"]["entities"]["light.office_lamp"] == {"name": "Lampe"}  # what adapt-ctc reads
-    languages.use("en")
-    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "reach": "anywhere", "area": None})
-    assert store.document()["names"]["entities"]["light.office_lamp"] == {"name": "Lamp", "de": {"name": "Lampe"}}
-    # Only implicit: no name, heard by none.
-    store.put_name("entities", "light.night", {"name": "", "reach": "implicit"})
-    assert store.document()["names"]["entities"]["light.night"] == {"reach": "implicit"}
+    assert entities["light.office_lamp"] == {
+        "name": "Lamp", "house": ["Office Lamp"], "de": {"name": "Lampe", "house": []}, "area": "office", "with_area": False}
     compiled = store.load()
-    assert compiled.devices["light.night"] == Device("implicit") and "light.night" not in compiled.data["names"]["entities"]
+    assert compiled.data["names"]["entities"]["light.office_lamp"] == {"name": "Lampe"}  # what adapt-ctc reads: every name
+    assert compiled.devices["light.office_lamp"] == Device("office", ("Lampe",), (), with_area=False)
+    languages.use("en")
+    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "aliases": ["Desk Lamp"], "area": None, "with_area": None})
+    assert store.document()["names"]["entities"]["light.office_lamp"] == {"name": "Lamp", "aliases": ["Desk Lamp"], "de": {"name": "Lampe", "house": []}}
+    assert store.load().devices["light.office_lamp"] == Device(None, ("Lamp", "Desk Lamp"), ("Lamp", "Desk Lamp"))
+    # Only part of its area: no name, heard by none.
+    store.put_name("entities", "light.night", {"name": "", "house": []})
+    assert store.document()["names"]["entities"]["light.night"] == {}
+    compiled = store.load()
+    assert compiled.devices["light.night"] == Device() and "light.night" not in compiled.data["names"]["entities"]
+    with pytest.raises(ConfigError, match="Give it a name"):
+        store.put_name("entities", "light.night", {"name": "", "house": [], "implicit": False})
     store.put_name("entities", "light.night", None)
     assert "light.night" not in store.document()["names"]["entities"]
-    # What it was: local, its area's.
-    assert compile_store({"names": {"entities": {"light.x": {"name": "X", "local": True}}}}).devices["light.x"].reach == "area"
-    with pytest.raises(ConfigError, match="reach: one of anywhere, area, name, implicit"):
-        compile_store({"names": {"entities": {"light.x": {"name": "X", "reach": "everywhere"}}}})
+    with pytest.raises(ConfigError, match="implicit: true or false"):
+        compile_store({"names": {"entities": {"light.x": {"name": "X", "implicit": "no"}}}})
+    with pytest.raises(ConfigError, match="house: a list of names"):
+        compile_store({"names": {"entities": {"light.x": {"name": "X", "house": "X"}}}})
     with pytest.raises(ConfigError, match="only a device has one"):
-        compile_store({"names": {"areas": {"office": {"name": "Office", "reach": "area"}}}})
+        compile_store({"names": {"areas": {"office": {"name": "Office", "implicit": False}}}})
+
+
+def test_devices_from_before_have_their_names_where_they_were_heard(english, tmp_path):
+    """A commands file from before version 3: a device's ``reach`` becomes
+    where its names are heard -- anywhere, in the whole house too; its area,
+    only there; by name only, not part of its area; only implicitly, by no
+    name -- written once, the file as it was kept beside it."""
+    import json  # pylint: disable=import-outside-toplevel
+
+    from voice_call.store import VERSION, Device  # pylint: disable=import-outside-toplevel
+
+    before = {"version": 2, "language": "en", "commands": {}, "lists": {}, "names": {"entities": {
+        "light.porch": {"name": "Porch Light"},
+        "light.office_lamp": {"name": "Lamp", "reach": "area", "area": "office", "de": "Lampe"},
+        "light.old": {"name": "Old Lamp", "local": True},
+        "light.desk": {"name": "Desk Light", "reach": "name"},
+        "light.night": {"reach": "implicit"},
+    }}}
+    (tmp_path / "commands.json").write_text(json.dumps(before))
+    store = Store(tmp_path)
+    devices = store.load().devices
+    assert devices == {
+        "light.porch": Device(None, ("Porch Light",), ("Porch Light",)),
+        "light.office_lamp": Device("office", ("Lamp",), ()),
+        "light.old": Device(None, ("Old Lamp",), ()),
+        "light.desk": Device(None, ("Desk Light",), ("Desk Light",), implicit=False),
+        "light.night": Device(),
+    }
+    saved = json.loads((tmp_path / "commands.json").read_text())
+    assert saved["version"] == VERSION
+    assert saved["names"]["entities"]["light.office_lamp"] == {"name": "Lamp", "area": "office", "de": {"name": "Lampe", "house": []}, "house": []}
+    assert json.loads((tmp_path / "commands.before-names.json").read_text()) == before
+
+
+def test_name_clashes_are_names_two_devices_have_where_they_are_heard():
+    from voice_call.store import Device, name_clashes  # pylint: disable=import-outside-toplevel
+
+    devices = {
+        "light.office_lamp": Device(None, ("Lamp",), ("Office Lamp",)),
+        "light.bedroom_lamp": Device(None, ("Lamp",), ("Bedroom Lamp",)),
+        "light.desk": Device(None, ("lamp",), ("office  lamp",)),
+        "light.porch": Device(None, ("Lamp",), ()),
+    }
+    area = {"light.office_lamp": "office", "light.bedroom_lamp": "bedroom", "light.desk": "office", "light.porch": None}.get
+    clashes = name_clashes(devices, area)
+    # Lamp in the office twice, and Office Lamp in the whole house twice; the
+    # bedroom's lamp is its own, and the porch's names in no area are heard nowhere.
+    assert clashes == {
+        "light.office_lamp": [{"name": "Lamp", "with": ["light.desk"], "area": "office"},
+                              {"name": "Office Lamp", "with": ["light.desk"], "area": None}],
+        "light.desk": [{"name": "lamp", "with": ["light.office_lamp"], "area": "office"},
+                       {"name": "office  lamp", "with": ["light.office_lamp"], "area": None}],
+    }
 
 
 def test_lists_are_in_their_language(english, tmp_path):

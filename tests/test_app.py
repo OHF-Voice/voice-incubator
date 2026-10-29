@@ -609,6 +609,24 @@ async def _scenario(tmp_path: Path) -> None:
             for gone in ("play_music_device_en", "play_music_device"):
                 assert (await http.delete(f"/api/commands/{gone}")).status == 200
 
+            # A device's names: one of its area's another device has there,
+            # or another's whole house name, is refused.
+            def put(entity_id, body):
+                return http.put(f"/api/names/entities/{entity_id}", json=body)
+
+            assert (await put("light.desk_lamp", {"name": "Lamp", "house": ["Office Lamp"]})).status == 200
+            bad = await put("light.bedroom_lamp", {"name": "Lamp", "house": ["Bedroom Lamp"], "area": "office"})
+            assert bad.status == 400 and (await bad.json())["error"] == "“Lamp” is already Desk Lamp (light.desk_lamp)'s name in the Office"
+            bad = await put("light.bedroom_lamp", {"name": "Lamp", "house": ["Office Lamp"]})
+            assert bad.status == 400 and (await bad.json())["error"] == "“Office Lamp” is already Desk Lamp (light.desk_lamp)'s whole house name"
+            assert (await put("light.bedroom_lamp", {"name": "Lamp", "house": ["Bedroom Lamp"], "with_area": False})).status == 200
+            devices = (await (await http.get("/api/store")).json())["devices"]
+            assert devices["light.bedroom_lamp"] == {
+                "here": ["Lamp"], "house": ["Bedroom Lamp"], "implicit": True, "with_area": False, "area": None,
+                "ha_area": "bedroom", "clashes": []}
+            for gone in ("light.desk_lamp", "light.bedroom_lamp"):
+                assert (await http.delete(f"/api/names/entities/{gone}")).status == 200
+
             # A Home Assistant conversation agent gets what nothing here
             # understood, in a conversation kept on each satellite.
             async def agent_said(text):

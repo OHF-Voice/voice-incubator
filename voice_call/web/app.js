@@ -2294,52 +2294,91 @@ function fillSpeechPanel(panel, voices) {
 
 // ------------------------------------------------------------------- names
 
-// How a device is reached by voice (store.REACH): "Controlled from".
-const REACH = [
-  ["anywhere", "Anywhere", "by its name from every satellite, and as part of its area (“turn on the lights”)"],
-  ["area", "Its area", "by its name only from a satellite in its area, and as part of it"],
-  ["name", "By name only", "by its name from every satellite, never as part of its area"],
-  ["implicit", "Only implicitly", "only as part of its area, with no name"],
-];
+// What being part of its area does for a device of each kind: the area-wide
+// commands and questions that use it. Other kinds are only ever named.
+const AREA_WIDE = {
+  light: "“turn on the lights” includes it",
+  cover: "“close the blinds” and the like include it",
+  valve: "“close the valves” includes it",
+  lock: "“lock up” includes it",
+  binary_sensor: "“is anything open” checks it",
+  climate: "“set the temperature” there sets it",
+  media_player: "“pause” there pauses it",
+};
+const areaWide = (itemId) => AREA_WIDE[String(itemId).split(".")[0]];
 
 // Home Assistant's aliases, but not one that is the name again.
 const sameName = (a, b) => String(a).toLowerCase().split(/\s+/).join(" ").trim() === String(b).toLowerCase().split(/\s+/).join(" ").trim();
 
-// The devices voice acts on: each added to an area, by name or as part of it.
+// A name without its area in front: "Office Lamp" in the Office is "Lamp".
+function withoutArea(name, area) {
+  const said = String(name || "").trim();
+  return area && said.toLowerCase().startsWith(`${area.toLowerCase()} `) ? said.slice(area.length + 1).trim() : said;
+}
+
+// The devices voice acts on: each by its names in its area and in the whole
+// house, and as part of its area.
 function devicesPanel(store, areas) {
   const devices = store.devices || {};
-  const names = store.names.entities || {};
   const areaName = (id) => (id ? areas[id] || id : "No area");
-  const reachLabel = (value) => (REACH.find(([v]) => v === value) || REACH[0])[1];
   const form = h("div");
   function edit(itemId, suggestion) {
-    const device = devices[itemId] || {};
-    const entry = names[itemId];
+    const device = devices[itemId] || { here: [], house: [], implicit: true, with_area: true };
     const haArea = suggestion ? suggestion.area_id : device.ha_area;
-    const name = h("input", { type: "text", placeholder: "name",
-      value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : "") });
-    let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
-      : (suggestion ? asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name)) : []);
+    let here = asList(device.here);
+    let house = asList(device.house);
+    if (suggestion) {
+      // Home Assistant's name: in its area without the area, in the whole house with it.
+      const label = haArea ? areaName(haArea) : null;
+      const bare = withoutArea(suggestion.name, label);
+      const aliases = asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name));
+      here = label ? [bare, ...aliases.map((a) => withoutArea(a, label)).filter((a) => a && !sameName(a, bare))] : [];
+      house = label ? [`${label} ${bare}`] : [suggestion.name, ...aliases];
+    }
     const area = h("select", {},
       h("option", { value: "" }, `${areaName(haArea)} (Home Assistant's)`),
       ...Object.entries(areas).map(([id, text]) => h("option", { value: id, selected: device.area === id }, text)));
-    const reach = h("select", {}, ...REACH.map(([value, label]) => h("option", { value, selected: (device.reach || "anywhere") === value }, label)));
-    const naming = h("div", { class: "grid2" },
-      field("Name", name),
-      field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Echo Bee"), "Other names, and spellings the speech model uses (it writes ecobee as “Echo Bee”)."));
-    const shown = () => { naming.style.display = reach.value === "implicit" ? "none" : ""; };
-    reach.addEventListener("change", shown);
+    const wide = areaWide(itemId);
+    const implicit = h("input", { type: "checkbox", checked: device.implicit !== false });
+    const withArea = h("input", { type: "checkbox", checked: device.with_area !== false });
+    const insideTitle = h("span");
+    const withAreaText = h("span");
+    const implicitText = h("span");
+    const inside = h("div", { class: "names-part" },
+      h("h4", { class: "with-hint" }, insideTitle, hint("Heard from a satellite in this area. No other device there may have one.")),
+      chipsInput(here, (v) => { here = v; }, "add a name"),
+      h("label", {}, withArea, withAreaText, hint("From a satellite elsewhere, one of these with the area said (“the lamp in the office”).")));
+    const implicitRow = wide ? h("label", {}, implicit, implicitText) : null;
+    function shown() {
+      const where = area.value || haArea;
+      const name = where ? areaName(where) : null;
+      inside.hidden = !where;
+      insideTitle.textContent = `In the ${name}`;
+      withAreaText.textContent = `Also from other areas, with “in the ${name}” said`;
+      implicitText.textContent = where ? `Part of the ${name}: ${wide}` : `Part of the whole house: ${wide}`;
+    }
+    area.addEventListener("change", shown);
     shown();
     fill(form, h("div", { class: "panel" },
       h("div", { class: "row" }, h("b", {}, itemId), suggestion ? h("span", { class: "muted small" }, "suggested from Home Assistant — edit before saving") : null),
-      h("div", { class: "grid2" },
-        field("Area", area, "Where it is for voice: Home Assistant's area unless you pick another."),
-        field("Controlled from", reach, REACH.map(([, label, what]) => `${label}: ${what}.`).join(" "))),
-      naming,
+      field("Area", area, "Where it is for voice: Home Assistant's area unless you pick another."),
+      inside,
+      h("div", { class: "names-part" },
+        h("h4", { class: "with-hint" }, "In the whole house", hint("Heard from every satellite. No other device may have one.")),
+        chipsInput(house, (v) => { house = v; }, "add a name")),
+      implicitRow,
       h("div", { class: "row" },
         h("button", { class: "primary", onclick: async () => {
+          const where = area.value || haArea;
+          if (!(where && here.length) && !house.length && !(wide && implicit.checked)) {
+            form.append(errorBox(wide ? "Give it a name, or make it part of its area." : "Give it a name."));
+            return;
+          }
           try {
-            await api("PUT", `names/entities/${encodeURIComponent(itemId)}`, { name: name.value, aliases, reach: reach.value, area: area.value || null });
+            await api("PUT", `names/entities/${encodeURIComponent(itemId)}`, {
+              name: here[0] || "", aliases: here.slice(1), house, with_area: withArea.checked,
+              ...(wide ? { implicit: implicit.checked } : {}), area: area.value || null,
+            });
             toast("Saved"); pageNames(); refreshStatus();
           } catch (err) { form.append(errorBox(err)); }
         } }, "Save"),
@@ -2351,21 +2390,27 @@ function devicesPanel(store, areas) {
     const where = device.area || device.ha_area || "";
     (byArea[where] = byArea[where] || []).push(itemId);
   }
-  const order = Object.keys(byArea).sort((a, b) => (a ? areaName(a) : "\uffff").localeCompare(b ? areaName(b) : "\uffff"));
-  const said = (itemId) => { const entry = names[itemId]; return entry ? (typeof entry === "string" ? entry : entry.name) : ""; };
+  const order = Object.keys(byArea).sort((a, b) => (a ? areaName(a) : "￿").localeCompare(b ? areaName(b) : "￿"));
+  const listed = (names) => (names.length ? names.join(", ") : h("span", { class: "muted" }, "none"));
+  // A name another device has where it is heard.
+  const clash = (clashes) => (clashes.length ? h("span", { class: "badge bad", style: "margin-left:6px",
+    title: clashes.map((c) => `“${c.name}” is also ${c.with.join(", ")}'s`).join("\n") }, "shared") : null);
   return h("div", { class: "panel" },
-    heading("h2", "Devices", "Voice acts only on the devices added here: by name, or as part of their area (“turn on the lights”). Home Assistant's exposure to Assist doesn't count."),
+    heading("h2", "Devices", "Voice acts only on the devices added here: by their names in their area, by their names in the whole house, or as part of their area (“turn on the lights”). Home Assistant's exposure to Assist doesn't count."),
     order.length ? order.map((where) => h("div", { class: "panel inset devices-area" },
       h("h3", { class: "row" }, areaName(where), h("span", { class: "badge" }, String(byArea[where].length))),
-      h("table", { class: "devices" }, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {}, "Controlled from"), h("th", {})),
+      h("table", { class: "devices" }, h("tr", {}, h("th", {}, "Id"), h("th", {}, "In its area"), h("th", {}, "Whole house"), h("th", {}, "Area-wide"), h("th", {})),
         ...byArea[where].map((itemId) => {
-          const entry = names[itemId];
           const device = devices[itemId];
+          const clashes = device.clashes || [];
           return h("tr", {},
-            h("td", {}, h("code", {}, itemId)),
-            h("td", { "data-label": "Name" }, device.reach === "implicit" ? h("span", { class: "muted" }, "no name") : said(itemId)),
-            h("td", { "data-label": "Also called" }, entry && typeof entry !== "string" ? asList(entry.aliases).join(", ") : ""),
-            h("td", { "data-label": "Controlled from" }, reachLabel(device.reach), device.area ? h("span", { class: "badge", style: "margin-left:8px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+            h("td", {}, h("code", {}, itemId),
+              device.area ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+            h("td", { "data-label": "In its area" }, where ? [listed(device.here), clash(clashes.filter((c) => c.area)),
+              device.here.length && !device.with_area ? h("span", { class: "badge", style: "margin-left:6px", title: "Not heard from other areas, even with its area said." }, "only there") : null]
+              : h("span", { class: "muted" }, "—")),
+            h("td", { "data-label": "Whole house" }, listed(device.house), clash(clashes.filter((c) => !c.area))),
+            h("td", { "data-label": "Area-wide" }, areaWide(itemId) ? (device.implicit ? "Yes" : "No") : h("span", { class: "muted" }, "—")),
             h("td", { style: "text-align:right; white-space:nowrap" },
               h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
               h("button", { class: "link", onclick: async () => {

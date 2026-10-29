@@ -37,10 +37,13 @@ from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, par
 _LOGGER = logging.getLogger(__name__)
 
 STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "version"}
-VERSION = 2
-"""What a commands file is: 2, its commands from the library follow it
-(voice_call/library.py); before, they were copies of it, and are made to
-follow it when read."""
+VERSION = 3
+"""What a commands file is: 3, a device has names in its area and in the
+whole house (``house``), and says whether it is part of its area
+(``implicit``) and heard with its area said elsewhere (``with_area``); before,
+one ``reach`` said where its names were heard (migrate_names). 2, its
+commands from the library follow it (voice_call/library.py); before, they
+were copies of it, and are made to follow it when read."""
 NAME_KINDS = ("entities", "areas", "floors")
 
 def new_store(language: str) -> dict[str, Any]:
@@ -157,61 +160,74 @@ def language_name(code: str) -> str:
         return code
 
 
-NAME_FIELDS = ("name", "aliases")
-REACH = ("anywhere", "area", "name", "implicit")
-"""How a device added on the Names page is reached by voice ("Controlled
-from"): ``anywhere``, by its name from every satellite, and as part of its
-area ("turn on the lights"); ``area``, by its name only from a satellite in
-its area -- not even with the area said -- and as part of it; ``name``, by
-its name from every satellite, never as part of its area; ``implicit``, only
-as part of its area, with no name."""
-THING_FIELDS = ("reach", "area", "local")
-"""The device's own, whatever language it is named in: its ``reach`` and its
-``area`` for voice, in place of Home Assistant's. (``local``: what ``reach:
-area`` was.)"""
+NAME_FIELDS = ("name", "aliases", "house")
+"""A thing's names in one language: ``name`` and ``aliases``; a device's are
+those heard in its area, and ``house`` those heard from every satellite (not
+there: the same names; empty: none)."""
+THING_FIELDS = ("area", "implicit", "with_area")
+"""The device's own, whatever language it is named in: its ``area`` for
+voice, in place of Home Assistant's; whether it is part of what is meant in
+its area ("turn on the lights": ``implicit``) and heard elsewhere by a name of
+its area's with the area said ("the lamp in the office": ``with_area``) --
+both true unless false."""
 
 
 @dataclass(frozen=True)
 class Device:
-    """A device added on the Names page: what voice may act on, and how."""
+    """A device added on the Names page: what voice may act on, and how --
+    with its names in the app's language."""
 
-    reach: str = "anywhere"
-    """REACH."""
     area: str | None = None
     """Its area for voice, set on the Names page; None: Home Assistant's."""
+    here: tuple[str, ...] = ()
+    """Its names in its area: from a satellite there."""
+    house: tuple[str, ...] = ()
+    """Its names in the whole house: from every satellite."""
+    implicit: bool = True
+    """Part of what is meant in its area ("the lights")."""
+    with_area: bool = True
+    """Heard elsewhere by a name of its area's, with the area said."""
 
     @property
     def named(self) -> bool:
         """Whether it is heard by a name."""
-        return self.reach != "implicit"
+        return bool(self.here or self.house)
 
     @property
-    def implicit(self) -> bool:
-        """Whether it is part of what is meant in its area ("the lights")."""
-        return self.reach != "name"
+    def phrases(self) -> tuple[str, ...]:
+        """Every name it is heard by, somewhere."""
+        return tuple(dict.fromkeys((*self.here, *self.house)))
 
 
-def device_of(entry: Any) -> Device:
-    """A Names page entry as a device."""
+def device_of(entry: Any, here: str, default: str) -> Device:
+    """A Names page entry as a device, with its names in ``here`` (the
+    file's language: ``default``)."""
     if not isinstance(entry, dict):
-        return Device()
-    reach = entry.get("reach") or ("area" if entry.get("local") else "anywhere")
-    return Device(str(reach), str(entry["area"]) if entry.get("area") else None)
+        named = (str(entry),) if isinstance(entry, str) and entry and here == default else ()
+        return Device(here=named, house=named)
+    said = name_in(entry, here, default)
+    said = {"name": said} if isinstance(said, str) else said or {}
+    inside = tuple(dict.fromkeys(str(n) for n in [said.get("name"), *(said.get("aliases") or [])] if n))
+    house = tuple(dict.fromkeys(str(n) for n in said["house"] if n)) if "house" in said else inside
+    return Device(
+        area=str(entry["area"]) if entry.get("area") else None, here=inside, house=house,
+        implicit=entry.get("implicit") is not False, with_area=entry.get("with_area") is not False,
+    )
 
 
 def name_in(entry: Any, here: str, default: str) -> Any:
-    """What a thing is called in ``here`` -- its ``name``/``aliases`` when
-    ``here`` is the file's language (``default``), else its part under
-    ``here``'s code -- as adapt-ctc reads a name; None when it isn't named in
-    ``here``."""
+    """What a thing is called in ``here`` -- its NAME_FIELDS when ``here``
+    is the file's language (``default``), else its part under ``here``'s code;
+    None when it isn't named in ``here``. (A device's ``house`` comes with it,
+    empty or not: an empty one says it has none.)"""
     if isinstance(entry, str):
         return entry if here == default else None
     if not isinstance(entry, dict):
         return None
     if here != default:
         return entry.get(here) or None
-    own = {k: v for k, v in entry.items() if k in NAME_FIELDS and v}
-    return own or None
+    own = {k: v for k, v in entry.items() if k in NAME_FIELDS and (v or k == "house")}
+    return own if any(own.values()) or "house" in own else None
 
 
 def named_languages(entry: Any, default: str) -> list[str]:
@@ -222,6 +238,59 @@ def named_languages(entry: Any, default: str) -> list[str]:
         return []
     own = [default] if any(entry.get(k) for k in NAME_FIELDS) else []
     return own + [k for k, v in entry.items() if k not in NAME_FIELDS and k not in THING_FIELDS and v]
+
+
+def migrate_names(data: dict[str, Any]) -> list[str]:
+    """A commands file's devices from before version 3, as they are now: each
+    one's ``reach`` (or ``local``) said where its names were heard --
+    ``anywhere`` (no reach): in the whole house too, as now when ``house`` is
+    left out; ``area``: only in its area (``house`` empty, in each language
+    it is named in); ``name``: everywhere, but never as part of its area
+    (``implicit: false``); ``implicit``: no name, as now. The devices changed."""
+    changed = []
+    for item_id, entry in ((data.get("names") or {}).get("entities") or {}).items():
+        if not isinstance(entry, dict) or not ({"reach", "local"} & set(entry)):
+            continue
+        reach = entry.pop("reach", None) or ("area" if entry.pop("local", False) else "anywhere")
+        entry.pop("local", None)
+        if reach == "area":
+            entry["house"] = []
+            for key, part in entry.items():
+                if LANGUAGE_CODE.fullmatch(str(key)) and isinstance(part, dict):
+                    part["house"] = []
+                elif LANGUAGE_CODE.fullmatch(str(key)) and isinstance(part, str):
+                    entry[key] = {"name": part, "house": []}
+        elif reach == "name":
+            entry["implicit"] = False
+        changed.append(str(item_id))
+    return changed
+
+
+def name_clashes(devices: dict[str, Device], area_of: Any) -> dict[str, list[dict[str, Any]]]:
+    """Names heard for more than one device where they are heard -- a name of
+    an area's two devices there, or a whole house name two devices have --
+    by device: ``{name, with, area}`` (``area``: in its area; None: in the
+    whole house). ``area_of``: a device's area for voice."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    seen: dict[tuple[str | None, str], list[tuple[str, str]]] = {}
+    for entity_id, device in devices.items():
+        area = area_of(entity_id)
+        for name in device.here if area else ():
+            seen.setdefault((area, phrase_key(name)), []).append((entity_id, name))
+        for name in device.house:
+            seen.setdefault((None, phrase_key(name)), []).append((entity_id, name))
+    for (area, _key), owners in seen.items():
+        ids = list(dict.fromkeys(e for e, _ in owners))
+        if len(ids) < 2:
+            continue
+        for entity_id, name in owners:
+            out.setdefault(entity_id, []).append({"name": name, "with": [e for e in ids if e != entity_id], "area": area})
+    return out
+
+
+def phrase_key(name: str) -> str:
+    """A name as it is compared: lowercase, its words single-spaced."""
+    return " ".join(str(name).lower().split())
 
 
 def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
@@ -237,13 +306,26 @@ def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
                     if key in THING_FIELDS:
                         _check_own(kind, str(item_id), key, entry[key])
                     elif key not in NAME_FIELDS and not LANGUAGE_CODE.fullmatch(str(key)):
-                        raise ConfigError(f"names.{kind}.{item_id}: {key!r} is neither name, aliases nor a language code")
-            if kind == "entities" and not device_of(entry).named:
-                continue  # heard by no name: only as part of its area
-            said = name_in(entry, here, default)
-            if said is not None:
-                out[kind][str(item_id)] = said
-                continue
+                        raise ConfigError(f"names.{kind}.{item_id}: {key!r} is neither name, aliases, house nor a language code")
+                for part in [entry, *(v for k, v in entry.items() if LANGUAGE_CODE.fullmatch(str(k)) and isinstance(v, dict))]:
+                    if "house" in part and not isinstance(part["house"], list):
+                        raise ConfigError(f"names.{kind}.{item_id}.house: a list of names")
+            if kind == "entities":
+                device = device_of(entry, here, default)
+                if device.named:
+                    # adapt-ctc hears every name; where each counts is the engine's.
+                    phrases = device.phrases
+                    out[kind][str(item_id)] = {"name": phrases[0], **({"aliases": list(phrases[1:])} if phrases[1:] else {})}
+                    continue
+                if name_in(entry, here, default) is not None:
+                    continue  # named here with none: only as part of its area
+            else:
+                said = name_in(entry, here, default)
+                if isinstance(said, dict) and "house" in said:
+                    raise ConfigError(f"names.{kind}.{item_id}: only a device has whole house names (house)")
+                if said is not None:
+                    out[kind][str(item_id)] = said
+                    continue
             for language in named_languages(entry, default):
                 hidden[language] = hidden.get(language, 0) + 1
     return out, hidden
@@ -254,11 +336,9 @@ def _check_own(kind: str, item_id: str, key: str, value: Any) -> None:
     where = f"names.{kind}.{item_id}.{key}"
     if kind != "entities":
         raise ConfigError(f"{where}: only a device has one")
-    if key == "reach" and value not in REACH:
-        raise ConfigError(f"{where}: one of {', '.join(REACH)}")
     if key == "area" and not (isinstance(value, str) and value):
         raise ConfigError(f"{where}: an area id")
-    if key == "local" and not isinstance(value, bool):
+    if key in ("implicit", "with_area") and not isinstance(value, bool):
         raise ConfigError(f"{where}: true or false")
 
 
@@ -356,7 +436,7 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    devices = {str(item_id): device_of(entry) for item_id, entry in (names.get("entities") or {}).items()}
+    devices = {str(item_id): device_of(entry, here, language) for item_id, entry in (names.get("entities") or {}).items()}
     return Compiled(
         data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names,
         hidden_lists, devices,
@@ -415,8 +495,11 @@ class Store:
                 _write_atomic(self.commands_path, _dumps(data))
             if not isinstance(data, dict):
                 raise ConfigError("commands file: expected a mapping")
-            if int(data.get("version") or 1) < VERSION:
+            version = int(data.get("version") or 1)
+            if version < 2:
                 data = self._follow_library(data)
+            if version < 3:
+                data = self._migrate_names(data)
             self._document = data
         return plain(self._document)
 
@@ -427,13 +510,27 @@ class Store:
 
         before = _dumps(data)
         changed = migrate(data)
-        data["version"] = VERSION
+        data["version"] = 2
         kept = self.data_dir / "commands.before-library.json"
         if changed and not kept.exists():
             _write_atomic(kept, before)
         _write_atomic(self.commands_path, _dumps(data))
         if changed:
             _LOGGER.info("%d command(s) follow the library now: %s (as they were: %s)", len(changed), ", ".join(changed), kept.name)
+        return data
+
+    def _migrate_names(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Devices from before version 3 as they are now (migrate_names); the
+        file as it was is kept beside it, once."""
+        before = _dumps(data)
+        changed = migrate_names(data)
+        data["version"] = VERSION
+        kept = self.data_dir / "commands.before-names.json"
+        if changed and not kept.exists():
+            _write_atomic(kept, before)
+        _write_atomic(self.commands_path, _dumps(data))
+        if changed:
+            _LOGGER.info("%d device(s) on the Names page as they are now: %s (as they were: %s)", len(changed), ", ".join(changed), kept.name)
         return data
 
     def load(self) -> Compiled:
@@ -540,20 +637,28 @@ class Store:
         return self.update(edit)
 
     def put_name(self, kind: str, item_id: str, spec: dict[str, Any] | None) -> Compiled:
-        """Name a thing in the app's language, and for a device set its own
-        (``reach``, ``area``: THING_FIELDS), kept whatever it is called in.
-        One reached only as part of its area (``reach: implicit``) has no
-        name. None: no longer named in the app's language -- and a thing
-        named in no language any more, or a device with no name, is gone."""
+        """Name a thing in the app's language -- a device in its area (``name``,
+        ``aliases``) and in the whole house (``house``: left out, the same;
+        empty, none) -- and for a device set its own (THING_FIELDS: None, as
+        it is by default), kept whatever it is called in. A device may have no
+        name, and then is only part of its area. None: no longer named in the
+        app's language -- and a thing named in no language any more is gone."""
         if kind not in NAME_KINDS:
             raise ConfigError(f"names: unknown kind {kind!r}")
         spec = dict(spec) if spec is not None else None
-        own = {k: spec.pop(k) for k in ("reach", "area") if k in spec} if spec is not None else {}
+        own = {k: spec.pop(k) for k in THING_FIELDS if k in spec} if spec is not None else {}
         for key, value in own.items():
             if value is not None:
                 _check_own(kind, item_id, key, value)
-        if own.get("reach") == "implicit":
-            spec = {}  # no name
+        if spec is not None:
+            if "house" in spec and kind != "entities":
+                raise ConfigError(f"names.{kind}.{item_id}: only a device has whole house names (house)")
+            # An empty name or list says nothing -- but an empty house, that there are none.
+            spec = {k: v for k, v in spec.items() if v or (k == "house" and v is not None)}
+            if not any(spec.get(k) for k in NAME_FIELDS):
+                spec = {}  # named by nothing in this language
+            if kind == "entities" and not spec and own.get("implicit") is False:
+                raise ConfigError("Give it a name, or make it part of its area")
 
         def edit(document: dict[str, Any]) -> None:
             names = document["names"]
@@ -568,15 +673,12 @@ class Store:
                 if isinstance(entry, dict)
                 else {}
             )
-            # Its own: as set, else as it was.
-            was = device_of(entry) if isinstance(entry, dict) else Device()
-            reach = own["reach"] if own.get("reach") else was.reach
-            area = own["area"] if "area" in own else was.area
+            # Its own: as set, else as it was; as it is by default, left out.
+            mine = {**({k: entry[k] for k in THING_FIELDS if k in entry} if isinstance(entry, dict) else {}), **own}
+            mine = {k: v for k, v in mine.items() if v is not None and v is not True}
             if here != default:
-                if isinstance(entry, str) or (isinstance(entry, dict) and any(entry.get(k) for k in NAME_FIELDS)):
-                    base = {"name": entry} if isinstance(entry, str) else {k: entry[k] for k in NAME_FIELDS if k in entry}
-                else:
-                    base = {}
+                base = {"name": entry} if isinstance(entry, str) else (
+                    {k: entry[k] for k in NAME_FIELDS if k in entry} if isinstance(entry, dict) else {})
                 kept = {**base, **others, **({here: spec} if spec else {})}
             else:
                 kept = {**(spec or {}), **others}
@@ -584,7 +686,7 @@ class Store:
                 items.pop(item_id, None)  # named in no language any more
                 return
             if kind == "entities":
-                kept.update({**({"reach": reach} if reach != "anywhere" else {}), **({"area": area} if area else {})})
+                kept.update(mine)
             items[item_id] = kept
 
         return self.update(edit)

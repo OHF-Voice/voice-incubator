@@ -11,14 +11,21 @@
   entity would speak on (unavailable: an ESPHome device it can't connect to),
   rather than ten silent seconds waiting for it.
 - **The Names page decides what voice acts on**: only the devices added
-  there, each under its area (Home Assistant's, unless set there for voice),
-  and **controlled from** anywhere, its area (by name only from a satellite
-  there -- not even with the area said elsewhere), by name only (never part of
-  "turn on the lights"), or only implicitly (no name). "Turn on the lights",
-  "close the blinds", "lock up", pausing what plays and the questions about
-  an area act on the devices added there, each by name; Home Assistant's
-  exposure to Assist no longer counts. Templates see `devices` in place of
-  `exposed`. (`local: true` is read as `reach: area`.)
+  there, each under its area (Home Assistant's, unless set there for voice).
+  A device has **names in its area**, heard from a satellite there -- and
+  from elsewhere with the area said ("the lamp in the office"), unless turned
+  off -- and **names in the whole house**, heard from every satellite; each
+  one device's where it is heard (a name two share is refused when saved,
+  flagged on the page and never guessed). Added from Home Assistant, "Office
+  Lamp" in the Office is "Lamp" there and "Office Lamp" everywhere. A light,
+  cover, lock, thermostat, media player or door sensor is also **part of its
+  area** unless turned off: "turn on the lights", "close the blinds", "lock
+  up", pausing what plays and the questions about an area act on the
+  devices added there, each by name; Home Assistant's exposure to Assist no
+  longer counts. Templates see `devices` in place of `exposed`. A device is
+  spoken of as it is heard where you are ("the lamp" in the office, "the
+  office lamp" elsewhere). A commands file from before is read as version
+  3, the file as it was kept beside it (`commands.before-names.json`).
 - **Devices are said by their names on the Names page**, not Home
   Assistant's ("Outdoor Humidity is 54 percent.", not "GW2000B Humidity"):
   the library's replies, the app's own ("Ecobee can't …"), what an intent

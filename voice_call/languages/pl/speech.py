@@ -314,6 +314,12 @@ def not_here(device: str, rooms: list[str]) -> str:
     return f"ale {device} nie znajduje się tutaj" + (", tylko " + where if rooms else "")
 
 
+def several(device: str) -> str:
+    """Why: the name said is more than one device's where it is heard (a
+    name of the area's two devices, or a whole house name two have)."""
+    return f"ale więcej niż jedno urządzenie nazywa się {device}"
+
+
 _WHICH = {"entity": "które urządzenie", "area": "które pomieszczenie", "floor": "które piętro", "scene": "która scena", "script": "który skrypt"}
 _SLOTS = {
     "color": "jaki kolor", "percentage": "ile procent", "temperature": "jaka temperatura", "volume": "jaka głośność",

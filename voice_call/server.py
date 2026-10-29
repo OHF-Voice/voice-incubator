@@ -688,7 +688,7 @@ class VoiceCallApp:
             self.options.threads,
             self.store.data_dir / "embeddings.npz",  # kept for the next start
         )
-        self.engine.entity_area = self._entity_area
+        self.engine.entity_area = self.entity_area
         self.configure_skills()
         await self.reload_commands()
         self._spawn(self.configure_fallback())
@@ -842,7 +842,7 @@ class VoiceCallApp:
 
     # ------------------------------------------------- devices, responses, agent
 
-    def _entity_area(self, entity_id: str) -> str | None:
+    def entity_area(self, entity_id: str) -> str | None:
         """A device's area for voice: the Names page's, else Home Assistant's
         (its own, else its device's)."""
         device = self.voice_devices().get(entity_id)
@@ -891,11 +891,14 @@ class VoiceCallApp:
             "voices": len(self.speakers.profiles.speakers) if self.speakers is not None else None,
         }
 
-    def said_names(self) -> dict[str, dict[str, str]]:
+    def said_names(self, area_id: str | None = None) -> dict[str, dict[str, str]]:
         """What things are called when spoken of: their names on the Names
-        page, in the app's language (actions.said_names)."""
+        page, in the app's language (actions.said_names) -- a device as it is
+        heard from a satellite in ``area_id`` (actions.device_said)."""
         compiled = self.engine.compiled if self.engine is not None else None
-        return actions.said_names(compiled.data.get("names") if compiled is not None else None)
+        said = actions.said_names(compiled.data.get("names") if compiled is not None else None)
+        said["entities"] = actions.device_said(self.voice_devices(), self.entity_area, area_id)
+        return said
 
     def beep_elsewhere(self) -> str:
         """``settings.json`` ``beep_elsewhere``: what a command that beeps
@@ -2578,7 +2581,7 @@ class VoiceCallApp:
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
-            home=self.store.settings.get("home"), satellites=self, names=self.said_names(),
+            home=self.store.settings.get("home"), satellites=self, names=self.said_names(satellite.area_id),
             devices=self.voice_devices(),
         )
         if record is not None:
