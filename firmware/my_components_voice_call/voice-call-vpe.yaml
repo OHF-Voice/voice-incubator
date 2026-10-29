@@ -37,6 +37,8 @@ substitutions:
   # distorts above roughly 85%. The app's speech follows it (sync_call_volume).
   volume_min: "0.4"
   volume_max: "0.85"
+  # A production VPE has 16 MB; early prototypes 8 MB (-s flash_size 8MB).
+  flash_size: 16MB
 
 esphome:
   name: ${name}
@@ -56,7 +58,7 @@ esp32:
   board: esp32-s3-devkitc-1
   cpu_frequency: 240MHz
   variant: esp32s3
-  flash_size: 16MB
+  flash_size: ${flash_size}
   framework:
     type: esp-idf
     version: recommended

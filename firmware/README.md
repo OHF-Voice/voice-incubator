@@ -19,8 +19,8 @@ in this repo.
 
 ## Building and flashing
 
-Built with ESPHome 2026.10.0-dev (kahrendt's fork at `cb1b4b0bd7`, plus one
-voice_assistant commit this firmware doesn't use). Besides voice_call it takes
+Built with ESPHome 2026.11.0-dev (kahrendt's fork at `01fc4432ef`, plus
+voice_assistant work this firmware doesn't use); 2026.10.0-dev builds it too. Besides voice_call it takes
 `voice_kit` from esphome/home-assistant-voice-pe (`dev`). The XMOS runs the stock
 1.3.1 firmware, which `voice_kit` installs from its release on a device that has
 another.
@@ -31,9 +31,17 @@ cp secrets.yaml.example secrets.yaml
 esphome run voice-call-vpe.yaml --device voice-call-vpe.local
 ```
 
-Both satellites run this config. The second needs its own name, or it comes up
-as `voice-call-vpe` too and clashes with the first on the network:
+Every satellite runs this config. Each after the first needs its own name, or
+it comes up as `voice-call-vpe` too and clashes with the first on the network:
 
 ```bash
 esphome -s name voice-call-vpe-2 -s friendly_name "Voice Call VPE 2" run voice-call-vpe.yaml --device voice-call-vpe-2.local
+```
+
+An early prototype VPE has 8 MB of flash, not 16 (`esptool flash-id` says
+which); built for 16 MB, it can't read its partition table and restarts over
+and over. Flash it with `-s flash_size 8MB`:
+
+```bash
+esphome -s name voice-call-vpe-3 -s friendly_name "Voice Call VPE 3" -s flash_size 8MB run voice-call-vpe.yaml --device /dev/ttyACM1
 ```
