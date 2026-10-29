@@ -278,7 +278,6 @@ def hint(description: str, why: str) -> str:
     return f"Parece que quieres {description}, {why}."
 
 
-NOT_HERE = "pero eso no está configurado aquí"
 PARTLY = "pero no lo he entendido todo"
 
 
@@ -611,3 +610,10 @@ def _on_players(sentence: str, players: list[str]) -> str:
     if not players:
         return sentence
     return f"{sentence[:-1]}, en {join(players)}."
+
+
+def not_available(place: str) -> str:
+    """A command heard that isn't heard here: another area's own, or the
+    whole home's turned off in this one (``place``: "in the Kitchen"; "" for
+    a satellite in no area)."""
+    return f"Ese comando no está disponible {place or 'aquí'}."

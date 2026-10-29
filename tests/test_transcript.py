@@ -196,8 +196,8 @@ def test_a_copy_on_a_satellite_says_the_same_sentences(engine):
     store = {
         "commands": {
             "lights": lights,
-            "kids_lights": {**lights, "satellites": ["k"], "response": "Night light."},
-            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "satellites": ["k"], "response": "Bedtime."},
+            "kids_lights": {**lights, "area": "kids", "response": "Night light."},
+            "kids_time": {"description": "tell the time", "examples": ["what time is it"], "area": "kids", "response": "Bedtime."},
             "time": {"description": "tell the time", "examples": ["what time is it"], "response": "Noon."},
         },
     }
@@ -225,7 +225,7 @@ def test_a_copy_says_the_same_templates(engine):
     # A template is every sentence it stands for: a copy's, all the first's,
     # makes it a twin.
     lights = {"description": "turn on the lights", "examples": ["(turn|switch) on the light[s]"], "response": "Lights."}
-    store = {"commands": {"lights": lights, "kids_lights": {**lights, "satellites": ["k"], "response": "Night light."}}}
+    store = {"commands": {"lights": lights, "kids_lights": {**lights, "area": "kids", "response": "Night light."}}}
     compiled = compile_store(store)
     assert compiled.twins == {"lights": ("kids_lights",)} and "kids_lights" not in compiled.config["intents"]
     engine.build(compiled)

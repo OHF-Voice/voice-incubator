@@ -259,9 +259,8 @@ commands:
         brief: Unlocking it.
         specific: "Unlocking {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) }}."
     needs:
-      - Add names for the locks it may unlock (Names page). Anyone the satellite
-        hears can unlock them; keep it to the satellites that should with a
-        command group.
+      - Add names for the locks it may unlock (Names). Anyone a satellite hears
+        can unlock them; turn it off in the areas that shouldn't.
 
   lock_all:
     title: Lock up

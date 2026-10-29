@@ -73,8 +73,8 @@ How much is said when it is done is the command's verbosity
 (commands.VERBOSITY): nothing at all, a beep, or its response for that level
 -- or the closest written -- else the built-in sentence for it. A beep is for what the
 satellite's own area can see happen: a command that acted elsewhere says the
-``elsewhere`` level instead (settings.json ``beep_elsewhere``), and a
-question always answers.
+``elsewhere`` level instead (settings.json ``beep_elsewhere``). An area may
+cap it (its ``at_most``, voice_labs/areas.py), and a question always answers.
 
 Every command that runs also fires a ``voice_labs_command`` event with the
 same variables plus ``outcome`` and ``response`` (what was said), so
@@ -104,6 +104,7 @@ from typing import Any
 from adapt_ctc.text import spoken_words
 
 from . import alarms, capabilities, languages, timers
+from .areas import capped
 from . import music as music_ops
 from . import people as people_ops
 from .commands import QUIET, SPOKEN, Behavior, Command, closest_text
@@ -136,6 +137,9 @@ class Outcome:
 
     elsewhere: str = BEEP_ELSEWHERE
     """The level for a beep when it acted out of the satellite's area."""
+
+    at_most: str | None = None
+    """The most it says, in the satellite's area (areas.AT_MOST; None: as much as it would)."""
 
     music: dict[str, Any] | None = None
     """For a music command: the players, and what it searched and found."""
@@ -418,7 +422,7 @@ async def run(
         values["items"] = found
     if adding is not None:
         values.update(items=adding.items, back=adding.back, added=_joined(adding.items), put_back=_joined(adding.back))
-    outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere)
+    outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere, at_most=satellite.settings.get("at_most"))
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
     if unset:
@@ -1373,14 +1377,19 @@ def _music_players(
     return named, nearby
 
 
-def level_for(behavior: Behavior, here: bool, elsewhere: str = BEEP_ELSEWHERE) -> tuple[str, str]:
-    """The verbosity a done command says at, and why."""
+def level_for(behavior: Behavior, here: bool, elsewhere: str = BEEP_ELSEWHERE, at_most: str | None = None) -> tuple[str, str]:
+    """The verbosity a done command says at, and why. ``at_most``: the
+    area's cap (areas.AT_MOST)."""
     level = behavior.level
     why = "the command's" if behavior.verbosity else "the default for what it does"
     if level in QUIET and behavior.question:
-        return "brief", "a question always answers"
-    if level == "beep" and not here and elsewhere in SPOKEN:
-        return elsewhere, "it acted out of the satellite's area"
+        level, why = "brief", "a question always answers"
+    elif level == "beep" and not here and elsewhere in SPOKEN:
+        level, why = elsewhere, "it acted out of the satellite's area"
+    if capped(level, at_most) != level:
+        level, why = capped(level, at_most), "the most said in the satellite's area"
+        if level in QUIET and behavior.question:
+            level, why = "brief", "a question always answers"
     return level, why
 
 
@@ -1400,7 +1409,7 @@ async def _say(
     outcome.name = name
     level = None
     if name == "done":
-        level, why = level_for(behavior, bool(values["place"]["here"]), outcome.elsewhere)
+        level, why = level_for(behavior, bool(values["place"]["here"]), outcome.elsewhere, outcome.at_most)
         outcome.verbosity = {"level": level, "why": why, "place": values["place"]}
     if isinstance(default, dict):
         default = closest_text(default, level or "specific") or ""

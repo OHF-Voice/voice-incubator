@@ -200,8 +200,11 @@ def hint(description: str, why: str) -> str:
     return f"It looks like you're trying to {description}, {why}."
 
 
-NOT_HERE = "but that isn't set up here"
-"""Why: the command doesn't run on this satellite."""
+def not_available(place: str) -> str:
+    """A command heard that isn't heard here: another area's own, or the
+    whole home's turned off in this one (``place``: "in the Kitchen"; "" for
+    a satellite in no area)."""
+    return f"That command isn't available {place or 'here'}."
 
 PARTLY = "but I didn't understand all of it"
 """Why: only some of it was understood."""

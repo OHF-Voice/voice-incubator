@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from typing import Any
 
 from voice_labs import actions
@@ -171,11 +172,11 @@ class StubCatalog:
         }
 
 
-def say(spec, slots=None, elsewhere=actions.BEEP_ELSEWHERE, hass=None, integration=None):
+def say(spec, slots=None, elsewhere=actions.BEEP_ELSEWHERE, hass=None, integration=None, satellite=SATELLITE):
     hass = hass or StubHass()
     command = parse_command("c", {"description": "do it", "examples": ["do it"], **spec})
     decision = Decision({"transcript": "do it"}, command, command.behavior, "command", slots=slots or {})
-    return asyncio.run(actions.run(hass, decision, SATELLITE, None, False, integration, None, elsewhere))
+    return asyncio.run(actions.run(hass, decision, satellite, None, False, integration, None, elsewhere))
 
 
 def test_a_beep_is_for_what_happens_here():
@@ -207,6 +208,18 @@ def test_the_closest_written_level_is_said():
     assert say({**LIGHTS, "verbosity": "brief", "response": "On."}).speech == "On."
     assert say({"action": {"action": "light.turn_on"}, "response": "On."}).speech == "On."
     assert say({"action": {"action": "light.turn_on"}}).speech == ""  # nothing to say: a beep
+
+
+def test_an_area_says_at_most_its_own():
+    # The area's "Say at most": no more, wherever it acted; a question still answers.
+    quiet = dataclasses.replace(SATELLITE, settings={"at_most": "beep"})
+    brief = dataclasses.replace(SATELLITE, settings={"at_most": "brief"})
+    office = say(LIGHTS, {"area": ["office"]}, satellite=quiet)
+    assert office.speech == "" and office.verbosity["why"] == "the most said in the satellite's area"
+    assert say(LIGHTS, {"area": ["office"]}, satellite=brief).speech == "Turned on the lights."
+    assert say({**LIGHTS, "verbosity": "brief"}, satellite=brief).speech == "Turned on the lights."
+    question = say({"verbosity": "verbose", "response": "It's late."}, satellite=quiet)
+    assert question.speech == "It's late." and question.verbosity["why"] == "a question always answers"
 
 
 def test_a_question_always_answers():

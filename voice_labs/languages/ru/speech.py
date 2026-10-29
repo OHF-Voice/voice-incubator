@@ -345,7 +345,6 @@ def hint(description: str, why: str) -> str:
     return f"Похоже, вы хотите {description}, {why}."
 
 
-NOT_HERE = "но здесь это не настроено"
 PARTLY = "но не всё удалось понять"
 
 
@@ -690,3 +689,10 @@ def _on_players(sentence: str, players: list[str]) -> str:
         return sentence
     where = "на устройстве" if len(players) == 1 else "на устройствах"
     return f"{sentence[:-1]}, {where} {join([f'«{p}»' for p in players])}."
+
+
+def not_available(place: str) -> str:
+    """A command heard that isn't heard here: another area's own, or the
+    whole home's turned off in this one (``place``: "in the Kitchen"; "" for
+    a satellite in no area)."""
+    return f"Эта команда недоступна {place or 'здесь'}."

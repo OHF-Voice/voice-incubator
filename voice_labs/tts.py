@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,9 @@ def load_voice(path: Path) -> PiperVoice:
 
 
 ALARM_PAUSE = 0.5
+OTHER_VOICES = 2
+"""Voices kept loaded besides the one replies are said in: areas' own
+(voice_labs/areas.py), the least lately used let go first."""
 """Silence between repeats of the timer alarm, as the stock VPE firmware has."""
 
 
@@ -88,6 +92,7 @@ class Speech:
         self._instrument = instrument or (lambda: None)
         """The instrument chosen (None: INSTRUMENT), asked each time a sound plays."""
         self._voice: PiperVoice | None = None
+        self._others: OrderedDict[Path, PiperVoice] = OrderedDict()
         self.instruments: dict[str, dict[str, bytes]] = {}
         """Each instrument's SOUNDS, by its folder's name."""
         self.alarm = b""
@@ -109,6 +114,22 @@ class Speech:
         """Speak with this voice from now on."""
         self._voice = await asyncio.to_thread(load_voice, Path(voice_path))
         self.voice_path = Path(voice_path)
+        self._others.pop(self.voice_path, None)
+
+    async def other(self, voice_path: Path) -> PiperVoice:
+        """Another voice to speak with now and then (an area's own), loaded
+        once and kept while it is among the last OTHER_VOICES used."""
+        path = Path(voice_path)
+        if path == self.voice_path and self._voice is not None:
+            return self._voice
+        if path in self._others:
+            self._others.move_to_end(path)
+            return self._others[path]
+        voice = await asyncio.to_thread(load_voice, path)
+        self._others[path] = voice
+        while len(self._others) > OTHER_VOICES:
+            self._others.popitem(last=False)
+        return voice
 
     @property
     def defaults(self) -> dict[str, Any]:
@@ -124,10 +145,11 @@ class Speech:
         samples, rate = sf.read(path, dtype="float32", always_2d=False)
         return _to_device_pcm(samples, rate)
 
-    def sound(self, name: str) -> bytes:
-        """One of SOUNDS, on the instrument chosen (else INSTRUMENT); none when
-        it hasn't that one."""
-        chosen = self.instruments.get(self._instrument() or INSTRUMENT) or self.instruments.get(INSTRUMENT) or {}
+    def sound(self, name: str, instrument: str | None = None) -> bytes:
+        """One of SOUNDS, on ``instrument`` (else the one chosen, else
+        INSTRUMENT); none when it hasn't that one."""
+        wanted = instrument or self._instrument() or INSTRUMENT
+        chosen = self.instruments.get(wanted) or self.instruments.get(INSTRUMENT) or {}
         return chosen.get(name, b"")
 
     @property
@@ -147,11 +169,12 @@ class Speech:
     def asking(self) -> bytes:
         return self.sound("asking")
 
-    def synthesize(self, text: str, settings: dict[str, Any] | None = None) -> bytes:
+    def synthesize(self, text: str, settings: dict[str, Any] | None = None, voice: PiperVoice | None = None) -> bytes:
         """``text`` (a sentence of ``sentences_of``) as device PCM, as the
-        settings say (``settings``, else the Settings page's)."""
+        settings say (``settings``, else the Settings page's), in ``voice``
+        (``other``'s; else the one replies are said in)."""
         assert self._voice is not None
-        voice = self._voice
+        voice = voice or self._voice
         chosen = self._synthesis() if settings is None else settings
         config = SynthesisConfig(**synthesis(chosen, voice.config.speaker_id_map or {}))
         chunks = list(voice.synthesize(text, syn_config=config))

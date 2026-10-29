@@ -256,27 +256,34 @@ async def _scenario(tmp_path: Path) -> None:
             assert tried["dry_run"]
             assert len(hass.scripts) == scripts  # nothing ran since the debug session started
 
-            # Commands on every satellite, or on some: a copy picked for one
-            # goes first there.
-            async def tried_command(text):
-                record = await (await http.post("/api/try", json={"text": text, "satellite": MAC})).json()
+            # The whole home's commands, or an area's own: the satellite's
+            # area's own goes first there; another area's isn't heard, nor the
+            # whole home's turned off in its area.
+            async def tried_command(text, area=None):
+                body = {"text": text, "satellite": MAC} if area is None else {"text": text, "area": area}
+                record = await (await http.post("/api/try", json=body)).json()
                 return next(s for s in record["stages"] if s["stage"] == "recognition")
 
             copied = await (await http.post("/api/commands/what_time/duplicate", json={"new_id": "kids_time"})).json()
             assert copied["ok"]
-            kids_time = {**app.store.document()["commands"]["kids_time"], "satellites": [MAC]}
+            kids_time = {**app.store.document()["commands"]["kids_time"], "area": "kitchen"}
             assert (await http.put("/api/commands/kids_time", json={"spec": kids_time})).status == 200
-            assert app.engine.compiled.commands["kids_time"].satellites == (MAC,)
+            assert app.engine.compiled.commands["kids_time"].area == "kitchen"
             store_data = await (await http.get("/api/store")).json()
-            assert store_data["details"]["kids_time"]["satellites"] == [MAC] and store_data["details"]["what_time"]["satellites"] is None
+            assert store_data["details"]["kids_time"]["area"] == "kitchen" and store_data["details"]["what_time"]["area"] is None
             assert (await tried_command("what time is it"))["command"] == "kids_time"
-            lights = {**app.store.document()["commands"]["lights_on"], "satellites": ["elsewhere"]}
-            assert (await http.put("/api/commands/lights_on", json={"spec": lights})).status == 200
+            assert (await tried_command("what time is it", "office"))["command"] == "what_time"
+            assert (await http.put("/api/areas/kitchen/off", json={"commands": ["lights_on"], "off": True})).status == 200
+            assert app.store.document()["commands"]["lights_on"]["off"] == ["kitchen"]
             recognition = await tried_command("turn on the lights")
             assert recognition["command"] is None
-            assert recognition["skipped"][0] == {"command": "lights_on", "why": "not on this satellite"}
-            del lights["satellites"]
-            assert (await http.put("/api/commands/lights_on", json={"spec": lights})).status == 200
+            assert recognition["skipped"][0] == {"command": "lights_on", "why": "turned off in this area"}
+            assert recognition["message"] == "That command isn't available in the Kitchen."
+            assert (await tried_command("turn on the lights", "office"))["command"] == "lights_on"
+            # Only the whole home's are turned off in areas.
+            assert (await http.put("/api/areas/kitchen/off", json={"commands": ["kids_time"], "off": True})).status == 400
+            assert (await http.put("/api/areas/kitchen/off", json={"commands": ["lights_on"], "off": False})).status == 200
+            assert "off" not in app.store.document()["commands"]["lights_on"]
             assert (await tried_command("turn on the lights"))["command"] == "lights_on"
             assert (await http.delete("/api/commands/kids_time")).status == 200
             assert (await http.put(f"/api/satellites/{MAC}", json={"icon": "mdi:sofa"})).status == 200
@@ -305,7 +312,13 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await (await http.get("/api/status")).json())["fallback"]["threshold"] == 0.45
             # What a command that beeps says when it acted out of sight.
             status = await (await http.get("/api/status")).json()
-            assert status["verbosity"] == {"levels": ["silent", "beep", "brief", "specific", "verbose"], "beep_elsewhere": "specific"}
+            assert status["verbosity"] == {"levels": ["silent", "beep", "brief", "specific", "verbose"], "beep_elsewhere": "specific",
+                                           "at_most": None}
+            assert (await http.put("/api/settings", json={"at_most": "specific"})).status == 400
+            assert (await http.put("/api/settings", json={"at_most": "brief"})).status == 200
+            assert app.satellite(MAC).settings["at_most"] == "brief"
+            assert (await http.put("/api/settings", json={"at_most": None})).status == 200
+            assert "at_most" not in app.store.settings
             assert status["outcomes"]["timer_levels"]["start"]["brief"] == "Timer started."
             assert (await http.put("/api/settings", json={"beep_elsewhere": "loud"})).status == 400
             assert (await http.put("/api/settings", json={"beep_elsewhere": "brief"})).status == 200
@@ -377,21 +390,48 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/skills/arithmetic", json={"verbosity": None, "response": ""})).status == 200
             assert "skill_responses" not in app.store.settings
             assert await said("what is twelve times eight") == "It's 96."
-            assert math["satellites"] is True
-            assert (await http.put("/api/skills/arithmetic", json={"satellites": False})).status == 200
-            assert app.store.settings["skills"] == {"arithmetic": False}
+            # A skill answers everywhere, but where it is turned off: in every
+            # area, or in some.
+            assert math["disabled"] is False and math["off"] == []
+            assert (await http.put("/api/skills/arithmetic", json={"on": False})).status == 200
+            assert app.store.settings["skills"] == {"arithmetic": {"disabled": True}}
             assert await said("what is twelve times eight") != "It's 96."
             assert await said("what is twelve times eight", None) != "It's 96."
-            assert (await http.put("/api/skills/arithmetic", json={"satellites": [MAC]})).status == 200
-            assert await said("what is twelve times eight") == "It's 96."  # on this one
-            assert await said("what is twelve times eight", None) != "It's 96."
-            listed = await (await http.get("/api/skills")).json()
-            assert next(s for s in listed["skills"] if s["id"] == "arithmetic")["satellites"] == [MAC]
-            assert (await http.put("/api/skills/arithmetic", json={"satellites": True})).status == 200
+            assert (await http.put("/api/skills/arithmetic", json={"on": True})).status == 200
             assert "skills" not in app.store.settings
-            assert (await http.put("/api/skills/nope", json={"satellites": False})).status == 404
-            assert (await http.put("/api/skills/live", json={"satellites": False})).status == 404
-            assert (await http.put("/api/skills/units", json={"satellites": "off"})).status == 400
+            assert (await http.put("/api/areas/kitchen/off", json={"skills": ["arithmetic"], "off": True})).status == 200
+            assert await said("what is twelve times eight") != "It's 96."  # the satellite's area
+            assert await said("what is twelve times eight", None) == "It's 96."  # in no area
+            listed = await (await http.get("/api/skills")).json()
+            assert next(s for s in listed["skills"] if s["id"] == "arithmetic")["off"] == ["kitchen"]
+            assert (await http.put("/api/areas/kitchen/off", json={"skills": ["arithmetic"], "off": False})).status == 200
+            assert "skills" not in app.store.settings
+            assert (await http.put("/api/skills/nope", json={"on": False})).status == 404
+            assert (await http.put("/api/skills/live", json={"on": False})).status == 404
+            assert (await http.put("/api/skills/units", json={"on": "off"})).status == 400
+            assert (await http.put("/api/areas/kitchen/off", json={"skills": ["nope"], "off": True})).status == 404
+
+            # The Home page's areas: those with something in them and those
+            # added, each with its own settings over the whole home's.
+            places = await (await http.get("/api/areas")).json()
+            kitchen = next(a for a in places["areas"] if a["id"] == "kitchen")
+            assert kitchen["satellites"] == [MAC] and kitchen["floor"] == "Ground Floor" and kitchen["icon"] == "mdi:stove"
+            assert "bedroom" in {a["id"] for a in places["others"]} and places["floors"][0]["name"] == "Ground Floor"
+            assert (await http.put("/api/areas/bedroom", json={})).status == 200
+            assert "bedroom" in {a["id"] for a in (await (await http.get("/api/areas")).json())["areas"]}
+            own = {"at_most": "beep", "climate": "climate.upstairs", "sounds": False, "silence_seconds": 1.2, "instrument": "koto"}
+            assert (await http.put("/api/areas/kitchen", json={"settings": own})).status == 200
+            here = app.satellite(MAC).settings
+            assert here["at_most"] == "beep" and here["home"]["climate"] == "climate.upstairs" and here["sounds"] is False
+            assert here["instrument"] == "koto" and app.end_of_speech(MAC).silence_seconds == 1.2
+            assert app.place("office").settings["sounds"] is True  # the whole home's
+            for wrong in ({"at_most": "loud"}, {"climate": "light.x"}, {"wake_word": "x"}, {"voice": "nobody"}, {"instrument": "tuba"}):
+                assert (await http.put("/api/areas/kitchen", json={"settings": wrong})).status == 400, wrong
+            assert (await http.put("/api/areas/kitchen", json={"settings": {k: None for k in own}})).status == 200
+            assert app.store.settings["areas"] == {"bedroom": {}, "kitchen": {}}
+            assert (await http.delete("/api/areas/bedroom")).status == 200
+            assert (await http.delete("/api/areas/kitchen")).status == 200
+            assert "areas" not in app.store.settings
 
             # A skill's settings: edited in full, stored as what differs.
             def skill(skills, skill_id):
@@ -1030,7 +1070,7 @@ async def _voices(tmp_path: Path) -> None:
         # commands on it, this satellite needs the words.
         def no_commands_here(on: bool) -> None:
             for command in app.engine.compiled.commands.values():
-                command.satellites = ("elsewhere",) if on else None
+                command.area = "elsewhere" if on else None
 
         no_commands_here(True)
         stored.update(stt_audio="aec")

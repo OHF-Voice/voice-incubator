@@ -21,7 +21,7 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
-from . import actions, alarms, downloads, languages, people, skills, timers, tones
+from . import actions, alarms, areas, downloads, languages, people, skills, timers, tones
 from .duplex import Duplex
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
@@ -352,11 +352,17 @@ class Cues:
     ``stop(close=True)`` ends the stream (and waits until it has played out)
     for a reply spoken some other way, or none."""
 
-    def __init__(self, app: VoiceLabsApp, session: Session) -> None:
+    def __init__(self, app: VoiceLabsApp, session: Session, instrument: str | None = None) -> None:
         self.sent = 0
         """Bytes the device was sent in this stream."""
+        self.instrument = instrument
+        """What they are played on (None: the whole home's)."""
         self._app, self._session = app, session
         self._lock = asyncio.Lock()
+
+    async def sound(self, name: str) -> None:
+        """One of tts.SOUNDS, on its instrument."""
+        await self.play(self._app.speech.sound(name, self.instrument))
 
     async def play(self, sound: bytes) -> None:
         if not sound:
@@ -579,6 +585,8 @@ class VoiceLabsApp:
         self.piper_dir = root / "models" / downloads.VOICES
         """Piper's voices, each downloaded the first time it is used (piper_voices)."""
         self.voice_download: downloads.Downloader | None = None
+        self._fetching_voices: set[str] = set()
+        """Areas' voices being downloaded (fetch_area_voice)."""
         """A voice the Settings page picked, while it downloads."""
         self.speech = Speech(
             self.piper_dir / self.language.piper,
@@ -818,7 +826,7 @@ class VoiceLabsApp:
         fallback = Fallback(wanted["meaning"], model, wanted["top_k"])
         if model is None:
             # Why it won't run, for a command chosen for it.
-            fallback.status = self._model_status or ("turned off on the Settings page" if not wanted["llm"] else "off")
+            fallback.status = self._model_status or ("turned off in Settings" if not wanted["llm"] else "off")
         self.engine.fallback = fallback
         fallback.prepare(self.engine)
 
@@ -860,7 +868,7 @@ class VoiceLabsApp:
     def end_of_speech(self, satellite: str | None = None) -> EndOfSpeech:
         """``settings.json`` ``end_of_speech`` (the Settings page) over
         ``end_of_speech_base`` -- and the ``silence_seconds`` of
-        ``satellite``'s own (its page), when it has one."""
+        ``satellite``'s own (its page), else its area's, when it has one."""
         base = self.end_of_speech_base()
         try:
             settings = parse_end_of_speech(self.store.settings.get("end_of_speech"), base)
@@ -868,6 +876,8 @@ class VoiceLabsApp:
             _LOGGER.warning("Ignoring end_of_speech in settings.json: %s", err)
             settings = base
         own = (self.store.satellites.get(satellite) or {}).get("silence_seconds") if satellite else None
+        if own is None and satellite:
+            own = self.satellite(satellite).settings.get("silence_seconds")
         if isinstance(own, (int, float)) and not isinstance(own, bool):
             settings = replace(settings, silence_seconds=float(own))
         return settings
@@ -937,17 +947,27 @@ class VoiceLabsApp:
             or (link.media_player if link is not None else None)
             or self.hass.catalog.music_player_for(key, node)
         )
-        extra = {
-            "media_player": media_player,
-            "voice": choose(self.store.settings, stored),
-            "device_media_player": self.hass.catalog.device_media_player(key) if key else None,
-            "skills": self.satellite_skills(key),
-        }
         if link is not None and link.device_id:
             area = self.hass.catalog.device_areas.get(link.device_id)
-            info = self.hass.catalog.area_info(area)
-            return Satellite(key, name, **info, device_id=link.device_id, timer_list=link.timer_list, **extra)
-        return Satellite(key, name, **self.hass.catalog.area_info(stored.get("area")), **extra)
+            linked = {"device_id": link.device_id, "timer_list": link.timer_list}
+        else:
+            area, linked = stored.get("area"), {}
+        return Satellite(
+            key, name, **self.hass.catalog.area_info(area), **linked,
+            media_player=media_player,
+            voice=choose(self.store.settings, stored),
+            device_media_player=self.hass.catalog.device_media_player(key) if key else None,
+            skills=self.satellite_skills(area),
+            settings=areas.effective(self.store.settings, area),
+        )
+
+    def place(self, area: str | None) -> Satellite:
+        """No satellite, as one in ``area`` (None: in no area) would be: for
+        trying a sentence there."""
+        return Satellite(
+            "", "web", **self.hass.catalog.area_info(area), skills=self.satellite_skills(area),
+            settings=areas.effective(self.store.settings, area),
+        )
 
     # ----------------------------------------------------------- TDT model
 
@@ -1096,10 +1116,10 @@ class VoiceLabsApp:
             self.store.people[new] = self.store.people.pop(found)
             self.store.save_people()
 
-    def satellite_skills(self, key: str | None) -> frozenset[str]:
-        """The skills that answer on a satellite (voice_labs/skills/). No
-        satellite: those on every one."""
-        return skills.enabled(self.store.settings.get("skills"), key)
+    def satellite_skills(self, area: str | None) -> frozenset[str]:
+        """The skills that answer on a satellite in ``area`` (voice_labs/skills/);
+        None: in no area."""
+        return skills.enabled(self.store.settings.get("skills"), area)
 
     def _remember_satellite(self, session: Session) -> None:
         entry = self.store.satellites.setdefault(session.satellite, {})
@@ -2371,9 +2391,10 @@ class VoiceLabsApp:
         """Recognize the command and do it. Whatever goes wrong, the call is
         answered and hung up rather than left open on the satellite. The
         heard sound plays the moment the command ended."""
-        if self.sounds():
-            call.cues = Cues(self, session)
-            await call.cues.play(self.speech.heard)
+        here = self.satellite(session.satellite).settings
+        if here["sounds"]:
+            call.cues = Cues(self, session, here["instrument"])
+            await call.cues.sound("heard")
         try:
             await self._respond_unguarded(session, call)
         except Exception as err:  # noqa: BLE001 - the satellite must hear back
@@ -2382,7 +2403,7 @@ class VoiceLabsApp:
                 call.record.stage("error", error=repr(err))
                 self.calls.finish(call.record, "error", repr(err), self._call_audio(call))
             with contextlib.suppress(Exception):
-                await self._cue(session, self.speech.not_understood)
+                await self._cue(session, "not_understood")
                 await self._say(session, self.language.speech.WENT_WRONG)
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
@@ -2502,7 +2523,7 @@ class VoiceLabsApp:
             cue=lambda sound: self._cue(session, sound),
         )
         if outcome in ("not recognized", "error"):
-            await self._cue(session, self.speech.not_understood)
+            await self._cue(session, "not_understood")
         answered = outcome == "answered"
         if answered:
             _LOGGER.info("[%s] Answered %r", session, decision.transcript)
@@ -2546,7 +2567,7 @@ class VoiceLabsApp:
             and decision.transcript.strip()
         ):
             if cue is not None and not dry_run:
-                await cue(self.speech.asking)
+                await cue("asking")
             said = await self._ask_agent(decision, satellite, dry_run, record)
             if said:
                 return said, "answered", f"{decision.transcript!r}: {self.agent.agent_id}'s answer"
@@ -2584,7 +2605,7 @@ class VoiceLabsApp:
         outcome = await actions.run(
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
-            home=self.store.settings.get("home"), satellites=self, names=self.said_names(satellite.area_id),
+            home=satellite.settings.get("home"), satellites=self, names=self.said_names(satellite.area_id),
             devices=self.voice_devices(),
         )
         if record is not None:
@@ -2600,7 +2621,8 @@ class VoiceLabsApp:
         set), or that level's template of yours, rendered by Home Assistant
         -- else, when it can't be, the built-in sentence."""
         config = skill_response(self.store.settings, str(answer.get("skill") or ""))
-        level = config["verbosity"]
+        # An answer, however little the area says: brief at the least.
+        level = areas.capped(config["verbosity"], "brief" if satellite.settings.get("at_most") else None)
         built_in = (answer.get("levels") or {}).get(level) or answer["text"]
         template = config["response"].get(level)
         said, error, seconds = built_in, None, None
@@ -2669,17 +2691,19 @@ class VoiceLabsApp:
         # the satellite even when its responses are spoken elsewhere.
         started = time.perf_counter()
         timing = {"seconds": 0, "synthesis": 0.0, "first": None}
+        acknowledge = self.speech.sound("acknowledge", satellite.settings.get("instrument"))
+        model, synthesis = await self._area_voice(satellite) if pieces else (None, None)
 
         async def spoken():
             if not pieces:
-                timing["first"], timing["seconds"] = 0.0, len(self.speech.acknowledge)
+                timing["first"], timing["seconds"] = 0.0, len(acknowledge)
                 await self._quiet(session, close=False)
-                yield self.speech.acknowledge
+                yield acknowledge
                 return
             for piece in pieces:
                 begun = time.perf_counter()
                 async with self._model_lock:
-                    audio = await asyncio.to_thread(self.speech.synthesize, piece)
+                    audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model)
                 timing["synthesis"] += time.perf_counter() - begun
                 if timing["first"] is None:
                     timing["first"] = time.perf_counter() - started
@@ -2743,15 +2767,17 @@ class VoiceLabsApp:
     # ------------------------------------------------- try, replay (web UI)
 
     async def try_text(
-        self, text: str, satellite_key: str | None, run_actions: bool = False, speak: bool = False
+        self, text: str, satellite_key: str | None, run_actions: bool = False, speak: bool = False,
+        area: str | None = None,
     ) -> CallRecord:
-        """``text`` as a command said on this satellite: as if heard word for
-        word (no speech recognition), or (``speak``) said by Piper and
-        recognized -- the whole pipeline after the wake word."""
+        """``text`` as a command said on this satellite (else as on one in
+        ``area``): as if heard word for word (no speech recognition), or
+        (``speak``) said by Piper and recognized -- the whole pipeline after
+        the wake word."""
         if satellite_key:
             satellite = self.satellite(satellite_key)
         else:
-            satellite = Satellite("", "web", skills=self.satellite_skills(None))
+            satellite = self.place(area)
         record = self.calls.begin("try", satellite.as_dict())
         record.dry_run = not run_actions
         record.stage("typed", text=text, spoken=speak)
@@ -3343,11 +3369,11 @@ class VoiceLabsApp:
         if call is not None and call.cues is not None:
             await call.cues.stop(close)
 
-    async def _cue(self, session: Session, sound: bytes) -> None:
-        """One of the call's sounds, when it has them (``Cues``)."""
+    async def _cue(self, session: Session, sound: str) -> None:
+        """One of the call's sounds (tts.SOUNDS), when it has them (``Cues``)."""
         call = session.call
         if call is not None and call.cues is not None:
-            await call.cues.play(sound)
+            await call.cues.sound(sound)
 
     def _wake_json(self, word_id: str | None) -> dict[str, Any]:
         """A call's wake word as commands see it (``wake_word``): its ``id``,
@@ -3402,6 +3428,45 @@ class VoiceLabsApp:
                 self.voice_download = None
         return voice.model(self.piper_dir)
 
+    def area_voice(self, satellite: Satellite) -> Voice | None:
+        """The voice replies are said in on ``satellite``: its area's own,
+        when Piper's catalog has it; None: the whole home's."""
+        key = satellite.settings.get("voice")
+        return piper_catalog().get(str(key)) if key else None
+
+    async def _area_voice(self, satellite: Satellite) -> tuple[Any, dict[str, Any] | None]:
+        """How replies are said on ``satellite`` when its area has a voice of
+        its own: the voice (Speech.other; None: the whole home's) and how it
+        speaks -- the whole home's settings, with the area's speaker. One not
+        here yet is downloaded, and the whole home's speaks meanwhile."""
+        voice = self.area_voice(satellite)
+        if voice is None:
+            return None, None
+        path = voice.model(self.piper_dir)
+        if not path.is_file():
+            self.fetch_area_voice(voice)
+            return None, None
+        settings = {k: v for k, v in self.piper_settings().items() if k not in ("voice", "speaker")}
+        if satellite.settings.get("speaker"):
+            settings["speaker"] = satellite.settings["speaker"]
+        return await self.speech.other(path), settings
+
+    def fetch_area_voice(self, voice: Voice) -> None:
+        """An area's voice, downloaded in the background unless it is here
+        or on its way."""
+        if not voice.missing(self.piper_dir) or voice.key in self._fetching_voices:
+            return
+        self._fetching_voices.add(voice.key)
+
+        async def fetch() -> None:
+            try:
+                await downloads.Downloader(voice.missing(self.piper_dir)).run()
+                _LOGGER.info("Downloaded %s, an area's voice", voice.key)
+            finally:
+                self._fetching_voices.discard(voice.key)
+
+        self._spawn(fetch())
+
     async def _fetch_training_voice(self) -> None:
         """The voice wake words are trained with, downloaded when training
         first needs it."""
@@ -3420,9 +3485,9 @@ class VoiceLabsApp:
     def sounds(self) -> bool:
         """settings.json ``sounds``: the call's sounds -- heard, not
         understood, asking the conversation agent -- unless false (or, from
-        before, ``thinking_sound`` false)."""
-        settings = self.store.settings
-        return settings.get("sounds", settings.get("thinking_sound")) is not False
+        before, ``thinking_sound`` false). An area may have its own
+        (voice_labs/areas.py)."""
+        return areas.whole_sounds(self.store.settings)
 
     async def _hang_up(self, session: Session, reason: str) -> None:
         await self._quiet(session, close=True)  # played out, not cut

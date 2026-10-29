@@ -1,5 +1,5 @@
-"""Commands: parsing, presets, slots, where they run (every satellite or
-some), and the store."""
+"""Commands: parsing, presets, slots, where they are heard (the whole
+home's, or an area's own), and the store."""
 
 import json
 
@@ -28,9 +28,9 @@ def test_everywhere_by_default():
 
 
 def test_scope_and_overrides_are_no_more():
-    # A command runs on every satellite or on some; what it does elsewhere is
-    # a copy of it, on those.
-    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*satellites list"):
+    # A command is the whole home's or an area's own; what it does elsewhere
+    # is a copy of it, there.
+    with pytest.raises(ConfigError, match=r"commands\.lights\.scope: no longer used: .*an area's own"):
         command(scope={"areas": ["kitchen"]})
     with pytest.raises(ConfigError, match=r"commands\.lights\.overrides: no longer used: .*copy of the command"):
         command(overrides=[{"scope": {"areas": ["office"]}, "scene": "scene.office"}])
@@ -249,23 +249,30 @@ def test_yaml_from_before_is_copied_once(tmp_path):
         Store(tmp_path / "other").load()
 
 
-def test_every_satellite_or_some():
+def test_the_whole_homes_or_an_areas_own():
     everywhere = command()
-    picked = command(satellites=["sat1", "sat3", "sat1"])
-    elsewhere = command(satellites=["sat2"])
-    assert everywhere.satellites is None and picked.satellites == ("sat1", "sat3")
-    kitchen = Satellite("sat1", "Kitchen", "kitchen")
-    assert kitchen.available(everywhere) is not None and kitchen.available(picked) is not None
-    assert kitchen.available(elsewhere) is None and kitchen.why_unavailable(elsewhere) == "not on this satellite"
-    # Those picked for it go first.
-    assert kitchen.first([elsewhere, everywhere, picked]) == [picked, everywhere]
-    # On none: nowhere (typed on the web page, with no satellite, too).
-    assert Satellite("sat1", "Kids").available(command(satellites=[])) is None
-    assert Satellite("", "web").available(picked) is None
-    with pytest.raises(ConfigError, match="satellites' keys"):
-        command(satellites="sat1")
-    with pytest.raises(ConfigError, match="satellite: no longer used: satellites"):
-        command(satellite="sat1")
+    kitchens = command(area="kitchen")
+    off = command(off=["nursery", "office", "nursery"])
+    assert everywhere.area is None and kitchens.area == "kitchen" and off.off == ("nursery", "office")
+    kitchen = Satellite("sat1", "Kitchen VPE", "kitchen", "Kitchen")
+    nursery = Satellite("sat2", "Nursery VPE", "nursery", "Nursery")
+    hall = Satellite("sat3", "Hall VPE")
+    assert all(kitchen.available(c) is not None for c in (everywhere, kitchens, off))
+    # Another area's own isn't heard there; the whole home's turned off isn't either.
+    assert nursery.available(kitchens) is None and nursery.why_unavailable(kitchens) == "another area's own"
+    assert nursery.available(off) is None and nursery.why_unavailable(off) == "turned off in this area"
+    assert nursery.not_here() == "That command isn't available in the Nursery."
+    # In no area: the whole home's only.
+    assert hall.available(off) is not None and hall.available(kitchens) is None
+    assert hall.not_here() == "That command isn't available here."
+    # The area's own go first.
+    assert kitchen.first([off, everywhere, kitchens]) == [kitchens, off, everywhere]
+    with pytest.raises(ConfigError, match="areas' ids"):
+        command(off="nursery")
+    with pytest.raises(ConfigError, match="only the whole home's"):
+        command(area="kitchen", off=["nursery"])
+    with pytest.raises(ConfigError, match="satellites: no longer used: .*an area's own"):
+        command(satellites=["sat1"])
 
 
 def test_an_item_on_a_list():
@@ -324,7 +331,7 @@ def test_choosing_commands_for_the_fallback(tmp_path):
 
 
 def test_command_groups_are_gone():
-    with pytest.raises(ConfigError, match="command groups are gone"):
+    with pytest.raises(ConfigError, match="groups: no longer used: a command is the whole home.s"):
         compile_store({"commands": {"lights": {**LIGHTS, "groups": ["kids"]}}})
     with pytest.raises(ConfigError, match="unknown top-level key"):
         compile_store({"groups": {"kids": {"name": "Kids"}}, "commands": {"lights": LIGHTS}})
@@ -340,9 +347,9 @@ def test_store_duplicates_a_command(tmp_path):
     assert list(compiled.commands) == ["lights", "lights_copy", "time"]
     assert compiled.commands["lights_copy"].title == "Lights, again"
     # Where it runs comes along.
-    store.put_command("kids_time", {**store.document()["commands"]["time"], "satellites": ["sat1"]})
+    store.put_command("kids_time", {**store.document()["commands"]["time"], "area": "nursery"})
     compiled = store.duplicate_command("kids_time", "time_again")
-    assert compiled.commands["time_again"].satellites == ("sat1",)
+    assert compiled.commands["time_again"].area == "nursery"
     assert list(store.document()["commands"]) == ["lights", "lights_copy", "time", "kids_time", "time_again"]
     with pytest.raises(ConfigError, match="already a command 'time'"):
         store.duplicate_command("lights", "time")

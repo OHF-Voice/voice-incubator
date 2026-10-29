@@ -99,6 +99,7 @@ class Area:
     name: str
     aliases: list[str] = field(default_factory=list)
     floor_id: str | None = None
+    icon: str | None = None
 
 
 @dataclass
@@ -687,7 +688,7 @@ class HomeAssistant:
             )
         for area in areas or []:
             catalog.areas[area["area_id"]] = Area(
-                area["area_id"], area["name"], list(area.get("aliases") or []), area.get("floor_id")
+                area["area_id"], area["name"], list(area.get("aliases") or []), area.get("floor_id"), area.get("icon")
             )
         wanted = [
             entry

@@ -34,6 +34,6 @@ satellites and look at sessions.
   Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again
   here, so it can be generous. A cutoff set on the Wake words page wins.
 - `speaker_threshold`: how closely a voice must match to be identified.
-- `silence_seconds`: silence that ends a command. **Silence to end**, on the
-  Settings page, wins.
+- `silence_seconds`: silence that ends a command. **Silence to end** in
+  Settings -- the whole home's, an area's or a satellite's -- wins.
 - `debug_logging`: verbose logs.

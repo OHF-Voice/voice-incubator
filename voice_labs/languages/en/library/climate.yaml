@@ -1,4 +1,4 @@
-# The home's thermostat (the Settings page), or one a command is given (its
+# The home's thermostat (Settings), or one a command is given (its
 # implied target): what it's set to and how warm it is inside, setting it,
 # its mode (heat, cool, off ...), and its fan. A thermostat by name, or in an
 # area, is Set the temperature, through Home Assistant's intent.
@@ -28,7 +28,7 @@ shared:
     needs:
       - Add names for the areas and floors it may act in (Names page).
   needs: &needs
-    - Set the home's thermostat on the Settings page, or give it one of its own
+    - Set the home's thermostat in Settings, or give it one of its own
       (its implied target).
 
 commands:
@@ -217,6 +217,6 @@ commands:
           {%- else -%}Set the thermostat's fan to {{ mode }}.
           {%- endif -%}
     needs:
-      - Set the home's thermostat on the Settings page, or give it one of its own
+      - Set the home's thermostat in Settings, or give it one of its own
         (its implied target). Its fan modes are matched by their words to the
         fan_modes list's (Names page).

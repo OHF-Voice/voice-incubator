@@ -118,24 +118,32 @@ class Answer:
         return out
 
 
-def skill_satellites(settings: Any, skill_id: str) -> tuple[str, ...] | bool:
-    """Where a skill answers (``settings.json`` ``skills``): every satellite
-    (True, unless set), none (False), or some (their keys)."""
+def skill_place(settings: Any, skill_id: str) -> tuple[bool, tuple[str, ...]]:
+    """Whether a skill is off everywhere, and the areas it is turned off in
+    (``settings.json`` ``skills``: ``{off: [...], disabled: true}``, or
+    false for off everywhere)."""
     value = settings.get(skill_id) if isinstance(settings, dict) else None
     if value is False:
-        return False
-    if isinstance(value, list):
-        return tuple(str(k) for k in value)
-    return True
+        return True, ()
+    if not isinstance(value, dict):
+        return False, ()
+    return bool(value.get("disabled")), tuple(str(a) for a in value.get("off") or [])
 
 
-def enabled(settings: Any = None, key: str | None = None) -> frozenset[str]:
-    """The skills that answer on a satellite (by its key); no key: those on
-    every satellite."""
+def skill_off(settings: Any, skill_id: str) -> tuple[str, ...] | bool:
+    """Where a skill doesn't answer: everywhere (True), or in these areas
+    (none: an empty tuple)."""
+    disabled, off = skill_place(settings, skill_id)
+    return True if disabled else off
+
+
+def enabled(settings: Any = None, area: str | None = None) -> frozenset[str]:
+    """The skills that answer on a satellite in ``area`` (None: in no area,
+    where only those off everywhere don't)."""
     out = set()
     for skill_id in available():
-        where = skill_satellites(settings, skill_id)
-        if where is True or (where is not False and key is not None and key in where):
+        off = skill_off(settings, skill_id)
+        if off is not True and (area is None or area not in off):
             out.add(skill_id)
     return frozenset(out)
 

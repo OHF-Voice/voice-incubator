@@ -296,6 +296,65 @@ details.family .versions .item:first-child { border-top: 1px solid var(--line); 
 .thresholds { display: grid; grid-template-columns: max-content 7.5em; gap: 6px 12px; align-items: center; margin: 6px 0; }
 .thresholds .label { font-weight: 600; font-size: 0.9rem; }
 
+/* The Home: the whole home and each area down the side (a select on a
+   phone); the one chosen beside them -- its satellites, then its Commands,
+   Names and Settings. */
+.home-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 20px; align-items: start; }
+.places { position: sticky; top: 62px; display: flex; flex-direction: column; gap: 2px; }
+a.place { display: flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 6px; color: var(--text); }
+a.place:hover { background: var(--panel); text-decoration: none; }
+a.place.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+a.place.on .icon { color: var(--accent); }
+.place .dots { display: flex; gap: 3px; }
+.place .dot { width: 8px; height: 8px; }
+.floor-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; margin: 12px 10px 2px; }
+.add-place { margin: 10px 4px 0; align-self: flex-start; }
+.place-select { display: none; width: 100%; margin-bottom: 10px; }
+.place-head { display: flex; gap: 10px; align-items: center; }
+.place-head h1 { margin: 0; }
+.place-head .icon.big { width: 30px; height: 30px; }
+.place-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 4px 0 14px; }
+.place-tabs a { border-bottom: 2px solid transparent; padding: 8px 14px; color: var(--muted); margin-bottom: -1px; }
+.place-tabs a:hover { color: var(--text); text-decoration: none; border-bottom-color: var(--line); }
+.place-tabs a.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tiles.compact { margin: 12px 0 14px; }
+.tiles.compact:empty { display: none; }
+@media (max-width: 760px) {
+  .home-layout { grid-template-columns: 1fr; }
+  .places { display: none; }
+  .place-select { display: block; }
+  .place-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+}
+/* The whole home's commands as an area has them: on or off there. */
+details.inherited + details.inherited { border-top: 1px solid var(--line); }
+details.inherited > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 9px 4px; color: inherit; font-size: inherit; }
+details.inherited > summary::-webkit-details-marker { display: none; }
+details.inherited > summary:hover { background: var(--bg); }
+details.inherited > summary .chevron { width: 18px; height: 18px; transition: transform .15s; }
+details.inherited[open] > summary .chevron { transform: rotate(90deg); }
+details.inherited > summary .title { font-weight: 600; }
+details.inherited .list { padding-left: 30px; }
+.item.off .grow, .item.off .icon.big { opacity: 0.5; }
+input.switch {
+  appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border-radius: 999px; margin: 0;
+  background: var(--line); position: relative; cursor: pointer; flex: none; transition: background .15s;
+}
+input.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: left .15s;
+}
+input.switch:checked { background: var(--accent); }
+input.switch:checked::after { left: 16px; }
+input.switch:indeterminate { background: var(--accent); opacity: .5; }
+input.switch:indeterminate::after { left: 9px; }
+input.switch:disabled { cursor: default; opacity: .4; }
+/* An area's setting: the whole home's until it has its own. */
+.inherit-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.inherit-row button.link { text-align: left; }
+.whole-value { color: var(--muted); font-size: 0.86rem; }
+table.devices.loose th:nth-child(2), table.devices.loose td:nth-child(2),
+table.devices.loose th:nth-child(4), table.devices.loose td:nth-child(4) { display: none; }
+
 /* The Home: a tile per satellite, then the Home's commands and skills. */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 16px; }
 .tile {

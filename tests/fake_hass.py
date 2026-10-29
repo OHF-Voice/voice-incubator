@@ -33,7 +33,7 @@ FLOORS = [
     {"floor_id": "first", "name": "First Floor", "aliases": ["upstairs"], "level": 1},
 ]
 AREAS = [
-    {"area_id": "kitchen", "name": "Kitchen", "aliases": [], "floor_id": "ground"},
+    {"area_id": "kitchen", "name": "Kitchen", "aliases": [], "floor_id": "ground", "icon": "mdi:stove"},
     {"area_id": "living_room", "name": "Living Room", "aliases": ["Den", "Lounge"], "floor_id": "ground"},
     {"area_id": "office", "name": "Office", "aliases": [], "floor_id": "first"},
     {"area_id": "bedroom", "name": "Bedroom", "aliases": ["Master Bedroom"], "floor_id": "first"},

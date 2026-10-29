@@ -1,4 +1,4 @@
-# The weather, from the home's weather entity (the Settings page), or one a
+# The weather, from the home's weather entity (Settings), or one a
 # command is given (its implied target): now, on a day, this week, and
 # whether it will rain or snow. The forecasts are its daily ones (weather.get_forecasts), so it must
 # have them. A day is said from the forecast_days list: today, tomorrow, the
@@ -23,7 +23,7 @@ shared:
     - stop: Read the forecast
       response_variable: reply
   needs: &needs
-    - Set the home's weather entity on the Settings page, or give it one of its
+    - Set the home's weather entity in Settings, or give it one of its
       own (its implied target). It needs daily forecasts.
 
 commands:

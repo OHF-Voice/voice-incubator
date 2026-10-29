@@ -8,7 +8,7 @@ import importlib
 import pytest
 
 from voice_labs import skills
-from voice_labs.skills import SKILLS, enabled, skill_response, skill_satellites
+from voice_labs.skills import SKILLS, enabled, skill_off, skill_response
 from voice_labs.skills.common import normalize
 from voice_labs.skills.live import is_live
 
@@ -164,17 +164,19 @@ def test_not_questions():
         assert skills.answer(text) is None
 
 
-def test_every_satellite_or_some():
+def test_everywhere_or_off_in_some_areas():
     assert enabled() == frozenset(SKILLS)
-    # Each on every satellite unless set: on none, or on some.
-    assert enabled({"units": False}, "sat1") == frozenset(SKILLS) - {"units"}
-    assert enabled({"units": ["sat1"]}, "sat1") == frozenset(SKILLS)
-    assert enabled({"units": ["sat1"]}, "sat2") == frozenset(SKILLS) - {"units"}
-    # No satellite (typed on the web page): those on every one.
-    assert enabled({"units": ["sat1"]}) == frozenset(SKILLS) - {"units"}
-    assert skill_satellites({"units": ["sat1"]}, "units") == ("sat1",) and skill_satellites({}, "units") is True
-    # Anything else counts as every satellite; unknown skills are ignored.
-    assert enabled({"units": "no", "nope": False}, "sat1") == frozenset(SKILLS)
+    # Each everywhere unless set: off everywhere, or in some areas.
+    assert enabled({"units": False}, "kitchen") == frozenset(SKILLS) - {"units"}
+    assert enabled({"units": {"disabled": True, "off": ["nursery"]}}, "kitchen") == frozenset(SKILLS) - {"units"}
+    assert enabled({"units": {"off": ["nursery"]}}, "kitchen") == frozenset(SKILLS)
+    assert enabled({"units": {"off": ["nursery"]}}, "nursery") == frozenset(SKILLS) - {"units"}
+    # In no area (or typed on the web page with none): only off everywhere counts.
+    assert enabled({"units": {"off": ["nursery"]}}) == frozenset(SKILLS)
+    assert skill_off({"units": {"off": ["nursery"]}}, "units") == ("nursery",) and skill_off({}, "units") == ()
+    assert skill_off({"units": False}, "units") is True
+    # Anything else counts as on; unknown skills are ignored.
+    assert enabled({"units": "no", "spelling": ["sat1"], "nope": False}, "kitchen") == frozenset(SKILLS)
 
 
 def test_each_skill_is_its_own_module():

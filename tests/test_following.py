@@ -21,9 +21,10 @@ def english():
 
 def test_the_librarys_version_with_its_settings():
     theirs = base("lights/turn_on_here")
-    spec = resolve("lights", {"from": "lights/turn_on_here", "satellites": ["sat1"], "verbosity": "brief", "examples": ["lights on"]})
+    spec = resolve("lights", {"from": "lights/turn_on_here", "off": ["nursery"], "verbosity": "brief", "examples": ["lights on"]})
     assert spec["require"] == theirs["require"] and spec["title"] == theirs["title"] and spec["library"] == "lights"
-    assert spec["satellites"] == ["sat1"] and spec["verbosity"] == "brief"
+    assert spec["off"] == ["nursery"] and spec["verbosity"] == "brief"
+    assert resolve("lights", {"from": "lights/turn_on_here", "area": "office"})["area"] == "office"
     assert spec["examples"] == [*(theirs.get("examples") or []), "lights on"]  # beside the library's
     # Its own implied target in place of the library's; null: none.
     shopping = resolve("s", {"from": "todo/shopping_list_add", "slots": {"entity": ["todo.groceries"]}})
@@ -41,7 +42,7 @@ def test_the_librarys_version_with_its_settings():
 
 def test_saved_as_what_differs():
     theirs = base("timers/start_timer")
-    page = {"from": "timers/start_timer", "satellites": None, "disabled": None, "verbosity": "verbose",
+    page = {"from": "timers/start_timer", "area": None, "off": None, "disabled": None, "verbosity": "verbose",
             "fallback": None, "title": theirs["title"], "icon": theirs.get("icon"), "slots": {}, "examples": []}
     assert settings(page, theirs) == {"from": "timers/start_timer", "verbosity": "verbose"}
 
@@ -50,7 +51,7 @@ def test_copies_from_before_follow_the_library():
     theirs = base("lights/turn_on_here")
     document = {"commands": {
         # As added then: the library's keys, and what was set since.
-        "turn_on_here": {**theirs, "examples": [*(theirs.get("examples") or []), "lights on"], "satellites": ["sat1"]},
+        "turn_on_here": {**theirs, "examples": [*(theirs.get("examples") or []), "lights on"], "area": "office"},
         "start_timer": {**base("timers/start_timer"), "verbosity": "verbose"},
         # An older version: its keys are the library's now.
         "shopping_list_add": {"title": "Add to the shopping list", "library": "basic", "description": "old",
@@ -63,7 +64,7 @@ def test_copies_from_before_follow_the_library():
     changed = migrate(document)
     commands = document["commands"]
     assert sorted(changed) == ["shopping_list_add", "start_timer", "start_timer_2", "turn_on_here", "what_time_de"]
-    assert commands["turn_on_here"] == {"from": "lights/turn_on_here", "satellites": ["sat1"], "examples": ["lights on"]}
+    assert commands["turn_on_here"] == {"from": "lights/turn_on_here", "area": "office", "examples": ["lights on"]}
     assert commands["start_timer"] == {"from": "timers/start_timer", "verbosity": "verbose"}
     # One from a section since split up: from where it is now.
     assert commands["shopping_list_add"] == {"from": "todo/shopping_list_add"}

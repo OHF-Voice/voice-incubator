@@ -25,7 +25,7 @@ from ruamel.yaml import YAML
 from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
-from . import languages, music, timers
+from . import areas, languages, music, timers
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
 from .endpoint import LIMITS
@@ -39,11 +39,11 @@ from .commands import (
     ICON,
     NUMBER_PRESETS,
     VERBOSITY,
+    area_ids,
     parse_command,
-    satellite_keys,
 )
 from .hass import VOICE_DOMAINS, HassError
-from .skills import LEVELS, SKILLS, available, skill_satellites
+from .skills import LEVELS, SKILLS, available, skill_place
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
 from .store import (
@@ -142,6 +142,10 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.get("/api/library", api.library),
             web.post("/api/library/add", api.library_add),
             web.get("/api/hass/catalog", api.catalog),
+            web.get("/api/areas", api.areas),
+            web.put("/api/areas/{id}", api.put_area),
+            web.delete("/api/areas/{id}", api.delete_area),
+            web.put("/api/areas/{id}/off", api.put_area_off),
             web.get("/api/satellites", api.satellites),
             web.put("/api/satellites/{key}", api.put_satellite),
             web.post("/api/satellites/{key}/debug", api.debug_session),
@@ -274,7 +278,10 @@ class Api:
                     "timer_levels": timers.level_examples(),
                     "music_levels": music.level_examples(),
                 },
-                "verbosity": {"levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere()},
+                "verbosity": {
+                    "levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere(),
+                    "at_most": app.store.settings.get("at_most"),
+                },
                 # The call's sounds: heard, not understood, asking the agent;
                 # and what they and the acknowledgement are played on.
                 "sounds": app.sounds(),
@@ -334,8 +341,10 @@ class Api:
                 command = parse_command(command_id, spec)
                 details[command_id] = {
                     "library": library_of(command_id, spec),
-                    # The satellites it is on (keys); None: every one.
-                    "satellites": list(command.satellites) if command.satellites is not None else None,
+                    # The area it is the own of (None: the whole home's), and
+                    # the areas the whole home's is turned off in.
+                    "area": command.area,
+                    "off": list(command.off),
                     "does": command.behavior.does,
                     # Meaning can't run it: it needs a name, number, value or text heard.
                     "needs_said": command.takes_something,
@@ -348,7 +357,8 @@ class Api:
                 details[command_id] = {
                     "error": str(err),
                     "library": library_of(command_id, spec if isinstance(spec, dict) else {}),
-                    "satellites": spec.get("satellites") if isinstance(spec, dict) else None,
+                    "area": spec.get("area") if isinstance(spec, dict) else None,
+                    "off": [],
                 }
         return web.json_response(
             {
@@ -630,9 +640,9 @@ class Api:
                 item["settings_error"] = error
             found = skill_answer(skill.examples[0], frozenset({skill.id}), {skill.id: settings})
             item["example"] = found.to_json() if found is not None else None
-            # Where it answers: every satellite (true), none (false), or some (keys).
-            where = skill_satellites(store.settings.get("skills"), skill.id)
-            item["satellites"] = list(where) if isinstance(where, tuple) else where
+            # Whether it answers at all, and the areas it is turned off in.
+            disabled, off = skill_place(store.settings.get("skills"), skill.id)
+            item["disabled"], item["off"] = disabled, list(off)
             out.append(item)
         return web.json_response(
             {
@@ -642,8 +652,8 @@ class Api:
         )
 
     async def put_skill(self, request: web.Request) -> web.Response:
-        """Where a skill answers (``satellites``: true for every satellite,
-        false for none, or some satellites' keys), how it answers (``verbosity``: a level,
+        """Whether a skill answers at all (``on``: false for nowhere; the
+        areas it is turned off in are the Home page's), how it answers (``verbosity``: a level,
         null for the default; ``response``: a template for every level, or
         ``{brief, specific, verbose}``, empty for the built-in sentences),
         and its settings (``settings``: in full, as GET gives them; null for
@@ -700,17 +710,10 @@ class Api:
             if not configured:
                 store.settings.pop("skill_responses", None)
             store.save_settings()
-        if "satellites" in body:
-            where = body["satellites"]
-            if where is not True and where is not False:
-                where = list(satellite_keys(where, "satellites") or ())
-            placed = store.settings.setdefault("skills", {})
-            if where is True:
-                placed.pop(skill_id, None)
-            else:
-                placed[skill_id] = where
-            if not placed:
-                store.settings.pop("skills")
+        if "on" in body:
+            if not isinstance(body["on"], bool):
+                raise ConfigError("on: true or false")
+            _skill_place(store.settings, skill_id, disabled=not body["on"])
             store.save_settings()
         return web.json_response({"ok": True})
 
@@ -723,7 +726,8 @@ class Api:
     async def library_add(self, request: web.Request) -> web.Response:
         """Library commands into yours: one (``file``, ``id``; ``new_id`` to
         name it), or several at once (``entries``: ``[{file, id}]``), with
-        the commands rebuilt once. Each follows the library (library.py)."""
+        the commands rebuilt once -- the whole home's, or an area's own
+        (``area``). Each follows the library (library.py)."""
         body = await request.json()
         library = await asyncio.to_thread(_library, languages.current().code)
         wanted = body.get("entries") if body.get("entries") is not None else [body]
@@ -736,11 +740,12 @@ class Api:
             if entry is None:
                 raise FileNotFoundError(f"No library command {item.get('id')!r}")
             found.append(entry)
+        area = str(body.get("area") or "").strip() or None
         compiled = self.app.store.load()
         ids = []
         for entry in found:
-            # It follows the library: a fix there reaches it.
-            spec = {following.REFERENCE: f"{entry['file']}/{entry['id']}"}
+            # It follows the library: a fix there reaches it. In an area: its own.
+            spec = {following.REFERENCE: f"{entry['file']}/{entry['id']}", **({"area": area} if area else {})}
             # Shared lists it uses, unless yours already has one by that name.
             have = compiled.data.get("lists") or {}
             for name, values in entry["lists"].items():
@@ -814,6 +819,121 @@ class Api:
         results.sort(key=lambda r: (r.get("name") or "").lower())
         return web.json_response({"results": results[:200], "connected": self.app.hass.connected.is_set()})
 
+    # ---------------------------------------------------------------- areas
+
+    async def areas(self, request: web.Request) -> web.Response:
+        """The areas the Home page lists -- those added there, and those with
+        a satellite, a device, a command of their own or one turned off --
+        each with what it has; Home Assistant's other areas (``others``), to
+        add; the satellites in no area; and the floors."""
+        app = self.app
+        catalog = app.hass.catalog
+        settings = app.store.settings
+        data = app.store.document()
+        here, default = languages.current().code, file_language(data)
+        try:
+            names, _ = names_in(data.get("names") or {}, here, default)
+        except ConfigError:
+            names = {}
+        named = {str(k): v if isinstance(v, str) else (v or {}).get("name") for k, v in (names.get("areas") or {}).items()}
+        satellites: dict[str | None, list[str]] = {}
+        for key in dict.fromkeys([*app.store.satellites, *app.sessions]):
+            satellites.setdefault(app.satellite(key).area_id, []).append(key)
+        devices: dict[str | None, int] = {}
+        for item_id, entry in ((data.get("names") or {}).get("entities") or {}).items():
+            where = device_of(entry, here, default).area or self._ha_area(str(item_id))
+            devices[where] = devices.get(where, 0) + 1
+        own: dict[str, int] = {}
+        off: dict[str, int] = {}
+        for spec in (data.get("commands") or {}).values():
+            if not isinstance(spec, dict) or command_language(spec, default) != here:
+                continue
+            if spec.get("area"):
+                own[str(spec["area"])] = own.get(str(spec["area"]), 0) + 1
+            for area in spec.get("off") or []:
+                off[str(area)] = off.get(str(area), 0) + 1
+        for skill_id in available():
+            for area in skill_place(settings.get("skills"), skill_id)[1]:
+                off[area] = off.get(area, 0) + 1
+        listed = areas.listed(settings)
+        ids = dict.fromkeys([*listed, *(a for a in satellites if a), *(a for a in devices if a), *own, *off])
+        out = []
+        for area_id in ids:
+            area = catalog.areas.get(area_id)
+            floor = catalog.floors.get(area.floor_id) if area and area.floor_id else None
+            out.append(
+                {
+                    "id": area_id,
+                    "name": area.name if area else named.get(area_id) or area_id,
+                    "icon": area.icon if area else None,
+                    "floor_id": floor.floor_id if floor else None,
+                    "floor": floor.name if floor else None,
+                    "known": area is not None,  # Home Assistant has it
+                    "satellites": satellites.get(area_id, []),
+                    "devices": devices.get(area_id, 0),
+                    "commands": own.get(area_id, 0),
+                    "off": off.get(area_id, 0),
+                    "listed": area_id in listed,
+                    "own": areas.own(settings, area_id),
+                }
+            )
+        floors = sorted(catalog.floors.values(), key=lambda f: (f.level is None, f.level or 0, f.name.lower()))
+        others = sorted((a for a in catalog.areas.values() if a.area_id not in ids), key=lambda a: a.name.lower())
+        return web.json_response(
+            {
+                "areas": out,
+                "others": [{"id": a.area_id, "name": a.name, "icon": a.icon} for a in others],
+                "no_area": satellites.get(None, []),
+                "floors": [{"id": f.floor_id, "name": f.name} for f in floors],
+                "keys": list(areas.KEYS),
+            }
+        )
+
+    async def put_area(self, request: web.Request) -> web.Response:
+        """An area on the Home page, with its own settings (``settings``: each
+        key's value, null for the whole home's; areas.KEYS)."""
+        area_id = request.match_info["id"].strip()
+        if not area_id:
+            raise ConfigError("an area's id")
+        body = await _json_or_empty(request)
+        settings = self.app.store.settings
+        own = areas.put(settings, area_id, body.get("settings") or {}, piper_catalog(), list(self.app.speech.instruments))
+        self.app.store.save_settings()
+        voice = piper_catalog().get(str(own.get("voice") or ""))
+        if voice is not None:
+            self.app.fetch_area_voice(voice)
+        return web.json_response({"ok": True, "own": own})
+
+    async def delete_area(self, request: web.Request) -> web.Response:
+        """Off the Home page's list, with its own settings (one with a
+        satellite, device or command is listed anyway)."""
+        areas.put(self.app.store.settings, request.match_info["id"], None, {}, [])
+        self.app.store.save_settings()
+        return web.json_response({"ok": True})
+
+    async def put_area_off(self, request: web.Request) -> web.Response:
+        """The whole home's commands (``commands``) and skills (``skills``)
+        turned off in an area (``off``: true), or back on."""
+        area_id = request.match_info["id"]
+        body = await request.json()
+        if not isinstance(body.get("off"), bool):
+            raise ConfigError("off: true or false")
+        commands = [str(c) for c in body.get("commands") or []]
+        wanted = [str(s) for s in body.get("skills") or []]
+        unknown = sorted(set(wanted) - set(available()))
+        if unknown:
+            raise FileNotFoundError(f"No skill {unknown[0]}")
+        store = self.app.store
+        if wanted:
+            for skill_id in wanted:
+                _, off = skill_place(store.settings.get("skills"), skill_id)
+                kept = [a for a in off if a != area_id] + ([area_id] if body["off"] else [])
+                _skill_place(store.settings, skill_id, off=kept)
+            store.save_settings()
+        if commands:
+            return await self._saved(store.put_off(area_id, commands, body["off"]))
+        return web.json_response({"ok": True})
+
     # ----------------------------------------------------------- satellites
 
     async def satellites(self, request: web.Request) -> web.Response:
@@ -856,7 +976,8 @@ class Api:
                     "voice_used": satellite.voice.__dict__,
                     # The silence that ends a command: its own (absent: every satellite's).
                     "silence_seconds": stored.get("silence_seconds"),
-                    "silence_seconds_every": app.end_of_speech().silence_seconds,
+                    # Without its own: its area's, else the whole home's.
+                    "silence_seconds_every": satellite.settings.get("silence_seconds") or app.end_of_speech().silence_seconds,
                     "device_media_player": satellite.device_media_player,
                     # Picked here, or else found: its Sendspin client's player.
                     "media_player_picked": bool(stored.get("media_player")),
@@ -1180,6 +1301,12 @@ class Api:
                 settings["sounds"] = False
             else:
                 settings.pop("sounds", None)  # on unless turned off
+        if "at_most" in body:
+            value = areas.at_most_value(body["at_most"])
+            if value:
+                settings["at_most"] = value
+            else:
+                settings.pop("at_most", None)
         if "beep_elsewhere" in body:
             if body["beep_elsewhere"] not in VERBOSITY[1:]:
                 raise ConfigError(f"beep_elsewhere: one of {', '.join(VERBOSITY[1:])}")
@@ -1664,8 +1791,25 @@ class Api:
             body.get("satellite") or None,
             bool(body.get("run_actions")),
             bool(body.get("speak")),
+            area=str(body.get("area") or "") or None,
         )
         return web.json_response(record.to_json(), dumps=_dumps)
+
+
+def _skill_place(settings: dict[str, Any], skill_id: str, disabled: bool | None = None, off: list[str] | None = None) -> None:
+    """A skill off everywhere (``disabled``), and the areas it is turned off
+    in (``off``), into settings.json ``skills``; None: as it was."""
+    was_disabled, was_off = skill_place(settings.get("skills"), skill_id)
+    disabled = was_disabled if disabled is None else disabled
+    off = list(was_off) if off is None else list(dict.fromkeys(off))
+    placed = settings.setdefault("skills", {})
+    entry = {**({"disabled": True} if disabled else {}), **({"off": off} if off else {})}
+    if entry:
+        placed[skill_id] = entry
+    else:
+        placed.pop(skill_id, None)
+    if not placed:
+        settings.pop("skills")
 
 
 def _dump(value: Any) -> str:

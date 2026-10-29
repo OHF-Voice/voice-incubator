@@ -2,7 +2,7 @@
 
 Only the icons used are shipped: every ``icon:`` in the library, each
 skill's (voice_labs/skills/), the defaults for each kind of command (DEFAULTS
-in app.js), and the editor's choices (PICKER below). Paths come from @mdi/js (Apache-2.0), e.g. the Home Assistant
+in app.js), the editor's choices (PICKER below) and areas' (AREA_ICONS). Paths come from @mdi/js (Apache-2.0), e.g. the Home Assistant
 frontend's node_modules:
 
     .venv/bin/python scripts/make_icons.py ~/opt/frontend/node_modules/@mdi/js/mdi.js
@@ -85,6 +85,19 @@ SATELLITE_PICKER = [
     "mdi:flower",
     "mdi:dog",
     "mdi:account",
+]
+# Areas' icons, as Home Assistant's areas commonly have them (the Home page;
+# another shows mdi:home-outline).
+AREA_ICONS = [
+    "mdi:home-outline",
+    "mdi:sofa", "mdi:sofa-outline", "mdi:television", "mdi:bed", "mdi:bed-king", "mdi:bed-double", "mdi:bunk-bed",
+    "mdi:silverware-fork-knife", "mdi:stove", "mdi:countertop", "mdi:fridge", "mdi:coffee", "mdi:table-chair",
+    "mdi:desk", "mdi:chair-rolling", "mdi:laptop", "mdi:bookshelf", "mdi:shower", "mdi:bathtub", "mdi:toilet",
+    "mdi:washing-machine", "mdi:tumble-dryer", "mdi:hanger", "mdi:wardrobe", "mdi:coat-rack",
+    "mdi:baby-face-outline", "mdi:baby-carriage", "mdi:toy-brick", "mdi:human-child", "mdi:gamepad-variant",
+    "mdi:dumbbell", "mdi:garage", "mdi:garage-variant", "mdi:car", "mdi:tools", "mdi:home-roof", "mdi:stairs",
+    "mdi:door", "mdi:door-open", "mdi:balcony", "mdi:fence", "mdi:flower", "mdi:tree", "mdi:grass", "mdi:pool",
+    "mdi:greenhouse", "mdi:warehouse", "mdi:home-floor-0", "mdi:home-floor-1", "mdi:home-floor-2",
 ]
 PICKER = [
     "mdi:lightbulb",
@@ -177,7 +190,7 @@ def main() -> None:
     source = args.mdi_js.read_text("utf-8")
     version = re.search(r"Material Design Icons v([\d.]+)", source)
     paths = dict(re.findall(r'export var (mdi\w+) = "([^"]+)"', source))
-    wanted = list(dict.fromkeys(library_icons() + skill_icons() + DEFAULTS + PICKER + SATELLITE_PICKER))
+    wanted = list(dict.fromkeys(library_icons() + skill_icons() + DEFAULTS + PICKER + SATELLITE_PICKER + AREA_ICONS))
     missing = [i for i in wanted if camel(i) not in paths]
     if missing:
         raise SystemExit(f"Not in @mdi/js: {', '.join(missing)}")

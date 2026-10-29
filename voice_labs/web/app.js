@@ -23,6 +23,7 @@ function h(tag, attrs, ...children) {
     else if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
     else if (key === "value") el.value = value;
     else if (key === "checked") el.checked = !!value;
+    else if (key === "indeterminate") el.indeterminate = true;
     else if (key === "html") el.innerHTML = value;
     else el.setAttribute(key, value === true ? "" : value);
   }
@@ -485,7 +486,7 @@ function endOfSpeechPanel() {
     end_on_other_voice: others.checked === (defaults.end_on_other_voice !== false) ? null : others.checked,
   });
   return h("div", { class: "panel" },
-    heading("h2", "End of speech", "When a satellite stops listening: once you have started speaking, after enough silence. A voice activity detector says how likely each moment of the audio is to be speech."),
+    withOwn(heading("h2", "End of speech", "When a satellite stops listening: once you have started speaking, after enough silence. A voice activity detector says how likely each moment of the audio is to be speech."), ["silence_seconds"]),
     h("div", { class: "row" },
       field("Detector", vad, "Silero VAD judges 32 ms at a time and notices the end of speech soonest. microVAD, microWakeWord's, judges 10 ms at a time and is smoother, but notices the end about half a second later: give it a shorter silence. It says nothing for its first 0.76 s. Both: speech when either hears it — for voices Silero misses, such as some children's; it hears more noise as speech, and ends as late as microVAD.")),
     h("div", { class: "row" },
@@ -519,9 +520,15 @@ function responsesPanel() {
     try { await api("PUT", "settings", { beep_elsewhere: e.target.value }); toast("Saved"); await refreshStatus(); }
     catch (err) { toast(err.message); }
   } }, ...LEVELS.filter(([value]) => value !== "silent").map(([value, label]) => h("option", { value, selected: (verbosity.beep_elsewhere || "specific") === value }, value === "beep" ? "Beep anyway" : label)));
+  const atMost = h("select", { onchange: async (e) => {
+    try { await api("PUT", "settings", { at_most: e.target.value || null }); toast("Saved"); await refreshStatus(); }
+    catch (err) { toast(err.message); }
+  } }, Object.entries(AT_MOST).map(([value, label]) => h("option", { value, selected: (verbosity.at_most || "") === value }, label)));
   return h("div", { class: "panel" },
-    heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."),
-    field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
+    withOwn(heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."), ["sounds", "instrument", "at_most"]),
+    h("div", { class: "row", style: "align-items:flex-start" },
+      field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
+      field("Say at most", atMost, "No command says more than this, whatever its own level; a question still answers. An area may have its own.")),
     h("div", { class: "row" },
       h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked.")),
       field("Instrument", instrument, "What the sounds, and the beep when a command is done, are played on.")));
@@ -557,7 +564,7 @@ function homePanel() {
       fill(box, said.length ? h("div", { class: "notice warn" }, said.join(" ")) : null);
     };
     fill(panel,
-      heading("h2", "Home", "What commands use where they have no implied target of their own."),
+      withOwn(heading("h2", "Home", "What commands use where they have no implied target of their own."), ["climate", "shopping_list", "todo_list"]),
       h("div", { class: "grid2" }, Object.entries(HOME_THINGS).map(([thing, [domain, label, , help]]) => {
         const box = h("div");
         check(thing, home[thing], box);
@@ -635,7 +642,7 @@ async function pageFallback() {
   }
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: "#/settings" }, "← Settings"),
+      h("a", { href: placeHref("home", "settings") }, "← Settings"),
       h("h1", { class: "grow", style: "margin:0" }, "When nothing matches"),
       h("button", { class: "primary", onclick: save }, "Save")),
     errors,
@@ -728,18 +735,22 @@ async function pageUnknown() {
 // about are kept as loaded. A command that follows the library shows the
 // library's version, its own settings editable and the rest locked until
 // you take control of it (library.SETTINGS).
+// `query`: from (the area whose list it was opened from), area (a new
+// command's: an area's own).
 async function pageCommand(id, prefill, query) {
-  await Promise.all([loadStore(), loadSatellites()]);
+  await Promise.all([loadStore(), loadSatellites(), loadAreas()]);
   const areas = await areaLabels();
+  const params = new URLSearchParams(query || "");
   const isNew = !id;
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
+  if (isNew && params.get("area")) spec.area = params.get("area");
   const reference = isNew ? null : ((state.store.references || {})[id] || null);
   let following = Boolean(reference);
   // Example sentences of your own, beside the library's.
   let extras = following ? asList(reference.examples) : [];
   const locked = (...children) => (following ? h("fieldset", { class: "locked", disabled: true }, ...children) : children);
-  const back = () => "#/home";
+  const back = () => placeHref(params.get("from") || spec.area || "home");
   // A new command's id, from its description: unique, never shown.
   const commandId = () => {
     if (id) return id;
@@ -757,7 +768,7 @@ async function pageCommand(id, prefill, query) {
     if (following) {
       // What it may set itself: the library's version is the rest.
       const out = { from: reference.from, examples: extras, slots: spec.slots || {} };
-      for (const key of ["satellites", "disabled", "verbosity", "fallback", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
+      for (const key of ["area", "off", "disabled", "verbosity", "fallback", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
       if (reference.language) out.language = reference.language;
       return out;
     }
@@ -863,7 +874,7 @@ async function pageCommand(id, prefill, query) {
           listening || heard ? h("label", {}, h("input", { type: "checkbox", checked: heard, onchange: (e) => {
             if (e.target.checked) target[domain] = "heard"; else delete target[domain];
             render();
-          } }), `The ${domain} heard`, hint(`The one whose name was said (Names page). Of several with that name, the one in the room said, else in the satellite's area.`)) : null,
+          } }), `The ${domain} heard`, hint(`The one whose name was said (Names). Of several with that name, the one in the room said, else in the satellite's area.`)) : null,
           heard ? null : [
             target[domain] ? h("div", { class: "chips" }, h("span", { class: "chip" }, target[domain], h("button", { type: "button", onclick: () => { delete target[domain]; render(); } }, "×"))) : null,
             hassPicker("entity", (item) => { target[domain] = item.id; render(); }, { domain })]),
@@ -1119,7 +1130,7 @@ async function pageCommand(id, prefill, query) {
                   if (e.target.checked) ids.push(nid);
                   update({ ids: ids.length ? ids : undefined });
                 } }), typeof entry === "string" ? entry : entry.name)))) :
-              h("div", { class: "small muted" }, `No ${domain ? `${domain}s` : plural} have names yet: add them on the Names page.`),
+              h("div", { class: "small muted" }, `No ${domain ? `${domain}s` : plural} have names yet: add them in Names.`),
             kind === "entity" ? field("Only these domains", chipsInput(r.domains || [], (v) => update({ domains: v.length ? v : undefined }), "light, switch")) : null) : null);
       }));
     }
@@ -1278,7 +1289,7 @@ async function pageCommand(id, prefill, query) {
       } }), label, hint(help),
       // Turned off for every command: ticked here, it still won't run.
       ((state.status || {}).fallback || {})[step] === false
-        ? h("a", { class: "badge warn", href: "#/settings", title: "Turned off for every command under “When nothing matches” on the Settings page" }, "off in Settings") : null);
+        ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” in Whole Home's Settings" }, "off in Settings") : null);
   }
   // The model hears free text and values: offered where it has some (or is
   // chosen already), as they come and go.
@@ -1308,10 +1319,7 @@ async function pageCommand(id, prefill, query) {
           field("Icon", iconBox),
           h("div", { class: "grow" },
             locked(field("Description", description, "What it does, as a verb phrase: “turn on the lights”. A near miss is described with it (“It looks like you're trying to turn on the lights, but…”), and meaning and the model tell commands apart by it.")))),
-        field("Runs on", whereEditor(spec.disabled ? "none" : spec.satellites ? "some" : "every", asList(spec.satellites), (where, keys) => {
-          if (where === "none") spec.disabled = true; else delete spec.disabled;
-          if (where === "some") spec.satellites = keys; else if (where === "every") delete spec.satellites;
-        }), "Where two take the same sentence, one on some satellites goes first there.")),
+        field("Where", whereEditor(spec), "The whole home's is heard from every satellite, unless turned off in its area (on the area's Commands). An area's own is heard only from satellites there, and goes first there where both take the same sentence.")),
       h("div", { class: "panel" },
         heading("h2", "Example sentences", "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."),
         following
@@ -1361,7 +1369,7 @@ async function pageCommand(id, prefill, query) {
     const theirs = (state.store.home || {})[spec.home];
     const called = (HOME_THINGS[spec.home] || [])[2] || spec.home;
     return h("p", { class: "muted small" }, `Without its own entity: the home's ${called}, `,
-      theirs ? h("code", {}, theirs) : "not set yet", " (", h("a", { href: "#/settings" }, "Settings"), ").");
+      theirs ? h("code", {}, theirs) : "not set yet", " (", h("a", { href: placeHref(spec.area || "home", "settings") }, "Settings"), ").");
   }
 
   function render() {
@@ -1384,7 +1392,7 @@ async function pageCommand(id, prefill, query) {
   render();
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: back() }, "← Home"),
+      h("a", { href: back() }, `← ${placeLabel(params.get("from") || spec.area || "home")}`),
       h("h1", { class: "grow", style: "margin:0" }, isNew ? "New command" : (spec.title || spec.description || id)),
       isNew ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
       isNew ? null : h("button", { onclick: () => duplicateDialog(id) }, "Duplicate"),
@@ -1437,8 +1445,8 @@ function openDialog(title, content, cls) {
   return close;
 }
 
-// Duplicate a command, as saved: a copy to change -- on some satellites, to
-// do something else there, where it goes first.
+// Duplicate a command, as saved: a copy to change -- an area's own, to do
+// something else there, where it goes first.
 async function duplicateDialog(id) {
   const store = await loadStore();
   const spec = store.commands[id] || {};
@@ -1499,23 +1507,28 @@ function libraryFamilies(entries) {
 // it's said to, else its only (or first) one.
 const defaultVersion = (family) => family.versions.find((e) => e.variant === "here") || family.versions[0];
 
-// Library commands into yours, several at once (one rebuild).
-async function addFromLibrary(entries) {
-  const result = await api("POST", "library/add", { entries: entries.map((e) => ({ file: e.file, id: e.id })) });
+// Library commands into yours, several at once (one rebuild): the whole
+// home's, or an area's own (`area`, its id).
+async function addFromLibrary(entries, area) {
+  const result = await api("POST", "library/add", { entries: entries.map((e) => ({ file: e.file, id: e.id })), area: area || null });
   toast(entries.length === 1 ? `Added ${entries[0].title}` : `Added ${entries.length} commands`);
   refreshStatus();
   return result;
 }
 
-async function newCommandDialog() {
+// `area`: added as its own (an area of api/areas); none: the whole home's.
+async function newCommandDialog(area) {
   let data, store, skillData;
   try {
     [data, store, skillData] = await Promise.all([api("GET", "library"), loadStore(), api("GET", "skills")]);
   } catch (err) { toast(err.message); return; }
-  const ids = Object.keys(store.commands || {});
-  const yours = { has: (libraryId) => libraryAdded(ids, libraryId) };
-  // A skill is added while it answers anywhere.
-  const skillsHere = new Set(skillData.skills.filter((sk) => sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.length)).map((sk) => sk.id));
+  const where = area ? area.id : null;
+  // Added: one of the whole home's, or of the area's own.
+  const ids = Object.keys(store.commands || {}).filter((id) => ((store.details[id] || {}).area || null) === where);
+  const yours = { has: (libraryId) => libraryAdded(ids, libraryId), id: (libraryId) => ids.find((id) => libraryAdded([id], libraryId)) };
+  // A skill is added while it answers there.
+  const skillsHere = new Set(skillData.skills.filter((sk) => !sk.disabled && !(where && asList(sk.off).includes(where))).map((sk) => sk.id));
+  const opening = (id) => `#/command/${id}${where ? `?from=${encodeURIComponent(where)}` : ""}`;
   const QUESTIONS = "Questions";
   const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries(), [QUESTIONS, "mdi:comment-question-outline"]];
   const families = libraryFamilies(data.entries);
@@ -1530,14 +1543,14 @@ async function newCommandDialog() {
   const chips = h("div", { class: "row filter-chips" });
   const add = async (entry) => {
     try {
-      const result = await addFromLibrary([entry]);
+      const result = await addFromLibrary([entry], where);
       close();
-      location.hash = `#/command/${result.id}`;
+      location.hash = opening(result.id);
     } catch (err) { toast(err.message); }
   };
   const addSelected = async () => {
     try {
-      await addFromLibrary([...selected.values()]);
+      await addFromLibrary([...selected.values()], where);
       close();
       route();
     } catch (err) { toast(err.message); }
@@ -1550,7 +1563,7 @@ async function newCommandDialog() {
       h("button", { type: "button", class: "primary", onclick: addSelected }, n === 1 ? "Add 1 command" : `Add ${n} commands`),
     ] : null);
   }
-  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = "#/command/"; } },
+  const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = where ? `#/command/?area=${encodeURIComponent(where)}` : "#/command/"; } },
     icon("mdi:pencil-plus-outline", "big"),
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
       h("span", { class: "muted small" }, "Start from scratch.")));
@@ -1574,7 +1587,7 @@ async function newCommandDialog() {
         entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
         entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
       added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
-      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/command/${entry.id}`; } }, "Open")
+      added ? h("button", { type: "button", onclick: () => { close(); location.hash = opening(yours.id(entry.id)); } }, "Open")
         : h("button", { type: "button", class: "primary", onclick: () => add(entry) }, "Add"));
   };
   // A command with versions: a row that opens to them -- opened while
@@ -1608,10 +1621,11 @@ async function newCommandDialog() {
         h("div", { class: "title" }, skill.name, h("span", { class: "badge", style: "margin-left:8px" }, "skill"),
           added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
         h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
-      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}`; } }, "Open")
+      added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}${where ? `?from=${encodeURIComponent(where)}` : ""}`; } }, "Open")
         : h("button", { type: "button", class: "primary", onclick: async () => {
           try {
-            await api("PUT", `skills/${skill.id}`, { satellites: true });
+            if (skill.disabled) await api("PUT", `skills/${skill.id}`, { on: true });
+            if (where && asList(skill.off).includes(where)) await api("PUT", `areas/${encodeURIComponent(where)}/off`, { skills: [skill.id], off: false });
             toast(`Added ${skill.name}`); close(); route();
           } catch (err) { toast(err.message); }
         } }, "Add"));
@@ -1643,7 +1657,7 @@ async function newCommandDialog() {
     renderFooter();
   }
   search.addEventListener("input", render);
-  const close = openDialog("Add a command", [
+  const close = openDialog(area ? `Add a command to the ${area.name}` : "Add a command", [
     custom,
     h("p", { class: "muted small", style: "margin:10px 0 4px" }, "Or from the library:", hint("Adding one copies it into your commands, where you can change anything about it. Tick several to add them together; in a group, select the ones you have none of (each for the satellite it's said to). Most come in versions — on the satellite it's said to, on a device by name, in an area or floor by name — each added on its own. Skills (Questions) answer what no command takes.")),
     search, chips,
@@ -1660,46 +1674,43 @@ async function pageLibrary() {
 
 // --------------------------------------------------------------------- home
 
-// A satellite's name, by its key.
-const placeName = (key) => {
-  const s = state.satellites.find((x) => x.key === key);
-  return s ? s.name : key;
-};
-
-// Where a command or skill runs, as a badge: on some satellites (their
-// names), or off; nothing when on every one.
-function whereBadge(keys, off) {
-  if (off || (keys && !keys.length)) return h("span", { class: "badge" }, "off");
-  if (!keys) return null;
-  const gone = keys.filter((k) => !state.satellites.some((s) => s.key === k));
-  return h("span", { class: `badge ${gone.length ? "warn" : ""}`, title: gone.length ? `Not here any more: ${gone.join(", ")}` : "Only on these satellites" },
-    keys.map(placeName).join(", "));
+// The Home page's areas (api/areas): those listed, Home Assistant's others
+// (to add), the satellites in no area, and the floors.
+async function loadAreas() {
+  try { state.areas = await api("GET", "areas"); }
+  catch (_) { state.areas = { areas: [], others: [], no_area: [], floors: [], keys: [] }; }
+  return state.areas;
 }
 
-// Where a command or skill runs: every satellite, some (ticked), or none.
-// `onChange(where, keys)`: where is "every", "some" or "none".
-function whereEditor(where, keys, onChange) {
-  const known = state.satellites.map((s) => [s.key, s.name]);
-  for (const key of keys) if (!known.some(([k]) => k === key)) known.push([key, `${key} (not here any more)`]);
-  const boxes = h("div", { class: "wake-list" }, known.map(([key, name]) => h("label", {},
-    h("input", { type: "checkbox", checked: keys.includes(key), onchange: (e) => {
-      keys = e.target.checked ? [...keys, key] : keys.filter((k) => k !== key);
-      onChange(where, keys);
-    } }), name)));
-  const show = () => { boxes.style.display = where === "some" ? "" : "none"; };
-  show();
-  const select = h("select", { "aria-label": "Runs on", onchange: (e) => { where = e.target.value; show(); onChange(where, keys); } },
-    h("option", { value: "every", selected: where === "every" }, "Every satellite"),
-    h("option", { value: "some", selected: where === "some" }, "Some satellites"),
-    h("option", { value: "none", selected: where === "none" }, "None (turned off)"));
-  return h("div", { class: "stack" }, select, boxes);
+// An area's name, by its id.
+function areaNameOf(id) {
+  const data = state.areas || {};
+  const found = [...(data.areas || []), ...(data.others || [])].find((a) => a.id === id);
+  return found ? found.name : id;
 }
 
-// Whether a command runs on a satellite (by key).
-function runsOn(store, id, key) {
-  const spec = store.commands[id] || {};
-  const keys = (store.details[id] || {}).satellites;
-  return !spec.disabled && (!keys || keys.includes(key));
+const areaIcon = (area) => (area && area.icon && ICONS[area.icon] ? area.icon : "mdi:home-outline");
+
+// What a place is called: "Home" for the whole home, else its area's name.
+const placeLabel = (place) => (!place || place === "home" ? "Home" : areaNameOf(place));
+
+// "a", "a and b", "a, b and c".
+const andList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : items[0] || "");
+
+// The Home page at a place (an area's id; "home": the whole home) and tab.
+function placeHref(place, tab) {
+  const query = new URLSearchParams();
+  if (place && place !== "home") query.set("place", place);
+  if (tab && tab !== "commands") query.set("tab", tab);
+  return query.toString() ? `#/home?${query}` : "#/home";
+}
+
+// The whole home's command or skill turned off: everywhere, or in some areas.
+function offBadge(off, disabled) {
+  if (disabled) return h("span", { class: "badge", title: "Turned off everywhere" }, "off");
+  if (!off || !off.length) return null;
+  const names = andList(off.map(areaNameOf));
+  return h("span", { class: "badge", title: `Turned off in ${names}` }, `off in ${names}`);
 }
 
 function satelliteIcon(s) {
@@ -1719,56 +1730,98 @@ function iconChooser(current, fallback, choices, onPick) {
   return box;
 }
 
-// One command, as listed on the Home page.
-function commandItem(store, id) {
+// Where a command is heard: the whole home (and the areas it is turned off
+// in), an area's own, or nowhere (turned off). Changes `spec`.
+function whereEditor(spec) {
+  const places = state.areas || { areas: [], others: [] };
+  const known = [...places.areas, ...places.others];
+  if (spec.area && !known.some((a) => a.id === spec.area)) known.push({ id: spec.area, name: `${spec.area} (not in Home Assistant)` });
+  const note = h("div", { class: "muted small" });
+  const show = () => {
+    const off = !spec.disabled && !spec.area ? asList(spec.off) : [];
+    fill(note, off.length ? ["Turned off in ", ...off.map((a, i) => [i ? (i === off.length - 1 ? " and " : ", ") : "", h("a", { href: placeHref(a) }, areaNameOf(a))]), "."] : null);
+  };
+  const select = h("select", { "aria-label": "Where", onchange: (e) => {
+    const value = e.target.value;
+    if (value === "none") spec.disabled = true; else delete spec.disabled;
+    if (value === "none" || value === "home") delete spec.area;
+    else { spec.area = value; delete spec.off; }
+    show();
+  } },
+  h("option", { value: "home", selected: !spec.disabled && !spec.area }, "Whole Home"),
+  h("optgroup", { label: "An area's own" }, known.slice().sort((a, b) => a.name.localeCompare(b.name))
+    .map((a) => h("option", { value: a.id, selected: !spec.disabled && spec.area === a.id }, a.name))),
+  h("option", { value: "none", selected: Boolean(spec.disabled) }, "Nowhere (turned off)"));
+  show();
+  return h("div", { class: "stack" }, select, note);
+}
+
+// One command, as listed on the Home page; `from`: the area it is listed
+// in, which its page goes back to. `extra`: after its badges.
+function commandItem(store, id, from, extra) {
   const spec = store.commands[id] || {};
   const detail = store.details[id] || {};
-  return h("div", { class: "item clickable", title: `${id}: ${spec.description || ""}`, onclick: () => { location.hash = `#/command/${id}`; } },
+  const href = `#/command/${id}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
+  return h("div", { class: "item clickable", title: `${id}: ${spec.description || ""}`, onclick: () => { location.hash = href; } },
     icon(iconFor(spec), "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, spec.title || spec.description || id),
       h("div", { class: "muted small" }, listensText(spec) || spec.description || id)),
-    whereBadge(detail.satellites, spec.disabled),
+    from ? null : offBadge(detail.off, spec.disabled),
     asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
-    detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""));
+    detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
+    extra || null);
 }
 
-function skillItem(skill) {
-  return h("div", { class: "item clickable", title: skill.description, onclick: () => { location.hash = `#/skill/${skill.id}`; } },
+function skillItem(skill, from, extra) {
+  const href = `#/skill/${skill.id}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
+  return h("div", { class: "item clickable", title: skill.description, onclick: () => { location.hash = href; } },
     icon(skill.icon, "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, skill.name),
       h("div", { class: "muted small" }, skill.examples.map((e) => `“${e}”`).join(" · "))),
-    whereBadge(Array.isArray(skill.satellites) ? skill.satellites : null, skill.satellites === false),
-    h("span", { class: "badge accent" }, "skill"));
+    from ? null : offBadge(skill.off, skill.disabled),
+    h("span", { class: "badge accent" }, "skill"),
+    extra || null);
 }
 
-// Commands and skills grouped by what they're for, a panel each: your own
-// (Custom) first, then the library's sections, then the skills (Questions).
-// `place`: every one (null), or those that run on a satellite (its key).
-// With the `library`, a section you have commands from says which of its
-// commands you have none of, to add. `words`: only those that say them all
-// (in their title, description, example sentences or keywords).
-function placedSections(store, skillData, place, emptyText, library, words = []) {
+// Commands -- the whole home's, or an area's own (`area`) -- grouped by what
+// they're for: your own (Custom) first, then the library's sections, then
+// the whole home's skills (Questions). Each group: [title, icon, command
+// ids, skills]. `words`: only those that say them all (in their title,
+// description, example sentences or keywords).
+function commandGroups(store, skillData, area, words = []) {
   const said = (...texts) => { const text = texts.join(" ").toLowerCase(); return words.every((w) => text.includes(w)); };
   const sectionTitle = (id) => ((store.sections || []).find((s) => s.file === (store.details[id] || {}).library) || {}).title || "Custom";
-  const ids = Object.keys(store.commands || {}).filter((id) => (!place || runsOn(store, id, place))
+  const ids = Object.keys(store.commands || {}).filter((id) => ((store.details[id] || {}).area || null) === (area || null)
     && (!words.length || ((spec) => said(spec.title || "", spec.description || "", asList(spec.examples).join(" "), listensText(spec), sectionTitle(id)))(store.commands[id] || {})));
-  const skillsHere = skillData.skills.filter((sk) => (!place || sk.satellites === true || (Array.isArray(sk.satellites) && sk.satellites.includes(place)))
-    && (!words.length || said(sk.name, sk.description, ...sk.examples, "Questions")));
   const bySection = {};
   for (const id of ids) {
     const section = (store.details[id] || {}).library || "";
     (bySection[section] = bySection[section] || []).push(id);
   }
+  const groups = [];
+  if ((bySection[""] || []).length) groups.push(["Custom", "mdi:pencil-outline", bySection[""], [], ""]);
+  for (const s of store.sections || []) {
+    if ((bySection[s.file] || []).length) groups.push([s.title, s.icon || "mdi:folder-outline", bySection[s.file], [], s.file]);
+  }
+  const skills = area ? [] : skillData.skills.filter((sk) => !words.length || said(sk.name, sk.description, ...sk.examples, "Questions"));
+  if (skills.length) groups.push(["Questions", "mdi:comment-question-outline", [], skills, null]);
+  return groups;
+}
+
+// The whole home's commands and skills (`area` null), or an area's own, a
+// panel to each group. With the `library` (the whole home's), a section you
+// have commands from says which of its commands you have none of, to add.
+function placedSections(store, skillData, area, emptyText, library, words = []) {
   const section = (title, iconName, items, after) => h("div", { class: "panel section" },
     h("h3", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(items.length))),
     h("div", { class: "list" }, items), after || null);
   const yours = Object.keys(store.commands || {});
-  const families = library && !place && !words.length ? libraryFamilies(library.entries || []) : [];
+  const families = library && !area && !words.length ? libraryFamilies(library.entries || []) : [];
   const notAdded = (file) => {
     const missing = families.filter((f) => f.file === file && !f.versions.some((e) => libraryAdded(yours, e.id)));
-    if (!missing.length) return null;
+    if (!file || !missing.length) return null;
     // One added: its page, as from the library. Several: here.
     const add = async (entries) => {
       try {
@@ -1780,23 +1833,85 @@ function placedSections(store, skillData, place, emptyText, library, words = [])
       missing.map((f, i) => [i ? ", " : "", h("button", { type: "button", class: "link", title: `Add ${f.title}`, onclick: () => add([defaultVersion(f)]) }, f.title)]),
       missing.length > 1 ? [" · ", h("button", { type: "button", class: "link", onclick: () => add(missing.map(defaultVersion)) }, "add all")] : null);
   };
-  const out = [];
-  if ((bySection[""] || []).length) out.push(section("Custom", "mdi:pencil-outline", bySection[""].map((id) => commandItem(store, id))));
-  for (const s of store.sections || []) {
-    if ((bySection[s.file] || []).length) out.push(section(s.title, s.icon || "mdi:folder-outline", bySection[s.file].map((id) => commandItem(store, id)), notAdded(s.file)));
-  }
-  if (skillsHere.length) out.push(section("Questions", "mdi:comment-question-outline", skillsHere.map((skill) => skillItem(skill))));
+  const out = commandGroups(store, skillData, area, words).map(([title, iconName, ids, skills, file]) =>
+    section(title, iconName, [...ids.map((id) => commandItem(store, id)), ...skills.map((skill) => skillItem(skill))], notAdded(file)));
   return out.length ? out : [h("div", { class: "panel muted small" }, emptyText)];
 }
 
+// The whole home's commands and skills as an area has them: each on or off
+// there, and a group at a time.
+function inheritedPanel(store, skillData, area) {
+  const panel = h("div", { class: "panel" });
+  const opened = new Set();
+  const offHere = (off) => (off || []).includes(area.id);
+  const setOff = (off, value) => (value ? [...new Set([...(off || []), area.id])] : (off || []).filter((a) => a !== area.id));
+  async function turn(ids, skills, off) {
+    try {
+      await api("PUT", `areas/${encodeURIComponent(area.id)}/off`, { commands: ids, skills: skills.map((sk) => sk.id), off });
+      for (const id of ids) store.details[id].off = setOff(store.details[id].off, off);
+      for (const skill of skills) skill.off = setOff(skill.off, off);
+      refreshStatus();
+    } catch (err) { toast(err.message); }
+    draw();
+  }
+  const toggle = (checked, label, onChange, extra) => h("input", { type: "checkbox", class: "switch", checked, "aria-label": label,
+    onclick: (e) => e.stopPropagation(), onchange: (e) => onChange(e.target.checked), ...(extra || {}) });
+  function draw() {
+    const groups = commandGroups(store, skillData, null);
+    if (!groups.length) { fill(panel, h("p", { class: "muted small", style: "margin:0" }, "The whole home has none.")); return; }
+    fill(panel, groups.map(([title, iconName, ids, skills, file]) => {
+      const key = file ?? title;
+      // Turned off everywhere: off here too, whatever the area says.
+      const ids_ = ids.filter((id) => !(store.commands[id] || {}).disabled);
+      const skills_ = skills.filter((sk) => !sk.disabled);
+      const count = ids.length + skills.length;
+      const off = ids_.filter((id) => offHere(store.details[id].off)).length + skills_.filter((sk) => offHere(sk.off)).length;
+      const usable = ids_.length + skills_.length;
+      const everyOff = count - usable;
+      const group = h("details", { class: "inherited" },
+        h("summary", {},
+          icon("mdi:chevron-right", "chevron"), icon(iconName),
+          h("span", { class: "title" }, title), h("span", { class: "badge" }, String(count)),
+          h("span", { class: "grow" }),
+          off + everyOff ? h("span", { class: "muted small" }, `${off + everyOff} off`) : null,
+          toggle(usable > 0 && off < usable, `${title} in the ${area.name}`, (on) => turn(ids_, skills_, !on),
+            { indeterminate: off > 0 && off < usable, disabled: !usable })),
+        h("div", { class: "list" },
+          ids.map((id) => {
+            const spec = store.commands[id] || {};
+            const isOff = spec.disabled || offHere(store.details[id].off);
+            const row = commandItem(store, id, area.id, [
+              spec.disabled ? h("span", { class: "badge", title: "Turned off on its page" }, "off everywhere")
+                : isOff ? h("span", { class: "badge" }, "off here") : null,
+              toggle(!isOff, `${spec.title || spec.description || id} in the ${area.name}`, (on) => turn([id], [], !on), { disabled: spec.disabled })]);
+            row.classList.toggle("off", Boolean(isOff));
+            return row;
+          }),
+          skills.map((skill) => {
+            const isOff = skill.disabled || offHere(skill.off);
+            const row = skillItem(skill, area.id, [
+              skill.disabled ? h("span", { class: "badge", title: "Turned off on its page" }, "off everywhere")
+                : isOff ? h("span", { class: "badge" }, "off here") : null,
+              toggle(!isOff, `${skill.name} in the ${area.name}`, (on) => turn([], [skill], !on), { disabled: skill.disabled })]);
+            row.classList.toggle("off", Boolean(isOff));
+            return row;
+          })));
+      group.open = opened.has(key) || off > 0;
+      group.addEventListener("toggle", () => { if (group.open) opened.add(key); else opened.delete(key); });
+      return group;
+    }));
+  }
+  draw();
+  return panel;
+}
+
 function satelliteTile(s, wake) {
-  const summary = [wakeWordNames(wake, s.wake_words_used)];
   return h("a", { class: "tile", href: `#/satellite/${s.key}`, title: `Set up and test ${s.name}` },
     h("div", { class: "row" }, icon(satelliteIcon(s), "big"), h("span", { class: "grow" }),
       h("span", { class: `dot ${s.connected ? (s.in_call ? "accent" : "ok") : ""}`, title: s.connected ? (s.in_call ? "in a call" : "connected") : "offline" })),
     h("div", { class: "title" }, s.name),
-    h("div", { class: "small" }, s.area_name || s.area || h("span", { class: "muted" }, "No area")),
-    h("div", { class: "muted small" }, summary.join(" · ")),
+    h("div", { class: "muted small" }, wakeWordNames(wake, s.wake_words_used)),
+    s.area ? null : h("span", { class: "badge warn", title: "It has only the whole home's commands and settings, and “the lights” are none. Give it an area on its page." }, "no area"),
     s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
     s.ringing ? h("span", { class: "badge warn" }, "timer ringing") : null);
 }
@@ -1812,13 +1927,113 @@ function hiddenNotice(hidden, one, many, why) {
   return h("div", { class: "muted small" }, text, hint(why));
 }
 
-// `query`: satellite=key, to show what runs there.
+// The places down the side: the whole home, then the areas by floor (a
+// select on a phone). A dot for each satellite there.
+function placesNav(places, sats, place, tab) {
+  const dots = (keys) => h("span", { class: "dots" }, keys.map((key) => {
+    const s = sats.find((x) => x.key === key);
+    return h("span", { class: `dot ${s && s.connected ? "ok" : ""}`, title: `${s ? s.name : key}: ${s && s.connected ? "connected" : "offline"}` });
+  }));
+  const item = (id, name, iconName, keys) => h("a", { class: `place ${place === id ? "on" : ""}`, href: placeHref(id, id === place ? tab : areaTab(id, tab)),
+    "aria-current": place === id ? "page" : null }, icon(iconName), h("span", { class: "grow" }, name), dots(keys));
+  const byFloor = floorsOf(places);
+  const select = h("select", { class: "place-select", "aria-label": "Area", onchange: (e) => { location.hash = placeHref(e.target.value, areaTab(e.target.value, tab)); } },
+    h("option", { value: "home", selected: place === "home" }, "Whole Home"),
+    byFloor.map(([floor, areas]) => (floor
+      ? h("optgroup", { label: floor }, areas.map((a) => h("option", { value: a.id, selected: place === a.id }, a.name)))
+      : areas.map((a) => h("option", { value: a.id, selected: place === a.id }, a.name)))));
+  const nav = h("nav", { class: "places", "aria-label": "Areas" },
+    item("home", "Whole Home", "mdi:home", places.no_area),
+    byFloor.map(([floor, areas]) => [floor ? h("div", { class: "floor-label" }, floor) : areas.length && byFloor.length > 1 ? h("div", { class: "floor-label" }, "Other areas") : null,
+      areas.map((a) => item(a.id, a.name, areaIcon(a), a.satellites))]),
+    h("button", { type: "button", class: "add-place", onclick: () => addAreaDialog(places) }, "Add area"));
+  return [nav, select];
+}
+
+// The tab an area opens on: the one open, unless no satellite is there to
+// hear its commands and settings (then its names).
+function areaTab(id, tab) {
+  const area = ((state.areas || {}).areas || []).find((a) => a.id === id);
+  return area && !area.satellites.length ? "names" : tab;
+}
+
+// The listed areas by floor, in Home Assistant's floor order: [[floor name
+// (null: none), areas]].
+function floorsOf(places) {
+  const out = (places.floors || []).map((f) => [f.name, places.areas.filter((a) => a.floor_id === f.id)]).filter(([, areas]) => areas.length);
+  const loose = places.areas.filter((a) => !a.floor_id || !(places.floors || []).some((f) => f.id === a.floor_id));
+  if (loose.length) out.push([null, loose]);
+  for (const [, areas] of out) areas.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+// Another of Home Assistant's areas onto the Home page.
+function addAreaDialog(places) {
+  if (!places.others.length) { toast("Every one of Home Assistant's areas is here."); return; }
+  const list = h("div", { class: "list" }, places.others.map((a) => h("div", { class: "item clickable", onclick: async () => {
+    try {
+      await api("PUT", `areas/${encodeURIComponent(a.id)}`, {});
+      close();
+      location.hash = placeHref(a.id, "names");
+    } catch (err) { toast(err.message); }
+  } }, icon(areaIcon(a)), h("span", { class: "grow" }, a.name))));
+  const close = openDialog("Add an area", h("div", { class: "dialog-list" }, list), "compact");
+}
+
+// `query`: place (an area's id; none: the whole home), tab (commands, names
+// or settings), q (find a command). From before: satellite (its area).
 async function pageHome(query) {
-  const [store, sats, skillData, wake, library] = await Promise.all([
+  const params = new URLSearchParams(query || "");
+  // The library: for the whole home's commands, to say what isn't added.
+  const whole = !params.get("place") && !params.get("satellite") && (params.get("tab") || "commands") === "commands";
+  const [store, sats, skillData, wake, library, places] = await Promise.all([
     loadStore(), loadSatellites(), api("GET", "skills"),
     api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
-    api("GET", "library").catch(() => ({ entries: [] })),
+    whole ? api("GET", "library").catch(() => ({ entries: [] })) : null,
+    loadAreas(),
   ]);
+  const old = sats.find((s) => s.key === params.get("satellite"));
+  let place = old ? old.area || "home" : params.get("place") || "home";
+  let area = places.areas.find((a) => a.id === place) || null;
+  if (!area) place = "home";
+  const tab = ["commands", "names", "settings"].includes(params.get("tab")) ? params.get("tab") : (area ? areaTab(area.id, "commands") : "commands");
+  const here = sats.filter((s) => (area ? s.area === area.id : !s.area));
+  const body = h("div");
+  if (tab === "commands") fill(body, area ? areaCommands(store, skillData, area, here) : wholeCommands(store, skillData, library, params.get("q") || ""));
+  else if (tab === "names") fill(body, await namesTab(store, area));
+  else fill(body, area ? areaSettingsPanel(area) : settingsPanels());
+  // Nothing in it: it can come off the list.
+  const empty = area && area.listed && !area.satellites.length && !area.devices && !area.commands && !area.off;
+  const remove = async () => {
+    if (Object.keys(area.own || {}).length && !confirm(`Take the ${area.name} off the list? Its own settings are lost.`)) return;
+    try { await api("DELETE", `areas/${encodeURIComponent(area.id)}`); location.hash = "#/home"; } catch (err) { toast(err.message); }
+  };
+  const tabs = [["commands", "Commands"], ["names", "Names"], ["settings", "Settings"]];
+  const [nav, select] = placesNav(places, sats, place, tab);
+  fill($main,
+    store.error ? h("div", { class: "notice bad" }, store.error) : null,
+    state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
+    h("div", { class: "home-layout" },
+      nav,
+      h("div", { class: "home-place" },
+        select,
+        h("div", { class: "place-head" },
+          icon(area ? areaIcon(area) : "mdi:home", "big"),
+          heading("h1", area ? area.name : "Whole Home", area ? null : "Every satellite has what's here. An area adds its own, and can turn these off."),
+          area && area.floor ? h("span", { class: "muted small" }, area.floor) : null,
+          h("span", { class: "grow" }),
+          empty ? h("button", { type: "button", class: "link", onclick: remove }, "Remove") : null),
+        h("div", { class: "tiles compact" }, here.length ? here.map((s) => satelliteTile(s, wake))
+          : area ? h("div", { class: "tile muted" }, "No satellite here.")
+          : sats.length ? null : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
+        h("div", { class: "place-tabs", role: "tablist" }, tabs.map(([id, text]) => h("a", {
+          role: "tab", class: tab === id ? "on" : "", "aria-selected": String(tab === id), href: placeHref(place, id) }, text))),
+        body)));
+}
+
+// The whole home's commands and skills, found by what they say, and the
+// Unknown command.
+function wholeCommands(store, skillData, library, q) {
   const unknown = (store.unknown || {}).response;
   const unknownItem = h("div", { class: "item clickable", onclick: () => { location.hash = "#/unknown"; } },
     icon("mdi:help-circle-outline", "big"),
@@ -1826,43 +2041,47 @@ async function pageHome(query) {
       h("div", { class: "title" }, "Unknown command"),
       h("div", { class: "muted small" }, unknown ? `Says “${unknown}”` : "What's said when nothing understood a sentence.")),
     h("span", { class: "badge accent" }, unknown ? "respond" : "default"));
-  const params = new URLSearchParams(query || "");
-  let place = params.get("satellite") || "";
-  if (!sats.some((s) => s.key === place)) place = "";
-  const search = h("input", { type: "search", value: params.get("q") || "", placeholder: "Find a command: lights, timer…", "aria-label": "Find a command", style: "max-width:240px" });
+  const search = h("input", { type: "search", value: q, placeholder: "Find a command: lights, timer…", "aria-label": "Find a command", style: "max-width:240px" });
   const sections = h("div");
   // What is shown, kept in the address for coming back from a command.
   function show() {
     const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const empty = words.length ? "Nothing matches." : place ? "Nothing runs there." : "No commands yet: press Add.";
-    fill(sections, placedSections(store, skillData, place || null, empty, library, words));
+    fill(sections, placedSections(store, skillData, null, words.length ? "Nothing matches." : "No commands yet: press Add.", library, words));
     const kept = new URLSearchParams();
-    if (place) kept.set("satellite", place);
     if (search.value.trim()) kept.set("q", search.value.trim());
     history.replaceState(null, "", kept.toString() ? `#/home?${kept}` : "#/home");
   }
   search.addEventListener("input", show);
-  const filter = h("select", { "aria-label": "Show", onchange: (e) => { place = e.target.value; show(); } },
-    h("option", { value: "", selected: !place }, "All"),
-    sats.map((s) => h("option", { value: s.key, selected: place === s.key }, `On ${s.name}`)));
   show();
-  fill($main,
-    h("h1", {}, "Home"),
-    store.error ? h("div", { class: "notice bad" }, store.error) : null,
+  return [
     hiddenNotice(store.hidden, "command", "commands",
       "A command is in the language it was made in. It comes back when the app's Language option is that language again."),
-    state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
-    h("div", { class: "tiles" }, sats.length ? sats.map((s) => satelliteTile(s, wake))
-      : h("div", { class: "tile muted" }, "No satellite has connected yet.")),
     h("div", { class: "row commands-bar" },
-      heading("h2", "Commands and skills", "Each runs on every satellite, or on some: set it on its page. Where two take the same sentence, one on some satellites goes first there.", { class: "grow", style: "margin:0" }),
+      heading("h2", "Commands and skills", "On every satellite, unless turned off in its area. Where an area's own takes the same sentence, its own goes first there.", { class: "grow", style: "margin:0" }),
       search,
-      sats.length ? filter : null,
-      h("button", { class: "primary", onclick: () => newCommandDialog() }, "Add")),
+      h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "Add")),
     sections,
     h("div", { class: "panel" }, h("div", { class: "list" }, unknownItem)),
-  );
+  ];
 }
+
+// An area's own commands, then the whole home's, on or off there.
+function areaCommands(store, skillData, area, here) {
+  return [
+    here.length ? null : h("div", { class: "notice info" }, `No satellite is in the ${area.name}, so nothing here is heard yet.`),
+    h("div", { class: "row commands-bar" },
+      heading("h2", "Its own", `Heard only from satellites in the ${area.name}. Where one takes the same sentence as the whole home's, it goes first here.`, { class: "grow", style: "margin:0" }),
+      h("button", { class: "primary", onclick: () => newCommandDialog(area) }, "Add")),
+    placedSections(store, skillData, area.id, "None yet: press Add."),
+    h("div", { class: "row commands-bar" },
+      heading("h2", "From Whole Home", `Turned off, a satellite here answers “${notAvailable(area.name)}”`, { class: "grow", style: "margin:0" })),
+    inheritedPanel(store, skillData, area),
+  ];
+}
+
+// What a satellite says of a command turned off in its area (the language's
+// not_available).
+const notAvailable = (areaName) => `That command isn't available in the ${areaName}.`;
 
 // ---------------------------------------------------------------- satellite
 
@@ -1883,6 +2102,7 @@ async function pageSatellite(key, opened) {
     loadSatellites(),
     api("GET", "voices").catch(() => ({ stt: [], tts: [], media_players: [] })),
     api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
+    loadAreas(),
   ]);
   const s = sats.find((x) => x.key === key);
   if (!s) { fill($main, h("a", { href: "#/home" }, "← Home"), errorBox(`No satellite ${key}`)); return; }
@@ -1922,7 +2142,7 @@ async function pageSatellite(key, opened) {
       h("div", { class: "row" }, field("Speech-to-text", stt, "Commands are matched on the audio first; the speech-to-text entity writes the words when they're needed: free text, example sentences, hints."), field("Language", sttLanguage),
         field("Audio", sttAudio, STT_AUDIO_HINT), field("Runs", sttRuns, STT_RUNS_HINT)),
       h("div", { class: "row" }, field("Silence that ends a command", h("label", { class: "row" }, silence, "seconds"),
-        `How long a pause ends a command said here. Empty: every satellite's (${s.silence_seconds_every} s), set on the Settings page (End of speech).`))),
+        `How long a pause ends a command said here. Empty: ${s.silence_seconds_every} s, its area's or the whole home's (Settings, End of speech).`))),
     settingsGroup("output", "Output", [used.tts || "Piper", used.tts_language, used.tts_voice, used.speak_on ? `on ${used.speak_on}` : null].filter(Boolean).join(" · "), opened,
       h("div", { class: "row" }, field("Text-to-speech", tts), field("Language", ttsLanguage), field("Voice", voice),
         field("Speak on", speakOn, "With a text-to-speech entity: this satellite, or another media player. The acknowledgement sound stays here."))),
@@ -1956,12 +2176,11 @@ async function pageSatellite(key, opened) {
 
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: "#/home" }, "← Home"),
+      h("a", { href: placeHref(s.area || "home") }, `← ${placeLabel(s.area || "home")}`),
       icon(satelliteIcon(s), "big"),
       h("h1", { class: "grow", style: "margin:0" }, s.name),
       h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : "offline"),
       s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
-      h("a", { href: `#/home?satellite=${s.key}` }, "Its commands"),
       h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")),
     s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
     h("div", { class: "panel" },
@@ -2164,14 +2383,21 @@ function unitsEditor(settings) {
 
 // A skill: where it answers, what, and how -- its level, and a response of
 // your own for any level.
+// `query`: from (the area whose list it was opened from).
 async function pageSkill(id, query) {
-  const [data] = await Promise.all([api("GET", "skills"), loadSatellites()]);
+  const [data] = await Promise.all([api("GET", "skills"), loadSatellites(), loadAreas()]);
   const skill = data.skills.find((x) => x.id === id);
-  const back = "#/home";
+  const from = new URLSearchParams(query || "").get("from") || "home";
+  const back = placeHref(from);
   if (!skill) { fill($main, h("a", { href: back }, "← Back"), errorBox(`No skill ${id}`)); return; }
-  let satellites = skill.satellites;
-  const where = whereEditor(satellites === true ? "every" : satellites === false ? "none" : "some", Array.isArray(satellites) ? satellites : [],
-    (w, keys) => { satellites = w === "every" ? true : w === "none" ? false : keys; });
+  let on = !skill.disabled;
+  const off = asList(skill.off);
+  const where = h("div", { class: "stack" },
+    h("select", { "aria-label": "Where", onchange: (e) => { on = e.target.value === "home"; } },
+      h("option", { value: "home", selected: on }, "Whole Home"),
+      h("option", { value: "none", selected: !on }, "Nowhere (turned off)")),
+    on && off.length ? h("div", { class: "muted small" }, "Turned off in ",
+      ...off.map((a, i) => [i ? (i === off.length - 1 ? " and " : ", ") : "", h("a", { href: placeHref(a) }, areaNameOf(a))]), ".") : null);
   const saved = skill.responses || {};
   let verbosity = saved.verbosity || "";
   let response = typeof saved.response === "string" || !saved.response ? (saved.response || "") : { ...saved.response };
@@ -2215,7 +2441,7 @@ async function pageSkill(id, query) {
   render();
   async function save() {
     try {
-      const body = { satellites, verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() };
+      const body = { on, verbosity: verbosity || null, response: typeof response === "object" ? response : response.trim() };
       if (settings) body.settings = settings.value();
       await api("PUT", `skills/${id}`, body);
       toast("Saved"); pageSkill(id, query);
@@ -2230,14 +2456,14 @@ async function pageSkill(id, query) {
   }
   fill($main,
     h("div", { class: "row" },
-      h("a", { href: back }, "← Home"),
+      h("a", { href: back }, `← ${placeLabel(from)}`),
       icon(skill.icon, "big"),
       h("h1", { class: "grow", style: "margin:0" }, skill.name),
       h("button", { class: "primary", onclick: save }, "Save")),
     h("div", { class: "panel" },
       h("p", {}, skill.description),
       h("p", { class: "small" }, "Try: ", skill.examples.map((e) => `“${e}”`).join(" · "), hint("A skill answers a question no command takes, exactly and at once, without an LLM: it parses the whole question and computes the answer, or leaves it to the next step. Skills answer before the steps that run when nothing else matches (meaning, the model).")),
-      field("Runs on", where)),
+      field("Where", where, "A skill is the whole home's: heard from every satellite, unless turned off in its area (on the area's Commands).")),
     settings ? h("div", { class: "panel" }, h("h2", {}, "Settings"),
       skill.settings_error ? h("div", { class: "notice warn" }, "Yours can't be used, so the built-in ones are: ", skill.settings_error) : null,
       settings.el,
@@ -2351,7 +2577,7 @@ function fillPiperPanel(panel, catalog) {
     }
   }
   fill(panel,
-    heading("h2", "Built-in voice", "Piper's voices, downloaded the first time one is used. Replies are said in it when no text-to-speech entity is picked, and so are announcements."),
+    withOwn(heading("h2", "Built-in voice", "Piper's voices, downloaded the first time one is used. Replies are said in it when no text-to-speech entity is picked, and so are announcements."), ["voice"]),
     h("div", { class: "row" },
       field("Voice", voice),
       h("button", { onclick: () => {
@@ -2408,18 +2634,22 @@ function withoutArea(name, area) {
 
 // The devices voice acts on: each by its names in its area and in the whole
 // house, and as part of its area.
-function devicesPanel(store, areas) {
+// The devices voice acts on: those in one area (`only`, its id), or those in
+// none (`only` null). One added from an area's goes there.
+function devicesPanel(store, areas, only) {
   const devices = store.devices || {};
   const areaName = (id) => (id ? areas[id] || id : "No area");
   const form = h("div");
   function edit(itemId, suggestion) {
-    const device = devices[itemId] || { here: [], house: [], implicit: true, with_area: true };
+    // Added in another area than Home Assistant's: in this one, for voice.
+    const moved = suggestion && only && suggestion.area_id !== only ? only : undefined;
+    const device = devices[itemId] || { here: [], house: [], implicit: true, with_area: true, area: moved };
     const haArea = suggestion ? suggestion.area_id : device.ha_area;
     let here = asList(device.here);
     let house = asList(device.house);
     if (suggestion) {
       // Home Assistant's name: in its area without the area, in the whole house with it.
-      const label = haArea ? areaName(haArea) : null;
+      const label = moved || haArea ? areaName(moved || haArea) : null;
       const bare = withoutArea(suggestion.name, label);
       const aliases = asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name));
       here = label ? [bare, ...aliases.map((a) => withoutArea(a, label)).filter((a) => a && !sameName(a, bare))] : [];
@@ -2474,84 +2704,169 @@ function devicesPanel(store, areas) {
         } }, "Save"),
         h("button", { onclick: () => fill(form) }, "Cancel"))));
   }
-  // By the area each is in for voice.
-  const byArea = {};
-  for (const [itemId, device] of Object.entries(devices)) {
-    const where = device.area || device.ha_area || "";
-    (byArea[where] = byArea[where] || []).push(itemId);
-  }
-  const order = Object.keys(byArea).sort((a, b) => (a ? areaName(a) : "￿").localeCompare(b ? areaName(b) : "￿"));
+  // Those in the area for voice.
+  const ids = Object.keys(devices).filter((itemId) => (devices[itemId].area || devices[itemId].ha_area || "") === (only || ""));
   const listed = (names) => (names.length ? names.join(", ") : h("span", { class: "muted" }, "none"));
   // A name another device has where it is heard.
   const clash = (clashes) => (clashes.length ? h("span", { class: "badge bad", style: "margin-left:6px",
     title: clashes.map((c) => `“${c.name}” is also ${c.with.join(", ")}'s`).join("\n") }, "shared") : null);
+  const name = only ? areaName(only) : null;
   return h("div", { class: "panel" },
-    heading("h2", "Devices", "Voice acts only on the devices added here: by their names in their area, by their names in the whole house, or as part of their area (“turn on the lights”). Home Assistant's exposure to Assist doesn't count."),
-    order.length ? order.map((where) => h("div", { class: "panel inset devices-area" },
-      h("h3", { class: "row" }, areaName(where), h("span", { class: "badge" }, String(byArea[where].length))),
-      h("table", { class: "devices" }, h("tr", {}, h("th", {}, "Id"), h("th", {}, "In its area"), h("th", {}, "Whole house"), h("th", {}, "Area-wide"), h("th", {})),
-        ...byArea[where].map((itemId) => {
-          const device = devices[itemId];
-          const clashes = device.clashes || [];
-          return h("tr", {},
-            h("td", {}, h("code", {}, itemId),
-              device.area ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
-            h("td", { "data-label": "In its area" }, where ? [listed(device.here), clash(clashes.filter((c) => c.area)),
-              device.here.length && !device.with_area ? h("span", { class: "badge", style: "margin-left:6px", title: "Not heard from other areas, even with its area said." }, "only there") : null]
-              : h("span", { class: "muted" }, "—")),
-            h("td", { "data-label": "Whole house" }, listed(device.house), clash(clashes.filter((c) => !c.area))),
-            h("td", { "data-label": "Area-wide" }, areaWide(itemId) ? (device.implicit ? "Yes" : "No") : h("span", { class: "muted" }, "—")),
-            h("td", { style: "text-align:right; white-space:nowrap" },
-              h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
-              h("button", { class: "link", onclick: async () => {
-                if (!confirm(`Remove ${itemId} from voice?`)) return;
-                try { await api("DELETE", `names/entities/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
-              } }, "remove")));
-        })))) : h("p", { class: "muted" }, "None yet."),
-    field("Add", hassPicker("entity", (item) => edit(item.id, item)), "Pick from Home Assistant; its name, aliases and area are offered as a starting point."),
+    only ? heading("h2", "Devices", `Voice acts only on the devices added: by their names in the ${name}, by their names in the whole house, or as part of the ${name} (“turn on the lights”). Home Assistant's exposure to Assist doesn't count.`)
+      : heading("h2", "In no area", "Devices heard only by their names in the whole house. Voice acts only on the devices added; Home Assistant's exposure to Assist doesn't count."),
+    ids.length ? h("table", { class: only ? "devices" : "devices loose" },
+      h("tr", {}, h("th", {}, "Id"), h("th", {}, only ? `In the ${name}` : ""), h("th", {}, "Whole house"), h("th", {}, only ? "Part of the area" : ""), h("th", {})),
+      ...ids.map((itemId) => {
+        const device = devices[itemId];
+        const clashes = device.clashes || [];
+        return h("tr", {},
+          h("td", {}, h("code", {}, itemId),
+            device.area ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+          h("td", { "data-label": only ? `In the ${name}` : "" }, only ? [listed(device.here), clash(clashes.filter((c) => c.area)),
+            device.here.length && !device.with_area ? h("span", { class: "badge", style: "margin-left:6px", title: "Not heard from other areas, even with its area said." }, "only there") : null]
+            : null),
+          h("td", { "data-label": "Whole house" }, listed(device.house), clash(clashes.filter((c) => !c.area))),
+          h("td", { "data-label": "Part of the area" }, only && areaWide(itemId) ? (device.implicit ? "Yes" : "No") : only ? h("span", { class: "muted" }, "—") : null),
+          h("td", { style: "text-align:right; white-space:nowrap" },
+            h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
+            h("button", { class: "link", onclick: async () => {
+              if (!confirm(`Remove ${itemId} from voice?`)) return;
+              try { await api("DELETE", `names/entities/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
+            } }, "remove")));
+      })) : h("p", { class: "muted" }, "None yet."),
+    field("Add", hassPicker("entity", (item) => edit(item.id, item)),
+      only ? `Pick from Home Assistant: it is added to the ${name}, with its name and aliases as a starting point.`
+        : "Pick from Home Assistant; its name and aliases are offered as a starting point. One in an area is added to that area."),
     form);
 }
 
-async function pageNames() {
-  const [store, haAreas] = await Promise.all([loadStore(), areaLabels()]);
+// After a name is saved: the page again, as it is now.
+function pageNames() {
+  return route();
+}
+
+// The Home page's Names: an area's -- what it is called, and its devices --
+// or the whole home's: the names heard everywhere, the devices in no area,
+// the floors and the value lists. Nothing is taken from Home Assistant
+// automatically: its names, aliases and areas are offered as suggestions.
+async function namesTab(store, area) {
+  const haAreas = await areaLabels();
   // Home Assistant's areas, and those named here (when it isn't connected).
   const named = Object.fromEntries(Object.entries(store.names.areas || {}).map(([id, e]) => [id, typeof e === "string" ? e : e.name]));
   const areas = { ...named, ...haAreas };
-  const kinds = [["areas", "area", "Areas"], ["floors", "floor", "Floors"]];
-  const sections = [devicesPanel(store, areas), ...kinds.map(([plural, kind, title]) => {
-    const names = store.names[plural] || {};
-    const form = h("div");
-    function edit(itemId, entry, suggestion) {
-      const name = h("input", { type: "text", value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : ""), placeholder: "name" });
-      let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
-        : (suggestion ? asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name)) : []);
-      fill(form, h("div", { class: "panel" },
-        h("div", { class: "row" }, h("b", {}, itemId), suggestion ? h("span", { class: "muted small" }, "suggested from Home Assistant — edit before saving") : null),
-        h("div", { class: "grid2" },
-          field("Name", name),
-          field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Kitchenette"), "Other names, and spellings the speech model uses.")),
-        h("div", { class: "row" },
-          h("button", { class: "primary", onclick: async () => {
-            try { await api("PUT", `names/${plural}/${encodeURIComponent(itemId)}`, { name: name.value, aliases }); toast("Saved"); pageNames(); refreshStatus(); }
-            catch (err) { form.append(errorBox(err)); }
-          } }, "Save"),
-          h("button", { onclick: () => fill(form, ) }, "Cancel"))));
-    }
-    return h("div", { class: "panel" },
-      h("h2", {}, title),
-      Object.keys(names).length ? h("table", {}, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {})),
-        ...Object.entries(names).map(([itemId, entry]) => h("tr", {},
-          h("td", {}, h("code", {}, itemId)),
-          h("td", {}, typeof entry === "string" ? entry : entry.name),
-          h("td", {}, typeof entry === "string" ? "" : asList(entry.aliases).join(", ")),
-          h("td", { style: "text-align:right; white-space:nowrap" },
-            h("button", { class: "link", onclick: () => edit(itemId, entry) }, "edit"),
-            h("button", { class: "link", onclick: async () => { if (!confirm(`Remove the name for ${itemId}?`)) return; try { await api("DELETE", `names/${plural}/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); } } }, "remove"))))) :
-        h("p", { class: "muted" }, "None yet."),
-      field("Add", hassPicker(kind, (item) => edit(item.id, null, item)), "Pick from Home Assistant; its name and aliases are offered as a starting point."),
-      form);
-  })];
+  const hidden = hiddenNotice(store.hidden_names, "name", "names",
+    "A name is in the language it was given in. Name a thing here for this language too; its other names come back when the app's Language option is theirs again.");
+  if (area) return [hidden, areaNamesPanel(store, area), devicesPanel(store, areas, area.id)];
+  return [hidden, heardEverywherePanel(store, areas), devicesPanel(store, areas, null), nameKindPanel(store, "floors", "floor", "Floors"), listsPanel(store)];
+}
 
+// What an area is called for voice ("the lights in the kitchen"): its name
+// and others, from Home Assistant's to start with.
+function areaNamesPanel(store, area) {
+  const entry = (store.names.areas || {})[area.id];
+  const saved = entry ? { name: typeof entry === "string" ? entry : entry.name, aliases: typeof entry === "string" ? [] : asList(entry.aliases) } : null;
+  const theirs = (state.catalog.area || []).find((a) => a.id === area.id) || { name: area.name, aliases: [] };
+  const help = `How it is said: “the lights in the ${area.name.toLowerCase()}”. Unnamed, it is heard by no name.`;
+  const panel = h("div", { class: "panel" });
+  function draw(editing) {
+    if (!saved && !editing) {
+      fill(panel, heading("h2", "Called", help),
+        h("p", { class: "muted small" }, "Not named yet."),
+        h("button", { onclick: () => draw(true) }, "Name it"));
+      return;
+    }
+    const name = h("input", { type: "text", value: saved ? saved.name : theirs.name, placeholder: "name" });
+    let aliases = saved ? saved.aliases : asList(theirs.aliases).filter((a) => !sameName(a, theirs.name));
+    const errors = h("div");
+    fill(panel, heading("h2", "Called", help),
+      saved ? null : h("p", { class: "muted small" }, "Suggested from Home Assistant — edit before saving"),
+      h("div", { class: "grid2" },
+        field("Name", name),
+        field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "kitchenette"), "Other names, and spellings the speech model uses.")),
+      errors,
+      h("div", { class: "row" },
+        h("button", { class: "primary", onclick: async () => {
+          try { await api("PUT", `names/areas/${encodeURIComponent(area.id)}`, { name: name.value, aliases }); toast("Saved"); pageNames(); refreshStatus(); }
+          catch (err) { fill(errors, errorBox(err)); }
+        } }, "Save"),
+        saved ? h("button", { class: "link", onclick: async () => {
+          if (!confirm(`Remove the ${area.name}'s names? It is heard by none.`)) return;
+          try { await api("DELETE", `names/areas/${encodeURIComponent(area.id)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
+        } }, "Remove") : h("button", { onclick: () => draw(false) }, "Cancel")));
+  }
+  draw(false);
+  return panel;
+}
+
+// Every device's names in the whole house -- heard from every satellite --
+// each edited with its device, in its area.
+function heardEverywherePanel(store, areas) {
+  const rows = [];
+  for (const [itemId, device] of Object.entries(store.devices || {})) {
+    for (const name of device.house) rows.push({ name, itemId, where: device.area || device.ha_area || "", clashes: (device.clashes || []).filter((c) => !c.area && sameName(c.name, name)) });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  const search = h("input", { type: "search", placeholder: "Find a name", "aria-label": "Find a name", style: "max-width:220px" });
+  const table = h("div");
+  function show() {
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = rows.filter((r) => words.every((w) => `${r.name} ${r.itemId} ${areas[r.where] || ""}`.toLowerCase().includes(w)));
+    fill(table, shown.length ? h("table", {},
+      h("tr", {}, h("th", {}, "Name"), h("th", {}, "Device"), h("th", {}, "Area")),
+      shown.map((r) => h("tr", {},
+        h("td", {}, r.name, r.clashes.length ? h("span", { class: "badge bad", style: "margin-left:6px",
+          title: r.clashes.map((c) => `Also ${c.with.join(", ")}'s: neither is heard by it`).join("\n") }, "shared") : null),
+        h("td", {}, h("code", {}, r.itemId)),
+        h("td", {}, r.where ? h("a", { href: placeHref(r.where, "names") }, areas[r.where] || r.where) : h("span", { class: "muted" }, "none")))))
+      : h("p", { class: "muted" }, rows.length ? "Nothing matches." : "None yet."));
+  }
+  search.addEventListener("input", show);
+  show();
+  return h("div", { class: "panel" },
+    h("div", { class: "row" },
+      heading("h2", "Heard everywhere", "Devices' names in the whole house: heard from every satellite, and no two devices may have one. Each is edited with its device, in its area.", { class: "grow", style: "margin:0" }),
+      rows.length > 8 ? search : null),
+    table);
+}
+
+// Names for things of a kind (floors): edited here, from Home Assistant's
+// to start with.
+function nameKindPanel(store, plural, kind, title) {
+  const names = store.names[plural] || {};
+  const form = h("div");
+  function edit(itemId, entry, suggestion) {
+    const name = h("input", { type: "text", value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : ""), placeholder: "name" });
+    let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
+      : (suggestion ? asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name)) : []);
+    fill(form, h("div", { class: "panel" },
+      h("div", { class: "row" }, h("b", {}, itemId), suggestion ? h("span", { class: "muted small" }, "suggested from Home Assistant — edit before saving") : null),
+      h("div", { class: "grid2" },
+        field("Name", name),
+        field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Kitchenette"), "Other names, and spellings the speech model uses.")),
+      h("div", { class: "row" },
+        h("button", { class: "primary", onclick: async () => {
+          try { await api("PUT", `names/${plural}/${encodeURIComponent(itemId)}`, { name: name.value, aliases }); toast("Saved"); pageNames(); refreshStatus(); }
+          catch (err) { form.append(errorBox(err)); }
+        } }, "Save"),
+        h("button", { onclick: () => fill(form, ) }, "Cancel"))));
+  }
+  return h("div", { class: "panel" },
+    h("h2", {}, title),
+    Object.keys(names).length ? h("table", {}, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {})),
+      ...Object.entries(names).map(([itemId, entry]) => h("tr", {},
+        h("td", {}, h("code", {}, itemId)),
+        h("td", {}, typeof entry === "string" ? entry : entry.name),
+        h("td", {}, typeof entry === "string" ? "" : asList(entry.aliases).join(", ")),
+        h("td", { style: "text-align:right; white-space:nowrap" },
+          h("button", { class: "link", onclick: () => edit(itemId, entry) }, "edit"),
+          h("button", { class: "link", onclick: async () => { if (!confirm(`Remove the name for ${itemId}?`)) return; try { await api("DELETE", `names/${plural}/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); } } }, "remove"))))) :
+      h("p", { class: "muted" }, "None yet."),
+    field("Add", hassPicker(kind, (item) => edit(item.id, null, item)), "Pick from Home Assistant; its name and aliases are offered as a starting point."),
+    form);
+}
+
+// Shared value lists: the language's, and yours.
+function listsPanel(store) {
   const listForm = h("div");
   function editList(name, values) {
     const nameInput = h("input", { type: "text", value: name || "", placeholder: "colors" });
@@ -2565,27 +2880,20 @@ async function pageNames() {
           catch (err) { listForm.append(errorBox(err)); }
         } }, "Save"), h("button", { onclick: () => fill(listForm, ) }, "Cancel"))));
   }
-
-  fill($main, 
-    heading("h1", "Names", "What voice acts on, and what things are called when spoken. Nothing is taken from Home Assistant automatically: its names, aliases and areas are offered as suggestions."),
-    hiddenNotice(store.hidden_names, "name", "names",
-      "A name is in the language it was given in. Name a thing here for this language too; its other names come back when the app's Language option is theirs again."),
-    ...sections,
-    h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets. The built-in ones come with the language; editing one makes it yours, and removing yours brings the built-in back."),
-      hiddenNotice(store.hidden_lists, "list", "lists",
-        "A list's phrases are in the language they were given in. They come back when the app's Language option is theirs again."),
-      h("div", { class: "list" }, ...[...new Set([...Object.keys(store.lists), ...Object.keys(store.builtin_lists || {})])].sort().map((name) => {
-        const own = store.lists[name];
-        const builtin = (store.builtin_lists || {})[name];
-        const values = own || builtin;
-        return h("div", { class: "item" },
-          h("div", { class: "grow" }, h("b", {}, name), " ", builtin ? h("span", { class: "badge" }, own ? "yours" : "built-in") : null,
-            h("div", { class: "muted small" }, valuesToText(values).split("\n").join(" · "))),
-          h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
-          own ? h("button", { class: "link", onclick: async () => { try { await api("DELETE", `lists/${encodeURIComponent(name)}`); pageNames(); } catch (err) { toast(err.message); } } }, builtin ? "use built-in" : "remove") : null);
-      })),
-      h("button", { onclick: () => editList("", null) }, "Add a list"), listForm),
-  );
+  return h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets. The built-in ones come with the language; editing one makes it yours, and removing yours brings the built-in back."),
+    hiddenNotice(store.hidden_lists, "list", "lists",
+      "A list's phrases are in the language they were given in. They come back when the app's Language option is theirs again."),
+    h("div", { class: "list" }, ...[...new Set([...Object.keys(store.lists), ...Object.keys(store.builtin_lists || {})])].sort().map((name) => {
+      const own = store.lists[name];
+      const builtin = (store.builtin_lists || {})[name];
+      const values = own || builtin;
+      return h("div", { class: "item" },
+        h("div", { class: "grow" }, h("b", {}, name), " ", builtin ? h("span", { class: "badge" }, own ? "yours" : "built-in") : null,
+          h("div", { class: "muted small" }, valuesToText(values).split("\n").join(" · "))),
+        h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
+        own ? h("button", { class: "link", onclick: async () => { try { await api("DELETE", `lists/${encodeURIComponent(name)}`); pageNames(); } catch (err) { toast(err.message); } } }, builtin ? "use built-in" : "remove") : null);
+    })),
+    h("button", { onclick: () => editList("", null) }, "Add a list"), listForm);
 }
 
 // -------------------------------------------------------------- satellites
@@ -4219,18 +4527,123 @@ function liveSection(s) {
 
 // Everything about how commands are recognized and answered that is not a
 // command: the fallback, the conversation agent, responses.
+// Whole Home's settings (the Home page's Settings tab).
+function settingsPanels() {
+  return [homePanel(), speechPanel(), piperPanel(), endOfSpeechPanel(), fallbackPanel(), agentPanel(), responsesPanel()];
+}
+
+// The most a command says (areas.AT_MOST): none, or a cap.
+const AT_MOST = { "": "Each command's own", brief: "Brief", beep: "A beep" };
+
+// What an area may have its own of (areas.KEYS), by its settings' groups.
+const AREA_GROUPS = [
+  ["home", "Home", "What commands use where they have no implied target of their own."],
+  ["voice", "Built-in voice", "Replies here, when no text-to-speech entity is picked. Downloaded the first time it is used."],
+  ["responses", "Responses", null],
+  ["end", "End of speech", null],
+];
+
+// A heading with the areas that have their own of these settings (areas.KEYS).
+function withOwn(heading, keys) {
+  const areas = ((state.areas || {}).areas || []).filter((a) => keys.some((k) => (a.own || {})[k] !== undefined));
+  if (areas.length) {
+    heading.append(h("a", { class: "badge", href: placeHref(areas[0].id, "settings"), style: "margin-left:6px",
+      title: `Their own: ${andList(areas.map((a) => a.name))}` }, `own in ${andList(areas.map((a) => a.name))}`));
+  }
+  return heading;
+}
+
+// An area's own settings: each the whole home's until changed for it.
+function areaSettingsPanel(area) {
+  const panel = h("div", { class: "panel" }, h("p", { class: "muted small" }, "Loading…"));
+  Promise.all([api("GET", "settings"), api("GET", "piper/voices"), refreshStatus()]).then(([settings, catalog]) => {
+    const status = state.status || {};
+    const own = { ...(area.own || {}) };
+    const opened = new Set(["home", "responses"]);
+    const editing = new Set();
+    const voices = Object.fromEntries(catalog.voices.map((v) => [v.key, v]));
+    const wholeVoice = (status.piper || {}).voice || catalog.default;
+    const instruments = status.instruments || [];
+    const home = settings.home || {};
+    const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
+    const voiceName = (key) => (voices[key] ? `${voices[key].name} (${PIPER_REGIONS[voices[key].language] || voices[key].language})` : key);
+    const select = (options, value, onChange) => h("select", { onchange: (e) => onChange(e.target.value) },
+      options.map(([v, text]) => h("option", { value: v, selected: String(v) === String(value) }, text)));
+    const entity = (domain) => (value, onChange) => entityField(domain, value || null, (v) => { if (v) onChange(v); });
+    const voiceControl = (value, onChange) => {
+      const chosen = voices[value];
+      return h("div", { class: "row" },
+        h("select", { onchange: (e) => { const v = voices[e.target.value]; onChange(e.target.value, { speaker: v && v.speakers.length ? v.speakers[0] : null }); } },
+          Object.entries(PIPER_REGIONS).map(([code, label]) => h("optgroup", { label },
+            catalog.voices.filter((v) => v.language === code).map((v) => h("option", { value: v.key, selected: v.key === value },
+              `${v.name}, ${v.quality}${v.speakers.length ? ` (${v.speakers.length} speakers)` : ""}${v.here ? "" : ` — ${mb(v.size)} to download`}`))))),
+        chosen && chosen.speakers.length && own.voice === value
+          ? select(chosen.speakers.map((n) => [n, n]), own.speaker || chosen.speakers[0], (speaker) => save({ speaker })) : null);
+    };
+    // Each: its key, label, group, the whole home's value, how a value is
+    // shown, its control (value, onChange), and a hint.
+    const defs = [
+      ["climate", "Thermostat", "home", home.climate, (v) => v || "not set", entity("climate")],
+      ["shopping_list", "Shopping list", "home", home.shopping_list, (v) => v || "not set", entity("todo")],
+      ["todo_list", "To-do list", "home", home.todo_list, (v) => v || "not set", entity("todo")],
+      ["voice", "Voice", "voice", wholeVoice, voiceName, voiceControl],
+      ["sounds", "Sounds", "responses", status.sounds !== false, (v) => (v ? "On" : "Off"),
+        (v, onChange) => select([["true", "On"], ["false", "Off"]], String(v), (x) => onChange(x === "true")),
+        "A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked."],
+      ["instrument", "Instrument", "responses", status.instrument, (v) => ((instruments.find((i) => i.id === v) || {}).name || v),
+        (v, onChange) => select(instruments.map((i) => [i.id, i.name]), v, onChange)],
+      ["at_most", "Say at most", "responses", (status.verbosity || {}).at_most || "", (v) => AT_MOST[v || ""],
+        (v, onChange) => select(Object.entries(AT_MOST), v || "", (x) => onChange(x || null)),
+        "No command here says more than this, whatever its own level; a question still answers."],
+      ["silence_seconds", "Silence to end (s)", "end", ((status.end_of_speech || {}).used || {}).silence_seconds, (v) => `${v} s`,
+        (v, onChange) => h("input", { type: "number", min: 0.1, max: 5, step: 0.1, value: v ?? "", style: "width:90px", onchange: (e) => { if (e.target.value !== "") onChange(Number(e.target.value)); } }),
+        "Silence after speech that ends a command. A satellite's own, on its page, wins."],
+    ];
+    async function save(values) {
+      try {
+        const saved = await api("PUT", `areas/${encodeURIComponent(area.id)}`, { settings: values });
+        for (const key of Object.keys(own)) delete own[key];
+        Object.assign(own, saved.own);
+        area.own = { ...own };
+        for (const key of Object.keys(values)) editing.delete(key);
+        toast("Saved");
+      } catch (err) { toast(err.message); }
+      draw();
+    }
+    function draw() {
+      fill(panel, h("div", { class: "settings-groups", style: "margin:0; border-top:none" }, AREA_GROUPS.map(([id, title, help]) => {
+        const mine = defs.filter((d) => d[2] === id && own[d[0]] !== undefined);
+        const group = settingsGroup(id, title,
+          mine.length ? mine.map(([key, label, , , text]) => `${label}: ${text(own[key])}`).join(" · ") : "Whole Home's", opened,
+          help ? h("p", { class: "muted small", style: "margin-top:0" }, help) : null,
+          defs.filter((d) => d[2] === id).map(([key, label, , whole, text, control, tip]) => {
+            if (own[key] === undefined && !editing.has(key)) {
+              return field(label, h("div", { class: "inherit-row" },
+                h("span", { class: "whole-value" }, `Whole Home's: ${text(whole)}`),
+                h("button", { type: "button", class: "link", onclick: () => { editing.add(key); draw(); } }, `Change for the ${area.name}`)), tip);
+            }
+            const value = own[key] !== undefined ? own[key] : whole;
+            return h("div", { class: "field" },
+              h("div", { class: "label-row" }, h("span", { class: "label" }, label), hint(tip), own[key] !== undefined ? h("span", { class: "badge accent" }, "own") : null),
+              h("div", { class: "inherit-row" },
+                control(value, (v, more) => save({ [key]: v, ...(more || {}) })),
+                h("button", { type: "button", class: "link", onclick: () => {
+                  if (own[key] === undefined) { editing.delete(key); draw(); } else save({ [key]: null });
+                } }, `Use Whole Home's (${text(whole)})`)));
+          }));
+        group.addEventListener("toggle", () => { if (group.open) opened.add(id); else opened.delete(id); });
+        return group;
+      })));
+    }
+    draw();
+  }).catch((err) => fill(panel, errorBox(err)));
+  return panel;
+}
+
+// After a setting is saved: the page again, as it is now.
 async function pageSettings() {
-  await Promise.all([refreshStatus(), loadSatellites()]);
-  fill($main,
-    h("h1", {}, "Settings"),
-    homePanel(),
-    speechPanel(),
-    piperPanel(),
-    endOfSpeechPanel(),
-    fallbackPanel(),
-    agentPanel(),
-    responsesPanel(),
-  );
+  await refreshStatus();
+  await route();
 }
 
 // ------------------------------------------------------------------ router
@@ -4248,7 +4661,7 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", session: "sessions", person: "people" }[page];
+    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "home", session: "sessions", person: "people" }[page];
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
@@ -4259,7 +4672,7 @@ async function route() {
     else if (page === "unknown") await pageUnknown();
     else if (page === "fallback") await pageFallback();
     else if (page === "library") await pageLibrary();
-    else if (page === "names") await pageNames();
+    else if (page === "names") location.hash = placeHref("home", "names");
     else if (page === "wake") await pageWakeWords(query);
     else if (page === "people") await pagePeople(new URLSearchParams(query || "").get("enroll"));
     else if (page === "person") await pagePerson(decodeURIComponent(arg));
@@ -4275,7 +4688,7 @@ async function route() {
     else if (["commands", "skills", "satellites", "group"].includes(page)) location.hash = "#/home";
     else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
     else if (page === "call") location.hash = `#/session/${arg}`;
-    else if (page === "settings") await pageSettings();
+    else if (page === "settings") location.hash = placeHref("home", "settings");
     else await pageHome();
   } catch (err) {
     fill($main, errorBox(err));

@@ -84,7 +84,7 @@ commands:
         brief: "{{ 'Took it off the shopping list.' if items | count < 2 else 'Took them off the shopping list.' }}"
         specific: "Took {{ slots.item }} off the shopping list."
     needs:
-      - Set the home's shopping list on the Settings page, or give it one of its
+      - Set the home's shopping list in Settings, or give it one of its
         own (its implied target).
 
   shopping_list_check:
@@ -121,7 +121,7 @@ commands:
         brief: "{{ 'Checked it off.' if items | count < 2 else 'Checked them off.' }}"
         specific: "Checked {{ slots.item }} off the shopping list."
     needs:
-      - Set the home's shopping list on the Settings page, or give it one of its
+      - Set the home's shopping list in Settings, or give it one of its
         own (its implied target).
 
   shopping_list_items:
@@ -161,7 +161,7 @@ commands:
         On the shopping list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
         {%- endif -%}
     needs:
-      - Set the home's shopping list on the Settings page, or give it one of its
+      - Set the home's shopping list in Settings, or give it one of its
         own (its implied target).
 
   todo_add:
@@ -207,7 +207,7 @@ commands:
         specific: "Added {{ slots.item }} to the to-do list."
         verbose: "{{ ('Added ' ~ added ~ ' to') if added else ('Put ' ~ put_back ~ ' back on') }} the to-do list."
     needs:
-      - Set the home's to-do list on the Settings page, or give it one of its
+      - Set the home's to-do list in Settings, or give it one of its
         own (its implied target).
 
   todo_remove:
@@ -239,7 +239,7 @@ commands:
         brief: "{{ 'Took it off the to-do list.' if items | count < 2 else 'Took them off the to-do list.' }}"
         specific: "Took {{ slots.item }} off the to-do list."
     needs:
-      - Set the home's to-do list on the Settings page, or give it one of its
+      - Set the home's to-do list in Settings, or give it one of its
         own (its implied target).
 
   todo_check:
@@ -274,7 +274,7 @@ commands:
         brief: "{{ 'Checked it off.' if items | count < 2 else 'Checked them off.' }}"
         specific: "Checked {{ slots.item }} off the to-do list."
     needs:
-      - Set the home's to-do list on the Settings page, or give it one of its
+      - Set the home's to-do list in Settings, or give it one of its
         own (its implied target).
 
   todo_add_mine:
@@ -322,4 +322,4 @@ commands:
         verbose: "{{ ('Added ' ~ added ~ ' to') if added else ('Put ' ~ put_back ~ ' back on') }} your to-do list."
     needs:
       - Give each person their to-do list (People page). Where nobody has one,
-        it adds to the home's (Settings page).
+        it adds to the home's (Settings).

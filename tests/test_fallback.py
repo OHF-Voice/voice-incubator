@@ -233,10 +233,10 @@ def test_the_chain():
     assert found.command.id == "what_time" and found.by == "meaning" and stub.labels == "not asked"
 
     # It picks something this satellite may not run: not run, said why.
-    compiled.commands["add_item"].satellites = ("elsewhere",)
+    compiled.commands["add_item"].area = "elsewhere"
     found = fallback.decide("we need milk", far, compiled, KITCHEN, everything)
     assert found.command is None and found.trace["llm"]["command"] == "add_item" and found.trace["llm"]["problems"]
-    compiled.commands["add_item"].satellites = None
+    compiled.commands["add_item"].area = None
 
     # It says it is not a command: nothing.
     stub.none = 0.9
@@ -574,7 +574,7 @@ def test_a_step_turned_off_says_so():
     found = fallback.decide("have you got the time", near, compiled, KITCHEN, ranked)
     assert found.command is None
     assert found.trace == {
-        "meaning": {"skipped": "turned off on the Settings page"},
+        "meaning": {"skipped": "turned off in Settings"},
         "llm": {"by": "GLiNER", "skipped": "turned off on the Settings page"},
     }
     # Nothing chosen for them: nothing said.

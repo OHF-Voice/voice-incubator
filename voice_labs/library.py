@@ -7,8 +7,8 @@ one for each of ``here``, ``device`` and ``place``.
 
 **A command added from the library follows it** (as a Home Assistant
 blueprint's automations do): it is saved as a reference -- ``from:
-todo/shopping_list_add`` -- with what you set on top (``SETTINGS``: where it
-runs, how much it says, the steps when nothing matches, its implied target,
+todo/shopping_list_add`` -- with what you set on top (``SETTINGS``: its area
+or the areas it is off in, how much it says, the steps when nothing matches, its implied target,
 example sentences of your own, its title and icon), and is the library's
 version as the app has it now: a fix to the library reaches it. Changing
 anything else takes control of it: it becomes a copy, as a command made from
@@ -33,11 +33,11 @@ from .store import compile_store, plain
 
 REFERENCE = "from"
 """A command's key that names the library command it follows (``file/id``)."""
-SETTINGS = ("satellites", "disabled", "verbosity", "fallback", "title", "icon", "slots", "examples", "language")
+SETTINGS = ("area", "off", "disabled", "verbosity", "fallback", "title", "icon", "slots", "examples", "language")
 """What a command that follows the library may set itself. ``slots``: its
 implied target, in place of the library's; ``examples``: sentences added to
 the library's."""
-REPLACED = ("satellites", "disabled", "verbosity", "fallback", "title", "icon", "slots")
+REPLACED = ("area", "off", "disabled", "verbosity", "fallback", "title", "icon", "slots")
 """The settings that take the library's place (null: none of it)."""
 COPY_SUFFIX = r"(_\d+|_[a-z]{2}|_copy(_\d+)?)?"
 """What an added command's id may have after the library's: a number (one

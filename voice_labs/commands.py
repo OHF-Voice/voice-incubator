@@ -75,14 +75,17 @@ says the built-in sentence::
       done: Paused.
       no_timers: There's nothing to pause.
 
-``satellites`` puts a command on some satellites only (by their keys);
-without it, it runs on every satellite. Where two take the same sentence, the
-one on some satellites goes first: a copy of a command on one satellite does
-something else there::
+A command is the whole home's, heard from every satellite, unless it is an
+area's own (``area``: heard only from the satellites in that area). The whole
+home's may be turned off in some areas (``off``: their ids). Where two take the
+same sentence, the area's own goes first there: a copy of a command in one area
+does something else there::
 
     commands:
-      lights_on_kids:
-        satellites: [d83bdaa3d5f4]
+      good_night_office:
+        area: office
+      play_music_here:
+        off: [nursery]
 
 ``mine`` makes it act on the speaker's own -- ``todo_list``, ``calendar`` or
 ``playlist`` (voice_labs/people.py) -- in place of its fixed target, where
@@ -211,7 +214,8 @@ COMMAND_KEYS = {
     "title",
     "icon",
     "library",
-    "satellites",
+    "area",
+    "off",
     "mine",
     "home",
     "supports",
@@ -223,12 +227,14 @@ COMMAND_KEYS = {
     *DO_KEYS,
 }
 # Keys a command no longer takes, and what to do instead.
+WHERE = "a command is the whole home's, or an area's own (area:); the whole home's may be turned off in some areas (off:)"
 REMOVED_KEYS = {
-    "scope": "a command runs on every satellite, or on those in its satellites list",
-    "satellite": "satellites: [its key]",
+    "scope": WHERE,
+    "satellite": WHERE,
+    "satellites": WHERE,
     "overrides": "make a copy of the command that does the other thing (Duplicate, on its page), "
-    "on the satellites it is for: there, the copy goes first",
-    "groups": "command groups are gone: a command runs on every satellite, or on those in its satellites list",
+    "in the area it is for (area:): there, the copy goes first",
+    "groups": WHERE,
 }
 FALLBACK_STEPS = ("meaning", "llm")
 HOME_THINGS = {"weather": "weather", "climate": "climate", "shopping_list": "todo", "todo_list": "todo"}
@@ -510,8 +516,11 @@ class Command:
     duration: bool = False
     disabled: bool = False
     title: str = ""
-    satellites: tuple[str, ...] | None = None
-    """The satellites it is on (their keys); None: every one."""
+    area: str | None = None
+    """The area it is the own of, heard only from the satellites there;
+    None: the whole home's."""
+    off: tuple[str, ...] = ()
+    """The areas the whole home's is turned off in."""
     fallback: tuple[str, ...] = ()
     """The steps after keywords and examples that may run it (FALLBACK_STEPS)."""
     combinations: tuple[tuple[str, ...], ...] = ((),)
@@ -597,6 +606,10 @@ def parse_command(command_id: str, spec: Any) -> Command:
         if slot is not None and slot not in heard and slot not in behavior.slots:
             known = ", ".join(heard) or "none"
             raise ConfigError(f"{where}.supports.{capability}: {slot!r} is not a slot it listens for ({known})")
+    area = area_id(spec.get("area"), f"{where}.area")
+    off = area_ids(spec.get("off"), f"{where}.off")
+    if area is not None and off:
+        raise ConfigError(f"{where}.off: only the whole home's commands are turned off in areas; this is the {area} area's own")
 
     return Command(
         command_id,
@@ -607,7 +620,8 @@ def parse_command(command_id: str, spec: Any) -> Command:
         duration,
         bool(spec.get("disabled", False)),
         str(spec.get("title") or ""),
-        satellite_keys(spec.get("satellites"), f"{where}.satellites"),
+        area,
+        off,
         _fallback_steps(spec.get("fallback"), f"{where}.fallback"),
         combinations,
         intents,
@@ -732,13 +746,22 @@ def _fallback_steps(value: Any, where: str) -> tuple[str, ...]:
     return tuple(step for step in FALLBACK_STEPS if step in value)
 
 
-def satellite_keys(value: Any, where: str) -> tuple[str, ...] | None:
-    """Where a command or skill runs: some satellites (their keys), or None
-    for every one."""
-    if value is None:
+def area_id(value: Any, where: str) -> str | None:
+    """The area a command is the own of (Home Assistant's area id); None for
+    the whole home's."""
+    if value in (None, ""):
         return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{where}: an area's id")
+    return value.strip()
+
+
+def area_ids(value: Any, where: str) -> tuple[str, ...]:
+    """The areas a command or skill of the whole home's is turned off in."""
+    if value in (None, []):
+        return ()
     if not isinstance(value, list) or not all(isinstance(k, str) and k.strip() for k in value):
-        raise ConfigError(f"{where}: a list of satellites' keys")
+        raise ConfigError(f"{where}: a list of areas' ids")
     return tuple(dict.fromkeys(k.strip() for k in value))
 
 

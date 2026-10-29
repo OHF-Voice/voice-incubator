@@ -680,7 +680,7 @@ class Fallback:
             return nearest[0]
 
         if chosen(compiled, "meaning") and not self.embedding_accept:
-            found.trace["meaning"] = {"skipped": "turned off on the Settings page"}
+            found.trace["meaning"] = {"skipped": "turned off in Settings"}
         elif self.embedding_accept and chosen(compiled, "meaning"):
             near = closest_once()
             command = compiled.commands.get(command_of(near["intent"])) if near else None

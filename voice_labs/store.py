@@ -624,6 +624,28 @@ class Store:
 
         return self.update(edit)
 
+    def put_off(self, area: str, command_ids: list[str], off: bool) -> Compiled:
+        """Turn the whole home's commands off in ``area``, or back on: their
+        ``off`` lists."""
+
+        def edit(document: dict[str, Any]) -> None:
+            commands = document["commands"]
+            for command_id in command_ids:
+                command = commands.get(command_id)
+                if not isinstance(command, dict):
+                    raise FileNotFoundError(f"No command {command_id}")
+                if command.get("area"):
+                    raise ConfigError(f"{command_id} is an area's own, not the whole home's")
+                kept = [str(a) for a in command.get("off") or [] if str(a) != area]
+                if off:
+                    kept.append(area)
+                if kept:
+                    command["off"] = kept
+                else:
+                    command.pop("off", None)
+
+        return self.update(edit)
+
     def put_unknown(self, response: str | None) -> Compiled:
         """What is said when nothing understood a sentence; None or empty:
         the built-in hint."""

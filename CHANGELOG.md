@@ -2,6 +2,26 @@
 
 ## 0.2.0
 
+- **The Home page is by area.** The whole home and each area are listed down
+  the side (by floor; a select on a phone), each with its satellites and its
+  **Commands**, **Names** and **Settings** -- the Names and Settings pages
+  are now Whole Home's tabs.
+  - A command is the whole home's, heard from every satellite, or an area's
+    own (`area:`), heard only there and first there where both take a
+    sentence. The whole home's commands and skills can be turned off in an
+    area (`off:`), a group at a time too; a satellite there that hears one
+    says "That command isn't available in the Kitchen." Satellites in no
+    area have the whole home's only. Per-satellite lists (`satellites:`) are
+    gone; nothing stored used them.
+  - An area may have its own thermostat, shopping and to-do lists, built-in
+    voice (downloaded when first used, two kept loaded besides the whole
+    home's), sounds and instrument, silence to end, and **Say at most**
+    (brief, or a beep; a question still answers) -- the whole home may cap
+    it too. The whole home's settings say which areas have their own.
+  - An area's Names say what it is called and hold its devices (one added
+    there goes there); Whole Home's list every name heard everywhere, the
+    devices in no area, the floors and the value lists.
+
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):

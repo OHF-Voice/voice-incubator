@@ -22,9 +22,9 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    floor, gives way to that version when the transcript names one ("set bed
    light to green", heard as "set and light to green").
 4. **Where it is available.** Matches are taken best first, skipping commands
-   that are not on this satellite (they are on some others). Of matches as
-   good as each other, and of example sentences a copy also has, one on some
-   satellites, this one among them, goes first.
+   that are not heard here: another area's own, or the whole home's turned
+   off in this one. Of matches as good as each other, and of example
+   sentences a copy also has, this area's own goes first.
 5. **Free text** is re-read from the TDT transcript over the same stretch of
    audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
 6. **When nothing matched**, the closest command is named: from the keyword
@@ -110,6 +110,8 @@ class Satellite:
     """Its own media player in Home Assistant (ESPHome's), where TTS speaks."""
     skills: frozenset[str] | None = None
     """The skills that answer here (voice_labs/skills/); None: every one."""
+    settings: dict[str, Any] = field(default_factory=dict)
+    """Its area's settings over the whole home's (voice_labs/areas.py)."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -127,21 +129,30 @@ class Satellite:
         }
 
     def available(self, command: Command) -> Behavior | None:
-        """What a command does here; None where it is not: it is on some
-        other satellites."""
-        here = command.satellites is None or self.key in command.satellites
+        """What a command does here; None where it is not heard: another
+        area's own, or the whole home's turned off in this area."""
+        if command.area is not None:
+            here = command.area == self.area_id
+        else:
+            here = self.area_id is None or self.area_id not in command.off
         return command.behavior if here else None
 
     def picked(self, command: Command) -> bool:
-        """It is on some satellites, this one among them."""
-        return command.satellites is not None and self.key in command.satellites
+        """It is this satellite's area's own."""
+        return command.area is not None and command.area == self.area_id
 
     def first(self, commands: list[Command]) -> list[Command]:
-        """The ones available here, those picked for it first."""
+        """The ones available here, the area's own first."""
         return sorted((c for c in commands if self.available(c) is not None), key=lambda c: not self.picked(c))
 
     def why_unavailable(self, command: Command) -> str:
-        return "not on this satellite"
+        return "another area's own" if command.area is not None else "turned off in this area"
+
+    def not_here(self) -> str:
+        """What it says of a command it heard that isn't heard here: "That
+        command isn't available in the Kitchen."."""
+        say = languages.speech()
+        return say.not_available(say.place([("area", self.area_name)]) if self.area_name else "")
 
 
 @dataclass
@@ -618,10 +629,10 @@ class Engine:
             picked = (decision.fallback or {}).get("llm") or {}
             say = languages.speech()
             if picked.get("command") in compiled.commands:
-                # GLiNER knew what was meant but not all of it.
+                # GLiNER knew what was meant but not all of it, or it isn't heard here.
                 command = compiled.commands[picked["command"]]
-                why = say.NOT_HERE if satellite.available(command) is None else say.PARTLY
-                decision.hint = {"source": "gliner", "command": command.id, "text": say.hint(command.description, why)}
+                text = satellite.not_here() if satellite.available(command) is None else say.hint(command.description, say.PARTLY)
+                decision.hint = {"source": "gliner", "command": command.id, "text": text}
             if not compiled.commands:
                 # Only the app's own commands are listened for.
                 decision.hint = {"source": None, "text": say.NO_COMMANDS}
@@ -684,8 +695,7 @@ class Engine:
     ) -> None:
         """The first of ``recognition``'s matches this satellite may run:
         its command, behavior and slots into ``decision`` (or a refusal).
-        Of matches that cost the same, one picked for this satellite goes
-        first."""
+        Of matches that cost the same, the area's own goes first."""
 
         def mine_first(result) -> tuple[float, bool]:
             command = compiled.commands.get(command_of(result.intent))
@@ -702,7 +712,7 @@ class Engine:
                 twins = [compiled.commands.get(command_of(t)) for t in compiled.twins.get(result.intent, ())]
                 twin = next(iter(satellite.first([t for t in twins if t is not None])), None)
                 if twin is not None and (behavior is None or satellite.picked(twin)):
-                    why = f"its copy {twin.id}, picked for this satellite," if satellite.picked(twin) else f"its copy {twin.id}, which runs here,"
+                    why = f"its copy {twin.id}, this area's own," if satellite.picked(twin) else f"its copy {twin.id}, which runs here,"
                     result.notes.append(f"{command.id}: {why} says the same sentence")
                     command, behavior = twin, satellite.available(twin)
             if behavior is None:
@@ -1016,12 +1026,7 @@ class Engine:
             recognizer = self.recognizer
         if skipped:
             command = commands[skipped[0]["command"]]
-            return {
-                "source": "unavailable",
-                "command": command.id,
-                "text": f"It looks like you're trying to {command.description}, "
-                "but that isn't set up here.",
-            }
+            return {"source": "unavailable", "command": command.id, "text": satellite.not_here()}
 
         candidates = []
         for result in recognition.rejected:
@@ -1050,15 +1055,11 @@ class Engine:
         if candidates:
             _, command, result = min(candidates, key=lambda item: item[0])
             if satellite.available(command) is None:
-                why = say.NOT_HERE
+                text = satellite.not_here()
             else:
                 why = say.missing(_which(result.missing[0], command), command.duration, command.number_slot)
-            return {
-                "source": "keywords",
-                "command": command.id,
-                "missing": result.missing,
-                "text": say.hint(command.description, why),
-            }
+                text = say.hint(command.description, why)
+            return {"source": "keywords", "command": command.id, "missing": result.missing, "text": text}
 
         if recognizer_has_meaning(self):
             texts = [t for t in (recognition.tdt_transcript, recognition.transcript) if t]
@@ -1076,8 +1077,8 @@ class Engine:
                     and margin >= HINT_MARGIN
                 ):
                     hint["command"] = command.id
-                    why = say.PARTLY if satellite.available(command) is not None else say.NOT_HERE
-                    hint["text"] = say.hint(command.description, why)
+                    here = satellite.available(command) is not None
+                    hint["text"] = say.hint(command.description, say.PARTLY) if here else satellite.not_here()
                     return hint
                 hint["text"] = say.SORRY
                 return hint
