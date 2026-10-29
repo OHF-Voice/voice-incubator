@@ -2,6 +2,15 @@
 
 ## 0.2.0
 
+- **Piper's voices are downloaded when first used**, from
+  [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) at a
+  pinned revision (its catalog for US and British English is in the app,
+  each file checked by MD5): Kristin by default, in place of Ellie, or another
+  picked on the Settings page's **Built-in voice** -- with its sample, its
+  speaker for a voice of several, and Piper's inference settings (length,
+  noise and noise W scales, volume) to try before saving. The voice wake
+  words are trained with is downloaded when training first needs it. The
+  image carries no Piper voice.
 - **The speech models are downloaded the first time the app starts** --
   Parakeet, EmbeddingGemma 2 and GLiNER, about 470 MB, from
   [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models)

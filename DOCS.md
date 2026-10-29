@@ -8,10 +8,10 @@ or run an action.
 Open **Voice Labs** in the sidebar to make commands, name things, set up
 satellites and look at sessions. It hears and speaks English.
 
-The first time it starts, the app downloads its speech models -- about 470
-MB: Parakeet (speech), EmbeddingGemma 2 (meaning) and GLiNER (the command
-fallback) -- into its own storage, and its page shows how far it got. Later
-starts and updates keep them.
+The first time it starts, the app downloads its speech models -- about 530
+MB: Parakeet (speech), EmbeddingGemma 2 (meaning), GLiNER (the command
+fallback) and Piper's Kristin (its voice) -- into its own storage, and its page
+shows how far it got. Later starts and updates keep them.
 
 ## The Voice Labs integration
 
@@ -176,6 +176,16 @@ page.
   player**. On its own player, the satellite finishes speaking before the
   call ends, and music turns down meanwhile. A command with nothing
   to say still plays its short sound on the satellite itself.
+- **Built-in voice.** Without a text-to-speech entity, replies -- and
+  announcements -- are said by Piper, in the voice picked on the Settings page:
+  Kristin unless you pick another of Piper's US or British English voices
+  (**Sample** plays the voice's recording first). A voice is downloaded the
+  first time it is used, 60 to 140 MB; until then the one before speaks. For
+  a voice trained on several people, pick the **speaker**. Piper's own
+  settings are there too, each the voice's own when left empty: **length
+  scale** (above 1 slower), **noise scale** (how much the voice varies),
+  **noise W scale** (how much its rhythm varies) and **volume**. **Try** says a
+  sentence in your browser with them before you save.
 
 ### End of speech
 

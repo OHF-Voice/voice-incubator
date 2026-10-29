@@ -59,7 +59,8 @@ COPY voice_labs ./voice_labs
 # adapt-ctc's native Viterbi (several times faster than the numpy fallback).
 RUN python3 setup.py build_ext --inplace && rm -rf build
 # Parakeet, EmbeddingGemma and GLiNER are downloaded into the app's data the
-# first time it starts (voice_labs/downloads.py): linked from models/.
+# first time it starts (voice_labs/downloads.py), and Piper's voices the first
+# time one is used (voice_labs/piper_voices.py): linked from models/.
 RUN python3 -m voice_labs.downloads link /data/models
 
 WORKDIR /

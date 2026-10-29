@@ -247,11 +247,14 @@ class WakeTraining:
         exists: Callable[[str], bool] | None = None,
         retrainable: Callable[[str], bool] | None = None,
         builtin: Callable[[str], bool] | None = None,
+        fetch_voice: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.work_dir = Path(work_dir)
         self.custom_dir = custom_dir
         self.kit_dirs = kit_dirs
         self.voice = voice
+        self.fetch_voice = fetch_voice
+        """Downloads ``voice`` when it isn't here (Piper's catalog has it)."""
         self.language = language
         self.trainer_python = trainer_python or sys.executable
         self.micro_wake_word = micro_wake_word
@@ -347,7 +350,7 @@ class WakeTraining:
         """Why no wake word can be trained here now, if so."""
         if self.voice is None:
             return "Training a wake word isn't available in this language yet."
-        if not self.voice.is_file():
+        if not self.voice.is_file() and self.fetch_voice is None:
             return f"The training voice is missing ({self.voice.name})."
         if self.custom_dir is None:
             return "There is no directory for custom wake words."
@@ -457,6 +460,8 @@ class WakeTraining:
         try:
             kit = self.kit()
             assert self.voice is not None and self.custom_dir is not None
+            if not self.voice.is_file() and self.fetch_voice is not None:
+                await self.fetch_voice()  # the first training here: downloaded now
             work.mkdir(parents=True, exist_ok=True)
             recorded = work / "recordings"
             recorded.mkdir()

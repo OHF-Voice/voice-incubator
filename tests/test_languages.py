@@ -31,9 +31,11 @@ def test_packs(english):
         languages.load("xx")
     assert english.library.is_dir() and sorted(p.name for p in english.library.glob("*.yaml"))
     assert english.ctc_dir(ROOT).name.startswith("stt_en_parakeet_tdt_ctc_110m")
-    # Without its models, the app says which and stops.
-    assert english.missing(ROOT / "nowhere") == [
-        "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m", "models/piper/en_US-ellie-medium.onnx"]
+    # Without its models, the app says which and stops -- but for its voice,
+    # which Piper's catalog has, to download.
+    assert english.missing(ROOT / "nowhere") == ["models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"]
+    assert replace(english, piper="en_US-unknown-medium.onnx").missing(ROOT / "nowhere") == [
+        "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m", "models/piper/en_US-unknown-medium.onnx"]
     # Its matcher config is the base every home's commands build on.
     config = base_config()
     assert config["language"] == "en" and "the" in config["filler"] and config["settings"]["examples_first"]

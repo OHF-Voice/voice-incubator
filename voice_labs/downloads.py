@@ -2,7 +2,8 @@
 speech, with its CTC head beside it: adapt_ctc.hybrid), the CTC model's
 tokens, EmbeddingGemma 2 (hints by meaning) and GLiNER (the command
 fallback) -- about 470 MB, from rhasspy/voice-labs-models and
-onnx-community/embeddinggemma-2-ONNX, each file checked against its SHA-256.
+onnx-community/embeddinggemma-2-ONNX, each file checked against its SHA-256 --
+and the Piper voices in use (voice_labs/piper_voices.py).
 
 As an app they go in its data folder (``/data/models``, kept across updates),
 which the image's models/ links each of them to (``link``): the code finds
@@ -43,8 +44,10 @@ class File:
     name: str
     """Its path in its model's folder."""
     url: str
-    sha256: str
+    digest: str
     size: int
+    algorithm: str = "sha256"
+    """``digest``'s (hashlib's name): Piper's voices are listed with MD5."""
 
 
 @dataclass(frozen=True)
@@ -146,7 +149,7 @@ class Downloader:
         """One file, whole and as published, or not at all."""
         path.parent.mkdir(parents=True, exist_ok=True)
         partial = path.with_name(path.name + ".part")
-        digest = hashlib.sha256()
+        digest = hashlib.new(file.algorithm)
         got = 0
         try:
             async with http.get(file.url) as response:
@@ -157,8 +160,9 @@ class Downloader:
                         digest.update(chunk)
                         got += len(chunk)
                         self.done += len(chunk)
-            if digest.hexdigest() != file.sha256:
-                raise ValueError("not as published (its SHA-256 differs)")
+            if digest.hexdigest() != file.digest:
+                spelled = {"sha256": "SHA-256", "md5": "MD5"}.get(file.algorithm, file.algorithm)
+                raise ValueError(f"not as published (its {spelled} differs)")
             partial.replace(path)
         finally:
             self.done -= got
@@ -210,16 +214,21 @@ async def serve_progress(downloader: Downloader, host: str, port: int, allow: tu
     return runner
 
 
+VOICES = "piper"
+"""Where Piper's voices go under models/, each downloaded when it is first
+used (voice_labs/piper_voices.py)."""
+
+
 def link(data: Path, models: Path = ROOT / "models") -> None:
-    """Each downloaded model's folder under ``models`` a link to its place
-    under ``data``, where the app downloads it."""
-    for model in MODELS:
-        place = models / model.folder
+    """Each downloaded model's folder under ``models`` -- and Piper's voices'
+    -- a link to its place under ``data``, where the app downloads it."""
+    for folder in (*(model.folder for model in MODELS), VOICES):
+        place = models / folder
         place.parent.mkdir(parents=True, exist_ok=True)
         if place.is_symlink() or place.exists():
             raise SystemExit(f"{place} is already there: the image should not carry it")
-        place.symlink_to(data / model.folder, target_is_directory=True)
-        print(f"{place} -> {data / model.folder}")
+        place.symlink_to(data / folder, target_is_directory=True)
+        print(f"{place} -> {data / folder}")
 
 
 def main() -> None:

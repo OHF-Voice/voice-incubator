@@ -48,7 +48,10 @@ class Pack:
     transducer_about: str
     """What the transducer is, for the UI."""
     piper: str
-    """The Piper voice, under models/piper/."""
+    """The Piper voice replies are said in unless another is picked, under
+    models/piper/."""
+    piper_languages: tuple[str, ...] = ()
+    """The Piper voices that may be picked (piper_voices): their languages."""
     adapt: dict[str, Any] = field(default_factory=dict)
     """The matcher's base config for every home: ``filler``, ``name_cues``,
     ``compounds``, ``name_endings`` (commands.base_config)."""
@@ -119,16 +122,19 @@ class Pack:
 
     def missing(self, root: Path) -> list[str]:
         """Its models not under ``root``/models, which it can't run without:
-        the CTC model -- or its head beside the transducer -- and the Piper
-        voice. (Without its transducer, free text comes from the multilingual
-        one, or the CTC model.)"""
+        the CTC model -- or its head beside the transducer -- and, when Piper's
+        catalog hasn't it to download (piper_voices), the Piper voice.
+        (Without its transducer, free text comes from the multilingual one,
+        or the CTC model.)"""
         from adapt_ctc.hybrid import has_shared_model  # pylint: disable=import-outside-toplevel
 
         missing = []
         ctc = self.ctc_dir(root)
         if not (ctc / "model.onnx").is_file() and not has_shared_model(self.transducer_dir(root), ctc):
             missing.append(f"models/{self.ctc}")
-        if not (root / "models/piper" / self.piper).is_file():
+        from voice_labs.piper_voices import catalog  # pylint: disable=import-outside-toplevel
+
+        if self.piper.removesuffix(".onnx") not in catalog() and not (root / "models/piper" / self.piper).is_file():
             missing.append(f"models/piper/{self.piper}")
         return missing
 

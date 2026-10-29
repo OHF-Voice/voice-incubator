@@ -8,16 +8,18 @@ import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import onnxruntime as ort
 import soundfile as sf
 import soxr
-from piper import PiperConfig, PiperVoice
+from piper import PiperConfig, PiperVoice, SynthesisConfig
 from sentence_stream import stream_to_sentences
 
 from adapt_ctc.runtime import session_options
 
+from .piper_voices import synthesis
 from .protocol import SAMPLE_RATE
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,8 +77,12 @@ class Speech:
     def __init__(
         self, voice_path: Path, sounds_dir: Path, alarm_path: Path | None = None,
         instrument: Callable[[], str | None] | None = None,
+        synthesis: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.voice_path = Path(voice_path)
+        """Piper's voice (its .onnx, the .onnx.json beside it)."""
+        self._synthesis = synthesis or dict
+        """How it speaks (piper_voices.synthesis's settings), asked each time it does."""
         self.sounds_dir = Path(sounds_dir)
         self.alarm_path = Path(alarm_path) if alarm_path is not None else None
         self._instrument = instrument or (lambda: None)
@@ -88,7 +94,7 @@ class Speech:
         """One repeat of the timer alarm, pause included."""
 
     async def start(self) -> None:
-        self._voice = await asyncio.to_thread(load_voice, self.voice_path)
+        await self.use(self.voice_path)
         if self.alarm_path is not None:
             sound = await asyncio.to_thread(self._load_file, self.alarm_path)
             self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
@@ -98,6 +104,20 @@ class Speech:
             if "acknowledge" in made:
                 self.instruments[folder.name] = made
         _LOGGER.info("Speech ready (%s; sounds: %s)", self.voice_path.name, ", ".join(self.instruments))
+
+    async def use(self, voice_path: Path) -> None:
+        """Speak with this voice from now on."""
+        self._voice = await asyncio.to_thread(load_voice, Path(voice_path))
+        self.voice_path = Path(voice_path)
+
+    @property
+    def defaults(self) -> dict[str, Any]:
+        """The voice's own inference settings, and its speakers by id."""
+        assert self._voice is not None
+        config = self._voice.config
+        speakers = sorted(config.speaker_id_map or {}, key=lambda name: config.speaker_id_map[name])
+        return {"length_scale": config.length_scale, "noise_scale": config.noise_scale,
+                "noise_w_scale": config.noise_w_scale, "volume": 1.0, "speakers": speakers}
 
     @staticmethod
     def _load_file(path: Path) -> bytes:
@@ -127,10 +147,14 @@ class Speech:
     def asking(self) -> bytes:
         return self.sound("asking")
 
-    def synthesize(self, text: str) -> bytes:
-        """``text`` (a sentence of ``sentences_of``) as device PCM."""
+    def synthesize(self, text: str, settings: dict[str, Any] | None = None) -> bytes:
+        """``text`` (a sentence of ``sentences_of``) as device PCM, as the
+        settings say (``settings``, else the Settings page's)."""
         assert self._voice is not None
-        chunks = list(self._voice.synthesize(text))
+        voice = self._voice
+        chosen = self._synthesis() if settings is None else settings
+        config = SynthesisConfig(**synthesis(chosen, voice.config.speaker_id_map or {}))
+        chunks = list(voice.synthesize(text, syn_config=config))
         if not chunks:
             return b""
         rate = chunks[0].sample_rate

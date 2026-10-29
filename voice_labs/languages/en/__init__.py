@@ -1,5 +1,5 @@
 """English: Parakeet (parakeet-tdt_ctc-110m) for matching and writing, Piper's
-Jenny, every skill, and GLiNER."""
+Kristin (or another US or British voice), every skill, and GLiNER."""
 
 from pathlib import Path
 
@@ -11,7 +11,8 @@ PACK = Pack(
     ctc="speech-to-phrase/stt_en_parakeet_tdt_ctc_110m",
     transducer="parakeet-tdt",
     transducer_about="parakeet-tdt_ctc-110m, 110M parameters",
-    piper="en_US-ellie-medium.onnx",
+    piper="en_US-kristin-medium.onnx",
+    piper_languages=("en_US", "en_GB"),
     adapt={
         "language": "en",
         "filler": ["the", "a", "an", "please", "my", "can you", "could you", "would you", "it", "of"],

@@ -26,7 +26,7 @@ def test_what_it_downloads_is_what_the_working_copy_has():
             if not path.is_file():
                 continue
             data = path.read_bytes()
-            assert (len(data), hashlib.sha256(data).hexdigest()) == (file.size, file.sha256), path
+            assert (len(data), hashlib.new(file.algorithm, data).hexdigest()) == (file.size, file.digest), path
             checked += 1
     if not checked:
         pytest.skip("no models here")

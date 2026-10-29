@@ -627,6 +627,21 @@ async def _scenario(tmp_path: Path) -> None:
             for gone in ("light.desk_lamp", "light.bedroom_lamp"):
                 assert (await http.delete(f"/api/names/entities/{gone}")).status == 200
 
+            # Piper's voice: one of the language's from its catalog, a speaker
+            # it has, and its settings in their ranges -- the default left out;
+            # tried with the settings before they are saved.
+            listed = await (await http.get("/api/piper/voices")).json()
+            assert listed["default"] == "en_US-kristin-medium" and "en_GB-vctk-medium" in {v["key"] for v in listed["voices"]}
+            assert (await (await http.get("/api/status")).json())["piper"]["speaking"] == "en_US-kristin-medium"
+            assert (await http.put("/api/settings", json={"piper": {"voice": "en_US-kristin-medium", "length_scale": 1.5}})).status == 200
+            assert app.store.settings["piper"] == {"length_scale": 1.5}
+            for bad in ({"voice": "de_DE-thorsten-medium"}, {"speaker": "p226"}, {"noise_scale": 9}):
+                response = await http.put("/api/settings", json={"piper": bad})
+                assert response.status == 400, bad
+            tried = await http.post("/api/piper/try", json={"text": "Hello.", "length_scale": 1.0})
+            assert tried.status == 200 and tried.content_type == "audio/wav" and (await tried.read())[:4] == b"RIFF"
+            assert (await http.put("/api/settings", json={"piper": {}})).status == 200 and "piper" not in app.store.settings
+
             # A Home Assistant conversation agent gets what nothing here
             # understood, in a conversation kept on each satellite.
             async def agent_said(text):

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Copy what the image needs but git does not carry into local/, for the
-# Dockerfile: the English models the app doesn't download (Piper's voices,
-# speaker ID, the wake words, the Kaldi verifier's model and tools),
+# Dockerfile: the English models the app doesn't download (speaker ID, the
+# wake words, the Kaldi verifier's model and tools),
 # wyoming-wake-kaldi, which is not published, and microWakeWord's working
 # tree. Parakeet, EmbeddingGemma and GLiNER are downloaded when the app first
-# starts (voice_labs/downloads.py); other languages, the multilingual model
+# starts (voice_labs/downloads.py), and Piper's voices when one is first used
+# (voice_labs/piper_voices.py); other languages, the multilingual model
 # and the wake word training kit aren't in the image. The Kaldi tools and its
 # daemon are native binaries: stage them on (or for) the architecture you
 # build for.
@@ -25,12 +26,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 rm -rf local
-mkdir -p local/models/piper
+mkdir -p local/models
 cp -a models/speaker models/wake models/wake-kaldi-models local/models/
-# English's voice, and the one new wake words are trained with.
-for voice in en_US-ellie-medium en_US-libritts_r-medium; do
-    cp -a models/piper/"$voice".* local/models/piper/
-done
 # The Kaldi verifier's tools and its resident decoder. x86-64's as built here;
 # aarch64's the Kaldi of 2021 (scripts/make_kaldi_tools_aarch64.sh), with the
 # decoder's source, which the image's build compiles.

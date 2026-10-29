@@ -61,6 +61,8 @@ from .enrollment import MIN_SECONDS as ENROLL_MIN_SECONDS
 from .enrollment import Enrollment
 from .speaker import PALETTE, Identification, SpeakerId
 from .store import Compiled, Device, Store
+from .piper_voices import Voice
+from .piper_voices import catalog as piper_catalog
 from .tts import Speech, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
@@ -540,12 +542,11 @@ class VoiceLabsApp:
         )
         self.wake_error: str | None = None
         """Why the Wake words page's changes could not be used at start."""
-        piper_dir = root / "models/piper"
         self.wake_training = WakeTraining(
             self.store.data_dir / "wake_training",
             self.wake_words.custom_dir,
             [*options.wake_training_dirs, root / "models/wake-training"],
-            piper_dir / self.language.wake_voice if self.language.wake_voice else None,
+            root / "models" / downloads.VOICES / self.language.wake_voice if self.language.wake_voice else None,
             self.language.code,
             trainer_python=options.wake_trainer_python,
             micro_wake_word=options.micro_wake_word,
@@ -554,6 +555,7 @@ class VoiceLabsApp:
             exists=lambda word: self.wake_words.get(word) is not None or word in SPECIAL,
             retrainable=self.trained_here,
             builtin=lambda word: (found := self.wake_words.get(word)) is not None and not found.custom,
+            fetch_voice=self._fetch_training_voice,
         )
         """Training a new wake word from a phrase (the Wake words page)."""
         if options.wake_training_clips:
@@ -578,11 +580,16 @@ class VoiceLabsApp:
         """The second opinion, per verified wake word (built at start)."""
         self.arbiter = Arbiter()
         """Which satellite answers a wake word several heard."""
+        self.piper_dir = root / "models" / downloads.VOICES
+        """Piper's voices, each downloaded the first time it is used (piper_voices)."""
+        self.voice_download: downloads.Downloader | None = None
+        """A voice the Settings page picked, while it downloads."""
         self.speech = Speech(
-            root / "models/piper" / self.language.piper,
+            self.piper_dir / self.language.piper,
             root / "sounds",
             root / "sounds/timer_finished.flac",
             instrument=self.instrument,
+            synthesis=self.piper_settings,
         )
         speaker_model = root / "models/speaker/redimnet_b2_vox2.onnx"
         self.speakers: SpeakerId | None = None
@@ -634,15 +641,18 @@ class VoiceLabsApp:
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
-        todo = downloads.missing(self.root / "models")
+        self.store.load_extras()
+        voice = self.piper_voice()
+        todo = downloads.missing(self.root / "models") + (voice.missing(self.piper_dir) if voice is not None else [])
         if todo:
             await self._download(todo)
+        if voice is not None:
+            self.speech.voice_path = voice.model(self.piper_dir)
         missing = self.language.missing(self.root)
         if missing:
             message = f"{self.language.name} needs its models, which aren't here: {', '.join(missing)}"
             _LOGGER.error("%s", message)
             raise SystemExit(message)
-        self.store.load_extras()
         self.calls.settings = self.store.settings
         for key, entry in self.store.satellites.items():
             self.integration.want(key, entry.get("name") or key)
@@ -3360,6 +3370,44 @@ class VoiceLabsApp:
         """settings.json ``instrument``: what the satellite's sounds are played
         on (Speech.instruments; None: tts.INSTRUMENT)."""
         return self.store.settings.get("instrument")
+
+    def piper_settings(self) -> dict[str, Any]:
+        """settings.json ``piper``: the voice replies are said in, its
+        speaker, and Piper's inference settings (piper_voices.SETTINGS) --
+        what isn't there, the voice's own."""
+        return dict(self.store.settings.get("piper") or {})
+
+    def piper_voice(self) -> Voice | None:
+        """The voice replies are said in: the Settings page's, else the
+        language's -- when Piper's catalog has it."""
+        voices = piper_catalog()
+        return voices.get(str(self.piper_settings().get("voice"))) or voices.get(self.language.piper.removesuffix(".onnx"))
+
+    async def fetch_voice(self, voice: Voice) -> Path:
+        """``voice``, downloaded if it isn't here yet; its model."""
+        todo = voice.missing(self.piper_dir)
+        if todo:
+            self.voice_download = downloads.Downloader(todo)
+            try:
+                await self.voice_download.run()
+            finally:
+                self.voice_download = None
+        return voice.model(self.piper_dir)
+
+    async def _fetch_training_voice(self) -> None:
+        """The voice wake words are trained with, downloaded when training
+        first needs it."""
+        voice = piper_catalog().get((self.language.wake_voice or "").removesuffix(".onnx"))
+        todo = voice.missing(self.piper_dir) if voice is not None else []
+        if todo:
+            await downloads.Downloader(todo).run()
+
+    async def use_voice(self, voice: Voice) -> None:
+        """Replies in ``voice`` from now on, once it is here."""
+        path = await self.fetch_voice(voice)
+        if self.piper_voice() == voice:  # still the one picked
+            await self.speech.use(path)
+            _LOGGER.info("Speaking with %s", voice.key)
 
     def sounds(self) -> bool:
         """settings.json ``sounds``: the call's sounds -- heard, not

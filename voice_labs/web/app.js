@@ -2294,6 +2294,94 @@ function fillSpeechPanel(panel, voices) {
       } }, "Save")));
 }
 
+// The built-in voice: Piper's, downloaded the first time it is used. What a
+// reply is said in without a text-to-speech entity, and announcements.
+const PIPER_LABELS = { length_scale: "Length scale", noise_scale: "Noise scale", noise_w_scale: "Noise W scale", volume: "Volume" };
+const PIPER_REGIONS = { en_US: "US English", en_GB: "British English" };
+
+function piperPanel() {
+  const panel = h("div", { class: "panel" }, heading("h2", "Built-in voice"), h("p", { class: "muted small" }, "Loading…"));
+  api("GET", "piper/voices").then((catalog) => fillPiperPanel(panel, catalog))
+    .catch((err) => fill(panel, heading("h2", "Built-in voice"), errorBox(err)));
+  return panel;
+}
+
+function fillPiperPanel(panel, catalog) {
+  const piper = (state.status && state.status.piper) || {};
+  const settings = piper.settings || {};
+  const byKey = Object.fromEntries(catalog.voices.map((v) => [v.key, v]));
+  const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
+  const voice = h("select", {}, Object.entries(PIPER_REGIONS).map(([code, label]) => h("optgroup", { label },
+    catalog.voices.filter((v) => v.language === code).map((v) => h("option", { value: v.key, selected: v.key === (piper.voice || catalog.default) },
+      `${v.name}, ${v.quality}${v.speakers.length ? ` (${v.speakers.length} speakers)` : ""}${v.here ? "" : ` — ${mb(v.size)} to download`}`)))));
+  const speaker = h("select", {});
+  const speakerField = field("Speaker", speaker, "This voice was trained on several people: which one speaks.");
+  const speaking = () => voice.value === piper.speaking;
+  const numbers = Object.fromEntries(Object.entries(catalog.settings).map(([name, range]) =>
+    [name, h("input", { type: "number", min: range.min, max: range.max, step: 0.01, value: settings[name] ?? "", style: "width:90px" })]));
+  function shown() {
+    const chosen = byKey[voice.value];
+    fill(speaker, chosen.speakers.map((name) => h("option", { value: name, selected: name === settings.speaker }, name)));
+    speakerField.style.display = chosen.speakers.length ? "" : "none";
+    // The voice's own settings are known once it speaks; until then, empty is its own.
+    for (const [name, input] of Object.entries(numbers)) {
+      input.placeholder = speaking() && piper.defaults ? String(+Number(piper.defaults[name]).toFixed(3)) : "its own";
+    }
+  }
+  voice.addEventListener("change", shown);
+  shown();
+  const values = () => ({
+    voice: voice.value,
+    speaker: byKey[voice.value].speakers.length ? speaker.value : null,
+    ...Object.fromEntries(Object.entries(numbers).map(([name, input]) => [name, input.value === "" ? null : Number(input.value)])),
+  });
+  const progress = h("div", {});
+  const audio = new Audio();
+  function play(url) { audio.src = url; audio.play().catch((err) => toast(err.message)); }
+  // Following a download the Settings page started, until the voice speaks.
+  async function follow() {
+    for (;;) {
+      await refreshStatus();
+      const now = (state.status && state.status.piper) || {};
+      const download = now.download;
+      fill(progress, download ? h("div", { class: download.error ? "notice warn" : "notice info" },
+        download.error ? `Couldn't download the voice (${download.error}). Trying again.` : `Downloading the voice: ${mb(download.done)} of ${mb(download.total)}.`) : null);
+      if (!download && now.speaking === now.voice) { pageSettings(); return; }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  fill(panel,
+    heading("h2", "Built-in voice", "Piper's voices, downloaded the first time one is used. Replies are said in it when no text-to-speech entity is picked, and so are announcements."),
+    h("div", { class: "row" },
+      field("Voice", voice),
+      h("button", { onclick: () => {
+        const chosen = byKey[voice.value];
+        const number = chosen.speakers.length ? Math.max(chosen.speakers.indexOf(speaker.value), 0) : 0;
+        play(chosen.sample.replace(/speaker_0\.mp3$/, `speaker_${number}.mp3`));
+      } }, "Sample")),
+    speakerField,
+    h("div", { class: "row" }, Object.entries(numbers).map(([name, input]) => field(PIPER_LABELS[name], input, `Piper's ${name}: ${catalog.settings[name].about}. Empty: the voice's own.`))),
+    piper.voice !== piper.speaking ? h("div", { class: "notice info" }, `${byKey[piper.voice] ? byKey[piper.voice].name : piper.voice} speaks once it's downloaded.`) : null,
+    progress,
+    h("div", { class: "row" },
+      h("button", { onclick: async () => {
+        try {
+          const response = await fetch("api/piper/try", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values(), voice: undefined }) });
+          if (!response.ok) throw new Error((await response.json()).error || response.statusText);
+          play(URL.createObjectURL(await response.blob()));
+        } catch (err) { toast(err.message); }
+      }, title: "Say a sentence here, with these settings, in the voice speaking now" }, "Try"),
+      h("button", { class: "primary", onclick: async () => {
+        try {
+          await api("PUT", "settings", { piper: values() });
+          toast("Saved");
+          if (!speaking()) follow(); else { await refreshStatus(); pageSettings(); }
+        } catch (err) { toast(err.message); }
+      } }, "Save"),
+      h("button", { onclick: () => { for (const input of Object.values(numbers)) input.value = ""; } }, "Restore defaults")));
+  if (piper.download) follow();
+}
+
 // ------------------------------------------------------------------- names
 
 // What being part of its area does for a device of each kind: the area-wide
@@ -4137,6 +4225,7 @@ async function pageSettings() {
     h("h1", {}, "Settings"),
     homePanel(),
     speechPanel(),
+    piperPanel(),
     endOfSpeechPanel(),
     fallbackPanel(),
     agentPanel(),

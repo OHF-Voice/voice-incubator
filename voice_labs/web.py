@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import io
 import json
 import logging
 import math
 import re
+import wave
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +62,9 @@ from .store import (
 from . import library as following
 from .library import _library, library_files, library_of, library_sections, library_versions, load_library  # noqa: F401
 from .people import find as people_find
+from .piper_voices import SETTINGS as PIPER_SETTINGS
+from .piper_voices import catalog as piper_catalog
+from .piper_voices import voices as listed_voices
 from .tts import INSTRUMENT
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
@@ -152,6 +157,8 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.delete("/api/wake_training", api.cancel_wake_training),
             web.get("/api/wake_training/log", api.wake_training_log),
             web.get("/api/voices", api.voices),
+            web.get("/api/piper/voices", api.piper_voices),
+            web.post("/api/piper/try", api.try_piper),
             web.get("/api/agents", api.agents),
             web.get("/api/voices/{entity_id}", api.tts_voices),
             web.put("/api/settings", api.put_settings),
@@ -273,6 +280,16 @@ class Api:
                 "sounds": app.sounds(),
                 "instrument": app.instrument() or INSTRUMENT,
                 "instruments": [{"id": i, "name": i.replace("_", " ").capitalize()} for i in app.speech.instruments],
+                # Piper: the voice picked, the one speaking (until a new one is
+                # downloaded), its own settings, and the Settings page's.
+                "piper": {
+                    "voice": voice.key if (voice := app.piper_voice()) is not None else None,
+                    "speaking": app.speech.voice_path.stem,
+                    "defaults": app.speech.defaults,
+                    "settings": app.piper_settings(),
+                    "download": None if (d := app.voice_download) is None
+                    else {"done": d.done, "total": d.total, "error": d.error},
+                },
                 "end_of_speech": app.end_of_speech_status(),
             }
         )
@@ -503,6 +520,62 @@ class Api:
         self._unique(item_id, here, house if house is not None else here, area)
         spec = {"name": name, **({"aliases": aliases} if aliases else {}), **({"house": house} if house is not None else {}), **own}
         return await self._saved(self.app.store.put_name(kind, item_id, spec))
+
+    def _piper(self, body: Any) -> dict[str, Any]:
+        """The Settings page's Piper: its voice (one Piper's catalog has, in
+        the language's), speaker, and inference settings in their ranges --
+        what is the default, left out."""
+        if not isinstance(body, dict):
+            raise ConfigError("piper: a mapping")
+        out: dict[str, Any] = {}
+        voice = piper_catalog().get(str(body.get("voice") or ""))
+        if body.get("voice"):
+            if voice is None or voice.language not in self.app.language.piper_languages:
+                raise ConfigError(f"piper: no voice {body['voice']!r}")
+            if voice.key != self.app.language.piper.removesuffix(".onnx"):
+                out["voice"] = voice.key
+        voice = voice or self.app.piper_voice()
+        if body.get("speaker") not in (None, ""):
+            if voice is None or str(body["speaker"]) not in voice.speakers:
+                raise ConfigError(f"piper: {voice.key if voice else 'the voice'} has no speaker {body['speaker']!r}")
+            out["speaker"] = str(body["speaker"])
+        for name, (low, high, _what) in PIPER_SETTINGS.items():
+            value = _number(body.get(name), name, low, high)
+            if value is not None:
+                out[name] = value
+        return out
+
+    async def piper_voices(self, request: web.Request) -> web.Response:
+        """Piper's voices that may be picked, and which are here already."""
+        here = self.app.piper_dir
+        return web.json_response({
+            "voices": [{**v.to_json(), "here": v.model(here).is_file()} for v in listed_voices(self.app.language.piper_languages)],
+            "default": self.app.language.piper.removesuffix(".onnx"),
+            "settings": {name: {"min": low, "max": high, "about": what} for name, (low, high, what) in PIPER_SETTINGS.items()},
+        })
+
+    async def try_piper(self, request: web.Request) -> web.Response:
+        """A sentence in the voice speaking now, with these settings (the
+        Settings page's, before they are saved), as WAV."""
+        body = await request.json()
+        text = str(body.get("text") or "").strip() or "Hello! This is how I sound. Turned on the lights in the kitchen."
+        app = self.app
+        settings: dict[str, Any] = {}
+        for name, (low, high, _what) in PIPER_SETTINGS.items():
+            value = _number(body.get(name), name, low, high)
+            if value is not None:
+                settings[name] = value
+        if body.get("speaker") in app.speech.defaults["speakers"]:
+            settings["speaker"] = body["speaker"]
+        async with app._model_lock:  # pylint: disable=protected-access
+            pcm = await asyncio.to_thread(app.speech.synthesize, text, settings)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(SAMPLE_RATE)
+            wav.writeframes(pcm)
+        return web.Response(body=out.getvalue(), content_type="audio/wav")
 
     async def delete_name(self, request: web.Request) -> web.Response:
         compiled = self.app.store.put_name(request.match_info["kind"], request.match_info["id"], None)
@@ -1085,6 +1158,13 @@ class Api:
                     }
                 else:
                     settings.pop("end_of_speech", None)
+        if "piper" in body:
+            settings["piper"] = self._piper(body["piper"])
+            if not settings["piper"]:
+                settings.pop("piper")
+            voice = self.app.piper_voice()
+            if voice is not None and voice.model(self.app.piper_dir) != self.app.speech.voice_path:
+                self.app._spawn(self.app.use_voice(voice))  # pylint: disable=protected-access
         if "instrument" in body:
             instrument = body["instrument"] or INSTRUMENT
             if instrument not in self.app.speech.instruments:
