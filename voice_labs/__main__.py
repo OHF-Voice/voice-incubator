@@ -28,8 +28,10 @@ OPTIONS_FILE = Path("/data/options.json")
 
 
 def _default_embedding() -> Path:
+    """models/embeddinggemma-2 when it is there -- or linked to where the app
+    downloads it (voice_labs/downloads.py) -- else the default."""
     bundled = ROOT / "models/embeddinggemma-2"
-    return bundled if (bundled / "onnx/model_q4.onnx").exists() else DEFAULT_EMBEDDING_MODEL
+    return bundled if bundled.is_symlink() or (bundled / "onnx/model_q4.onnx").exists() else DEFAULT_EMBEDDING_MODEL
 
 
 async def main() -> None:
@@ -171,7 +173,6 @@ async def main() -> None:
         ("wake_cutoff", "wake_cutoff"),
         ("speaker_threshold", "speaker_threshold"),
         ("silence_seconds", "silence"),
-        ("language", "language"),
     ):
         if app_options.get(option) is not None:
             setattr(args, attribute, app_options[option])

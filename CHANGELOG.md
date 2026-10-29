@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **The speech models are downloaded the first time the app starts** --
+  Parakeet, EmbeddingGemma 2 and GLiNER, about 470 MB, from
+  [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models)
+  and onnx-community, each file checked -- into the app's own storage, kept
+  across updates; its page shows how far it got. The image carries English
+  only: the `language` option, the multilingual model, the other languages'
+  models and the wake word training kit are gone from it (the app is
+  English for now).
 - **Voice Call is Voice Labs**, everywhere: the app (`voice_labs`, a new
   app to Home Assistant), the integration (domain `voice_labs`, and its
   `voice_labs/...` websocket commands), the `voice_labs_command` event, the

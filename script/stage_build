@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 # Copy what the image needs but git does not carry into local/, for the
-# Dockerfile: the models (int8 Parakeet CTC and TDT, Piper, speaker ID, wake
-# words, the Kaldi verifier's model and tools, GLiNER for the command
-# fallback, other languages' when present, the wake word training kit when
-# made), wyoming-wake-kaldi, which is not published, and microWakeWord's
-# working tree. The Kaldi tools and its daemon are native binaries: stage
-# them on (or for) the architecture you build for.
+# Dockerfile: the English models the app doesn't download (Piper's voices,
+# speaker ID, the wake words, the Kaldi verifier's model and tools),
+# wyoming-wake-kaldi, which is not published, and microWakeWord's working
+# tree. Parakeet, EmbeddingGemma and GLiNER are downloaded when the app first
+# starts (voice_labs/downloads.py); other languages, the multilingual model
+# and the wake word training kit aren't in the image. The Kaldi tools and its
+# daemon are native binaries: stage them on (or for) the architecture you
+# build for.
 #
-#   script/stage_build [--embedding] [--arch aarch64]
+#   script/stage_build [--arch aarch64]
 #
-# --embedding: also EmbeddingGemma 2 (hints by meaning). --arch: the
-# architecture the image is for (default this machine's).
+# --arch: the architecture the image is for (default this machine's).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 KALDI_SRC="${WYOMING_WAKE_KALDI:-$HOME/opt/wyoming-wake-kaldi}"
-embedding=0
 arch="$(uname -m)"
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --embedding) embedding=1 ;;
         --arch) arch="$2"; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -26,9 +25,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 rm -rf local
-mkdir -p local/models/speech-to-phrase
-cp -a models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8 local/models/speech-to-phrase/
-cp -a models/parakeet-tdt-int8 models/piper models/speaker models/wake models/wake-kaldi-models local/models/
+mkdir -p local/models/piper
+cp -a models/speaker models/wake models/wake-kaldi-models local/models/
+# English's voice, and the one new wake words are trained with.
+for voice in en_US-ellie-medium en_US-libritts_r-medium; do
+    cp -a models/piper/"$voice".* local/models/piper/
+done
 # The Kaldi verifier's tools and its resident decoder. x86-64's as built here;
 # aarch64's the Kaldi of 2021 (scripts/make_kaldi_tools_aarch64.sh), with the
 # decoder's source, which the image's build compiles.
@@ -38,39 +40,6 @@ if [[ "$arch" == aarch64 ]]; then
     cp models/wake-kaldi-decoderd/build.sh models/wake-kaldi-decoderd/verify_decoderd.cc local/models/wake-kaldi-decoderd/
 else
     cp -a models/wake-kaldi-tools models/wake-kaldi-decoderd local/models/
-fi
-# The multilingual TDT model (640 MB), when it has been put in models/: the
-# sherpa-onnx release sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8, as is.
-if [[ -d models/parakeet-tdt-v3-int8 ]]; then
-    cp -a models/parakeet-tdt-v3-int8 local/models/
-fi
-# The other languages (`language: de`, `nl` ...), each when it has been put in
-# models/: NVIDIA's FastConformer hybrid as int8 CTC and transducer (about 350
-# MB a language), from scripts/export_nemo_hybrid.py. Their Piper voices come
-# with models/piper. Until other languages are downloaded, they ship in the
-# image. NVIDIA names Ukrainian's "ua".
-for lang in de nl fr es it pl ru ua; do
-    name="stt_${lang}_fastconformer_hybrid_large_pc"
-    if [[ -d "models/speech-to-phrase/$name-int8" ]]; then
-        cp -a "models/speech-to-phrase/$name-int8" local/models/speech-to-phrase/
-        cp -a "models/$name-transducer-int8" local/models/
-    fi
-done
-# One encoder for each language's CTC model and transducer (adapt_ctc/hybrid.py):
-# the CTC model's head beside the transducer, checked to give its
-# log-probabilities. The app then loads the encoder once.
-.venv/bin/python -m adapt_ctc.hybrid local/models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8 local/models/parakeet-tdt-int8
-for lang in de nl fr es it pl ru ua; do
-    name="stt_${lang}_fastconformer_hybrid_large_pc"
-    if [[ -d "local/models/$name-transducer-int8" ]]; then
-        .venv/bin/python -m adapt_ctc.hybrid "local/models/speech-to-phrase/$name-int8" "local/models/$name-transducer-int8"
-    fi
-done
-# The command fallback's default model (78 MB), from scripts/export_gliner.py.
-if [[ -d models/gliner2.5-small-v1-onnx ]]; then
-    cp -a models/gliner2.5-small-v1-onnx local/models/
-else
-    echo "no models/gliner2.5-small-v1-onnx: the command fallback has no model (scripts/export_gliner.py)" >&2
 fi
 
 mkdir -p local/wyoming-wake-kaldi
@@ -88,18 +57,5 @@ cp -a "$SENTENCE_SRC/pyproject.toml" "$SENTENCE_SRC/setup.cfg" "$SENTENCE_SRC/RE
 MWW_SRC="${MICRO_WAKE_WORD:-$HOME/opt/micro-wake-word}"
 mkdir -p local/micro-wake-word
 cp -a "$MWW_SRC/setup.py" "$MWW_SRC/README.md" "$MWW_SRC/microwakeword" local/micro-wake-word/
-# The wake word training kit (scripts/make_wake_training_kit.py, about 3 GB),
-# when it has been made at models/wake-training; else it goes in the app's
-# configuration folder as wake_training/.
-if [[ -d models/wake-training ]]; then
-    cp -a models/wake-training local/models/
-fi
 find local -name __pycache__ -prune -exec rm -rf {} +
-
-if (( embedding )); then
-    snapshot="$(ls -d "$HOME"/.cache/huggingface/hub/models--onnx-community--embeddinggemma-2-ONNX/snapshots/* | tail -1)"
-    mkdir -p local/models/embeddinggemma-2/onnx
-    cp -L "$snapshot/tokenizer.json" local/models/embeddinggemma-2/
-    cp -L "$snapshot"/onnx/model_q4.onnx* local/models/embeddinggemma-2/onnx/
-fi
 du -sh local/models local/wyoming-wake-kaldi local/micro-wake-word local/sentence-stream

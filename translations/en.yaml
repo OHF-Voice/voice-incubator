@@ -1,10 +1,5 @@
 ---
 configuration:
-  language:
-    name: Language
-    description: >-
-      What the app hears and says: its speech models, voice, commands and
-      skills. Changing it restarts the app; commands are in one language.
   wake_cutoff:
     name: Wake word cutoff
     description: >-

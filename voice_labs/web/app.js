@@ -2273,7 +2273,10 @@ function fillSpeechPanel(panel, voices) {
   fill(panel,
     heading("h2", "Listening and speaking", "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own on its page). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
     voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
-    field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way."),
+    // A choice only with more than one installed (the app has only its own).
+    models.filter((m) => m.available).length > 1
+      ? field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way.")
+      : null,
     state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
     h("div", { class: "row" },
       field("Speech-to-text", globalStt), field("Language", globalSttLanguage), field("Audio", globalSttAudio, STT_AUDIO_HINT), field("Runs", globalSttRuns, STT_RUNS_HINT),

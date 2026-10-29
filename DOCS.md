@@ -6,7 +6,12 @@ happens in Home Assistant: speak a response, run a script, activate a scene,
 or run an action.
 
 Open **Voice Labs** in the sidebar to make commands, name things, set up
-satellites and look at sessions.
+satellites and look at sessions. It hears and speaks English.
+
+The first time it starts, the app downloads its speech models -- about 470
+MB: Parakeet (speech), EmbeddingGemma 2 (meaning) and GLiNER (the command
+fallback) -- into its own storage, and its page shows how far it got. Later
+starts and updates keep them.
 
 ## The Voice Labs integration
 
@@ -162,13 +167,9 @@ page.
   For every satellite on the Settings page, or one satellite's own under
   Input; a session's Recognition step says which was sent.
 - **Language.** Each entity is asked in the language you pick from the ones it
-  supports, or automatically in its best match for the app's language.
-- **Built-in speech model.** Without a speech-to-text entity, the app's own
-  model writes that text: the app's language, or **multilingual** (25
-  European languages, found by itself) at about three times the time and 600
-  MB more memory. Commands are still matched by the app's language's model
-  first, so in another language a command is matched by its example
-  sentences, said word for word.
+  supports, or automatically in its best match for English.
+- Without a speech-to-text entity, the app's own model (Parakeet) writes that
+  text.
 - **Text-to-speech.** Responses are spoken with the TTS entity (and the voice
   you pick) on the satellite's own media player -- Home Assistant sends it the
   audio's address and it plays it -- or, per satellite, on **another media
@@ -275,7 +276,7 @@ sentence goes to the one that takes what was said in it.
 
 A command added from the library **follows it**, as an automation follows
 its blueprint in Home Assistant: the library's changes reach it -- fixes,
-better keywords -- and it is in the app's language, whichever that is.
+better keywords.
 Yours to set on its page: where it runs, how much it says, the steps when
 nothing matches, example sentences of your own (beside the library's), its
 implied target, and its icon. The rest is shown, not changed: **Take
@@ -331,9 +332,7 @@ all. A command has:
     (English: warm white and the rest, in kelvin), `on_off`, `open_closed`,
     `locked_unlocked`, `cover_classes` and `hvac_modes` (heat, cool,
     heat_cool, auto, dry, fan_only, off) -- and editing one on the Names
-    page makes it yours, in the app's language. A value's phrases in another
-    language than your commands' go under the language's code
-    (`red: {en: [red], de: [rot]}`); only the app's language's are heard.
+    page makes it yours.
   - **Free text**, kept bounded so it can be heard reliably: between two
     keywords ("add … to the shopping list"), from a keyword to the end
     ("remind me to …"), or right before or after a keyword ("the … timer").
@@ -557,9 +556,8 @@ timers". A timer is picked out by:
 
 An **alarm** rings at a clock time: "set an alarm for seven thirty", "wake me
 up at 6 am", "an alarm for half past six" (without am or pm, the next time it
-comes round). In English it is an event on the app's calendar (see **Alarms
-and reminders** below); in the other languages it is a timer named "alarm",
-cancelled like any timer.
+comes round). It is an event on the app's calendar (see **Alarms and
+reminders** below).
 
 When several timers fit, the satellite asks which ("There's the pizza timer and
 the 5 minute timer"). Timer commands say how it went, and each outcome can have
@@ -1134,16 +1132,6 @@ lights, switches, fans, covers, locks, climate, media players, scenes,
 scripts, input booleans, valves, vacuums, sensors and binary sensors; an
 implied target may be any entity.
 
-A name is in the language it was given in. In another language than your
-commands', a thing's name and aliases (and a device's whole house names,
-`house`) go under the language's code, beside its others; only the app's
-language's are heard and shown:
-
-```yaml
-names:
-  areas:
-    kitchen: {name: Kitchen, de: {name: Küche, aliases: [Kochecke]}}
-```
 
 ## Testing, sessions and debugging
 
@@ -1239,32 +1227,10 @@ commands:
       done: Paused.
       no_timers: There's nothing to pause.
       already: "{{ result.speech }} Say resume to start it again."
-  gute_nacht:
-    language: de  # made in German: heard and shown only while the app is
-    description: gute Nacht sagen
-    examples: [gute nacht]
-    script: script.good_night
 ```
 
 ## Options
 
-- `language`: what the app hears and says -- its speech models, Piper voice,
-  command library and skills (default: `en`, English; or `de`, German, `nl`,
-  Dutch, `fr`, French, `es`, Spanish, `it`, Italian, `pl`, Polish, `ru`,
-  Russian, or `uk`, Ukrainian). One at a time: a command or a name is in the
-  language it was made in (the commands' `language:`, or its own: see
-  Names), and only the app's are heard and shown -- the others stay in the
-  file, hidden, until the app is in theirs again. The web UI is in English. In
-  another language than English, skills are asked and answered in it, with its
-  units (a German Pfund, a Dutch pond and a French livre are 500 g; metric
-  spoons and cup), its country's holidays (Russian and Ukrainian Easter is the
-  Orthodox one) and a 24-hour clock; there is no GLiNER step in the fallback,
-  and no second opinion on the wake word (Kaldi alone decides). Its models
-  come with the app: NVIDIA's FastConformer hybrid for the language
-  (`stt_<language>_fastconformer_hybrid_large_pc`, CC-BY-4.0, about 350 MB)
-  and a Piper voice (Thorsten, Ronnie, Siwis, Davefx, Serena, Gosia, Denis,
-  and for Ukrainian Tetiana, a slower "high" voice: the medium one drops
-  digits); without them the app says which are missing.
 - `wake_cutoff`: the satellite detector's probability cutoff for the
   checked wake words (default: each its own -- 0.4 for Okay Nabu, 0.5 for Hey
   Jarvis, 0.7 for Hey Mycroft). Every detection of these is verified again

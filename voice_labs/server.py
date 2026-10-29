@@ -21,7 +21,7 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
-from . import actions, alarms, languages, people, skills, timers, tones
+from . import actions, alarms, downloads, languages, people, skills, timers, tones
 from .duplex import Duplex
 from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent
@@ -634,6 +634,9 @@ class VoiceLabsApp:
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
+        todo = downloads.missing(self.root / "models")
+        if todo:
+            await self._download(todo)
         missing = self.language.missing(self.root)
         if missing:
             message = f"{self.language.name} needs its models, which aren't here: {', '.join(missing)}"
@@ -676,6 +679,17 @@ class VoiceLabsApp:
         from .web import start_web  # pylint: disable=import-outside-toplevel
 
         self._web = await start_web(self)
+
+    async def _download(self, todo: list) -> None:
+        """The models it downloads the first time (voice_labs/downloads.py),
+        with a page saying how far it got meanwhile."""
+        downloader = downloads.Downloader(todo)
+        options = self.options
+        page = await downloads.serve_progress(downloader, options.http_host, options.http_port, options.http_allow)
+        try:
+            await downloader.run()
+        finally:
+            await page.cleanup()
 
     async def stop(self) -> None:
         await self.wake_training.stop()

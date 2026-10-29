@@ -102,9 +102,11 @@ class Pack:
         return _lists(self.directory / "lists.yaml")
 
     def ctc_dir(self, root: Path) -> Path:
-        """The CTC model's directory, its int8 build when there is one."""
+        """The CTC model's directory, its int8 build when there is one -- which
+        may hold only its tokens, where the transducer has its head beside it
+        (adapt_ctc.hybrid: the app's download)."""
         quantized = root / "models" / f"{self.ctc}-int8"
-        return quantized if (quantized / "model.onnx").exists() else root / "models" / self.ctc
+        return quantized if (quantized / "tokens.txt").exists() else root / "models" / self.ctc
 
     def transducer_dir(self, root: Path) -> Path | None:
         """The transducer's directory, its int8 build when there is one."""
@@ -117,10 +119,14 @@ class Pack:
 
     def missing(self, root: Path) -> list[str]:
         """Its models not under ``root``/models, which it can't run without:
-        the CTC model and the Piper voice. (Without its transducer, free text
-        comes from the multilingual one, or the CTC model.)"""
+        the CTC model -- or its head beside the transducer -- and the Piper
+        voice. (Without its transducer, free text comes from the multilingual
+        one, or the CTC model.)"""
+        from adapt_ctc.hybrid import has_shared_model  # pylint: disable=import-outside-toplevel
+
         missing = []
-        if not (self.ctc_dir(root) / "model.onnx").is_file():
+        ctc = self.ctc_dir(root)
+        if not (ctc / "model.onnx").is_file() and not has_shared_model(self.transducer_dir(root), ctc):
             missing.append(f"models/{self.ctc}")
         if not (root / "models/piper" / self.piper).is_file():
             missing.append(f"models/piper/{self.piper}")

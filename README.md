@@ -284,7 +284,8 @@ and copies (`Satellite.first`).
 | `hass_tests/` | the integration's tests, run with a Home Assistant core checkout's fixtures (see its conftest) |
 | `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
 | `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
-| `config.yaml`, `Dockerfile`, `rootfs/`, `script/stage_build` | the Home Assistant app; `stage_build` copies the models and wyoming-wake-kaldi into `local/` for the image |
+| `config.yaml`, `Dockerfile`, `rootfs/`, `script/stage_build` | the Home Assistant app; `stage_build` copies the English models the app doesn't download, and wyoming-wake-kaldi, into `local/` for the image |
+| `voice_labs/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile |
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
@@ -1455,8 +1456,8 @@ It runs without PyTorch: onnxruntime, numpy and the tokenizers library
 threads; 440 MB at peak with it loaded, of which ~110 MB is the tokenizer).
 The networks are exported once by `scripts/export_gliner.py` (it needs
 torch and the gliner2 package, in a venv of its own) into
-`models/gliner2.5-small-v1-onnx` (78 MB), which `script/stage_build` copies
-into the image: the encoder with 8-bit weights and a 4-bit embedding
+`models/gliner2.5-small-v1-onnx` (78 MB), published in
+`rhasspy/voice-labs-models` for the app to download: the encoder with 8-bit weights and a 4-bit embedding
 (MatMulNBits), and the boundary head split in two around the candidate
 spans, which are chosen in numpy (it branches on sizes and needs a stable
 sort, which ONNX lacks). The
