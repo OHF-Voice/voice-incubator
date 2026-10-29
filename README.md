@@ -46,7 +46,7 @@ one call at a time:
    timer operation's or a script's own outcome), rendered by Home Assistant,
    is spoken with Piper (`en_US-ellie` for English); without one, the built-in
    sentence -- when done, at the command's level of verbosity (below). A
-   command with nothing to say plays `sounds/acknowledge.mp3`. What is said
+   command with nothing to say plays `sounds/acknowledge.flac`. What is said
    goes through `sentence_stream` first (`tts.sentences_of`): the markdown a
    conversation agent writes comes out ("**Lift:**" was read "asterisk"), and
    Piper says it a sentence (or list item) at a time, each played while the
@@ -54,12 +54,14 @@ one call at a time:
    to synthesize on an HA Green begins after its first sentence. The
    satellite's button cancels a call (CALL_END `cancelled`): the reply's task
    is cancelled, the device drops what was already sent until the app ends
-   the stream (AUDIO_OUT_END), and the call is recorded as cancelled. A reply that
-   hasn't begun a second after the command ended (`thinking_delay`, 0-10 s)
-   has `sounds/thinking.flac` before it (`server.Thinking`, settings.json
-   `thinking_sound`, on unless false): streamed at most 0.2 s ahead of the device, so that it stops short,
-   faded out over 30 ms, once the reply is ready, which follows it in the same
-   stream (Home Assistant's speech, or none, ends its stream first).
+   the stream (AUDIO_OUT_END), and the call is recorded as cancelled. The call's
+   sounds (`server.Cues`, settings.json `sounds`, on unless false), each sent
+   whole: `sounds/heard.flac` the moment the command ended,
+   `sounds/asking.flac` as the conversation agent is asked, and
+   `sounds/not_understood.flac` before a reply that it wasn't understood or
+   went wrong -- in one stream, which the reply follows (Home Assistant's
+   speech, or none, ends it first). `scripts/make_sounds.py` makes them, and
+   the acknowledgement, with FluidSynth.
 
 Commands, names, satellites and debugging are described for users in
 [DOCS.md](DOCS.md).

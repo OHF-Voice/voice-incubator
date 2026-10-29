@@ -380,7 +380,7 @@ all. A command has:
 - **How much it says** when it's done, one of five levels:
   0. **Silent**: nothing, not even a sound -- what a command that does
      nothing says by default. A question still answers.
-  1. **Beep**: the acknowledgement sound. A question still answers.
+  1. **Beep**: the acknowledgement sound (done). A question still answers.
   2. **Brief**: a fixed sentence, "Turned on the lights." -- the same every
      time, so text-to-speech caches it.
   3. **Specific**: what was heard, "Turned on the lights in the Kitchen.",
@@ -397,11 +397,12 @@ all. A command has:
   sentence at a time, starting as soon as the first is ready, without the
   markdown a conversation agent writes (`**bold**`, bullets).
 
-  While a reply is slow to come -- nothing said back a second after you
-  stopped speaking: Home Assistant's speech, the conversation agent, a slow
-  machine -- the satellite plays a short **thinking sound**, stopped as the
-  reply begins; a quicker reply plays none. Turn it off in the same panel,
-  or set how long a reply may take before it plays (0 to 10 seconds).
+  The satellite has **sounds** of its own, on an electric piano: two notes
+  up the moment you stop speaking (it heard you, and is working on it); on
+  up to finish the chord when it's done with nothing to say (the beep); down
+  a minor third before it says it didn't understand, couldn't, or something
+  went wrong; and up the chord as your conversation agent is asked. Each
+  plays whole, and the reply follows it. Turn them off in the same panel.
 
   The done response can be written once, for every level, or once for each;
   a level without one says the closest written, less before more. Timers

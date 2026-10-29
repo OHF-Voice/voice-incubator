@@ -773,11 +773,11 @@ commands:
 """
 
 
-def test_the_thinking_sound(tmp_path):
-    asyncio.run(_thinking_sound(tmp_path))
+def test_the_sounds(tmp_path):
+    asyncio.run(_sounds(tmp_path))
 
 
-async def _thinking_sound(tmp_path):
+async def _sounds(tmp_path):
     hass, hass_server = await fake_hass.serve()
     hass_port = hass_server.sockets[0].getsockname()[1]
     satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
@@ -792,43 +792,45 @@ async def _thinking_sound(tmp_path):
     ))
     await app.start()
     runner = asyncio.ensure_future(app.run_forever())
-    loop = asyncio.get_running_loop()
 
     async def put(settings: dict) -> int:
         async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
             async with http.put("/api/settings", json=settings) as response:
                 return response.status
 
-    async def call() -> tuple[int, int, float]:
-        """What the satellite was sent (bytes), the reply's own (bytes), and
-        how long the call took."""
-        played, started = satellite.played, loop.time()
-        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+    async def call(name: str, ended: str) -> tuple[int, int]:
+        """What the satellite was sent (bytes), and the reply's own."""
+        played = satellite.played
+        assert await satellite.call(read_call(CALLS / name)) == ended
         speech = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech")
-        return satellite.played - played, round(speech["seconds"] * 32000), loop.time() - started
+        return satellite.played - played, round(speech["seconds"] * 32000)
+
+    def near(sent: int, *parts: int) -> bool:
+        return abs(sent - sum(parts)) <= 32  # the record's seconds are to the millisecond
 
     try:
         await asyncio.wait_for(satellite.ready.wait(), 30)
-        assert app.thinking_sound() and app.speech.thinking and app.thinking_delay() == 1.0
-        # A reply slower than the delay (none, here): the sound first, the
-        # reply after it in the same stream, and the call not held up by it.
-        assert await put({"thinking_delay": 0}) == 200 and app.thinking_delay() == 0.0
-        sent, reply, seconds = await call()
-        assert reply > 0 and reply + 32 < sent <= reply + len(app.speech.thinking) + 2000
-        assert seconds < 10
-        # Turned off: the reply alone.
-        assert await put({"thinking_sound": False}) == 200
-        assert app.store.settings["thinking_sound"] is False and not app.thinking_sound()
-        sent, reply, _ = await call()
-        assert abs(sent - reply) <= 32  # the record's seconds are to the millisecond
-        # On again, and a reply quicker than the delay: none.
-        assert await put({"thinking_sound": True, "thinking_delay": 10}) == 200
-        assert "thinking_sound" not in app.store.settings and app.thinking_delay() == 10.0
-        sent, reply, _ = await call()
-        assert abs(sent - reply) <= 32  # the record's seconds are to the millisecond
-        # Its range; the default is no setting.
-        assert await put({"thinking_delay": 11}) == 400 and app.thinking_delay() == 10.0
-        assert await put({"thinking_delay": 1}) == 200 and "thinking_delay" not in app.store.settings
+        speech = app.speech
+        assert app.sounds() and speech.heard and speech.not_understood and speech.asking
+        # Heard the moment the command ended, the reply after it in the same stream.
+        sent, reply = await call("call-15788.wav", "done")
+        assert reply > 0 and near(sent, len(speech.heard), reply)
+        # Not understood: heard, then not understood before what is said.
+        sent, reply = await call("call-19757.wav", "not_recognized")
+        assert reply > 0 and near(sent, len(speech.heard), len(speech.not_understood), reply)
+        # The conversation agent asked: heard, then asking, then its answer.
+        assert await put({"agent": "conversation.chatty"}) == 200
+        sent, reply = await call("call-19757.wav", "done")
+        assert app.calls.recent[-1].outcome == "answered" and near(sent, len(speech.heard), len(speech.asking), reply)
+        assert await put({"agent": None}) == 200
+        # Turned off: the reply alone (and from before, thinking_sound: false meant so).
+        assert await put({"sounds": False}) == 200
+        assert app.store.settings["sounds"] is False and not app.sounds()
+        sent, reply = await call("call-15788.wav", "done")
+        assert near(sent, reply)
+        assert await put({"sounds": True}) == 200 and "sounds" not in app.store.settings and app.sounds()
+        app.store.settings["thinking_sound"] = False
+        assert not app.sounds()
     finally:
         runner.cancel()
         await app.stop()
@@ -854,7 +856,7 @@ async def _cancelled(tmp_path):
     satellite_server = await serve(satellite)
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS.replace("response: Turned on the lights.", f"response: {json.dumps(LONG_REPLY)}", 1))
-    (tmp_path / "settings.yaml").write_text("thinking_sound: false\n")
+    (tmp_path / "settings.yaml").write_text("sounds: false\n")
     app = VoiceCallApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
@@ -921,8 +923,8 @@ async def _voices(tmp_path: Path) -> None:
 
     hass.on_speak = on_speak
     (tmp_path / "commands.yaml").write_text(VOICE_COMMANDS)
-    # No thinking sound: what is streamed is counted.
-    (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\nthinking_sound: false\n")
+    # No sounds: what is streamed is counted.
+    (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\nsounds: false\n")
     app = VoiceCallApp(
         Options(
             host="127.0.0.1",

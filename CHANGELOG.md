@@ -2,6 +2,14 @@
 
 ## 0.2.0
 
+- **The satellite's own sounds, on an electric piano** (General MIDI's, from
+  the Fluid R3 SoundFont): two notes up the moment the command ends, in
+  place of the thinking sound; on up to finish the chord when it's done with
+  nothing to say (the acknowledgement); down a minor third before it says
+  it didn't understand or went wrong; up the chord as the conversation agent
+  is asked. Each plays whole, the reply after it. One setting turns them off
+  (`sounds`; `thinking_sound: false` from before still does);
+  `thinking_delay` is gone.
 - **One wake word, one answer**: heard by several satellites within a
   second, whatever their areas, it is answered by the one that heard it best
   (the wake word furthest above the background, on the echo-cancelled
