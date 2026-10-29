@@ -27,7 +27,7 @@ shared:
     needs:
       - Add names for the areas and floors it may act in (Names page).
   nothing_here: &nothing_here
-    - The satellite's area (Satellites page) is where. When nothing of the type
+    - The satellite's area (set on its page) is where. When nothing of the type
       is there, every one in the home is meant ("abre la puerta del garaje" from
       the kitchen).
 

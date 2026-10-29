@@ -45,7 +45,7 @@ commands:
       area: {count: 1}
     intercom: connect
     needs:
-      - Give the satellites their areas (Satellites page), and the areas names
+      - Give the satellites their areas (each one's page), and the areas names
         (Names page). The button on either satellite ends it.
 
   # The satellite's own speaker, whatever plays on it: what its dial sets.

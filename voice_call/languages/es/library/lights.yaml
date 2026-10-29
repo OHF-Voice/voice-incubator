@@ -48,7 +48,7 @@ commands:
       here:
         title: Turn on the lights in this satellite's area
         needs:
-          - The lights in the satellite's area (Satellites page) are the ones it
+          - The lights added to the satellite's area (Names page) are the ones it
             turns on.
       device:
         <<: *device
@@ -96,7 +96,7 @@ commands:
       here:
         title: Turn off the lights in this satellite's area
         needs:
-          - The lights in the satellite's area (Satellites page) are the ones it
+          - The lights added to the satellite's area (Names page) are the ones it
             turns off.
       device:
         <<: *device
@@ -150,7 +150,7 @@ commands:
       here:
         title: Are any lights on in this satellite's area
         needs:
-          - The satellite's area (Satellites page) is the one it asks about.
+          - The satellite's area (set on its page) is the one it asks about.
       device:
         <<: *device
         title: Is a device on, by name

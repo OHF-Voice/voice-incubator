@@ -1,6 +1,6 @@
 # Music, on Music Assistant's players. A satellite's own player is its
 # Sendspin client's (Music Assistant finds the satellite on the network; the
-# app finds its player by MAC), or one picked on the Satellites page.
+# app finds its player by MAC), or one picked on the satellite's page.
 #
 # Each command comes in versions (variants) for where it plays:
 #   here    the satellite's own player. Pause, skip, "what's playing" and the
