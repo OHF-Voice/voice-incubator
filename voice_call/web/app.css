@@ -317,6 +317,28 @@ a.tile:hover { border-color: var(--accent); text-decoration: none; }
 fieldset.locked { border: 0; padding: 0; margin: 0; min-width: 0; opacity: .7; }
 .not-added button.link { padding: 0; font-size: inherit; }
 .panel.inset { background: var(--bg); margin-top: 10px; }
+/* The Names page's devices: an area to a box, the columns lined up across
+   them. */
+.devices-area { margin: 12px 0; }
+.devices-area h3 { gap: 8px; margin: 0 0 4px; }
+table.devices { table-layout: fixed; }
+table.devices td { overflow-wrap: anywhere; }
+table.devices th:nth-child(1) { width: 28%; }
+table.devices th:nth-child(2) { width: 19%; }
+table.devices th:nth-child(3) { width: 17%; }
+table.devices th:nth-child(5) { width: 7.5em; }
+/* On a phone, a device to a block: each field on its own line, labelled. */
+@media (max-width: 640px) {
+  table.devices, table.devices tbody, table.devices tr, table.devices td { display: block; width: auto; }
+  table.devices tr:first-child { display: none; }
+  table.devices tr { border-top: 1px solid var(--line); padding: 6px 0; }
+  table.devices tr:nth-child(2) { border-top: none; }
+  table.devices td { border: none; padding: 2px 0; }
+  table.devices td:empty { display: none; }
+  table.devices td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+  table.devices td:last-child { text-align: left !important; }
+  table.devices td:last-child .link:first-child { padding-left: 0; }
+}
 
 /* A hint: "?" beside a label or heading; its text on hover, focus or click. */
 .label-row { display: flex; align-items: center; gap: 4px; }

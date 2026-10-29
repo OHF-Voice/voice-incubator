@@ -2355,17 +2355,17 @@ function devicesPanel(store, areas) {
   const said = (itemId) => { const entry = names[itemId]; return entry ? (typeof entry === "string" ? entry : entry.name) : ""; };
   return h("div", { class: "panel" },
     heading("h2", "Devices", "Voice acts only on the devices added here: by name, or as part of their area (“turn on the lights”). Home Assistant's exposure to Assist doesn't count."),
-    order.length ? order.map((where) => h("div", { class: "section" },
+    order.length ? order.map((where) => h("div", { class: "panel inset devices-area" },
       h("h3", { class: "row" }, areaName(where), h("span", { class: "badge" }, String(byArea[where].length))),
-      h("table", {}, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {}, "Controlled from"), h("th", {})),
+      h("table", { class: "devices" }, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {}, "Controlled from"), h("th", {})),
         ...byArea[where].map((itemId) => {
           const entry = names[itemId];
           const device = devices[itemId];
           return h("tr", {},
             h("td", {}, h("code", {}, itemId)),
-            h("td", {}, device.reach === "implicit" ? h("span", { class: "muted" }, "no name") : said(itemId)),
-            h("td", {}, entry && typeof entry !== "string" ? asList(entry.aliases).join(", ") : ""),
-            h("td", {}, reachLabel(device.reach), device.area ? h("span", { class: "badge", style: "margin-left:8px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+            h("td", { "data-label": "Name" }, device.reach === "implicit" ? h("span", { class: "muted" }, "no name") : said(itemId)),
+            h("td", { "data-label": "Also called" }, entry && typeof entry !== "string" ? asList(entry.aliases).join(", ") : ""),
+            h("td", { "data-label": "Controlled from" }, reachLabel(device.reach), device.area ? h("span", { class: "badge", style: "margin-left:8px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
             h("td", { style: "text-align:right; white-space:nowrap" },
               h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
               h("button", { class: "link", onclick: async () => {
