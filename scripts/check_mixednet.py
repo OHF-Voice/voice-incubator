@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from voice_labs.mixednet import pack  # noqa: E402
 
 DEFAULT_UPSTREAM = Path.home() / "opt/mixednet-executor"
-DEFAULT_COMPONENT = Path.home() / "opt/esphome/my_components_voice_labs/voice_labs"
+DEFAULT_COMPONENT = Path.home() / "opt/voice-pe-alt-firmware/components/voice_labs"
 
 BLOB_MAIN = """
 #include "mixednet.h"

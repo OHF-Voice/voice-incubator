@@ -2,6 +2,12 @@
 
 ## 0.2.0
 
+- **The firmware moved to
+  [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
+  which builds it and publishes its install page (`voice-pe-voice-labs`):
+  Wi-Fi given over improv (Bluetooth or USB), a name from the satellite's
+  MAC. `voice-labs-local.yaml` there flashes satellites in development from
+  a checkout. `firmware/` here keeps the set-aside experiments.
 - **The integration and the guide moved to
   [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs)**: install
   the integration from there with HACS; its README is the user guide, and the

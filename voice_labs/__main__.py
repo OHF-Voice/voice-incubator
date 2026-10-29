@@ -153,7 +153,7 @@ async def main() -> None:
         choices=("aec", "agc"),
         default="aec",
         help="capture to identify from (default aec; it needs the firmware's "
-        "aec_microphone gain_factor, see voice-labs-vpe.yaml)",
+        "aec_microphone gain_factor, see voice-pe-alt-firmware's voice-labs.yaml)",
     )
     parser.add_argument(
         "--no-speaker-learn",

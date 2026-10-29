@@ -280,7 +280,8 @@ and copies (`Satellite.first`).
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
 | [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers |
-| `firmware/` | the satellites' ESPHome firmware (a copy of `~/opt/esphome/my_components_voice_labs`), and set-aside experiments: learn-tv, voice calls over the native API |
+| [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) | the satellites' ESPHome firmware: `voice-labs.yaml`, the `components/voice_labs` component, and the install page's build |
+| `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |
 | `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
 | `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
@@ -1327,7 +1328,7 @@ text and misses.
 
 ## Music (Music Assistant and Sendspin)
 
-The firmware (`voice-labs-vpe.yaml`) runs a Sendspin client, wired as in the
+The firmware (`voice-labs.yaml`) runs a Sendspin client, wired as in the
 stock VPE firmware: the Sendspin media source plays through a `speaker_source`
 media pipeline into the mixer's second input. Music Assistant finds it on its
 own (`_sendspin._tcp`, port 8928), connects, and makes it a player; Home

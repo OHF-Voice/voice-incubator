@@ -338,7 +338,7 @@ class Options:
     speaker_threshold: float = 0.45
     speaker_channel: str = "aec"
     """Which capture to identify from. AEC benchmarked at half the EER of AGC,
-    provided the firmware streams it with gain (see voice-labs-vpe.yaml)."""
+    provided the firmware streams it with gain (see voice-pe-alt-firmware's voice-labs.yaml)."""
     speaker_learn: bool = True
     timer_ring_seconds: float = 300.0
     """How long a finished timer rings if nobody stops it."""
@@ -3233,7 +3233,7 @@ class VoiceLabsApp:
                 _LOGGER.warning(
                     "[%s] The AEC capture peaks at %d/32768 -- too quiet to identify "
                     "speakers reliably. Give aec_microphone a gain_factor (16 in "
-                    "voice-labs-vpe.yaml) or run with --speaker-channel agc.",
+                    "voice-labs.yaml) or run with --speaker-channel agc.",
                     session,
                     peak,
                 )
