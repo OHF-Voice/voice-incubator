@@ -47,8 +47,18 @@ esphome:
   on_boot:
     - priority: 375
       then:
+        - script.execute: control_leds
         - delay: 1s
         - switch.turn_on: internal_speaker_amp
+        # Still not connected to the app after 10 minutes: no longer starting
+        # up, but lost (as the stock firmware).
+        - delay: 10min
+        - if:
+            condition:
+              lambda: return id(init_in_progress);
+            then:
+              - lambda: id(init_in_progress) = false;
+              - script.execute: control_leds
     # After voice_call's own setup, which sets its configured volume.
     - priority: -100
       then:
@@ -75,6 +85,13 @@ psram:
   ignore_not_found: false
 
 globals:
+  # From boot until the app first connects (at most 10 minutes, as in the
+  # stock firmware): the ring shows the device starting up, not a lost
+  # connection.
+  - id: init_in_progress
+    type: bool
+    restore_value: no
+    initial_value: 'true'
   # Position of the spinning LEDs, shared so switching effects does not jump.
   - id: global_led_animation_index
     type: int
@@ -290,8 +307,13 @@ ota:
   - platform: esphome
 
 wifi:
+  id: wifi_id
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  on_connect:
+    - script.execute: control_leds
+  on_disconnect:
+    - script.execute: control_leds
 
 external_components:
   - source:
@@ -539,69 +561,107 @@ script:
           const bool silent = id(external_media_player).is_muted() || volume < 0.001f;
           id(call_speaker).set_volume(silent ? 0.0f : remap<float, float>(volume, 0.0f, 1.0f, ${volume_min}, ${volume_max}));
 
-  # What the ring shows: the volume while the dial turns; else a call's own
-  # (its events drive it during one); else between calls the intercom, else
-  # someone listening live, else another satellite's announcement, else a
-  # ringing timer, else the time left on the timer that finishes soonest,
-  # else nothing.
+  # What the ring shows, as the stock firmware does first: starting up, a
+  # blue sparkle once on Wi-Fi (solid warm white before); after, a red
+  # sparkle while Wi-Fi or the app is lost. Else the volume while the dial
+  # turns; else a call's own (its events drive it during one); else between
+  # calls the intercom, else someone listening live, else another
+  # satellite's announcement, else a ringing timer, else the time left on
+  # the timer that finishes soonest, else nothing.
   - id: control_leds
     mode: restart
     then:
       - if:
           condition:
-            lambda: return id(dial_touched);
+            lambda: return id(init_in_progress);
           then:
-            - light.turn_on:
-                id: voice_assistant_leds
-                brightness: ${ring_brightness}
-                effect: "Volume Display"
-          else:
             - if:
                 condition:
-                  lambda: return id(call_active);
+                  wifi.connected:
                 then:
                   - light.turn_on:
                       id: voice_assistant_leds
                       brightness: ${ring_brightness}
-                      effect: !lambda return id(call_effect);
+                      red: 9.4%
+                      green: 73.3%
+                      blue: 94.9%
+                      effect: "Twinkle"
+                else:
+                  - light.turn_on:
+                      id: voice_assistant_leds
+                      brightness: ${ring_brightness}
+                      red: 100%
+                      green: 89%
+                      blue: 71%
+                      effect: "none"
+          else:
+            - if:
+                condition:
+                  lambda: return !id(wifi_id).is_connected() || !id(vc).is_connected();
+                then:
+                  - light.turn_on:
+                      id: voice_assistant_leds
+                      brightness: ${ring_brightness}
+                      red: 100%
+                      green: 0%
+                      blue: 0%
+                      effect: "Twinkle"
                 else:
                   - if:
                       condition:
-                        lambda: return id(vc).is_monitoring();
+                        lambda: return id(dial_touched);
                       then:
                         - light.turn_on:
                             id: voice_assistant_leds
                             brightness: ${ring_brightness}
-                            effect: !lambda 'return id(vc).is_intercom() ? "Intercom" : "Recording";'
+                            effect: "Volume Display"
                       else:
                         - if:
                             condition:
-                              lambda: return id(app_announcing);
+                              lambda: return id(call_active);
                             then:
                               - light.turn_on:
                                   id: voice_assistant_leds
                                   brightness: ${ring_brightness}
-                                  effect: "Replying"
+                                  effect: !lambda return id(call_effect);
                             else:
                               - if:
                                   condition:
-                                    lambda: return id(timer_ringing);
+                                    lambda: return id(vc).is_monitoring();
                                   then:
                                     - light.turn_on:
                                         id: voice_assistant_leds
                                         brightness: ${ring_brightness}
-                                        effect: "Timer Ring"
+                                        effect: !lambda 'return id(vc).is_intercom() ? "Intercom" : "Recording";'
                                   else:
                                     - if:
                                         condition:
-                                          lambda: return id(timer_shown);
+                                          lambda: return id(app_announcing);
                                         then:
                                           - light.turn_on:
                                               id: voice_assistant_leds
                                               brightness: ${ring_brightness}
-                                              effect: "Timer Tick"
+                                              effect: "Replying"
                                         else:
-                                          - light.turn_off: voice_assistant_leds
+                                          - if:
+                                              condition:
+                                                lambda: return id(timer_ringing);
+                                              then:
+                                                - light.turn_on:
+                                                    id: voice_assistant_leds
+                                                    brightness: ${ring_brightness}
+                                                    effect: "Timer Ring"
+                                              else:
+                                                - if:
+                                                    condition:
+                                                      lambda: return id(timer_shown);
+                                                    then:
+                                                      - light.turn_on:
+                                                          id: voice_assistant_leds
+                                                          brightness: ${ring_brightness}
+                                                          effect: "Timer Tick"
+                                                    else:
+                                                      - light.turn_off: voice_assistant_leds
 
   # Music down while a call is open, a timer rings, something is announced or
   # the intercom is on; back up when none is.
@@ -776,8 +836,11 @@ voice_call:
   on_connected:
     # Detection starts on its own once the app finishes pushing a model.
     - logger.log: "Home Assistant connected"
+    - lambda: id(init_in_progress) = false;
+    - script.execute: control_leds
   on_disconnected:
     - logger.log: "Home Assistant disconnected"
+    - script.execute: control_leds
   on_model_loaded:
     - logger.log:
         format: "Wake word model loaded: %s"
@@ -820,6 +883,11 @@ light:
         from: 0
         to: 6
     effects:
+      # Starting up, or Wi-Fi or the app lost: as the stock firmware, in the
+      # color it is turned on with.
+      - addressable_twinkle:
+          name: "Twinkle"
+          twinkle_probability: 50%
       # Fast clockwise spin: wake word heard, command being spoken.
       - addressable_lambda:
           name: "Listening For Command"
