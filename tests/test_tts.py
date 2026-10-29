@@ -46,7 +46,7 @@ def test_sentences_without_markup():
 
 @pytest.mark.skipif(not VOICE.exists(), reason="needs the English Piper voice")
 def test_said_whole_or_acknowledged():
-    speech = Speech(VOICE, ROOT / "sounds/acknowledge.flac")
+    speech = Speech(VOICE, ROOT / "sounds")
     asyncio.run(speech.start())
     whole = asyncio.run(speech.say("**Lift:** it rises. *Then* it flies."))
     parts = b"".join(speech.synthesize(piece) for piece in sentences_of("**Lift:** it rises. *Then* it flies."))

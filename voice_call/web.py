@@ -60,6 +60,7 @@ from .store import (
 from . import library as following
 from .library import _library, library_files, library_of, library_sections, library_versions, load_library  # noqa: F401
 from .people import find as people_find
+from .tts import INSTRUMENT
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
 from .voices import language_code
@@ -267,8 +268,11 @@ class Api:
                     "music_levels": music.level_examples(),
                 },
                 "verbosity": {"levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere()},
-                # The call's sounds: heard, not understood, asking the agent.
+                # The call's sounds: heard, not understood, asking the agent;
+                # and what they and the acknowledgement are played on.
                 "sounds": app.sounds(),
+                "instrument": app.instrument() or INSTRUMENT,
+                "instruments": [{"id": i, "name": i.replace("_", " ").capitalize()} for i in app.speech.instruments],
                 "end_of_speech": app.end_of_speech_status(),
             }
         )
@@ -1081,6 +1085,14 @@ class Api:
                     }
                 else:
                     settings.pop("end_of_speech", None)
+        if "instrument" in body:
+            instrument = body["instrument"] or INSTRUMENT
+            if instrument not in self.app.speech.instruments:
+                raise ConfigError(f"instrument: one of {', '.join(self.app.speech.instruments)}")
+            if instrument == INSTRUMENT:
+                settings.pop("instrument", None)
+            else:
+                settings["instrument"] = instrument
         if "sounds" in body:
             for before in ("thinking_sound", "thinking_delay"):
                 settings.pop(before, None)

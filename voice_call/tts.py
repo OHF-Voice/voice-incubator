@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -62,49 +63,69 @@ ALARM_PAUSE = 0.5
 """Silence between repeats of the timer alarm, as the stock VPE firmware has."""
 
 
+INSTRUMENT = "electric_piano"
+"""The instrument the satellite's sounds are played on unless another is chosen."""
+SOUNDS = ("heard", "acknowledge", "not_understood", "asking")
+"""An instrument's sounds (sounds/<instrument>/<sound>.flac): the command
+ended; done, with nothing to say; not understood, or it went wrong; the
+conversation agent is asked."""
+
+
 class Speech:
     def __init__(
-        self, voice_path: Path, acknowledge_path: Path, alarm_path: Path | None = None, sounds_dir: Path | None = None
+        self, voice_path: Path, sounds_dir: Path, alarm_path: Path | None = None,
+        instrument: Callable[[], str | None] | None = None,
     ) -> None:
         self.voice_path = Path(voice_path)
-        self.acknowledge_path = Path(acknowledge_path)
+        self.sounds_dir = Path(sounds_dir)
         self.alarm_path = Path(alarm_path) if alarm_path is not None else None
-        self.sounds_dir = Path(sounds_dir) if sounds_dir is not None else None
+        self._instrument = instrument or (lambda: None)
+        """The instrument chosen (None: INSTRUMENT), asked each time a sound plays."""
         self._voice: PiperVoice | None = None
-        self._acknowledge: bytes | None = None
+        self.instruments: dict[str, dict[str, bytes]] = {}
+        """Each instrument's SOUNDS, by its folder's name."""
         self.alarm = b""
         """One repeat of the timer alarm, pause included."""
-        self.heard = b""
-        """The command ended, and is being worked on (none when it isn't there)."""
-        self.not_understood = b""
-        """Nothing understood it, or it went wrong: before what is said."""
-        self.asking = b""
-        """The conversation agent is asked."""
 
     async def start(self) -> None:
         self._voice = await asyncio.to_thread(load_voice, self.voice_path)
-        self._acknowledge = await asyncio.to_thread(
-            self._load_file, self.acknowledge_path
-        )
         if self.alarm_path is not None:
             sound = await asyncio.to_thread(self._load_file, self.alarm_path)
             self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
-        for name in ("heard", "not_understood", "asking"):
-            path = self.sounds_dir / f"{name}.flac" if self.sounds_dir is not None else None
-            if path is not None and path.is_file():
-                setattr(self, name, await asyncio.to_thread(self._load_file, path))
-        _LOGGER.info("Speech ready (%s)", self.voice_path.name)
+        for folder in sorted(p for p in self.sounds_dir.iterdir() if p.is_dir()):
+            made = {name: await asyncio.to_thread(self._load_file, folder / f"{name}.flac")
+                    for name in SOUNDS if (folder / f"{name}.flac").is_file()}
+            if "acknowledge" in made:
+                self.instruments[folder.name] = made
+        _LOGGER.info("Speech ready (%s; sounds: %s)", self.voice_path.name, ", ".join(self.instruments))
 
     @staticmethod
     def _load_file(path: Path) -> bytes:
         samples, rate = sf.read(path, dtype="float32", always_2d=False)
         return _to_device_pcm(samples, rate)
 
+    def sound(self, name: str) -> bytes:
+        """One of SOUNDS, on the instrument chosen (else INSTRUMENT); none when
+        it hasn't that one."""
+        chosen = self.instruments.get(self._instrument() or INSTRUMENT) or self.instruments.get(INSTRUMENT) or {}
+        return chosen.get(name, b"")
+
+    @property
+    def heard(self) -> bytes:
+        return self.sound("heard")
+
     @property
     def acknowledge(self) -> bytes:
         """What a reply with nothing to say plays."""
-        assert self._acknowledge is not None
-        return self._acknowledge
+        return self.sound("acknowledge")
+
+    @property
+    def not_understood(self) -> bytes:
+        return self.sound("not_understood")
+
+    @property
+    def asking(self) -> bytes:
+        return self.sound("asking")
 
     def synthesize(self, text: str) -> bytes:
         """``text`` (a sentence of ``sentences_of``) as device PCM."""

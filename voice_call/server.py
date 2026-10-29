@@ -580,9 +580,9 @@ class VoiceCallApp:
         """Which satellite answers a wake word several heard."""
         self.speech = Speech(
             root / "models/piper" / self.language.piper,
-            root / "sounds/acknowledge.flac",
-            root / "sounds/timer_finished.flac",
             root / "sounds",
+            root / "sounds/timer_finished.flac",
+            instrument=self.instrument,
         )
         speaker_model = root / "models/speaker/redimnet_b2_vox2.onnx"
         self.speakers: SpeakerId | None = None
@@ -3341,6 +3341,11 @@ class VoiceCallApp:
             "name": word.name if word is not None else None,
             "phrase": word.phrases[0] if word is not None and word.phrases else None,
         }
+
+    def instrument(self) -> str | None:
+        """settings.json ``instrument``: what the satellite's sounds are played
+        on (Speech.instruments; None: tts.INSTRUMENT)."""
+        return self.store.settings.get("instrument")
 
     def sounds(self) -> bool:
         """settings.json ``sounds``: the call's sounds -- heard, not

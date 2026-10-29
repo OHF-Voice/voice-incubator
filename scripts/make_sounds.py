@@ -1,5 +1,6 @@
-"""The satellite's own sounds, played by General MIDI's Electric Piano 1 from a
-SoundFont through FluidSynth's library, dry, at the satellite's 16 kHz:
+"""The satellite's own sounds, in each instrument (sounds/<instrument>/),
+played from a SoundFont through FluidSynth's library, dry, at the
+satellite's 16 kHz:
 
 - ``heard``: the command ended, and is being worked on -- up a major third;
 - ``acknowledge``: done, with nothing to say -- on up a fourth, finishing the
@@ -8,10 +9,10 @@ SoundFont through FluidSynth's library, dry, at the satellite's 16 kHz:
   third, lower and slower;
 - ``asking``: the conversation agent is asked -- up the major triad.
 
-    .venv/bin/python scripts/make_sounds.py [--soundfont FluidR3_GM.sf2] [--out sounds]
+    .venv/bin/python scripts/make_sounds.py [--soundfonts /usr/share/sounds/sf2] [--out sounds]
 
-Needs libfluidsynth and a General MIDI SoundFont (Debian: libfluidsynth3 and
-fluid-soundfont-gm).
+Needs libfluidsynth and the SoundFonts INSTRUMENTS names (Debian:
+libfluidsynth3, fluid-soundfont-gm, musescore-general-soundfont-lossless).
 """
 
 from __future__ import annotations
@@ -24,28 +25,31 @@ import numpy as np
 import soundfile as sf
 
 RATE = 16000
-PROGRAM = 4
-"""General MIDI's Electric Piano 1, counted from 0."""
+INSTRUMENTS = {
+    # (SoundFont, bank, program counted from 0, the key heard starts on)
+    "electric_piano": ("FluidR3_GM.sf2", 0, 4, 79),  # General MIDI's Electric Piano 1, from G5
+    "koto": ("MuseScore_General_Full.sf2", 0, 107, 72),  # from C5
+}
 LOUDNESS = -19.0
 """Where it sounds, in dB of full scale: as loud as the acknowledgement was."""
 PEAK = 0.7
 
-ROOT = 79
-"""G5."""
 
-SOUNDS = {
-    # (start s, key, held s, velocity)
-    "heard": [(0.0, ROOT, 0.09, 100), (0.085, ROOT + 4, 0.16, 105)],
-    "acknowledge": [(0.0, ROOT + 7, 0.09, 98), (0.09, ROOT + 12, 0.2, 102)],
-    "not_understood": [(0.0, ROOT - 2, 0.15, 100), (0.16, ROOT - 5, 0.26, 95)],
-    "asking": [(0.0, ROOT, 0.09, 100), (0.085, ROOT + 4, 0.09, 102), (0.17, ROOT + 7, 0.22, 108)],
-}
+
+def sounds(root: int) -> dict[str, list[tuple[float, int, float, int]]]:
+    """Each sound's notes from ``root``: (start s, key, held s, velocity)."""
+    return {
+        "heard": [(0.0, root, 0.09, 100), (0.085, root + 4, 0.16, 105)],
+        "acknowledge": [(0.0, root + 7, 0.09, 98), (0.09, root + 12, 0.2, 102)],
+        "not_understood": [(0.0, root - 2, 0.15, 100), (0.16, root - 5, 0.26, 95)],
+        "asking": [(0.0, root, 0.09, 100), (0.085, root + 4, 0.09, 102), (0.17, root + 7, 0.22, 108)],
+    }
 
 
 class Synth:
-    """FluidSynth's library, playing one channel of a SoundFont."""
+    """FluidSynth's library, playing one channel of its SoundFonts."""
 
-    def __init__(self, soundfont: Path) -> None:
+    def __init__(self) -> None:
         fs = self.fs = ctypes.CDLL("libfluidsynth.so.3")
         fs.new_fluid_settings.restype = ctypes.c_void_p
         fs.new_fluid_synth.restype = ctypes.c_void_p
@@ -64,14 +68,18 @@ class Synth:
         fs.fluid_settings_setint(settings, b"synth.reverb.active", 0)  # dry: it ends when it ends
         fs.fluid_settings_setint(settings, b"synth.chorus.active", 0)
         self.synth = fs.new_fluid_synth(settings)
-        self.font = fs.fluid_synth_sfload(self.synth, str(soundfont).encode(), 1)
-        if self.font < 0:
-            raise SystemExit(f"Can't load {soundfont}")
+        self.fonts: dict[Path, int] = {}
 
-    def render(self, program: int, notes: list[tuple[float, int, float, int]], tail: float = 0.8) -> np.ndarray:
+    def render(
+        self, soundfont: Path, bank: int, program: int, notes: list[tuple[float, int, float, int]], tail: float = 0.8
+    ) -> np.ndarray:
         fs, synth = self.fs, self.synth
+        if soundfont not in self.fonts:
+            self.fonts[soundfont] = fs.fluid_synth_sfload(synth, str(soundfont).encode(), 0)
+            if self.fonts[soundfont] < 0:
+                raise SystemExit(f"Can't load {soundfont}")
         fs.fluid_synth_all_sounds_off(synth, 0)
-        fs.fluid_synth_program_select(synth, 0, self.font, 0, program)
+        fs.fluid_synth_program_select(synth, 0, self.fonts[soundfont], bank, program)
         self._samples(0.05)
         events = sorted([(s, 1, k, v) for s, k, _, v in notes] + [(s + d, 0, k, 0) for s, k, d, _ in notes])
         out, now = [], 0.0
@@ -109,15 +117,17 @@ def leveled(x: np.ndarray) -> np.ndarray:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--soundfont", type=Path, default=Path("/usr/share/sounds/sf2/FluidR3_GM.sf2"))
+    parser.add_argument("--soundfonts", type=Path, default=Path("/usr/share/sounds/sf2"))
     parser.add_argument("--out", type=Path, default=Path(__file__).resolve().parent.parent / "sounds")
     args = parser.parse_args()
-    synth = Synth(args.soundfont)
-    for name, notes in SOUNDS.items():
-        x = leveled(synth.render(PROGRAM, notes))
-        path = args.out / f"{name}.flac"
-        sf.write(path, x, RATE, subtype="PCM_16")
-        print(f"{path}: {len(x) / RATE:.2f}s")
+    synth = Synth()
+    for instrument, (soundfont, bank, program, root) in INSTRUMENTS.items():
+        (args.out / instrument).mkdir(parents=True, exist_ok=True)
+        for name, notes in sounds(root).items():
+            x = leveled(synth.render(args.soundfonts / soundfont, bank, program, notes))
+            path = args.out / instrument / f"{name}.flac"
+            sf.write(path, x, RATE, subtype="PCM_16")
+            print(f"{path}: {len(x) / RATE:.2f}s")
 
 
 if __name__ == "__main__":

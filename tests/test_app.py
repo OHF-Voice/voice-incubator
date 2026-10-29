@@ -823,6 +823,19 @@ async def _sounds(tmp_path):
         sent, reply = await call("call-19757.wav", "done")
         assert app.calls.recent[-1].outcome == "answered" and near(sent, len(speech.heard), len(speech.asking), reply)
         assert await put({"agent": None}) == 200
+        # Played on the koto, from the next call on; the electric piano is the default.
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            status = await (await http.get("/api/status")).json()
+        assert [i["id"] for i in status["instruments"]] == ["electric_piano", "koto"]
+        assert status["instrument"] == "electric_piano" and status["instruments"][0]["name"] == "Electric piano"
+        piano = speech.heard
+        assert await put({"instrument": "koto"}) == 200 and app.store.settings["instrument"] == "koto"
+        assert speech.heard != piano and speech.acknowledge == speech.instruments["koto"]["acknowledge"]
+        sent, reply = await call("call-15788.wav", "done")
+        assert near(sent, len(speech.heard), reply)
+        assert await put({"instrument": "harp"}) == 400
+        assert await put({"instrument": "electric_piano"}) == 200 and "instrument" not in app.store.settings
+        assert speech.heard == piano
         # Turned off: the reply alone (and from before, thinking_sound: false meant so).
         assert await put({"sounds": False}) == 200
         assert app.store.settings["sounds"] is False and not app.sounds()

@@ -511,6 +511,10 @@ function responsesPanel() {
     try { await api("PUT", "settings", { sounds: e.target.checked }); toast("Saved"); await refreshStatus(); }
     catch (err) { toast(err.message); }
   } });
+  const instrument = h("select", { onchange: async (e) => {
+    try { await api("PUT", "settings", { instrument: e.target.value }); toast("Saved"); await refreshStatus(); }
+    catch (err) { toast(err.message); }
+  } }, ((state.status && state.status.instruments) || []).map((i) => h("option", { value: i.id, selected: state.status.instrument === i.id }, i.name)));
   const select = h("select", { onchange: async (e) => {
     try { await api("PUT", "settings", { beep_elsewhere: e.target.value }); toast("Saved"); await refreshStatus(); }
     catch (err) { toast(err.message); }
@@ -518,7 +522,9 @@ function responsesPanel() {
   return h("div", { class: "panel" },
     heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."),
     field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
-    h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked.")));
+    h("div", { class: "row" },
+      h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked.")),
+      field("Instrument", instrument, "What the sounds, and the beep when a command is done, are played on.")));
 }
 
 // The home's own things (a command's home), by the entity domain they are:

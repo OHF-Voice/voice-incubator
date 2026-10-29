@@ -397,12 +397,13 @@ all. A command has:
   sentence at a time, starting as soon as the first is ready, without the
   markdown a conversation agent writes (`**bold**`, bullets).
 
-  The satellite has **sounds** of its own, on an electric piano: two notes
-  up the moment you stop speaking (it heard you, and is working on it); on
-  up to finish the chord when it's done with nothing to say (the beep); down
-  a minor third before it says it didn't understand, couldn't, or something
-  went wrong; and up the chord as your conversation agent is asked. Each
-  plays whole, and the reply follows it. Turn them off in the same panel.
+  The satellite has **sounds** of its own: two notes up the moment you stop
+  speaking (it heard you, and is working on it); on up to finish the chord
+  when it's done with nothing to say (the beep); down a minor third before
+  it says it didn't understand, couldn't, or something went wrong; and up
+  the chord as your conversation agent is asked. Each plays whole, and the
+  reply follows it. In the same panel, pick the **instrument** they and the
+  beep are played on -- an electric piano, or a koto -- or turn them off.
 
   The done response can be written once, for every level, or once for each;
   a level without one says the closest written, less before more. Timers

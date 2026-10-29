@@ -46,7 +46,7 @@ one call at a time:
    timer operation's or a script's own outcome), rendered by Home Assistant,
    is spoken with Piper (`en_US-ellie` for English); without one, the built-in
    sentence -- when done, at the command's level of verbosity (below). A
-   command with nothing to say plays `sounds/acknowledge.flac`. What is said
+   command with nothing to say plays the acknowledgement sound. What is said
    goes through `sentence_stream` first (`tts.sentences_of`): the markdown a
    conversation agent writes comes out ("**Lift:**" was read "asterisk"), and
    Piper says it a sentence (or list item) at a time, each played while the
@@ -56,12 +56,13 @@ one call at a time:
    is cancelled, the device drops what was already sent until the app ends
    the stream (AUDIO_OUT_END), and the call is recorded as cancelled. The call's
    sounds (`server.Cues`, settings.json `sounds`, on unless false), each sent
-   whole: `sounds/heard.flac` the moment the command ended,
-   `sounds/asking.flac` as the conversation agent is asked, and
-   `sounds/not_understood.flac` before a reply that it wasn't understood or
-   went wrong -- in one stream, which the reply follows (Home Assistant's
-   speech, or none, ends it first). `scripts/make_sounds.py` makes them, and
-   the acknowledgement, with FluidSynth.
+   whole: `heard` the moment the command ended, `asking` as the conversation
+   agent is asked, and `not_understood` before a reply that it wasn't
+   understood or went wrong -- in one stream, which the reply follows (Home
+   Assistant's speech, or none, ends it first). They and the acknowledgement
+   are in `sounds/<instrument>/` (settings.json `instrument`: an instrument
+   folder; none, `electric_piano`), made by `scripts/make_sounds.py` with
+   FluidSynth.
 
 Commands, names, satellites and debugging are described for users in
 [DOCS.md](DOCS.md).
