@@ -1,4 +1,4 @@
-"""Training a wake word in the app (voice_call/wake_training.py): the kit, the
+"""Training a wake word in the app (voice_labs/wake_training.py): the kit, the
 positives Piper says, and a job from the phrase to the saved model -- with a
 stand-in for the TensorFlow step, which is not in the app's test environment."""
 
@@ -13,9 +13,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from voice_call import wake_positives, wake_training
-from voice_call.mixednet import load as load_wake_model
-from voice_call.wake_training import Job, Kit, TrainingError, WakeTraining
+from voice_labs import wake_positives, wake_training
+from voice_labs.mixednet import load as load_wake_model
+from voice_labs.wake_training import Job, Kit, TrainingError, WakeTraining
 
 ROOT = Path(__file__).resolve().parent.parent
 VOICE = ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx"

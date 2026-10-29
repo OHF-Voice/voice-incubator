@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 from adapt_ctc.config import ConfigError
 
-from voice_call import capabilities
-from voice_call.commands import parse_command
-from voice_call.hass import Catalog, Entity
+from voice_labs import capabilities
+from voice_labs.commands import parse_command
+from voice_labs.hass import Catalog, Entity
 
 FAN_MODES = ["on_low", "on_high", "auto_low", "auto_high", "off"]
 

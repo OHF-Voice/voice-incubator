@@ -7,9 +7,9 @@ import asyncio
 
 import numpy as np
 
-from voice_call import tones
-from voice_call.discover import Device
-from voice_call.server import Options, VoiceCallApp
+from voice_labs import tones
+from voice_labs.discover import Device
+from voice_labs.server import Options, VoiceLabsApp
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -59,7 +59,7 @@ async def _scenario(tmp_path) -> None:
     hass.device_areas[f"device-{KITCHEN}"] = "kitchen"
     hass.device_areas[f"device-{BEDROOM}"] = "bedroom"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
-    app = VoiceCallApp(Options(
+    app = VoiceLabsApp(Options(
         host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,

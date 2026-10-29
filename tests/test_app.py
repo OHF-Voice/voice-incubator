@@ -14,9 +14,9 @@ from pathlib import Path
 import aiohttp
 import pytest
 
-from voice_call import people as people_mod
-from voice_call.server import Options, VoiceCallApp
-from voice_call.store import styled
+from voice_labs import people as people_mod
+from voice_labs.server import Options, VoiceLabsApp
+from voice_labs.store import styled
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -99,12 +99,12 @@ async def _scenario(tmp_path: Path) -> None:
     satellite_server = await serve(satellite)
     satellite_port = satellite_server.sockets[0].getsockname()[1]
 
-    # The satellite's area is its Home Assistant device's (Voice Call integration).
+    # The satellite's area is its Home Assistant device's (Voice Labs integration).
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     (tmp_path / "satellites.yaml").write_text(f"{MAC}: {{name: Kitchen VPE, area: office}}\n")
     http_port = free_port()
-    app = VoiceCallApp(
+    app = VoiceLabsApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -131,7 +131,7 @@ async def _scenario(tmp_path: Path) -> None:
         assert variables["satellite"]["area_id"] == "kitchen"
         assert variables["satellite"]["floor_id"] == "ground"
         assert variables["command"]["id"] == "lights_on"
-        assert hass.events[-1]["event_type"] == "voice_call_command"
+        assert hass.events[-1]["event_type"] == "voice_labs_command"
         assert hass.events[-1]["data"]["response"] == "Turned on the lights."
         assert any(e["type"] == "recognized" for e in satellite.events)
         assert satellite.played > 0
@@ -785,7 +785,7 @@ async def _sounds(tmp_path):
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     http_port = free_port()
-    app = VoiceCallApp(Options(
+    app = VoiceLabsApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -870,7 +870,7 @@ async def _cancelled(tmp_path):
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS.replace("response: Turned on the lights.", f"response: {json.dumps(LONG_REPLY)}", 1))
     (tmp_path / "settings.yaml").write_text("sounds: false\n")
-    app = VoiceCallApp(Options(
+    app = VoiceLabsApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -938,7 +938,7 @@ async def _voices(tmp_path: Path) -> None:
     (tmp_path / "commands.yaml").write_text(VOICE_COMMANDS)
     # No sounds: what is streamed is counted.
     (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\nsounds: false\n")
-    app = VoiceCallApp(
+    app = VoiceLabsApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -1102,7 +1102,7 @@ def _library_commands(*wanted: tuple[str, str]) -> str:
     """Commands from the English library, as they are added from it."""
     from ruamel.yaml import YAML  # pylint: disable=import-outside-toplevel
 
-    library = ROOT / "voice_call/languages/en/library"
+    library = ROOT / "voice_labs/languages/en/library"
     out = {}
     for file, command in wanted:
         spec = YAML(typ="safe").load((library / f"{file}.yaml").read_text())["commands"][command]
@@ -1132,7 +1132,7 @@ async def _calendar(tmp_path: Path) -> None:
         ("timers", "set_alarm"), ("timers", "cancel_alarm"), ("timers", "alarm_status"),
         ("reminders", "reminder_status"), ("reminders", "remind_me"),
     ))
-    app = VoiceCallApp(
+    app = VoiceLabsApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -1155,14 +1155,14 @@ async def _calendar(tmp_path: Path) -> None:
         await asyncio.wait_for(satellite.ready.wait(), 30)
         assert app.alarms is not None
         await wait_for(lambda: app.alarms.ready)
-        calendar = "calendar.voice_call"
-        assert hass.local_calendars == ["Voice Call"] and app.alarms.entity_id == calendar
+        calendar = "calendar.voice_labs"
+        assert hass.local_calendars == ["Voice Labs"] and app.alarms.entity_id == calendar
         assert str(app.alarms.tz) == "Europe/Berlin"
 
         # An alarm: an event in Home Assistant's time zone, marked as this satellite's.
         assert await said("set an alarm for 7 am tomorrow") == "Alarm set for 7:00 AM tomorrow."
         [event] = hass.calendar_events[calendar]
-        assert event["summary"] == "Alarm" and f"[voice_call:alarm:{MAC}]" in event["description"]
+        assert event["summary"] == "Alarm" and f"[voice_labs:alarm:{MAC}]" in event["description"]
         start = datetime.fromisoformat(event["start"])
         assert start.hour == 7 and start.utcoffset() == start.astimezone(ZoneInfo("Europe/Berlin")).utcoffset()
         await wait_for(lambda: len(app.alarms.upcoming("alarm", MAC)) == 1)
@@ -1190,7 +1190,7 @@ async def _calendar(tmp_path: Path) -> None:
         played = satellite.played
         await hass.add_calendar_event(
             calendar, summary="Alarm", start=soon.isoformat(), end=later,
-            description=f"Set by voice on Kitchen. [voice_call:alarm:{MAC}]",
+            description=f"Set by voice on Kitchen. [voice_labs:alarm:{MAC}]",
         )
         session = app.sessions[MAC]
         await wait_for(lambda: session.ringing is not None and "stop" in satellite.models and satellite.played > played + 32000)

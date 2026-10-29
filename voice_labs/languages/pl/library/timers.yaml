@@ -1,0 +1,174 @@
+# Timers (Polish), as the English library's timers.yaml: on the satellite
+# that set them, with the Voice Labs integration in Home Assistant. A timer is
+# picked out by:
+#   timer_name  a running timer's name: "anuluj minutnik pizza"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "minutnik o nazwie pizza", "minutnik pizza",
+#               "minutnik do pizzy"
+#   duration    "minutnik na 5 minut"
+# or it is the only one running. A timer is a "minutnik", or a "timer" (said
+# "tajmer"); an alarm a "budzik". Asked for without how long ("włącz
+# minutnik"), it asks: "włącz" would otherwise play music called "minutnik".
+title: Timers and alarms
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: ustawić minutnik
+    # "Ustaw minutnik na 5 minut", "minutnik na pół godziny", "nastaw minutnik
+    # pizza na dziesięć minut", "minutnik o nazwie pizza na kwadrans".
+    require: [[minutnik, timer, tajmer, odliczanie]]
+    optional: [[ustaw, nastaw, włącz, uruchom, odpal, zacznij, ustawić, nastawić, włączyć], [na],
+               [o nazwie, nazwany, dla, do]]
+    exclude: [anuluj, usuń, zatrzymaj, wyłącz, wstrzymaj, wznów, ile, zostało, dodaj, odejmij, skróć, przedłuż, wszystkie]
+    wildcard: {slot: timer, after: [minutnik, timer, tajmer, o nazwie, nazwany, dla, do], max_words: 3}
+    # Quarters too ("kwadrans", "trzy kwadranse"), and halves and quarters as
+    # likely as whole numbers: "minutnik na pół godziny" is not one named
+    # "pół".
+    number:
+      preset: duration
+      min: 0.25
+      step: 0.25
+      prior:
+        - {when: [sekundy, sekund, sekunda, sekundę], multiple_of: 5, cost: 0}
+        - {when: [sekundy, sekund, sekunda, sekundę], cost: 2.5}
+        - {multiple_of: 0.25, cost: 0}
+        - {cost: 1.0}
+    # Each said whole.
+    combinations: [[], [timer], [duration], [duration, timer]]
+    timer: start
+    verbosity: specific
+
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: ustawić budzik
+    # A timer that rings at a clock time: "ustaw budzik na siódmą", "obudź
+    # mnie o siódmej trzydzieści", "budzik na wpół do ósmej". Without "rano"
+    # or "wieczorem" it is the next time that comes round.
+    require: [[budzik, alarm, obudź mnie, obudź nas, obudź]]
+    optional: [[ustaw, nastaw, włącz, ustawić, nastawić], [na, o, na godzinę, o godzinie]]
+    wildcard: {slot: time, after: [na, o, na godzinę, o godzinie], to_end: true, max_words: 7}
+    exclude: [anuluj, usuń, wyłącz, zatrzymaj, wstrzymaj, ile]
+    # Without a time it asks for one ("ustaw budzik"): "włącz" would
+    # otherwise play music called "budzik".
+    combinations: [[], [time]]
+    timer: alarm
+    verbosity: specific
+    response:
+      missing_time: Na którą godzinę ustawić budzik?
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: anulować minutnik
+    examples: ["(anuluj|wyłącz|zatrzymaj|usuń) minutnik", "(anuluj|wyłącz|zatrzymaj|usuń) budzik", "(anuluj|wyłącz|usuń) timer"]
+    require: [[anuluj, anulować, wyłącz, wyłączyć, zatrzymaj, zatrzymać, usuń, usunąć, skasuj],
+              [minutnik, minutnika, timer, timera, tajmer, budzik, budzika, alarm, odliczanie]]
+    optional: [[minut, minuty, minutę, sekund, sekundy, godzin, godziny, godzinę], [o nazwie, nazwany, na, dla, do]]
+    # Not a new one: "ustaw minutnik na pizzę".
+    exclude: [ustaw, nastaw, wszystkie, wszystkich]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minutnik, minutnika, timer, o nazwie, nazwany, dla, do]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: cancel
+    verbosity: specific
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: anulować wszystkie minutniki
+    require: [[anuluj, anulować, wyłącz, zatrzymaj, usuń, skasuj], [wszystkie, wszystkich], [minutniki, minutników, timery, timerów, minutnik]]
+    timer: cancel_all
+    verbosity: specific
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: wstrzymać minutnik
+    require: [[wstrzymaj, wstrzymać, zapauzuj, spauzuj, pauza], [minutnik, minutnika, timer, timera, odliczanie]]
+    optional: [[minut, minuty, minutę, sekund, sekundy, godzin, godziny, godzinę], [o nazwie, nazwany, na, dla, do]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minutnik, minutnika, timer, o nazwie, nazwany, dla, do]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: pause
+    verbosity: specific
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: wznowić minutnik
+    require: [[wznów, wznowić, kontynuuj, odpauzuj, uruchom ponownie], [minutnik, minutnika, timer, timera, odliczanie]]
+    optional: [[minut, minuty, minutę, sekund, sekundy, godzin, godziny, godzinę], [o nazwie, nazwany, na, dla, do]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minutnik, minutnika, timer, o nazwie, nazwany, dla, do]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: resume
+    verbosity: specific
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: sprawdzić, ile czasu zostało
+    examples: ["ile [jeszcze] [czasu] zostało", "ile [czasu] zostało na minutniku", "ile zostało do końca"]
+    require: [[ile], [zostało, pozostało, brakuje]]
+    optional: [[czasu, jeszcze], [na, do, w], [minutniku, minutnika, minutnik, timerze, timera, budziku, budzika, końca],
+               [o nazwie, nazwany]]
+    # A date: "ile dni zostało do świąt"; a time of day: "ile zostało do
+    # siedemnastej" (a question).
+    exclude: [dni, dzień, tygodni, tygodnie, tygodnia, miesięcy, miesiące, lat, roku, pierwszej, drugiej, trzeciej,
+              czwartej, piątej, szóstej, siódmej, ósmej, dziewiątej, dziesiątej, jedenastej, dwunastej, trzynastej,
+              czternastej, piętnastej, szesnastej, siedemnastej, osiemnastej, dziewiętnastej, dwudziestej, północy,
+              południa, wpół]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minutniku, minutnika, minutnik, o nazwie, nazwany]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: dodać czas do minutnika
+    # "Dodaj 5 minut do minutnika pizza", "przedłuż minutnik o 2 minuty".
+    require: [[dodaj, dołóż, przedłuż, wydłuż, dorzuć], [minutnik, minutnika, minutnikowi, timer, timera]]
+    optional: [[do, o], [o nazwie, nazwany]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minutnika, minutnik, timera, o nazwie, nazwany]}
+    # Quarters too: "kwadrans".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: add
+    verbosity: specific
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: odjąć czas z minutnika
+    # "Odejmij 2 minuty od minutnika", "skróć minutnik pizza o 2 minuty".
+    require: [[odejmij, skróć, zmniejsz, zabierz, ujmij], [minutnik, minutnika, minutnikowi, timer, timera]]
+    optional: [[od, z, o], [o nazwie, nazwany]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [minutnika, minutnik, timera, o nazwie, nazwany]}
+    # Quarters too: "kwadrans".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: subtract
+    verbosity: specific

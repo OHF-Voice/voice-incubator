@@ -7,7 +7,7 @@
         tau: 20s              # how long the inter-mic phase is averaged over
         warmup: 2s            # mic 0 alone until then
 
-Output: four channels, 32-bit, 16 kHz, one for each of voice_call's uses --
+Output: four channels, 32-bit, 16 kHz, one for each of voice_labs's uses --
 0 wake words, 1 the call, 2 the second capture, 3 the fallback detector --
 delayed alike (16 ms). In learn mode (the XMOS's channels: both mics after
 AEC) 0 and 1 are mic 0 with a null on the source that has played most of

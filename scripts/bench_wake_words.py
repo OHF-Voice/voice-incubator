@@ -54,9 +54,9 @@ _W: dict = {}
 
 
 def _init(wake_word: str, binary: str, scratch: str, ratio_phrase: str | None) -> None:
-    from voice_call.engine import Engine
-    from voice_call.wake import WakeVerifier
-    from voice_call.wake_ratio import WakeRatio
+    from voice_labs.engine import Engine
+    from voice_labs.wake import WakeVerifier
+    from voice_labs.wake_ratio import WakeRatio
 
     loop = asyncio.new_event_loop()
     verifier = WakeVerifier(ROOT / "wake.yaml", wake_word)

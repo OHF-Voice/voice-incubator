@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_call import languages, skills
-from voice_call.skills import SKILLS
+from voice_labs import languages, skills
+from voice_labs.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +76,7 @@ def test_said_back_in_full():
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_call.skills import dates
+    from voice_labs.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -125,7 +125,7 @@ def test_settings_in_italian():
 
 
 def test_holidays_written_in_italian_or_english():
-    from voice_call.skills.dates import Settings
+    from voice_labs.skills.dates import Settings
 
     stored = Settings.store({"holidays": [*(h.to_json() for h in Settings().holidays),
                                           {"name": "Compleanno della nonna", "when": "12 marzo", "also": []},
@@ -141,7 +141,7 @@ def test_holidays_written_in_italian_or_english():
 
 
 def test_italian_plurals():
-    from voice_call.languages.it.skills.units import forms, plural_of
+    from voice_labs.languages.it.skills.units import forms, plural_of
 
     assert [plural_of(n) for n in ("tazza", "metro quadrato", "oncia liquida", "cucchiaio", "cucchiaino da tè", "ora")] == [
         "tazze", "metri quadrati", "once liquide", "cucchiai", "cucchiaini da tè", "ore"]
@@ -163,13 +163,13 @@ def test_each_skill_answers_its_examples():
      ("1 000", 1000), ("3,5", 3.5)],
 )
 def test_italian_numbers(said, number):
-    from voice_call.languages.it.skills.numbers import parse_num
+    from voice_labs.languages.it.skills.numbers import parse_num
 
     assert parse_num(said) == number
 
 
 def test_a_clock_time_said_as_italian_says_it():
-    from voice_call.languages.it.reading import clock
+    from voice_labs.languages.it.reading import clock
 
     assert clock("le sette e mezza") == clock("7:30") == (7, 30, None)
     assert clock("le otto meno un quarto di sera") == (7, 45, "pm")

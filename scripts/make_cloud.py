@@ -20,7 +20,7 @@ import soxr
 HASS = "http://localhost:8123"
 TOKEN = Path("/home/hansenm/opt/homeassistant/token").read_text().strip()
 REFERENCE = Path(
-    "/home/hansenm/opt/ohf-apps-experimental/voice_call/tests/"
+    "/home/hansenm/opt/ohf-apps-experimental/voice_labs/tests/"
     "okay_nabu_turn_on_the_lights.wav"
 )
 

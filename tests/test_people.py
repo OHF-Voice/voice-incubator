@@ -1,10 +1,10 @@
-"""People: who is speaking, and what is theirs (voice_call/people.py)."""
+"""People: who is speaking, and what is theirs (voice_labs/people.py)."""
 
 from __future__ import annotations
 
 import pytest
 
-from voice_call.people import clean, mine, names, person_name, speaking
+from voice_labs.people import clean, mine, names, person_name, speaking
 
 PEOPLE = {"Mike": {"todo_list": "todo.mike", "playlist": "Mike's Mix"}, "Anna": {}}
 

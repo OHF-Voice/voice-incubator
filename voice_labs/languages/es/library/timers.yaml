@@ -1,0 +1,168 @@
+# Timers (Spanish), as the English library's timers.yaml: on the satellite
+# that set them, with the Voice Labs integration in Home Assistant. A timer is
+# picked out by:
+#   timer_name  a running timer's name: "cancela el temporizador de pizza"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "un temporizador llamado pasta", "un
+#               temporizador para la pizza"
+#   duration    "el temporizador de 5 minutos"
+# or it is the only one running. Spanish names a timer after the word:
+# "temporizador de pizza".
+title: Timers and alarms
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: poner un temporizador
+    # "Pon un temporizador de 5 minutos", "temporizador de media hora para la
+    # pizza", "pon un temporizador llamado pasta de diez minutos".
+    # Asked for without how long ("pon un temporizador"), it asks: "pon"
+    # would otherwise play music called "temporizador".
+    require: [[temporizador, cuenta atrás]]
+    optional: [[pon, ponme, programa, crea, inicia, empieza, activa], [de, para, por],
+               [llamado, llamada, con el nombre, para el, para la, para los, para las, del, de la, de los, de las]]
+    wildcard: {slot: timer, after: [llamado, llamada, con el nombre, para, para el, para la, para los, para las, de, del, de la, de los, de las]}
+    # Quarters too ("un cuarto de hora", "tres cuartos de hora"), and halves
+    # and quarters as likely as whole numbers: "temporizador de media hora"
+    # is not one named "media".
+    number:
+      preset: duration
+      min: 0.25
+      step: 0.25
+      prior:
+        - {when: [segundos, segundo], multiple_of: 5, cost: 0}
+        - {when: [segundos, segundo], cost: 2.5}
+        - {multiple_of: 0.25, cost: 0}
+        - {cost: 1.0}
+    # Each said whole.
+    combinations: [[], [timer], [duration], [duration, timer]]
+    timer: start
+    verbosity: specific
+
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: poner una alarma
+    # A timer that rings at a clock time: "pon una alarma a las siete y
+    # media", "despiértame a las 7", "alarma para las ocho menos cuarto". Without
+    # "de la mañana" or "de la tarde" it is the next time that comes round.
+    require: [[alarma, despiértame, despiértanos, levántame]]
+    optional: [[pon, ponme, programa, crea, activa], [a las, a la, para las, para la, a, para]]
+    wildcard: {slot: time, after: [a las, a la, para las, para la, a, para], to_end: true, max_words: 7}
+    exclude: [cancela, cancelar, borra, elimina, apaga, detén, quita, cuánto]
+    # Without a time it asks for one ("pon una alarma"): "pon" would
+    # otherwise play music called "alarma".
+    combinations: [[], [time]]
+    timer: alarm
+    verbosity: specific
+    response:
+      missing_time: ¿Para qué hora pongo la alarma?
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: cancelar un temporizador
+    # Said whole, "para el temporizador" stops it: a new one may be "para el
+    # arroz", so the keywords alone can't tell.
+    examples: ["(para|cancela|apaga) el temporizador", "(para|cancela|apaga) la alarma"]
+    require: [[cancela, cancelar, para, parar, detén, detener, borra, elimina, apaga], [temporizador, cuenta atrás, alarma]]
+    optional: [[minutos, minuto, segundos, segundo, horas, hora], [llamado, llamada, de, del, de la, de los, de las]]
+    # Not a new one: "pon un temporizador para la pizza".
+    exclude: [pon, ponme, programa, crea, inicia, todos]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [llamado, llamada, de, del, de la, de los, de las]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: cancel
+    verbosity: specific
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: cancelar todos los temporizadores
+    require: [[cancela, cancelar, para, parar, detén, borra, elimina, apaga], [todos], [temporizadores, temporizador]]
+    timer: cancel_all
+    verbosity: specific
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: pausar un temporizador
+    require: [[pausa, pausar, pon ... en pausa], [temporizador, cuenta atrás]]
+    optional: [[minutos, minuto, segundos, segundo, horas, hora], [llamado, llamada, de, del, de la, de los, de las]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [llamado, llamada, de, del, de la, de los, de las]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: pause
+    verbosity: specific
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: reanudar un temporizador
+    require: [[reanuda, reanudar, continúa, continuar, sigue, seguir, quita la pausa], [temporizador, cuenta atrás]]
+    optional: [[minutos, minuto, segundos, segundo, horas, hora], [llamado, llamada, de, del, de la, de los, de las]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [llamado, llamada, de, del, de la, de los, de las]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: resume
+    verbosity: specific
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: saber cuánto le queda a un temporizador
+    examples: ["cuánto tiempo queda", "cuánto le queda al temporizador", "cuánto falta"]
+    require: [[cuánto, cuánto tiempo], [queda, quedan, falta, faltan, le queda, le falta]]
+    optional: [[temporizador, cuenta atrás], [minutos, minuto, segundos, segundo, horas, hora], [llamado, llamada, de, del, de la, de los, de las]]
+    # A date: "cuánto falta para Navidad", "cuántos días quedan".
+    exclude: [para, hasta, días, día, semanas, meses, años]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [llamado, llamada, de, del, de la, de los, de las]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: añadir tiempo a un temporizador
+    # "Añade 5 minutos al temporizador de pizza", "alarga el temporizador 5 minutos".
+    require: [[añade, agrega, suma, alarga, amplía], [temporizador, cuenta atrás]]
+    optional: [[a, al, en], [minutos, minuto, segundos, segundo, horas, hora], [llamado, llamada, de, del, de la, de los, de las]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [llamado, llamada, de, del, de la, de los, de las]}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: add
+    verbosity: specific
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: quitar tiempo a un temporizador
+    # "Quita 2 minutos al temporizador", "acorta el temporizador de pizza 2 minutos".
+    require: [[quita, resta, acorta, reduce], [temporizador, cuenta atrás]]
+    optional: [[a, al, en], [minutos, minuto, segundos, segundo, horas, hora], [llamado, llamada, de, del, de la, de los, de las]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [llamado, llamada, de, del, de la, de los, de las]}
+    number: duration
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: subtract
+    verbosity: specific

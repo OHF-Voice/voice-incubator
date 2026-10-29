@@ -4,7 +4,7 @@ ARG BUILD_ARCH
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-WORKDIR /usr/src/voice_call
+WORKDIR /usr/src/voice_labs
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 COPY requirements.txt ./
@@ -54,7 +54,7 @@ RUN if [ ! -x models/wake-kaldi-decoderd/verify_decoderd ]; then \
 COPY setup.py wake.yaml ./
 COPY sounds ./sounds
 COPY adapt_ctc ./adapt_ctc
-COPY voice_call ./voice_call
+COPY voice_labs ./voice_labs
 # adapt-ctc's native Viterbi (several times faster than the numpy fallback).
 RUN python3 setup.py build_ext --inplace && rm -rf build
 

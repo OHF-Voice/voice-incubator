@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 
 from adapt_ctc.config import ConfigError
-from voice_call import languages
-from voice_call.commands import parse_command
-from voice_call.web import load_library
+from voice_labs import languages
+from voice_labs.commands import parse_command
+from voice_labs.web import load_library
 
-WEB = Path(__file__).resolve().parent.parent / "voice_call/web"
+WEB = Path(__file__).resolve().parent.parent / "voice_labs/web"
 
 
 def shipped_icons() -> set[str]:
@@ -53,7 +53,7 @@ def test_the_homes_own(language):
 def test_ids_are_unique_across_files(language):
     # The library page marks a command added by its id; the Commands page
     # lists one by the file its id (or its family's, or a former one) is in.
-    from voice_call.web import library_files  # pylint: disable=import-outside-toplevel
+    from voice_labs.web import library_files  # pylint: disable=import-outside-toplevel
 
     ids = [e["id"] for e in load_library()]
     assert len(ids) == len(set(ids))
@@ -98,7 +98,7 @@ def test_a_command_comes_in_versions():
 
 
 def test_a_variant_must_be_one_of_the_three():
-    from voice_call.web import library_versions  # pylint: disable=import-outside-toplevel
+    from voice_labs.web import library_versions  # pylint: disable=import-outside-toplevel
 
     with pytest.raises(ConfigError, match="no variant room"):
         library_versions("x", {"examples": ["x"], "variants": {"room": {}}})
@@ -119,7 +119,7 @@ def test_every_icon_is_shipped(language):
 
 
 def test_commands_are_listed_by_library_section():
-    from voice_call.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
+    from voice_labs.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
 
     sections, _ids = library_sections()
     # By title, as the Home page and the library list them.
@@ -142,7 +142,7 @@ def test_commands_are_listed_by_library_section():
 def test_every_language_files_its_commands_as_english_does():
     """A command is in the same section in every language, and a section has
     the same title and icon: the Home page and the library group them alike."""
-    from voice_call.library import library_files  # pylint: disable=import-outside-toplevel
+    from voice_labs.library import library_files  # pylint: disable=import-outside-toplevel
 
     def sections(code):
         files = library_files(code)
@@ -162,8 +162,8 @@ def test_a_name_in_several_rooms():
     (unless not: with_area); its whole house names from every satellite. A
     name heard nowhere from here, or one two devices have there, runs
     nothing, and the hint says why; one only part of its area has none."""
-    from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_call.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
 
     ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not ctc.is_dir():
@@ -226,7 +226,7 @@ def test_every_response_template_renders(language):
     template functions (stubbed): a typo shows here, not in a call."""
     import jinja2  # pylint: disable=import-outside-toplevel
 
-    from voice_call.commands import SPOKEN, parse_command  # pylint: disable=import-outside-toplevel
+    from voice_labs.commands import SPOKEN, parse_command  # pylint: disable=import-outside-toplevel
 
     class States:
         """states("light.x"), and states.light: Home Assistant's both."""
@@ -310,8 +310,8 @@ def test_each_version_takes_its_own_sentences():
     """Every version added at once: nothing named goes to the one for the
     satellite, a device named to the device's, an area or floor to the
     place's."""
-    from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_call.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
 
     ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not ctc.is_dir():

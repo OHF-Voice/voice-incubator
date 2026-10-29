@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import aiohttp
 
-from voice_call.web import HEALTH, start_web
+from voice_labs.web import HEALTH, start_web
 
 
 def _free_port() -> int:

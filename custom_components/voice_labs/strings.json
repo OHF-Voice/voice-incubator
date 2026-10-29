@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Voice Labs",
+        "description": "Adds the voice_labs app's satellites as devices, with their timers."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Voice Labs is already set up."
+    }
+  },
+  "exceptions": {
+    "timer_not_found": {
+      "message": "Unable to find timer with id: {timer_id}"
+    }
+  },
+  "triggers": {
+    "timer_cancelled": {
+      "description": "Triggers when a timer is cancelled on a timer list.",
+      "name": "Timer cancelled"
+    },
+    "timer_created": {
+      "description": "Triggers when a timer is created on a timer list.",
+      "name": "Timer created"
+    },
+    "timer_finished": {
+      "description": "Triggers when a timer finishes on a timer list.",
+      "name": "Timer finished"
+    },
+    "timer_paused": {
+      "description": "Triggers when a timer is paused on a timer list.",
+      "name": "Timer paused"
+    },
+    "timer_time_changed": {
+      "description": "Triggers when time is added to or subtracted from a timer on a timer list.",
+      "name": "Timer time changed"
+    },
+    "timer_unpaused": {
+      "description": "Triggers when a timer is resumed on a timer list.",
+      "name": "Timer resumed"
+    }
+  }
+}

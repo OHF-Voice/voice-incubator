@@ -4,9 +4,9 @@ can end inside the wake word."""
 
 from __future__ import annotations
 
-from voice_call.protocol import BYTE_RATE
-from voice_call.server import Call, VoiceCallApp, WakeVerdict
-from voice_call.wake import VerifyResult
+from voice_labs.protocol import BYTE_RATE
+from voice_labs.server import Call, VoiceLabsApp, WakeVerdict
+from voice_labs.wake import VerifyResult
 
 PREROLL = int(1.5 * BYTE_RATE)
 
@@ -15,7 +15,7 @@ def placed(split: float, accepted: bool, overturned: bool = False, offset: int =
     call = Call(preroll_bytes=PREROLL, wake_word="okay_nabu")
     result = VerifyResult("okay_nabu", accepted=accepted, rejected_by=None if accepted else "prefix", split=split)
     verdict = WakeVerdict(accepted or overturned, result, offset, overturned=overturned)
-    VoiceCallApp._place_split(call, verdict)  # pylint: disable=protected-access
+    VoiceLabsApp._place_split(call, verdict)  # pylint: disable=protected-access
     return call.split_bytes / BYTE_RATE
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a GLiNER2.5 checkpoint for voice_call/gliner.py: ONNX networks, an
+"""Export a GLiNER2.5 checkpoint for voice_labs/gliner.py: ONNX networks, an
 8-bit encoder, the classifier's weights and the tokenizer, into
 models/<name>-onnx -- then check the result against the gliner2 package.
 
@@ -10,7 +10,7 @@ own (Python 3.10-3.12; torch from download.pytorch.org/whl/cpu):
     pip install "gliner2[local]" onnxscript onnx onnxruntime tokenizers
     python scripts/export_gliner.py fastino/gliner2.5-small-v1
 
-What is exported, and what voice_call/gliner.py does instead:
+What is exported, and what voice_labs/gliner.py does instead:
 
 - ``encoder.onnx``: the DeBERTa encoder, input ids -> token states; then
   ``encoder-w8.onnx``, what the app runs: its layers' weights in 8 bits and
@@ -24,7 +24,7 @@ What is exported, and what voice_call/gliner.py does instead:
   count logits.
 - The candidate pool -- top boundaries, pairing, a quota per entity type,
   de-duplication -- branches on sizes and sorts stably, which ONNX cannot
-  express: voice_call/gliner.py chooses it, in numpy.
+  express: voice_labs/gliner.py chooses it, in numpy.
 - ``boundary_b.onnx``: the chosen candidates -> their scores for every
   entity type.
 - ``classifier.npz``: the classification head, a two-layer MLP.
@@ -205,7 +205,7 @@ def check(model, out: Path, encoder: str) -> None:
     """The port against gliner2: identical prompts and marker positions;
     with the float encoder, identical entities and probabilities."""
     sys.path.insert(0, str(ROOT))
-    from voice_call.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
+    from voice_labs.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
 
     port = GlinerOnnx(out, threads=4, encoder=encoder)
     captured = {}

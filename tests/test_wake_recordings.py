@@ -1,4 +1,4 @@
-"""A speaker's takes of a wake phrase (voice_call/wake_recordings.py): kept
+"""A speaker's takes of a wake phrase (voice_labs/wake_recordings.py): kept
 with their voice, and brought in from elsewhere on the command line."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sys
 import wave
 from pathlib import Path
 
-from voice_call.wake_recordings import WakeTakes
+from voice_labs.wake_recordings import WakeTakes
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -46,7 +46,7 @@ def test_brought_in_on_the_command_line(tmp_path):
     files = [take(tmp_path / f"t{i}.wav") for i in range(3)]
 
     def run(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run([sys.executable, "-m", "voice_call.wake_recordings", "--profiles", str(profiles), *args],
+        return subprocess.run([sys.executable, "-m", "voice_labs.wake_recordings", "--profiles", str(profiles), *args],
                               cwd=ROOT, capture_output=True, text=True, check=False)
 
     added = run("add", "jenn", "Okay, Nabu!", *map(str, files), "--source", "office-multicap")

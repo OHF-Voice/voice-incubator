@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from voice_call.pronounce import guess, model_phones, to_phones
-from voice_call.wake import WakeVerifier
-from voice_call.wake import ConfigError as WakeConfigError
+from voice_labs.pronounce import guess, model_phones, to_phones
+from voice_labs.wake import WakeVerifier
+from voice_labs.wake import ConfigError as WakeConfigError
 
 ROOT = Path(__file__).resolve().parent.parent
 KALDI = ROOT / "models/wake-kaldi-models/en_US-rhasspy"

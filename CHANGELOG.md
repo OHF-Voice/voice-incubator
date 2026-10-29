@@ -2,6 +2,15 @@
 
 ## 0.2.0
 
+- **Voice Call is Voice Labs**, everywhere: the app (`voice_labs`, a new
+  app to Home Assistant), the integration (domain `voice_labs`, and its
+  `voice_labs/...` websocket commands), the `voice_labs_command` event, the
+  Python package, and the firmware -- its `voice_labs` component, the
+  `_voice-labs._tcp` service the app finds satellites by, and their names
+  (`voice-labs-vpe`...). From an install before: install the new app and
+  copy the old one's data to it, re-add the integration (automations on
+  the event use its new name), and flash every satellite, which the app
+  only finds once they run the new firmware.
 - **The satellite's own sounds, on an electric piano or a koto** (General
   MIDI's from the Fluid R3 SoundFont, and MuseScore General's): two notes up
   the moment the command ends, in place of the thinking sound; on up to
@@ -110,8 +119,8 @@
   the kitchen's: each one's microphone on the other's speaker, wake words off,
   both rings blinking, until the button on either is pressed (or half an
   hour). Half duplex, as a speakerphone: the voice's band only, and the side
-  not speaking turned down, so the two satellites don't squeal. Needs the new firmware (MONITOR's `intercom`, `voice_call.end_intercom`,
-  `voice_call.is_intercom`).
+  not speaking turned down, so the two satellites don't squeal. Needs the new firmware (MONITOR's `intercom`, `voice_labs.end_intercom`,
+  `voice_labs.is_intercom`).
 - **Several items checked off or removed at once**: "check apples and
   bananas off the shopping list", "remove eggs milk and bread from the list"
   -- each one on the list, unless one item is called that whole ("mac and
@@ -266,7 +275,7 @@
   with EmbeddingGemma, a start no longer embeds every example again (91 s on
   an HA Green).
 - **The center button cancels a call** and what it is saying (firmware:
-  `voice_call.cancel`).
+  `voice_labs.cancel`).
 - **Piper speaks a reply a sentence at a time**, starting with the first,
   and without a conversation agent's markdown (`sentence-stream`): a long
   answer read "asterisk", and began only once all of it was synthesized.
@@ -299,9 +308,9 @@
   (nothing there, not exposed, unavailable, no area). The library's lights,
   thermostat, covers and locks use them, in every language, and its
   questions about a place ("are any lights on in the kitchen") count only
-  what is exposed (`exposed`, a new template variable). The Voice Call
-  integration (0.2.0) runs them (`voice_call/intent/handle`,
-  `voice_call/exposed`); without it, Home Assistant's REST API and exposure
+  what is exposed (`exposed`, a new template variable). The Voice Labs
+  integration (0.2.0) runs them (`voice_labs/intent/handle`,
+  `voice_labs/exposed`); without it, Home Assistant's REST API and exposure
   settings do.
 - **Train a wake word** on the Wake words page (English): type the phrase,
   and Piper says it 2,000 ways (LibriTTS-R's 2,306 speakers, in synthetic
@@ -313,7 +322,7 @@
   `wake_training/` in the app's configuration folder; TensorFlow and
   microWakeWord's training (without its audio stack) are in the image.
 - **Alarms and reminders on a calendar** (English): an alarm, or a reminder
-  with a time, is an event on a Local Calendar named "Voice Call" that the
+  with a time, is an event on a Local Calendar named "Voice Labs" that the
   app creates in Home Assistant. It outlives restarts, may be for another day
   or repeat ("every weekday at 6:45"), shows in Home Assistant's calendar, and
   rings the satellite that set it: an alarm until "stop", a reminder said
@@ -322,7 +331,7 @@
   alarms, Say the reminders. A reminder without a time still goes on
   the to-do list. Other languages keep alarms as timers.
 - **Language packs**: what the app hears and says is one language's pack
-  (`voice_call/languages/<code>`): its speech models, Piper voice, the
+  (`voice_labs/languages/<code>`): its speech models, Piper voice, the
   matcher's filler words and name cues, the command library, and which
   skills and fallback steps it has, every sentence the app makes itself
   (timers, music, places, hints, apologies) and what it reads itself (an
@@ -511,7 +520,7 @@
 - **Sessions** show the probability each wake word came in with -- the
   satellite model's window average that met the cutoff, its highest single
   inference, and the cutoff -- in the list and on a session's page. Needs
-  new voice_call firmware (`CALL_START` carries them).
+  new voice_labs firmware (`CALL_START` carries them).
 - **Wake words** has a page of its own. Each satellite listens for one wake
   word: the home's **preferred** one, or one of its own, both picked there
   (the Satellites page says which and links to it). A satellite given two
@@ -562,7 +571,7 @@
   and drawn as it comes (level, waveform, and each wake word and voice
   activity model's probability against its cutoff). The satellite streams
   only while someone listens, the Voice PE's ring blinks red meanwhile, and
-  it doesn't answer a wake word then (new voice_call firmware: `MONITOR`,
+  it doesn't answer a wake word then (new voice_labs firmware: `MONITOR`,
   `AUDIO_MONITOR`, `WAKE_REPORT`).
 - Speaker colors on the ring no longer look red (orange and pink did, after
   the LEDs' gamma correction); a speaker who had one gets a new color.
@@ -596,12 +605,12 @@
   follow every satellite's read "Default".
 - Timers, on the satellite that set them: start, cancel, pause, resume, add or
   take off time, how long is left. A finished timer rings until "stop".
-- The Voice Call integration for Home Assistant (HACS): each satellite gets a
+- The Voice Labs integration for Home Assistant (HACS): each satellite gets a
   device with its own area and a `voice_timer_list` entity for its timers.
 - A command's response can differ by how it went: `done`, `failed` (Home
   Assistant refused), a timer's `no_timers`, `not_found`, `ambiguous`,
   `already` or `missing_duration`, or an `outcome` a script returns. A plain
-  response is only for `done`; the `voice_call_command` event carries the
+  response is only for `done`; the `voice_labs_command` event carries the
   outcome.
 - Pausing a paused timer (or resuming a running one) says it already is,
   instead of that there's no such timer.

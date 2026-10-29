@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from voice_call import actions
-from voice_call.commands import parse_command
-from voice_call.engine import Decision, Satellite
-from voice_call.hass import HassError
-from voice_call.languages.en import speech as english
+from voice_labs import actions
+from voice_labs.commands import parse_command
+from voice_labs.engine import Decision, Satellite
+from voice_labs.hass import HassError
+from voice_labs.languages.en import speech as english
 
 from .fake_hass import FakeHass
 
@@ -156,7 +156,7 @@ class StubCatalog:
     """Areas, floors and where devices are, as Home Assistant's catalog has them."""
 
     def __init__(self) -> None:
-        from voice_call.hass import Area, Entity, Floor  # pylint: disable=import-outside-toplevel
+        from voice_labs.hass import Area, Entity, Floor  # pylint: disable=import-outside-toplevel
 
         self.areas = {
             "kitchen": Area("kitchen", "Kitchen", floor_id="ground"),
@@ -330,9 +330,9 @@ def test_an_intent_dry_run_and_failure():
 
 
 def test_intents_through_the_integration_or_rest():
-    """The client: the Voice Call integration's command, else the REST API
+    """The client: the Voice Labs integration's command, else the REST API
     (why it matched nothing read from its message)."""
-    from voice_call.hass import HomeAssistant  # pylint: disable=import-outside-toplevel
+    from voice_labs.hass import HomeAssistant  # pylint: disable=import-outside-toplevel
 
     from . import fake_hass  # pylint: disable=import-outside-toplevel
 
@@ -374,8 +374,8 @@ def test_the_questions_count_the_devices_added_to_the_area():
     everything locked) see the devices added on the Names page, each in its
     area there, but those not part of it -- not what is exposed to Assist; the
     command's event and record leave them out."""
-    from voice_call.hass import Catalog, Entity  # pylint: disable=import-outside-toplevel
-    from voice_call.store import Device  # pylint: disable=import-outside-toplevel
+    from voice_labs.hass import Catalog, Entity  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import Device  # pylint: disable=import-outside-toplevel
 
     hass = StubHass()
     hass.catalog = Catalog(entities={
@@ -400,7 +400,7 @@ class CapableHass(StubHass):
 
     def __init__(self) -> None:
         super().__init__()
-        from voice_call.hass import Catalog, Entity  # pylint: disable=import-outside-toplevel
+        from voice_labs.hass import Catalog, Entity  # pylint: disable=import-outside-toplevel
 
         lights = [("light.kitchen_ceiling", "Kitchen Ceiling", ["onoff"]), ("light.kitchen_strip", "Kitchen Strip", ["hs", "color_temp"]),
                   ("light.desk_lamp", "Desk Lamp", ["onoff"])]
@@ -575,7 +575,7 @@ def test_the_whole_of_it_unless_each():
 
 
 def test_the_librarys_shopping_list_says_what_it_did():
-    from voice_call.library import base  # pylint: disable=import-outside-toplevel
+    from voice_labs.library import base  # pylint: disable=import-outside-toplevel
 
     hass = StubHass()
     hass.todo_items["todo.shopping"] = [{"summary": "🥛 Milk", "status": "completed"}, {"summary": "Eggs", "status": "needs_action"}]
@@ -591,7 +591,7 @@ def test_the_librarys_shopping_list_says_what_it_did():
 def test_a_device_is_said_by_its_name_on_the_names_page():
     """Not as Home Assistant names it ("GW2000B Humidity"): the library's
     replies, and where it acted, by the Names page's names."""
-    from voice_call.library import base  # pylint: disable=import-outside-toplevel
+    from voice_labs.library import base  # pylint: disable=import-outside-toplevel
 
     hass = StubHass()
     hass.fake.states["sensor.gw2000b_humidity"] = ("54", {"friendly_name": "GW2000B Humidity", "unit_of_measurement": "%"})
@@ -611,7 +611,7 @@ def test_a_device_is_said_as_it_is_heard_there():
     """A device spoken of on a satellite in its area by its area's name, and
     elsewhere by its whole house name -- else, heard only with its area said,
     by its area's."""
-    from voice_call.store import Device  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import Device  # pylint: disable=import-outside-toplevel
 
     devices = {
         "light.office_lamp": Device(None, ("Lamp",), ("Office Lamp",)),
@@ -630,7 +630,7 @@ def test_without_a_name_the_devices_added_to_the_area():
     """As voice sees it (devices given): "turn on the lights" acts on the
     lights added to the satellite's area on the Names page, each by name --
     in their area there, but those not part of it, Assist's exposure aside."""
-    from voice_call.store import Device  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import Device  # pylint: disable=import-outside-toplevel
 
     hass = CapableHass()
     hass.catalog.exposed = set()  # not exposed to Assist: it doesn't count

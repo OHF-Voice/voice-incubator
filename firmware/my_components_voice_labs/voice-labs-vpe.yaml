@@ -1,0 +1,1079 @@
+# Minimal VPE firmware for voice_labs experiments.
+#
+# voice_labs runs wake word detection itself, on mixednet-executor: no model is
+# compiled in, the app pushes one over the socket after connecting. It listens
+# on the XMOS AEC channel (channel 1, gain 4) and buffers and streams the AGC
+# channel (channel 0) for the call. The AEC channel is streamed too, with gain,
+# so each call yields both captures; the app identifies the speaker from it. The
+# stock voice_assistant and micro_wake_word components are intentionally absent.
+#
+# The LED ring follows the call through the app's events, in the identified
+# speaker's color (see "LED ring" below). Between calls it blinks red while the
+# app streams the microphone for someone listening live (its Test page), flashes
+# while a timer rings, and otherwise shows the time left on the timer that
+# finishes soonest.
+#
+# Music: a Sendspin client (see "Music" below), so Music Assistant finds the
+# device and plays to it; the app controls it through Music Assistant's player.
+# Music is turned down -- never paused -- during a call and while a timer rings,
+# and the center button pauses and resumes it (or stops a ringing timer). The
+# dial sets the volume, the ring showing it, and the app's speech follows.
+#
+# The intercom (the app's "connect to the kitchen") streams the microphone to
+# another satellite and plays it: wake words go unanswered, the ring blinks,
+# and the center button ends it.
+#
+# Speech from a Home Assistant TTS entity (when the app is set to use one)
+# arrives as a URL on the media player's announcement pipeline; the app hears
+# when it starts and ends through voice_labs.send_event.
+
+substitutions:
+  name: voice-labs-vpe
+  friendly_name: Voice Labs VPE
+  # Ring color when no speaker is recognized: the stock VPE ring default.
+  default_ring_rgb: "0x18BBF2"
+  ring_brightness: "66%"
+  # The speaker volume the media player's 0-100% maps to: the onboard amp
+  # distorts above roughly 85%. The app's speech follows it (sync_call_volume).
+  volume_min: "0.4"
+  volume_max: "0.85"
+  # A production VPE has 16 MB; early prototypes 8 MB (-s flash_size 8MB).
+  flash_size: 16MB
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  on_boot:
+    - priority: 375
+      then:
+        - script.execute: control_leds
+        - delay: 1s
+        - switch.turn_on: internal_speaker_amp
+        # Still not connected to the app after 10 minutes: no longer starting
+        # up, but lost (as the stock firmware).
+        - delay: 10min
+        - if:
+            condition:
+              lambda: return id(init_in_progress);
+            then:
+              - lambda: id(init_in_progress) = false;
+              - script.execute: control_leds
+    # After voice_labs's own setup, which sets its configured volume.
+    - priority: -100
+      then:
+        - script.execute: sync_call_volume
+
+esp32:
+  board: esp32-s3-devkitc-1
+  cpu_frequency: 240MHz
+  variant: esp32s3
+  flash_size: ${flash_size}
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+globals:
+  # From boot until the app first connects (at most 10 minutes, as in the
+  # stock firmware): the ring shows the device starting up, not a lost
+  # connection.
+  - id: init_in_progress
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  # Position of the spinning LEDs, shared so switching effects does not jump.
+  - id: global_led_animation_index
+    type: int
+    restore_value: no
+    initial_value: '0'
+  # 0xRRGGBB of the speaker the app identified for the current call; -1 = none.
+  - id: speaker_rgb
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  # Music stays turned down while either is true (see "Music").
+  - id: call_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: timer_ringing
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # An announcement (Home Assistant TTS) is playing.
+  - id: announcing
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The app is saying an announcement from another satellite.
+  - id: app_announcing
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The dial was turned in the last second: the ring shows the volume -- the
+  # Sendspin group's when that is what it turned (dial_group).
+  - id: dial_touched
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: dial_group
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The effect a call's events last put on the ring, to go back to once the
+  # dial's volume display is done.
+  - id: call_effect
+    type: std::string
+    restore_value: no
+    initial_value: '"Listening For Command"'
+  # The timer that finishes soonest, from the app's timer_progress events: what
+  # was left when the event came (counted down here since), of how long.
+  - id: timer_shown
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: timer_left_s
+    type: float
+    restore_value: no
+    initial_value: '0'
+  - id: timer_total_s
+    type: float
+    restore_value: no
+    initial_value: '1'
+  - id: timer_paused
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: timer_received_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  # The center button paused the music; the next press resumes it.
+  - id: music_paused_by_button
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+switch:
+  - platform: gpio
+    pin: GPIO47
+    id: internal_speaker_amp
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+logger:
+
+api:
+  actions:
+    - action: start_call
+      then:
+        - voice_labs.start: manual
+
+sensor:
+  # The dial, as in the stock firmware: the volume of this satellite (its media
+  # player, and with it the app's speech), or -- turned with the center button
+  # held while music plays -- of the whole Sendspin group. The ring shows it
+  # meanwhile.
+  - platform: rotary_encoder
+    id: dial
+    internal: true
+    pin_a: GPIO16
+    pin_b: GPIO18
+    resolution: 2
+    on_clockwise:
+      - lambda: id(dial_touched) = true;
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_on: center_button
+              - media_player.is_playing: sendspin_group_media_player
+          then:
+            - script.execute:
+                id: control_group_volume
+                increase_volume: true
+          else:
+            - script.execute:
+                id: control_volume
+                increase_volume: true
+    on_anticlockwise:
+      - lambda: id(dial_touched) = true;
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_on: center_button
+              - media_player.is_playing: sendspin_group_media_player
+          then:
+            - script.execute:
+                id: control_group_volume
+                increase_volume: false
+          else:
+            - script.execute:
+                id: control_volume
+                increase_volume: false
+
+binary_sensor:
+  # Physical mute slider on the side of the device.
+  - platform: gpio
+    id: hardware_mute_switch
+    name: "Hardware mute"
+    pin: GPIO3
+  # Center button: ends the intercom; else stops a ringing timer. Otherwise it
+  # pauses the music when it is playing, and resumes it on the next press
+  # (Music Assistant pauses the whole Sendspin group). Held while the dial
+  # turns, it is the group's volume instead (see "dial").
+  - platform: gpio
+    id: center_button
+    internal: true
+    pin:
+      number: GPIO0
+      inverted: true
+    on_click:
+      - max_length: 1s
+        then:
+          # Held to turn the group's volume with the dial: not a press.
+          - if:
+              condition:
+                lambda: return !id(dial_touched);
+              then:
+              - if:
+                  condition:
+                    voice_labs.is_intercom:
+                  then:
+                    # Ends it here at once, and the app ends it on the other.
+                    - voice_labs.end_intercom:
+                    - script.execute: duck_music
+                    - script.execute: control_leds
+                  else:
+                    - if:
+                        condition:
+                          lambda: return id(timer_ringing);
+                        then:
+                          # The app stops the alarm and the timer; quiet the ring and
+                          # whatever is being announced here at once.
+                          - voice_labs.send_event: stop_timer
+                          - lambda: id(timer_ringing) = false;
+                          - if:
+                              condition:
+                                media_player.is_announcing: external_media_player
+                              then:
+                                - media_player.stop:
+                                    id: external_media_player
+                                    announcement: true
+                          - script.execute: duck_music
+                          - script.execute: control_leds
+                        else:
+                          - if:
+                              condition:
+                                voice_labs.is_in_call:
+                              then:
+                                # Cancels the call and what it is saying: Piper's
+                                # audio is cut off here, and a reply Home Assistant
+                                # is announcing is stopped.
+                                - voice_labs.cancel:
+                                - if:
+                                    condition:
+                                      media_player.is_announcing: external_media_player
+                                    then:
+                                      - media_player.stop:
+                                          id: external_media_player
+                                          announcement: true
+                              else:
+                                - if:
+                                    condition:
+                                      media_player.is_playing: sendspin_group_media_player
+                                    then:
+                                      - media_player.pause: sendspin_group_media_player
+                                      - lambda: id(music_paused_by_button) = true;
+                                    else:
+                                      - if:
+                                          condition:
+                                            lambda: return id(music_paused_by_button);
+                                          then:
+                                            - media_player.play: sendspin_group_media_player
+                                            - lambda: id(music_paused_by_button) = false;
+
+ota:
+  - platform: esphome
+
+wifi:
+  id: wifi_id
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    - script.execute: control_leds
+  on_disconnect:
+    - script.execute: control_leds
+
+external_components:
+  - source:
+      type: local
+      path: ../my_components_voice_labs
+    components: [voice_labs]
+  - source:
+      type: git
+      url: https://github.com/esphome/home-assistant-voice-pe
+      ref: dev
+    components: [voice_kit]
+    refresh: 0s
+
+# Home Assistant finds the device here and opens the control connection.
+mdns:
+  services:
+    - service: "_voice-labs"
+      protocol: _tcp
+      port: 6055
+      txt:
+        mac: !lambda 'return get_mac_address();'
+        version: "1"
+
+i2c:
+  - id: internal_i2c
+    sda: GPIO5
+    scl: GPIO6
+    frequency: 400kHz
+
+voice_kit:
+  id: voice_kit_component
+  i2c_id: internal_i2c
+  reset_pin: GPIO4
+  # The XMOS exposes exactly two taps into its pipeline. Channel 0 stays on AGC
+  # for the call; channel 1 moves from the stock NS to AEC, which is both what
+  # the wake word models now run on and the second recording.
+  channel_0_stage: AGC
+  channel_1_stage: AEC
+  firmware:
+    url: https://github.com/esphome/voice-kit-xmos-firmware/releases/download/v1.3.1/ffva_v1.3.1_upgrade.bin
+    version: "1.3.1"
+    md5: 964635c5bf125529dab14a2472a15401
+
+audio_dac:
+  - platform: aic3204
+    id: aic3204_dac
+    i2c_id: internal_i2c
+
+i2s_audio:
+  - id: i2s_output
+    i2s_lrclk_pin:
+      number: GPIO7
+    i2s_bclk_pin:
+      number: GPIO8
+  - id: i2s_input
+    i2s_lrclk_pin:
+      number: GPIO14
+    i2s_bclk_pin:
+      number: GPIO13
+
+microphone:
+  - platform: i2s_audio
+    id: i2s_mics
+    i2s_din_pin: GPIO15
+    adc_type: external
+    pdm: false
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    i2s_mode: secondary
+    i2s_audio_id: i2s_input
+    channel: stereo
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    sample_rate: 48000
+    i2s_mode: secondary
+    i2s_dout_pin: GPIO10
+    bits_per_sample: 32bit
+    i2s_audio_id: i2s_output
+    dac_type: external
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+    audio_dac: aic3204_dac
+
+  # The mixer converts mono to the stereo the I2S output expects; the resampler
+  # only changes sample rate and bit depth, never the channel count.
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: i2s_audio_speaker
+    num_channels: 2
+    task_stack_in_psram: true
+    source_speakers:
+      - id: call_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+      - id: announcement_mixing_input
+        timeout: never
+
+  # voice_labs speaks 16 kHz mono; the hardware wants 48 kHz.
+  - platform: resampler
+    id: call_speaker
+    output_speaker: call_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+  - platform: resampler
+    id: media_resampling_speaker
+    output_speaker: media_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+  - platform: resampler
+    id: announcement_resampling_speaker
+    output_speaker: announcement_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+# ---------------------------------------------------------------- Music
+#
+# As in the stock VPE firmware: Music Assistant connects to the Sendspin client
+# (advertised as _sendspin._tcp) and plays through the media pipeline into the
+# mixer. The client identifies itself by its MAC address, which is how the app
+# finds this satellite's player in Music Assistant. sendspin_group_media_player
+# plays nothing itself: it is a remote control for the Sendspin group, used by
+# the center button.
+
+sendspin:
+  id: sendspin_hub
+  task_stack_in_psram: false
+
+media_source:
+  - platform: sendspin
+    id: sendspin_media_source
+    fixed_delay: 480 microseconds  # the AIC3204 DAC, as configured, delays audio by 480 us
+  # Home Assistant TTS: Home Assistant sends the URL, the device fetches it.
+  - platform: audio_http
+    id: http_announcement_source
+    buffer_size: 250000
+
+media_player:
+  - platform: sendspin
+    id: sendspin_group_media_player
+    on_play:
+      - lambda: id(music_paused_by_button) = false;
+  - platform: speaker_source
+    id: external_media_player
+    name: Media Player
+    announcement_pipeline:
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+      speaker: announcement_resampling_speaker
+      sources:
+        - http_announcement_source
+    media_pipeline:
+      format: FLAC
+      num_channels: 2
+      sample_rate: 48000
+      speaker: media_resampling_speaker
+      sources:
+        - sendspin_media_source
+    volume_increment: 0.05
+    volume_min: ${volume_min}
+    volume_max: ${volume_max}
+    # However it changes -- the dial, Home Assistant, Music Assistant -- the
+    # app's speech follows.
+    on_volume:
+      - script.execute: sync_call_volume
+    on_mute:
+      - script.execute: sync_call_volume
+    on_unmute:
+      - script.execute: sync_call_volume
+    on_announcement:
+      - lambda: id(announcing) = true;
+      - voice_labs.send_event: announcing
+      - script.execute: duck_music
+    on_state:
+      - if:
+          condition:
+            and:
+              - lambda: return id(announcing);
+              - not:
+                  media_player.is_announcing: external_media_player
+          then:
+            - lambda: id(announcing) = false;
+            - voice_labs.send_event: announced
+            - script.execute: duck_music
+
+script:
+  # A step of the dial: this satellite's volume up or down, shown on the ring
+  # for a second after the last step.
+  - id: control_volume
+    mode: restart
+    parameters:
+      increase_volume: bool
+    then:
+      - lambda: id(dial_group) = false;
+      - delay: 16ms
+      - if:
+          condition:
+            lambda: return increase_volume;
+          then:
+            - media_player.volume_up: external_media_player
+          else:
+            - media_player.volume_down: external_media_player
+      - script.execute: control_leds
+      - delay: 1s
+      - lambda: id(dial_touched) = false;
+      - sensor.rotary_encoder.set_value:
+          id: dial
+          value: 0
+      - script.execute: control_leds
+
+  # A step of the dial with the center button held while music plays: the
+  # Sendspin group's volume.
+  - id: control_group_volume
+    mode: restart
+    parameters:
+      increase_volume: bool
+    then:
+      - lambda: id(dial_group) = true;
+      - delay: 16ms
+      - if:
+          condition:
+            lambda: return increase_volume;
+          then:
+            - media_player.volume_up: sendspin_group_media_player
+          else:
+            - media_player.volume_down: sendspin_group_media_player
+      - script.execute: control_leds
+      - delay: 1s
+      - lambda: id(dial_touched) = false;
+      - sensor.rotary_encoder.set_value:
+          id: dial
+          value: 0
+      - script.execute: control_leds
+
+  # The app's speech (calls, announcements, the intercom) at the media
+  # player's volume: the same range, and silent when it is muted or at zero.
+  - id: sync_call_volume
+    then:
+      - lambda: |-
+          const float volume = id(external_media_player).volume;
+          const bool silent = id(external_media_player).is_muted() || volume < 0.001f;
+          id(call_speaker).set_volume(silent ? 0.0f : remap<float, float>(volume, 0.0f, 1.0f, ${volume_min}, ${volume_max}));
+
+  # What the ring shows, as the stock firmware does first: starting up, a
+  # blue sparkle once on Wi-Fi (solid warm white before); after, a red
+  # sparkle while Wi-Fi or the app is lost. Else the volume while the dial
+  # turns; else a call's own (its events drive it during one); else between
+  # calls the intercom, else someone listening live, else another
+  # satellite's announcement, else a ringing timer, else the time left on
+  # the timer that finishes soonest, else nothing.
+  - id: control_leds
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(init_in_progress);
+          then:
+            - if:
+                condition:
+                  wifi.connected:
+                then:
+                  - light.turn_on:
+                      id: voice_assistant_leds
+                      brightness: ${ring_brightness}
+                      red: 9.4%
+                      green: 73.3%
+                      blue: 94.9%
+                      effect: "Twinkle"
+                else:
+                  - light.turn_on:
+                      id: voice_assistant_leds
+                      brightness: ${ring_brightness}
+                      red: 100%
+                      green: 89%
+                      blue: 71%
+                      effect: "none"
+          else:
+            - if:
+                condition:
+                  lambda: return !id(wifi_id).is_connected() || !id(vc).is_connected();
+                then:
+                  - light.turn_on:
+                      id: voice_assistant_leds
+                      brightness: ${ring_brightness}
+                      red: 100%
+                      green: 0%
+                      blue: 0%
+                      effect: "Twinkle"
+                else:
+                  - if:
+                      condition:
+                        lambda: return id(dial_touched);
+                      then:
+                        - light.turn_on:
+                            id: voice_assistant_leds
+                            brightness: ${ring_brightness}
+                            effect: "Volume Display"
+                      else:
+                        - if:
+                            condition:
+                              lambda: return id(call_active);
+                            then:
+                              - light.turn_on:
+                                  id: voice_assistant_leds
+                                  brightness: ${ring_brightness}
+                                  effect: !lambda return id(call_effect);
+                            else:
+                              - if:
+                                  condition:
+                                    lambda: return id(vc).is_monitoring();
+                                  then:
+                                    - light.turn_on:
+                                        id: voice_assistant_leds
+                                        brightness: ${ring_brightness}
+                                        effect: !lambda 'return id(vc).is_intercom() ? "Intercom" : "Recording";'
+                                  else:
+                                    - if:
+                                        condition:
+                                          lambda: return id(app_announcing);
+                                        then:
+                                          - light.turn_on:
+                                              id: voice_assistant_leds
+                                              brightness: ${ring_brightness}
+                                              effect: "Replying"
+                                        else:
+                                          - if:
+                                              condition:
+                                                lambda: return id(timer_ringing);
+                                              then:
+                                                - light.turn_on:
+                                                    id: voice_assistant_leds
+                                                    brightness: ${ring_brightness}
+                                                    effect: "Timer Ring"
+                                              else:
+                                                - if:
+                                                    condition:
+                                                      lambda: return id(timer_shown);
+                                                    then:
+                                                      - light.turn_on:
+                                                          id: voice_assistant_leds
+                                                          brightness: ${ring_brightness}
+                                                          effect: "Timer Tick"
+                                                    else:
+                                                      - light.turn_off: voice_assistant_leds
+
+  # Music down while a call is open, a timer rings, something is announced or
+  # the intercom is on; back up when none is.
+  - id: duck_music
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(call_active) || id(timer_ringing) || id(announcing) || id(app_announcing) || id(vc).is_intercom();
+          then:
+            - mixer_speaker.apply_ducking:
+                id: media_mixing_input
+                decibel_reduction: 20
+                duration: 0s
+          else:
+            - mixer_speaker.apply_ducking:
+                id: media_mixing_input
+                decibel_reduction: 0
+                duration: 1s
+
+voice_labs:
+  id: vc
+  microphone:
+    microphone: i2s_mics
+    channels: 0
+  # The wake word models run on the echo-cancelled channel, which detects better
+  # than the stock NS tap once the talker is at a sane level (18/20 vs 14/20 on
+  # the same batch). This source is what starts and stops the microphone.
+  wake_microphone:
+    microphone: i2s_mics
+    channels: 1
+    gain_factor: 4
+  # The same channel, recorded alongside the call and used to identify the
+  # speaker. The XMOS AEC tap sits ~40 dB below full scale, so at unity gain its
+  # top 16 bits hold only ~7 bits of speech and speaker ID degrades (EER 0.8% ->
+  # 2.4%, simulated on recorded VPE audio). Gain is applied before the 16-bit
+  # truncation, so it restores real resolution: 4 recovers most of it, 16
+  # matches a 32-bit capture exactly and leaves ~25 dB of headroom.
+  aec_microphone:
+    microphone: i2s_mics
+    channels: 1
+    gain_factor: 16
+  speaker: call_speaker
+  port: 6055
+  preroll: 1.5s
+  output_buffer: 1s
+  call_timeout: 30s
+  # The onboard amp distorts above roughly 85%.
+  volume: 70%
+  on_call_start:
+    - lambda: id(call_active) = true;
+    - script.execute: duck_music
+    # Whatever was being announced stops for the new call.
+    - if:
+        condition:
+          media_player.is_announcing: external_media_player
+        then:
+          - media_player.stop:
+              id: external_media_player
+              announcement: true
+    # Detection keeps running: the call's mic source is passive, so stopping the
+    # wake word source would stop the microphone mid-call. A detection during a
+    # call is harmless, since start_call is a no-op while one is active.
+    - logger.log:
+        format: "Call started: %s"
+        args: [wake_word.c_str()]
+    - lambda: |-
+        id(speaker_rgb) = -1;
+        id(call_effect) = "Listening For Command";
+    - light.turn_on:
+        id: voice_assistant_leds
+        brightness: ${ring_brightness}
+        effect: "Listening For Command"
+  on_call_end:
+    - lambda: id(call_active) = false;
+    - script.execute: duck_music
+    - logger.log:
+        format: "Call ended: %s"
+        args: [reason.c_str()]
+    - lambda: id(speaker_rgb) = -1;
+    # Another satellite heard the wake word better and answers it: a short dim
+    # flash, so it is seen that this one heard it too.
+    - if:
+        condition:
+          lambda: return reason == "answered_elsewhere";
+        then:
+          - light.turn_on:
+              id: voice_assistant_leds
+              brightness: 25%
+              effect: "Answered Elsewhere"
+          - delay: 400ms
+    - script.execute: control_leds
+  on_event:
+    - logger.log:
+        format: "Event %s: stage=%s speaker=%s"
+        args: [event_type.c_str(), 'event_data.get("stage").c_str()', 'event_data.get("speaker").c_str()']
+    # processing / enrolling / speaker_enrolled carry the speaker's color as r, g,
+    # b. The effects read it every frame, so a color change shows immediately.
+    - lambda: |-
+        if (event_data.has("r")) {
+          id(speaker_rgb) = (event_data.get_int("r") & 0xFF) << 16 |
+                            (event_data.get_int("g") & 0xFF) << 8 |
+                            (event_data.get_int("b") & 0xFF);
+        } else if (event_type == "processing") {
+          id(speaker_rgb) = -1;  // nobody recognized: default color
+        }
+    # A ringing timer keeps the music down until it is stopped, and flashes
+    # the ring.
+    - if:
+        condition:
+          lambda: 'return event_type == "timer_ringing" || event_type == "timer_stopped";'
+        then:
+          - lambda: id(timer_ringing) = event_type == "timer_ringing";
+          - script.execute: duck_music
+          - script.execute: control_leds
+    # Someone started or stopped listening live: the component's own event,
+    # sent exactly when it starts and stops streaming the microphone.
+    - if:
+        condition:
+          lambda: 'return event_type == "monitoring";'
+        then:
+          - script.execute: duck_music
+          - script.execute: control_leds
+    # Another satellite's announcement: the music down, the ring spinning
+    # while it is said.
+    - if:
+        condition:
+          lambda: 'return event_type == "announcement";'
+        then:
+          - lambda: id(app_announcing) = event_data.get_bool("active");
+          - script.execute: duck_music
+          - if:
+              condition:
+                lambda: return id(app_announcing);
+              then:
+                - light.turn_on:
+                    id: voice_assistant_leds
+                    brightness: ${ring_brightness}
+                    effect: "Replying"
+              else:
+                - script.execute: control_leds
+    # The timer that finishes soonest (shown: 0 when none is running).
+    - if:
+        condition:
+          lambda: 'return event_type == "timer_progress";'
+        then:
+          - lambda: |-
+              id(timer_shown) = event_data.get_int("shown") != 0;
+              id(timer_left_s) = event_data.get_float("remaining");
+              id(timer_total_s) = event_data.get_float("total", 1.0f);
+              id(timer_paused) = event_data.get_int("paused") != 0;
+              id(timer_received_ms) = millis();
+          - script.execute: control_leds
+    - if:
+        condition:
+          lambda: 'return event_type == "processing";'
+        then:
+          - lambda: id(call_effect) = "Thinking";
+          - light.turn_on:
+              id: voice_assistant_leds
+              brightness: ${ring_brightness}
+              effect: "Thinking"
+    - if:
+        condition:
+          lambda: 'return event_type == "responding" || event_type == "enrolling" || event_type == "speaker_enrolled";'
+        then:
+          - lambda: id(call_effect) = "Replying";
+          - light.turn_on:
+              id: voice_assistant_leds
+              brightness: ${ring_brightness}
+              effect: "Replying"
+  on_connected:
+    # Detection starts on its own once the app finishes pushing a model.
+    - logger.log: "Home Assistant connected"
+    - lambda: id(init_in_progress) = false;
+    - script.execute: control_leds
+  on_disconnected:
+    - logger.log: "Home Assistant disconnected"
+    - script.execute: control_leds
+  on_model_loaded:
+    - logger.log:
+        format: "Wake word model loaded: %s"
+        args: [model_id.c_str()]
+
+# ---------------------------------------------------------------- LED ring
+#
+# Wiring and effects from the stock VPE firmware (home-assistant-voice.yaml),
+# with one change: the effects take their color from speaker_rgb -- set by the
+# app's events -- instead of the user-facing led_ring light, which this firmware
+# does not have.
+
+power_supply:
+  - id: led_power
+    pin: GPIO45
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: leds_internal
+    internal: true
+    pin: GPIO21
+    chipset: WS2812
+    max_refresh_rate: 15ms
+    num_leds: 12
+    rgb_order: GRB
+    rmt_symbols: 192
+    default_transition_length: 0ms
+    power_supply: led_power
+
+  # The ring remapped so LED 0 is at the top, as in the stock firmware.
+  - platform: partition
+    id: voice_assistant_leds
+    internal: true
+    default_transition_length: 0ms
+    segments:
+      - id: leds_internal
+        from: 7
+        to: 11
+      - id: leds_internal
+        from: 0
+        to: 6
+    effects:
+      # Starting up, or Wi-Fi or the app lost: as the stock firmware, in the
+      # color it is turned on with.
+      - addressable_twinkle:
+          name: "Twinkle"
+          twinkle_probability: 50%
+      # Fast clockwise spin: wake word heard, command being spoken.
+      - addressable_lambda:
+          name: "Listening For Command"
+          update_interval: 50ms
+          lambda: |-
+            const int rgb = id(speaker_rgb) >= 0 ? id(speaker_rgb) : ${default_ring_rgb};
+            Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            for (uint8_t i = 0; i < 12; i++) {
+              if (i == id(global_led_animation_index) % 12) {
+                it[i] = color;
+              } else if (i == (id(global_led_animation_index) + 11) % 12) {
+                it[i] = color * 192;
+              } else if (i == (id(global_led_animation_index) + 10) % 12) {
+                it[i] = color * 128;
+              } else if (i == (id(global_led_animation_index) + 6) % 12) {
+                it[i] = color;
+              } else if (i == (id(global_led_animation_index) + 5) % 12) {
+                it[i] = color * 192;
+              } else if (i == (id(global_led_animation_index) + 4) % 12) {
+                it[i] = color * 128;
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }
+            id(global_led_animation_index) = (id(global_led_animation_index) + 1) % 12;
+      # The spin stops and two LEDs pulse: the command is being processed. This
+      # is where the speaker's color first shows.
+      - addressable_lambda:
+          name: "Thinking"
+          update_interval: 10ms
+          lambda: |-
+            static uint8_t brightness_step = 0;
+            static bool brightness_decreasing = true;
+            static uint8_t brightness_step_number = 10;
+            if (initial_run) {
+              brightness_step = 0;
+              brightness_decreasing = true;
+            }
+            const int rgb = id(speaker_rgb) >= 0 ? id(speaker_rgb) : ${default_ring_rgb};
+            Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            for (uint8_t i = 0; i < 12; i++) {
+              if (i == id(global_led_animation_index) % 12) {
+                it[i] = color * uint8_t(255/brightness_step_number*(brightness_step_number-brightness_step));
+              } else if (i == (id(global_led_animation_index) + 6) % 12) {
+                it[i] = color * uint8_t(255/brightness_step_number*(brightness_step_number-brightness_step));
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }
+            if (brightness_decreasing) {
+              brightness_step++;
+            } else {
+              brightness_step--;
+            }
+            if (brightness_step == 0 || brightness_step == brightness_step_number) {
+              brightness_decreasing = !brightness_decreasing;
+            }
+      # Pulsing: a timer is ringing (the stock firmware's "Timer Ring").
+      - addressable_lambda:
+          name: "Timer Ring"
+          update_interval: 10ms
+          lambda: |-
+            static uint8_t brightness_step = 0;
+            static bool brightness_decreasing = true;
+            static uint8_t brightness_step_number = 10;
+            if (initial_run) {
+              brightness_step = 0;
+              brightness_decreasing = true;
+            }
+            const int rgb = ${default_ring_rgb};
+            Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = color * uint8_t(255 / brightness_step_number * (brightness_step_number - brightness_step));
+            }
+            if (brightness_decreasing) {
+              brightness_step++;
+            } else {
+              brightness_step--;
+            }
+            if (brightness_step == 0 || brightness_step == brightness_step_number) {
+              brightness_decreasing = !brightness_decreasing;
+            }
+      # The time left as a share of the ring, clockwise from the top, the last
+      # LED fading as its share runs out (the stock firmware's "Timer Tick").
+      # A dimmer LED steps round once a second while the timer runs.
+      - addressable_lambda:
+          name: "Timer Tick"
+          update_interval: 100ms
+          lambda: |-
+            static uint32_t last_step = 0;
+            const uint32_t now = millis();
+            float left = id(timer_left_s);
+            if (!id(timer_paused)) {
+              left -= (now - id(timer_received_ms)) / 1000.0f;
+              if (now - last_step >= 1000) {
+                last_step = now;
+                id(global_led_animation_index) = (id(global_led_animation_index) + 1) % 12;
+              }
+            }
+            if (left < 0.0f) {
+              left = 0.0f;
+            }
+            const float ratio = 12.0f * left / std::max(id(timer_total_s), 1.0f);
+            const int last_on = static_cast<int>(ceilf(ratio)) - 1;
+            const int rgb = ${default_ring_rgb};
+            Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            for (int i = 0; i < 12; i++) {
+              const float dip = (!id(timer_paused) && i == id(global_led_animation_index) % 12 && i != last_on) ? 0.9f : 1.0f;
+              if (i <= ratio) {
+                it[i] = color * uint8_t(std::min(255.0f * dip * (ratio - i), 255.0f * dip));
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }
+      # The volume, while the dial turns: as much of the ring as it is, from
+      # the bottom clockwise; the bottom LED red when silent.
+      - addressable_lambda:
+          name: "Volume Display"
+          update_interval: 50ms
+          lambda: |-
+            const int rgb = ${default_ring_rgb};
+            const Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            const bool group = id(dial_group);
+            const float volume = group ? id(sendspin_group_media_player).volume : id(external_media_player).volume;
+            const float ratio = 12.0f * volume;
+            for (uint8_t i = 0; i < 12; i++) {
+              it[(6 + i) % 12] = i <= ratio ? color * (uint8_t) std::min(255.0f * (ratio - i), 255.0f) : Color::BLACK;
+            }
+            if (volume < 0.001f || (!group && id(external_media_player).is_muted())) {
+              it[6] = Color(255, 0, 0);
+            }
+      # The whole ring blinks in its own color: the intercom joins this
+      # satellite and another, until the button on either is pressed.
+      - addressable_lambda:
+          name: "Intercom"
+          update_interval: 50ms
+          lambda: |-
+            const int rgb = ${default_ring_rgb};
+            const Color on((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            const Color color = millis() % 1000 < 500 ? on : Color::BLACK;
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = color;
+            }
+      # The whole ring, dimly, for a moment: another satellite heard the wake
+      # word better and answers it.
+      - addressable_lambda:
+          name: "Answered Elsewhere"
+          update_interval: 50ms
+          lambda: |-
+            const int rgb = ${default_ring_rgb};
+            const Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = color;
+            }
+      # The whole ring blinks red: the microphone is streamed to someone
+      # listening live (outside a call).
+      - addressable_lambda:
+          name: "Recording"
+          update_interval: 50ms
+          lambda: |-
+            const Color color = millis() % 1000 < 500 ? Color(255, 0, 0) : Color::BLACK;
+            for (uint8_t i = 0; i < 12; i++) {
+              it[i] = color;
+            }
+      # Anticlockwise spin: the response is playing.
+      - addressable_lambda:
+          name: "Replying"
+          update_interval: 50ms
+          lambda: |-
+            id(global_led_animation_index) = (12 + id(global_led_animation_index) - 1) % 12;
+            const int rgb = id(speaker_rgb) >= 0 ? id(speaker_rgb) : ${default_ring_rgb};
+            Color color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            for (uint8_t i = 0; i < 12; i++) {
+              if (i == (id(global_led_animation_index)) % 12) {
+                it[i] = color;
+              } else if (i == ( id(global_led_animation_index) + 1) % 12) {
+                it[i] = color * 192;
+              } else if (i == ( id(global_led_animation_index) + 2) % 12) {
+                it[i] = color * 128;
+              } else if (i == ( id(global_led_animation_index) + 6) % 12) {
+                it[i] = color;
+              } else if (i == ( id(global_led_animation_index) + 7) % 12) {
+                it[i] = color * 192;
+              } else if (i == ( id(global_led_animation_index) + 8) % 12) {
+                it[i] = color * 128;
+              } else {
+                it[i] = Color::BLACK;
+              }
+            }

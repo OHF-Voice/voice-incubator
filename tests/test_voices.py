@@ -7,9 +7,9 @@ import asyncio
 import numpy as np
 import pytest
 
-from voice_call.engine import free_text
-from voice_call.hass import HassError, HomeAssistant
-from voice_call.voices import HassTranscriber, StreamingTranscriber, VoiceChoice, Voices, _match, choose, language_code
+from voice_labs.engine import free_text
+from voice_labs.hass import HassError, HomeAssistant
+from voice_labs.voices import HassTranscriber, StreamingTranscriber, VoiceChoice, Voices, _match, choose, language_code
 
 from . import fake_hass
 

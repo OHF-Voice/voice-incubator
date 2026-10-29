@@ -569,7 +569,7 @@ class Recognizer:
         TDT head and look the transcript up among the examples; then compare
         the transcripts with the examples by embedding. ``recognize`` does
         this itself; callers of ``recognize_log_probs`` pass the audio here.
-        ``transcriber`` stands in for the TDT head for this call (voice_call:
+        ``transcriber`` stands in for the TDT head for this call (voice_labs:
         a Home Assistant STT entity); its ``source`` names it."""
         transcriber = transcriber or self.transcriber
         source = getattr(transcriber, "source", "TDT")

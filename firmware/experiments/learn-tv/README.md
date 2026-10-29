@@ -3,7 +3,7 @@
 A wake word front end for a room with a TV: a two-mic null steered at whatever
 has been playing for the last ~20 s, with a second detector on mic 0 alone for a
 talker the null takes out along with the TV. It ran on the second satellite
-(`voice-call-vpe-2`) until 2026-10-27, when it was taken out of the firmware to
+(`voice-labs-vpe-2`) until 2026-10-27, when it was taken out of the firmware to
 come back to later. Everything it needed is here.
 
 ## What it did
@@ -20,7 +20,7 @@ most wake words. learn-tv:
   - the null at a higher gain, for the call;
   - mic 0, for the second capture;
   - mic 0, for the fallback detector.
-- **The voice_call component** ran the wake words on a second stream, the
+- **The voice_labs component** ran the wake words on a second stream, the
   fallback microphone, without the VAD gate.
   - A wake word only the fallback heard waited 300 ms for the main detector,
     then started a call with the two captures swapped, so the app heard mic 0.
@@ -61,9 +61,9 @@ words: learn-tv 10, the fallback 13, either 13, stock NS on the other unit 11.
 
 | Path | What |
 |---|---|
-| `voice-call-vpe-learn-tv.yaml` | The config: `packages: base: !include voice-call-vpe.yaml`, plus learn_tv, the XMOS firmware, the gains and the switch |
+| `voice-labs-vpe-learn-tv.yaml` | The config: `packages: base: !include voice-labs-vpe.yaml`, plus learn_tv, the XMOS firmware, the gains and the switch |
 | `components/learn_tv/` | The microphone platform (C++ and its schema) |
-| `components/voice_call/` | The voice_call component as it was when learn-tv was taken out: the live one plus the fallback microphone, the swapped captures and the runtime gains |
+| `components/voice_labs/` | The voice_labs component as it was when learn-tv was taken out: the live one plus the fallback microphone, the swapped captures and the runtime gains |
 | `xmos/0001-Output-both-mics-echo-cancelled-PIPELINE_STAGE_AEC_M.patch` | The XMOS firmware change (`voice-kit-xmos-firmware`, branch `aec-both-mics`, commit `7ffef53`) |
 | `xmos/ffva_v1.3.101_aec_both_mics_upgrade.bin` | That firmware, built (md5 `8f93b6ac71c4bda417d1611d253447c4`, as the config pins it) |
 | `APP.md`, `app.patch` | The app's side: what it did, and the change that puts it back |
@@ -74,11 +74,11 @@ words: learn-tv 10, the fallback 13, either 13, stock NS on the other unit 11.
 ## Bringing it back
 
 1. Put the app's side back (`APP.md`).
-2. Copy `components/learn_tv/` into `my_components_voice_call/`.
-3. Bring back the voice_call component's fallback support. Either merge it from
-   `components/voice_call/`, or copy that over the live component if nothing
+2. Copy `components/learn_tv/` into `my_components_voice_labs/`.
+3. Bring back the voice_labs component's fallback support. Either merge it from
+   `components/voice_labs/`, or copy that over the live component if nothing
    else has changed since.
-4. Copy `voice-call-vpe-learn-tv.yaml` next to `voice-call-vpe.yaml`.
+4. Copy `voice-labs-vpe-learn-tv.yaml` next to `voice-labs-vpe.yaml`.
 5. Serve the XMOS firmware while it builds. The config fetches it from
    `http://localhost:8765/`, so name the file as the config does:
 
@@ -89,8 +89,8 @@ words: learn-tv 10, the fallback 13, either 13, stock NS on the other unit 11.
 6. Flash it, keeping the satellite's name:
 
    ```bash
-   esphome -s name voice-call-vpe-2 -s friendly_name "Voice Call VPE 2" run voice-call-vpe-learn-tv.yaml --device voice-call-vpe-2.local
+   esphome -s name voice-labs-vpe-2 -s friendly_name "Voice Labs VPE 2" run voice-labs-vpe-learn-tv.yaml --device voice-labs-vpe-2.local
    ```
 
-Flashing the plain `voice-call-vpe.yaml` again puts the stock XMOS firmware
+Flashing the plain `voice-labs-vpe.yaml` again puts the stock XMOS firmware
 (1.3.1) back.

@@ -1,6 +1,6 @@
 """Alarms and timed reminders on the calendar: what is read from what was
-said, and what each command does (voice_call/alarms.py, and the English
-calendar words, voice_call/languages/en/calendar.py)."""
+said, and what each command does (voice_labs/alarms.py, and the English
+calendar words, voice_labs/languages/en/calendar.py)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from voice_call import alarms, languages
+from voice_labs import alarms, languages
 
 TZ = ZoneInfo("Europe/Berlin")
 NOW = datetime(2026, 10, 21, 14, 0, tzinfo=TZ)  # a Wednesday afternoon
@@ -174,7 +174,7 @@ def test_status():
 
 def test_events_from_home_assistant():
     raw = {"uid": "u1", "summary": "Alarm", "start": "2026-10-22T07:00:00+02:00", "end": "2026-10-22T07:05:00+02:00",
-           "description": "Set by voice on Kitchen. [voice_call:alarm:aabbccddeeff]"}
+           "description": "Set by voice on Kitchen. [voice_labs:alarm:aabbccddeeff]"}
     event = alarms.parse_event(raw, TZ)
     assert event.kind == "alarm" and event.satellite == "aabbccddeeff" and event.start.hour == 7
     # Added in Home Assistant: a reminder for every satellite.

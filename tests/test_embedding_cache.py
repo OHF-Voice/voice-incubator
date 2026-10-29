@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from voice_call.engine import CachedEmbedder
+from voice_labs.engine import CachedEmbedder
 
 
 class Counting:

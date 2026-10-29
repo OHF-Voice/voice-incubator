@@ -580,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
         "--model",
         type=Path,
         default=Path(os.environ.get("ADAPT_CTC_MODEL", DEFAULT_MODEL)),
-        help="CTC model directory (default: $ADAPT_CTC_MODEL or voice_call's int8 Parakeet)",
+        help="CTC model directory (default: $ADAPT_CTC_MODEL or voice_labs's int8 Parakeet)",
     )
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument(
@@ -588,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path(os.environ.get("ADAPT_CTC_TDT_MODEL", DEFAULT_TDT_MODEL)),
         help="TDT model directory for intents with example sentences "
-        "(default: $ADAPT_CTC_TDT_MODEL or voice_call's int8 Parakeet TDT)",
+        "(default: $ADAPT_CTC_TDT_MODEL or voice_labs's int8 Parakeet TDT)",
     )
     parser.add_argument(
         "--embedding-model",

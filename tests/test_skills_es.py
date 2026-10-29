@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_call import languages, skills
-from voice_call.skills import SKILLS
+from voice_labs import languages, skills
+from voice_labs.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +67,7 @@ def test_said_back_in_full():
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_call.skills import dates
+    from voice_labs.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -109,7 +109,7 @@ def test_settings_in_spanish():
 
 
 def test_holidays_written_in_spanish_or_english():
-    from voice_call.skills.dates import Settings
+    from voice_labs.skills.dates import Settings
 
     stored = Settings.store({"holidays": [*(h.to_json() for h in Settings().holidays),
                                           {"name": "Cumpleaños de la abuela", "when": "12 de marzo", "also": []},
@@ -132,7 +132,7 @@ def test_each_skill_answers_its_examples():
 
 
 def test_a_clock_time_said_as_spanish_says_it():
-    from voice_call.languages.es.reading import clock
+    from voice_labs.languages.es.reading import clock
 
     assert clock("las siete y media") == clock("7:30") == (7, 30, None)
     assert clock("las ocho menos cuarto de la tarde") == (7, 45, "pm")

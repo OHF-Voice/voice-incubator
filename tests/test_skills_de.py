@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_call import languages, skills
-from voice_call.skills import SKILLS
+from voice_labs import languages, skills
+from voice_labs.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +61,7 @@ def test_said_back_in_full():
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_call.skills import dates
+    from voice_labs.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -97,7 +97,7 @@ def test_settings_in_german():
 
 
 def test_holidays_written_in_german_or_english():
-    from voice_call.skills.dates import Settings
+    from voice_labs.skills.dates import Settings
 
     stored = Settings.store({"holidays": [*(h.to_json() for h in Settings().holidays),
                                           {"name": "Omas Geburtstag", "when": "12. März", "also": []},

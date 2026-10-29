@@ -1,8 +1,8 @@
 """A stand-in for Home Assistant's websocket API, for tests and UI work.
 
-It answers what voice_call asks for -- auth, the registries, get_states,
+It answers what voice_labs asks for -- auth, the registries, get_states,
 render_template, execute_script, fire_event, event subscriptions, the
-Voice Call integration's API (satellites, voice_timer_list timers), and Music
+Voice Labs integration's API (satellites, voice_timer_list timers), and Music
 Assistant's (players, search, play_media, get_queue, transfer_queue) -- and records the
 scripts it was asked to run, the services called and the events fired. Timers run only when a test finishes them (``finish_timer``). Templates are
 rendered with jinja2 and stubs for ``now()``, ``states()`` and
@@ -65,7 +65,7 @@ MUSIC_PLAYERS = {
     "media_player.kitchen_speaker": ("kitchen-speaker-uuid", "Kitchen Speaker", "kitchen", ("Sonos", "One")),
 }
 SENDSPIN_PLAYERS = {"aabbccddeeff": "media_player.fake_vpe"}
-"""Satellite -> its Sendspin player, as the Voice Call integration finds it."""
+"""Satellite -> its Sendspin player, as the Voice Labs integration finds it."""
 # The fake satellite's ESPHome device and its media player (where TTS speaks).
 ESPHOME_DEVICE = {"id": "esphome-fake-vpe", "mac": "aa:bb:cc:dd:ee:ff", "media_player": "media_player.fake_vpe_media_player"}
 INTENT_DOMAINS = {"HassLightSet": ["light"], "HassClimateSetTemperature": ["climate"]}
@@ -107,7 +107,7 @@ class FakeHass:
         self.script_response: Any = None
         self.fail_scripts = False
         self.integration = True
-        """Whether the Voice Call integration is installed and set up."""
+        """Whether the Voice Labs integration is installed and set up."""
         self.services: list[dict[str, Any]] = []
         self.satellites: dict[str, dict[str, Any]] = {}
         self.device_areas: dict[str, str | None] = {}
@@ -148,7 +148,7 @@ class FakeHass:
         self.intents: list[dict[str, Any]] = []
         """The intents run: name and slots (rendered), and how."""
         self.intent_command = True
-        """Whether the Voice Call integration has voice_call/intent/handle (else REST)."""
+        """Whether the Voice Labs integration has voice_labs/intent/handle (else REST)."""
         self.calendar_push_uids = False
         """Whether calendar/event/subscribe sends uids (the developer docs
         say it sends only start, end, summary, description and location)."""
@@ -197,14 +197,14 @@ class FakeHass:
                 for subscribers in self._calendar_subscribers.values():
                     subscribers[:] = [s for s in subscribers if s[1] != message.get("subscription")]
             await result()
-        elif kind == "voice_call/intent/handle":
+        elif kind == "voice_labs/intent/handle":
             if not (self.integration and self.intent_command):
                 await result(success=False, error="unknown_command: Unknown command.")
                 return
             await result(self.handle_intent(message["intent"], message.get("slots") or {}, message.get("variables") or {},
                                             how="websocket", device_id=message.get("device_id"),
                                             exposed_only=message.get("assistant") == "conversation"))
-        elif kind == "voice_call/exposed":
+        elif kind == "voice_labs/exposed":
             if not (self.integration and self.intent_command):
                 await result(success=False, error="unknown_command: Unknown command.")
                 return
@@ -339,7 +339,7 @@ class FakeHass:
             await result({"context": {"id": "x"}})
         elif kind == "config_entries/get":
             entries = {
-                "voice_call": [{"entry_id": "vc", "domain": "voice_call", "state": "loaded"}] if self.integration else [],
+                "voice_labs": [{"entry_id": "vc", "domain": "voice_labs", "state": "loaded"}] if self.integration else [],
                 "music_assistant": [{"entry_id": "ma", "domain": "music_assistant", "state": "loaded"}],
                 "local_calendar": [
                     {"entry_id": f"lc-{name}", "domain": "local_calendar", "title": name, "state": "loaded"}
@@ -347,7 +347,7 @@ class FakeHass:
                 ],
             }
             await result(entries.get(message.get("domain"), []))
-        elif kind == "voice_call/satellites/sync":
+        elif kind == "voice_labs/satellites/sync":
             if not self.integration:
                 await result(success=False, error="unknown command")
                 return
@@ -420,7 +420,7 @@ class FakeHass:
 
     def handle_intent(self, name: str, slots: dict[str, Any], variables: dict[str, Any], how: str = "websocket",
                       device_id: str | None = None, exposed_only: bool = True) -> dict[str, Any]:
-        """Home Assistant's intent matching, in short, as the Voice Call
+        """Home Assistant's intent matching, in short, as the Voice Labs
         integration answers it: domain, name (or entity id), area, floor,
         then what is exposed; the unavailable told apart."""
         rendered = {}

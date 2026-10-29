@@ -6,9 +6,9 @@ import json
 import pytest
 
 from adapt_ctc.config import ConfigError, parse_config
-from voice_call.commands import adapt_config, match_slots, parse_command, parse_commands
-from voice_call.engine import Satellite
-from voice_call.store import Store, compile_store
+from voice_labs.commands import adapt_config, match_slots, parse_command, parse_commands
+from voice_labs.engine import Satellite
+from voice_labs.store import Store, compile_store
 
 LIGHTS = {
     "description": "turn on the lights",
@@ -126,8 +126,8 @@ def test_announce_and_intercom():
 
 
 def test_a_missing_scene_is_said_as_one():
-    from voice_call.engine import _which  # pylint: disable=import-outside-toplevel
-    from voice_call.languages.en import speech  # pylint: disable=import-outside-toplevel
+    from voice_labs.engine import _which  # pylint: disable=import-outside-toplevel
+    from voice_labs.languages.en import speech  # pylint: disable=import-outside-toplevel
 
     scene = parse_command("s", {"description": "activate a scene", "names": {"entity": {"count": 1, "domains": ["scene"]}},
                                 "optional": [["activate"]], "scene": "heard"})
@@ -278,7 +278,7 @@ def test_an_item_on_a_list():
 
 
 def test_what_is_added_to_a_list():
-    from voice_call.commands import AddsToList  # pylint: disable=import-outside-toplevel
+    from voice_labs.commands import AddsToList  # pylint: disable=import-outside-toplevel
 
     add = command(action=None, adds_to_list={"each": True}, response={"done": "ok", "already_on_list": "Got it."})
     assert add.behavior.adds_to_list == AddsToList("item", "entity", True)
@@ -351,7 +351,7 @@ def test_store_duplicates_a_command(tmp_path):
 
 
 def test_verbosity_and_responses_by_level():
-    from voice_call.commands import closest_text  # pylint: disable=import-outside-toplevel
+    from voice_labs.commands import closest_text  # pylint: disable=import-outside-toplevel
 
     base = {"description": "x", "examples": ["x"], "action": {"action": "light.turn_on"}}
     command = parse_command("c", {**base, "verbosity": 1, "response": {"done": {"brief": "On.", "verbose": "All on."}}})
@@ -392,7 +392,7 @@ def test_verbosity_errors(spec, message):
 
 
 def test_combinations_are_intents_of_their_own():
-    from voice_call.commands import command_of  # pylint: disable=import-outside-toplevel
+    from voice_labs.commands import command_of  # pylint: disable=import-outside-toplevel
 
     spec = {
         "description": "turn off the lights", "examples": ["lights off"], "require": [["off"], ["lights"]],

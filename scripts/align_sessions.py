@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from _corpus import apply_gain, read_wav  # noqa: E402
 
-from voice_call.wake import WakeVerifier  # noqa: E402
+from voice_labs.wake import WakeVerifier  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 RATE = 16000

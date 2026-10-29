@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from voice_call.skills import clock
+from voice_labs.skills import clock
 
 
 @pytest.fixture(autouse=True)

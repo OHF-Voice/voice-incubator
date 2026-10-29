@@ -7,8 +7,8 @@ import datetime as dt
 
 import pytest
 
-from voice_call import languages, skills
-from voice_call.skills import SKILLS
+from voice_labs import languages, skills
+from voice_labs.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +76,7 @@ def test_said_back_in_full():
 
 
 def test_days_until(monkeypatch):
-    from voice_call.skills import dates
+    from voice_labs.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -99,7 +99,7 @@ def test_days_until(monkeypatch):
 
 
 def test_orthodox_easter():
-    from voice_call.languages.ru.skills.dates import orthodox_easter
+    from voice_labs.languages.ru.skills.dates import orthodox_easter
 
     assert [orthodox_easter(y) for y in (2024, 2025, 2026, 2027)] == [
         dt.date(2024, 5, 5), dt.date(2025, 4, 20), dt.date(2026, 4, 12), dt.date(2027, 5, 2)]
@@ -131,7 +131,7 @@ def test_settings_in_russian():
 
 
 def test_holidays_written_in_russian_or_english():
-    from voice_call.skills.dates import Settings
+    from voice_labs.skills.dates import Settings
 
     stored = Settings.store({"holidays": [*(h.to_json() for h in Settings().holidays),
                                           {"name": "День рождения бабушки", "when": "12 марта", "also": []},
@@ -154,7 +154,7 @@ def test_each_skill_answers_its_examples():
 
 
 def test_a_clock_time_said_as_russian_says_it():
-    from voice_call.languages.ru.reading import clock
+    from voice_labs.languages.ru.reading import clock
 
     assert clock("семь тридцать") == clock("в 7:30") == clock("половина восьмого") == (7, 30, None)
     assert clock("без четверти восемь вечера") == (7, 45, "pm")

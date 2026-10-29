@@ -3,7 +3,7 @@
 // learn-tv: a two-mic null on the source that plays most of the time.
 //
 // Wraps a stereo microphone (the Voice PE's XMOS output) and emits four
-// channels, one for each of voice_call's uses, all delayed alike (16 ms):
+// channels, one for each of voice_labs's uses, all delayed alike (16 ms):
 //
 //   channel   learn mode (XMOS: mic 0, mic 1 after AEC)   stock mode (XMOS: AGC, NS)
 //   0 wake    mic 0 with the null                         NS

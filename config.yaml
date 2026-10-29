@@ -1,9 +1,9 @@
 ---
 version: 0.2.0
-slug: voice_call
-name: Voice Call
+slug: voice_labs
+name: Voice Labs
 description: Voice satellites with your own commands, recognized on this machine
-url: https://github.com/OHF-Voice/apps-experimental/tree/master/voice_call
+url: https://github.com/OHF-Voice/apps-experimental/tree/master/voice_labs
 arch:
   - amd64
   - aarch64
@@ -14,12 +14,12 @@ host_network: true
 ingress: true
 # /config: custom wake words (wake_words/) and the wake word training kit
 # (wake_training/), reachable from the Samba and file
-# editor apps as addon_configs/<slug>_voice_call.
+# editor apps as addon_configs/<slug>_voice_labs.
 map:
   - addon_config:rw
 ingress_port: 8099
 panel_icon: mdi:account-voice
-panel_title: Voice Call
+panel_title: Voice Labs
 options:
   language: en
   speaker_threshold: 0.45

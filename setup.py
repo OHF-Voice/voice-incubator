@@ -9,7 +9,7 @@ which gives bit-identical scores but is several times slower.
 from setuptools import Extension, setup
 
 setup(
-    name="voice_call",
+    name="voice_labs",
     packages=[],
     ext_modules=[
         Extension(

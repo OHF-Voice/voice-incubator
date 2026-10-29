@@ -16,8 +16,8 @@ import aiohttp
 import numpy as np
 import pytest
 
-from voice_call.enrollment import PASSAGE
-from voice_call.server import Options, VoiceCallApp
+from voice_labs.enrollment import PASSAGE
+from voice_labs.server import Options, VoiceLabsApp
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, serve
@@ -92,7 +92,7 @@ async def _scenario(tmp_path: Path, piper) -> None:
     (tmp_path / "satellites.yaml").write_text(f"{MAC}: {{name: Kitchen VPE}}\n")
     (tmp_path / "settings.yaml").write_text("end_of_speech: {silence_seconds: 0.5}\n")
     http_port = free_port()
-    app = VoiceCallApp(Options(
+    app = VoiceLabsApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1],
         hass_url=f"http://127.0.0.1:{hass_server.sockets[0].getsockname()[1]}", hass_token=fake_hass.TOKEN,
         data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json", threads=4,

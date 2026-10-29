@@ -1,17 +1,17 @@
-# Voice Call
+# Voice Labs
 
-Voice satellites (ESPHome `voice_call`) with commands you make yourself,
+Voice satellites (ESPHome `voice_labs`) with commands you make yourself,
 recognized on this machine. A command says what to listen for, where, and what
 happens in Home Assistant: speak a response, run a script, activate a scene,
 or run an action.
 
-Open **Voice Call** in the sidebar to make commands, name things, set up
+Open **Voice Labs** in the sidebar to make commands, name things, set up
 satellites and look at sessions.
 
-## The Voice Call integration
+## The Voice Labs integration
 
-Install the **Voice Call** integration in Home Assistant with HACS (it lives in
-this app's repository, under `custom_components/voice_call`) and restart Home
+Install the **Voice Labs** integration in Home Assistant with HACS (it lives in
+this app's repository, under `custom_components/voice_labs`) and restart Home
 Assistant; the app sets it up the next time it connects. It gives each
 satellite:
 
@@ -75,7 +75,7 @@ words** page, which is also where each wake word is tuned.
 - **Custom wake words**: a microWakeWord model (`.tflite`) and its manifest
   (`.json`), as ESPHome and the Tater Wake Words catalog share them. Upload
   both together on the Wake words page, or copy them into `wake_words/` in
-  the app's configuration folder (`addon_configs/..._voice_call` over Samba).
+  the app's configuration folder (`addon_configs/..._voice_labs` over Samba).
   They run at the cutoff in their manifest -- the one they were trained for
   -- and are not checked a second time until you give them confusables. A
   model the satellite cannot run is refused when uploaded, and marked "can't
@@ -397,7 +397,7 @@ all. A command has:
   the **Responses** panel on the Settings page says instead: the specific
   sentence unless you change it (Home Assistant's own says the brief one).
   The satellite's center button, pressed during a call, cancels it and what
-  it is saying (the firmware's `voice_call.cancel`). Piper says a reply a
+  it is saying (the firmware's `voice_labs.cancel`). Piper says a reply a
   sentence at a time, starting as soon as the first is ready, without the
   markdown a conversation agent writes (`**bold**`, bullets).
 
@@ -521,8 +521,8 @@ The action, the script and the response template all see:
 | `target` | `entity_id` from the slots (a room said with a device only picks it out), else `area_id`/`floor_id`, else the satellite's area: `target: "{{ target }}"` |
 | `command` | `id`, `description`, `text` (what was heard) |
 | `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown; by the rooms' names on the Names page), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
-| `names` | what each device is called when said: its name on the Names page, else Home Assistant's, by entity id -- every one named there, and the command's own: `{{ names[slots.entity[0]] }}`, or for another, `{{ names.get(e, state_attr(e, 'friendly_name')) }}` (not in the `voice_call_command` event) |
-| `devices` | what is meant as part of an area: the devices added on the Names page and part of their area, each with its area there -- `devices.get(s.entity_id) in place.areas` (not in the `voice_call_command` event) |
+| `names` | what each device is called when said: its name on the Names page, else Home Assistant's, by entity id -- every one named there, and the command's own: `{{ names[slots.entity[0]] }}`, or for another, `{{ names.get(e, state_attr(e, 'friendly_name')) }}` (not in the `voice_labs_command` event) |
+| `devices` | what is meant as part of an area: the devices added on the Names page and part of their area, each with its area there -- `devices.get(s.entity_id) in place.areas` (not in the `voice_labs_command` event) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 
 A script is called with these as its data, so its fields see them. What it
@@ -539,7 +539,7 @@ sequence:
     response_variable: result
 ```
 
-Every command that runs also fires a `voice_call_command` event with the same
+Every command that runs also fires a `voice_labs_command` event with the same
 data plus `outcome` and `response` (what was said), failed ones included.
 
 ## Timers
@@ -588,7 +588,7 @@ memory by Home Assistant, so a restart loses them.
 ### Alarms and reminders
 
 In English, alarms and reminders with a time are events on a **Local
-Calendar** in Home Assistant named **Voice Call**, which the app creates when
+Calendar** in Home Assistant named **Voice Labs**, which the app creates when
 it connects (Home Assistant's Local Calendar integration, built in). They
 outlive restarts, can be for another day or repeat, and show -- and can be
 changed -- in Home Assistant's calendar. Add **Set an alarm**, **Cancel an
@@ -620,7 +620,7 @@ rings like a timer, until "stop"; a reminder sounds the alarm once and is said
 ("Reminder: call your mom."). An event added in Home Assistant is a reminder
 said on every satellite. The description of each event the app adds marks it
 as an alarm or a reminder and names the satellite
-(`[voice_call:alarm:<satellite>]`); keep that when editing one. One missed by
+(`[voice_labs:alarm:<satellite>]`); keep that when editing one. One missed by
 up to five minutes (the app was down) still goes off. The calendar is
 followed live where Home Assistant can send its changes, else read every five
 minutes. If the calendar can't be made, the Home page says why, alarms
@@ -636,7 +636,7 @@ are timers again, and a reminder with a time says so.
 | `not_found` | no alarm or reminder like the one asked for |
 | `ambiguous` | several fit; it says them |
 
-Automations can follow timers with the `voice_call.timer_created`,
+Automations can follow timers with the `voice_labs.timer_created`,
 `timer_finished`, `timer_paused`, `timer_unpaused`, `timer_time_changed` and
 `timer_cancelled` triggers, and act on them with the `voice_timer_list.*`
 actions (`create_timer`, `cancel_timer`, `get_timers` ...).
@@ -644,8 +644,8 @@ actions (`create_timer`, `cancel_timer`, `get_timers` ...).
 ## Music
 
 Music plays on **Music Assistant**'s players. A satellite running a Sendspin
-client (the Voice Call firmware does) shows up in Music Assistant by itself,
-and the Voice Call integration finds that player from the satellite's MAC
+client (the Voice Labs firmware does) shows up in Music Assistant by itself,
+and the Voice Labs integration finds that player from the satellite's MAC
 address; the satellite's page shows it under **Music** and can pick another. Add the commands from the
 library's **Music** group:
 
@@ -1157,7 +1157,7 @@ names:
   puts that first, then its **steps** in order, each with its time since the
   session started and whether it succeeded: the wake word (with the
   probability the satellite's model came in with, against its cutoff; new
-  voice_call firmware), its verification, the end of speech, the speaker,
+  voice_labs firmware), its verification, the end of speech, the speaker,
   where the command starts, recognition, the action or answer, and what was
   said -- and how long it took: verification's decode, speaker
   identification, the acoustic model, recognition with the part TDT or the
@@ -1173,7 +1173,7 @@ names:
   each one's probability against its cutoff, with a mark where a wake word
   was detected. The satellite streams only while you listen, its ring blinks
   red the whole time, and it doesn't answer a wake word meanwhile. It needs
-  the voice_call firmware from this version.
+  the voice_labs firmware from this version.
 - Tick **Keep every session** on the Sessions page to keep every session's audio,
   or debug one satellite (its page, under Test it). That keeps
   the satellite's audio and can be a **dry run**: nothing is executed, and

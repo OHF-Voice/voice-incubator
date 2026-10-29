@@ -1,0 +1,153 @@
+# Timers (Italian), as the English library's timers.yaml: on the satellite
+# that set them, with the Voice Labs integration in Home Assistant. A timer is
+# picked out by:
+#   timer_name  a running timer's name: "annulla il timer pizza"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "un timer chiamato pasta", "un timer per la pasta"
+#   duration    "il timer di 5 minuti"
+# or it is the only one running. What they say is the language's (its speech
+# module's timer sentences). Asked for without how long ("metti un timer"), it
+# asks: "metti" would otherwise play music called "timer".
+title: Timers and alarms
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: impostare un timer
+    # "Imposta un timer di 5 minuti", "metti un timer per la pasta di 10 minuti".
+    require: [[timer, contaminuti]]
+    optional: [[imposta, metti, avvia, fai partire, crea, punta], [di, da, per], [chiamato, per il, per la, per i, per le]]
+    wildcard: {slot: timer, after: [timer, chiamato, per il, per la, per i, per le], max_words: 3}
+    # Quarters too: "un quarto d'ora", "tre quarti d'ora".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[], [timer], [duration], [duration, timer]]
+    timer: start
+    verbosity: specific
+
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: impostare una sveglia
+    # A timer that rings at a clock time: "metti la sveglia alle sette e
+    # mezza", "svegliami alle 7". Without di mattina or di sera it is the
+    # next time that comes round.
+    require: [[sveglia, svegliami, svegliaci]]
+    optional: [[metti, imposta, punta], [alle, all', a, per le, per l']]
+    wildcard: {slot: time, after: [alle, all', a, per le, per l'], to_end: true, max_words: 7}
+    exclude: [annulla, cancella, togli, spegni, ferma]
+    # Without a time it asks for one ("metti la sveglia"): "metti" would
+    # otherwise play music called "sveglia".
+    combinations: [[], [time]]
+    timer: alarm
+    verbosity: specific
+    response:
+      missing_time: Per che ora devo mettere la sveglia?
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: annullare un timer
+    # Not "togli": "togli 2 minuti al timer" takes time off. "Anulla", "a
+    # nulla": annulla as a speech-to-text often writes it.
+    require: [[annulla, anulla, a nulla, annullare, cancella, cancellare, ferma, fermare, elimina, spegni], [timer, contaminuti]]
+    optional: [[minuti, minuto, secondi, secondo, ore, ora], [chiamato], [di]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: cancel
+    verbosity: specific
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: annullare tutti i timer
+    require: [[annulla, annullare, cancella, cancellare, ferma, togli, elimina], [tutti], [timer]]
+    timer: cancel_all
+    verbosity: specific
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: mettere in pausa un timer
+    require: [[pausa, metti ... in pausa, sospendi], [timer, contaminuti]]
+    optional: [[minuti, minuto, secondi, secondo, ore, ora], [chiamato], [di]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: pause
+    verbosity: specific
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: riprendere un timer
+    require: [[riprendi, riprendere, fai ripartire, riavvia, continua], [timer, contaminuti]]
+    optional: [[minuti, minuto, secondi, secondo, ore, ora], [chiamato], [di]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: resume
+    verbosity: specific
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: sapere quanto tempo manca
+    examples: ["quanto tempo manca", "quanto manca al timer"]
+    require: [[quanto], [manca, mancano, rimane, resta]]
+    optional: [[tempo], [al, sul], [timer, contaminuti], [minuti, minuto, secondi, secondo, ore, ora], [chiamato], [di]]
+    # A time of day: "quanto manca alle 17" (a question).
+    exclude: [alle, all'una, fino, mezzogiorno, mezzanotte]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: aggiungere tempo a un timer
+    # "Aggiungi 5 minuti al timer pizza", "allunga il timer di 2 minuti".
+    require: [[aggiungi, allunga, prolunga], [timer, contaminuti]]
+    optional: [[al, di], [chiamato]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}
+    # Quarters too: "un quarto d'ora".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: add
+    verbosity: specific
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: togliere tempo a un timer
+    # "Togli 2 minuti al timer", "accorcia il timer pizza di 2 minuti".
+    require: [[togli, accorcia, riduci, leva], [timer, contaminuti]]
+    optional: [[al, dal, di], [chiamato]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, after: [timer, chiamato], max_words: 3}
+    # Quarters too: "un quarto d'ora".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: subtract
+    verbosity: specific

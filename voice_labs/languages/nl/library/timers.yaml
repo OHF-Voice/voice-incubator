@@ -1,0 +1,145 @@
+# Timers (Dutch), as the English library's timers.yaml: on the satellite that
+# set them, with the Voice Labs integration in Home Assistant. A timer is
+# picked out by:
+#   timer_name  a running timer's name: "annuleer de pizza timer"
+#   timer       free text, for naming a new timer, or matched loosely to the
+#               running ones: "een timer genaamd pasta"
+#   duration    "de timer van 5 minuten"
+# or it is the only one running.
+title: Timers and alarms
+icon: mdi:timer-outline
+
+commands:
+  start_timer:
+    title: Start a timer
+    icon: mdi:timer-plus-outline
+    description: een timer zetten
+    # "Zet een timer van 5 minuten", "start een pizza timer voor 10 minuten".
+    require: [[timer, kookwekker, eierwekker], [minuten, minuut, seconden, seconde, uur, uren]]
+    optional: [[zet, start, maak, stel], [van, voor, op], [genaamd, met de naam], [in]]
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    # Quarters too: "een kwartier", "drie kwartier".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [duration, timer]]
+    timer: start
+    verbosity: specific
+
+  set_alarm:
+    title: Set an alarm
+    icon: mdi:alarm
+    description: een wekker zetten
+    # A timer that rings at a clock time: "zet een wekker om half zeven",
+    # "maak me wakker om 7 uur". Without 's ochtends or 's avonds it is the
+    # next time that comes round.
+    require: [[wekker, wek me, maak me wakker]]
+    optional: [[zet, stel, maak], [om, voor, op], [in]]
+    wildcard: {slot: time, after: [om, voor, op], to_end: true, max_words: 7}
+    timer: alarm
+    verbosity: specific
+    response:
+      missing_time: Voor hoe laat moet ik de wekker zetten?
+
+  cancel_timer:
+    title: Cancel a timer
+    icon: mdi:timer-off-outline
+    description: een timer annuleren
+    require: [[annuleer, annuleren, stop, stoppen, verwijder, verwijderen, zet ... uit], [timer]]
+    optional: [[minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam], [van]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: cancel
+    verbosity: specific
+
+  cancel_all_timers:
+    title: Cancel every timer
+    icon: mdi:timer-cancel-outline
+    description: alle timers annuleren
+    require: [[annuleer, annuleren, stop, stoppen, verwijder, verwijderen], [alle], [timers, timer]]
+    timer: cancel_all
+    verbosity: specific
+
+  pause_timer:
+    title: Pause a timer
+    icon: mdi:timer-pause-outline
+    description: een timer pauzeren
+    require: [[pauzeer, pauzeren, pauze, zet ... op pauze], [timer]]
+    optional: [[minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam], [van]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: pause
+    verbosity: specific
+
+  resume_timer:
+    title: Resume a timer
+    icon: mdi:timer-play-outline
+    description: een timer hervatten
+    require: [[hervat, hervatten, ga verder met, laat ... verder lopen], [timer]]
+    optional: [[minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam], [van]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: resume
+    verbosity: specific
+
+  timer_status:
+    title: How long is left
+    icon: mdi:timer-sand
+    description: weten hoe lang een timer nog loopt
+    examples: ["hoeveel tijd is er nog over", "hoe lang loopt de timer nog"]
+    require: [[hoe lang, hoeveel tijd], [nog, over, resterend]]
+    optional: [[is er, loopt, heeft], [op], [timer], [minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam], [van]]
+    # A time of day: "hoe lang nog tot 17 uur" (a question).
+    exclude: [tot, totdat, middernacht, middag]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    number: {preset: duration}
+    # Each said whole.
+    combinations: [[], [timer_name], [timer], [duration]]
+    timer: status
+
+  add_time:
+    title: Add time to a timer
+    icon: mdi:clock-plus-outline
+    description: tijd aan een timer toevoegen
+    # "Voeg 5 minuten toe aan de pizza timer", "verleng de timer met 5 minuten".
+    require: [[voeg, verleng, verlengen], [timer]]
+    optional: [[toe, aan, met], [minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam], [van]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    # Quarters too: "een kwartier", "drie kwartier".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: add
+    verbosity: specific
+
+  subtract_time:
+    title: Take time off a timer
+    icon: mdi:clock-minus-outline
+    description: tijd van een timer afhalen
+    # "Haal 2 minuten van de timer af", "verkort de pizza timer met 2 minuten".
+    require: [[haal ... af, verkort, verkorten, verminder, verminderen], [timer]]
+    optional: [[van, met], [minuten, minuut, seconden, seconde, uur, uren], [genaamd, met de naam]]
+    lists:
+      timer_name: {list: running_timers}
+    wildcard: {slot: timer, before: [timer], after: [genaamd, met de naam]}
+    # Quarters too: "een kwartier", "drie kwartier".
+    number: {preset: duration, min: 0.25, step: 0.25}
+    # Each said whole.
+    combinations: [[duration], [timer_name, duration], [duration, timer]]
+    timer: subtract
+    verbosity: specific

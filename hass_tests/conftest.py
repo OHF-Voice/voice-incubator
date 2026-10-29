@@ -1,9 +1,9 @@
-"""Run the Voice Call integration's tests with Home Assistant's own fixtures.
+"""Run the Voice Labs integration's tests with Home Assistant's own fixtures.
 
 From a Home Assistant core checkout, with its test requirements installed:
 
     cd ~/opt/homeassistant && python -m pytest -c pyproject.toml --rootdir . \\
-        ~/opt/ohf-apps-experimental/voice_call/hass_tests
+        ~/opt/ohf-apps-experimental/voice_labs/hass_tests
 
 (``HA_CORE`` points elsewhere than the current directory.) Home Assistant's
 tests keep their custom integrations in a package of their own
@@ -27,8 +27,8 @@ COMPONENTS = Path(__file__).resolve().parent.parent / "custom_components"
 
 
 @pytest.fixture(autouse=True)
-def voice_call_integration(enable_custom_integrations: None) -> None:
-    """Make custom_components.voice_call loadable."""
+def voice_labs_integration(enable_custom_integrations: None) -> None:
+    """Make custom_components.voice_labs loadable."""
     import custom_components  # pylint: disable=import-outside-toplevel
 
     if str(COMPONENTS) not in list(custom_components.__path__):

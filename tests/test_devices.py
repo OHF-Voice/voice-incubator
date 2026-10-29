@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from voice_call import actions
-from voice_call.engine import Engine, Satellite
-from voice_call.store import compile_store
+from voice_labs import actions
+from voice_labs.engine import Engine, Satellite
+from voice_labs.store import compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
 STORE = {

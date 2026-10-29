@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from adapt_ctc.text import spoken_words
-from voice_call.engine import Engine, Satellite, trimmed, within
-from voice_call.store import compile_store
+from voice_labs.engine import Engine, Satellite, trimmed, within
+from voice_labs.store import compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
 STORE = {

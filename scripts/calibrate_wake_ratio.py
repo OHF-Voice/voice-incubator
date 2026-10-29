@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate the second opinion on a rejected wake word (voice_call/wake_ratio.py).
+"""Calibrate the second opinion on a rejected wake word (voice_labs/wake_ratio.py).
 
 The ratio is only ever asked about a window the Kaldi verifier has already
 rejected on `last` or `prefix`, so that is what it is measured on -- found the
@@ -93,7 +93,7 @@ class OldRatio:
 
     "okay nabu" as a speech-to-phrase grammar against a free loop over the
     words of the first 63 pieces, beam 12, per frame -- what
-    voice_call/wake_ratio.py did before it moved to adapt-ctc. The acoustic
+    voice_labs/wake_ratio.py did before it moved to adapt-ctc. The acoustic
     front ends are the same code, so the log-probabilities are identical.
     """
 
@@ -149,7 +149,7 @@ class Variants:
     def __init__(self, vocab) -> None:
         from adapt_ctc.graph import Meaning, PhraseGraph
         from adapt_ctc.text import name_units
-        from voice_call.wake_ratio import (
+        from voice_labs.wake_ratio import (
             filler_tokens,
             lowercase_vocabulary,
             strict_graph,
@@ -180,7 +180,7 @@ class Variants:
         }
 
     def scores(self, log_probs: np.ndarray) -> dict[str, float]:
-        from voice_call.wake_ratio import gain_over_blank, loop_gain, phrase_gain
+        from voice_labs.wake_ratio import gain_over_blank, loop_gain, phrase_gain
 
         over_blank = gain_over_blank(log_probs, self.vocab)
         frames = over_blank.shape[0]
@@ -200,8 +200,8 @@ def worker_init(
     wake_binary: str, wake_manifest: str, scratch: str, cutoff: float, tail: float, old: bool, variants: bool
 ) -> None:
     from adapt_ctc.acoustic import CtcModel
-    from voice_call.wake import WakeVerifier
-    from voice_call.wake_ratio import WakeRatio
+    from voice_labs.wake import WakeVerifier
+    from voice_labs.wake_ratio import WakeRatio
 
     model = CtcModel(MODEL_DIR, num_threads=1)
     ratio = WakeRatio()
@@ -557,7 +557,7 @@ def report(rows: list[dict], new_thresholds: list[float], old_thresholds: list[f
 def timing(threads: int, calls: int = 50) -> float:
     """Median milliseconds for one score() on a 1.5 s window, forward pass included."""
     from adapt_ctc.acoustic import CtcModel
-    from voice_call.wake_ratio import WakeRatio
+    from voice_labs.wake_ratio import WakeRatio
 
     model = CtcModel(MODEL_DIR, num_threads=threads)
     ratio = WakeRatio()
@@ -574,7 +574,7 @@ def timing(threads: int, calls: int = 50) -> float:
 
 
 def main() -> int:
-    from voice_call.wake_ratio import DEFAULT_THRESHOLD
+    from voice_labs.wake_ratio import DEFAULT_THRESHOLD
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, help="where to write the per-window results (JSONL)")

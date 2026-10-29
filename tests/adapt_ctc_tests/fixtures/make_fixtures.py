@@ -1,11 +1,11 @@
 """Synthesize the end-to-end test commands with Piper.
 
 Piper is not a dependency of this package. Run with an environment that has
-``piper-tts`` and ``soxr``, e.g. voice_call's:
+``piper-tts`` and ``soxr``, e.g. voice_labs's:
 
-    ~/opt/ohf-apps-experimental/voice_call/.venv/bin/python \
+    ~/opt/ohf-apps-experimental/voice_labs/.venv/bin/python \
         tests/fixtures/make_fixtures.py \
-        ~/opt/ohf-apps-experimental/voice_call/models/piper/en_GB-jenny_dioco-medium.onnx
+        ~/opt/ohf-apps-experimental/voice_labs/models/piper/en_GB-jenny_dioco-medium.onnx
 """
 
 import sys

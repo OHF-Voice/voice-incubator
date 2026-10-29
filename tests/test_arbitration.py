@@ -6,7 +6,7 @@ import asyncio
 
 import numpy as np
 
-from voice_call.arbitration import Arbiter, levels
+from voice_labs.arbitration import Arbiter, levels
 
 
 class Clock:

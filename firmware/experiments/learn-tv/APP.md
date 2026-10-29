@@ -3,8 +3,8 @@
 What the app did with learn-tv, as the app's README had it until 2026-10-28,
 when this side was taken out too. `app.patch` puts it back (below).
 
-`voice-call-vpe-learn-tv.yaml` (beside `voice-call-vpe.yaml`, in the ESPHome
-checkout's `my_components_voice_call`) adds learn-tv
+`voice-labs-vpe-learn-tv.yaml` (beside `voice-labs-vpe.yaml`, in the ESPHome
+checkout's `my_components_voice_labs`) adds learn-tv
 (`mic_tap/okay-nabu-tv/LEARN_TV_IMPLEMENTATION.md`): a two-mic null on
 whatever has played for the last ~20 s, a TV. Its "learn-tv" switch in Home
 Assistant (kept across reboots) goes back and forth between that and the stock
@@ -34,7 +34,7 @@ have lost the talker: a child's call, its wake word at 0.41 against a cutoff
 of 0.40, then 15 s of "no speech was heard" -- her voice was there at -30
 dBFS, but with 6-10 dB less of it below 1 kHz than mic 0 had, and Silero
 heard none of it. So the app looks at the wake word first, the pre-roll's last
-1.2 s in each capture (`voice_call/endpoint.py` `wake_speech`): under a tenth
+1.2 s in each capture (`voice_labs/endpoint.py` `wake_speech`): under a tenth
 of it speech in the call capture and a quarter or more in the second, and the
 talker is in the null (`talker_in_null`). The call is then verified, ended,
 recognized and streamed to speech-to-text from the second capture, lined up
@@ -67,10 +67,10 @@ stock path in a real room.
 root (`ohf-apps-experimental`):
 
 ```bash
-git apply --3way voice_call/firmware/experiments/learn-tv/app.patch
+git apply --3way voice_labs/firmware/experiments/learn-tv/app.patch
 ```
 
-It brings back, in `voice_call/server.py`, `voice_call/endpoint.py` and the web
+It brings back, in `voice_labs/server.py`, `voice_labs/endpoint.py` and the web
 UI:
 
 - **HELLO `aec_lead_samples`**: how far the second capture leads the call

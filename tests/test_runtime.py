@@ -34,7 +34,7 @@ def test_parakeet_keeps_no_arena():
 
 @pytest.mark.skipif(not VOICE.exists(), reason="needs the English Piper voice")
 def test_piper_keeps_no_arena():
-    from voice_call.tts import load_voice
+    from voice_labs.tts import load_voice
 
     voice = load_voice(VOICE)
     assert voice.session.get_session_options().enable_cpu_mem_arena is False
@@ -44,7 +44,7 @@ def test_piper_keeps_no_arena():
 
 @pytest.mark.skipif(not SPEAKER.exists(), reason="needs the speaker ID model")
 def test_speaker_id_keeps_no_arena():
-    from voice_call.speaker import Embedder
+    from voice_labs.speaker import Embedder
 
     embedder = Embedder(SPEAKER, 1)
     assert embedder._session.get_session_options().enable_cpu_mem_arena is False

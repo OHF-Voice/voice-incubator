@@ -1,7 +1,7 @@
-diff --git b/voice_call/tests/fake_satellite.py a/voice_call/tests/fake_satellite.py
+diff --git b/voice_labs/tests/fake_satellite.py a/voice_labs/tests/fake_satellite.py
 index 44e28bbb..6f341a4b 100644
---- b/voice_call/tests/fake_satellite.py
-+++ a/voice_call/tests/fake_satellite.py
+--- b/voice_labs/tests/fake_satellite.py
++++ a/voice_labs/tests/fake_satellite.py
 @@ -72,7 +72,7 @@ class FakeSatellite:
      """What its microphones hear between calls (looped), streamed on both
      captures while monitored; else a quiet hum, on the first."""
@@ -11,10 +11,10 @@ index 44e28bbb..6f341a4b 100644
  
      def __post_init__(self) -> None:
          self.ready = asyncio.Event()
-diff --git b/voice_call/tests/test_app.py a/voice_call/tests/test_app.py
+diff --git b/voice_labs/tests/test_app.py a/voice_labs/tests/test_app.py
 index 867aab78..1a37a5f8 100644
---- b/voice_call/tests/test_app.py
-+++ a/voice_call/tests/test_app.py
+--- b/voice_labs/tests/test_app.py
++++ a/voice_labs/tests/test_app.py
 @@ -12,6 +12,7 @@ import socket
  from pathlib import Path
  
@@ -22,7 +22,7 @@ index 867aab78..1a37a5f8 100644
 +import numpy as np
  import pytest
  
- from voice_call import people as people_mod
+ from voice_labs import people as people_mod
 @@ -95,7 +96,11 @@ def test_calls_end_to_end(tmp_path):
  async def _scenario(tmp_path: Path) -> None:
      hass, hass_server = await fake_hass.serve()
@@ -75,10 +75,10 @@ index 867aab78..1a37a5f8 100644
  
          # The wake word, and nothing said after it: the call ends 8 s on.
          assert await satellite.call(said[: int(1.5 * 32000)]) == "timeout"
-diff --git b/voice_call/tests/test_endpoint.py a/voice_call/tests/test_endpoint.py
+diff --git b/voice_labs/tests/test_endpoint.py a/voice_labs/tests/test_endpoint.py
 index 8c8b8e91..e2078683 100644
---- b/voice_call/tests/test_endpoint.py
-+++ a/voice_call/tests/test_endpoint.py
+--- b/voice_labs/tests/test_endpoint.py
++++ a/voice_labs/tests/test_endpoint.py
 @@ -349,7 +349,7 @@ def test_stt_hears_the_call_from_kaldis_split():
          heard, info = stt_audio_for(agc_pcm, aec_pcm, split, preroll, aec_preroll, "aec", boost=True)(command)
          assert info["channel"] == "aec" and 20 <= info["gain_db"] <= 30
@@ -88,10 +88,10 @@ index 8c8b8e91..e2078683 100644
      aec = (sound[:60000] * 0.056).astype("<i2").tobytes()
      agc_pcm = sound[:60000].astype("<i2").tobytes()
      heard, info = stt_audio_for(agc_pcm, aec, split, preroll, preroll, "aec", lead=0)(command)
-diff --git b/voice_call/tests/test_speakers.py a/voice_call/tests/test_speakers.py
+diff --git b/voice_labs/tests/test_speakers.py a/voice_labs/tests/test_speakers.py
 index 0f815ef9..5f6f43ac 100644
---- b/voice_call/tests/test_speakers.py
-+++ a/voice_call/tests/test_speakers.py
+--- b/voice_labs/tests/test_speakers.py
++++ a/voice_labs/tests/test_speakers.py
 @@ -85,7 +85,8 @@ def test_enrolled_speaker_and_someone_else(tmp_path, piper):
  
  async def _scenario(tmp_path: Path, piper) -> None:
@@ -102,10 +102,10 @@ index 0f815ef9..5f6f43ac 100644
      satellite_server = await serve(satellite)
      hass.device_areas[f"device-{MAC}"] = "kitchen"
      (tmp_path / "commands.yaml").write_text(COMMANDS)
-diff --git b/voice_call/voice_call/endpoint.py a/voice_call/voice_call/endpoint.py
+diff --git b/voice_labs/voice_labs/endpoint.py a/voice_labs/voice_labs/endpoint.py
 index 5e4d3366..525e620f 100644
---- b/voice_call/voice_call/endpoint.py
-+++ a/voice_call/voice_call/endpoint.py
+--- b/voice_labs/voice_labs/endpoint.py
++++ a/voice_labs/voice_labs/endpoint.py
 @@ -19,9 +19,8 @@ the two, chunk by chunk.
  
  Silero hears the command louder when the wake word was quiet (``vad_gain``):
@@ -138,10 +138,10 @@ index 5e4d3366..525e620f 100644
  def _amplify(chunk: bytes, gain: float) -> bytes:
      samples = np.frombuffer(chunk, dtype="<i2").astype(np.float64) * gain
      return np.clip(samples, -32768, 32767).astype("<i2").tobytes()
-diff --git b/voice_call/voice_call/server.py a/voice_call/voice_call/server.py
+diff --git b/voice_labs/voice_labs/server.py a/voice_labs/voice_labs/server.py
 index 1577eff3..79974d8a 100644
---- b/voice_call/voice_call/server.py
-+++ a/voice_call/voice_call/server.py
+--- b/voice_labs/voice_labs/server.py
++++ a/voice_labs/voice_labs/server.py
 @@ -27,7 +27,7 @@ from .agent import KEEP_SECONDS, Agent
  from .calls import CallLog, CallRecord
  from .commands import VERBOSITY
@@ -221,7 +221,7 @@ index 1577eff3..79974d8a 100644
      interrupted_ring: bool = False
      """The call stopped a ringing timer: if it says nothing else, it was that."""
      wake_start: float | None = None
-@@ -1875,14 +1919,21 @@ class VoiceCallApp:
+@@ -1875,14 +1919,21 @@ class VoiceLabsApp:
              for key in ("probability", "max_probability", "cutoff")
              if isinstance(info.get(key), (int, float))
          }
@@ -244,7 +244,7 @@ index 1577eff3..79974d8a 100644
          )
          _LOGGER.info(
              "[%s] Call started: wake_word=%r%s pre-roll=%dms%s",
-@@ -1978,8 +2029,11 @@ class VoiceCallApp:
+@@ -1978,8 +2029,11 @@ class VoiceLabsApp:
          if call.endpointer is None:
              return  # verification still running; audio keeps accumulating
  
@@ -258,7 +258,7 @@ index 1577eff3..79974d8a 100644
          if not new_audio:
              return
          call.command += new_audio
-@@ -2069,6 +2123,30 @@ class VoiceCallApp:
+@@ -2069,6 +2123,30 @@ class VoiceLabsApp:
              return False
          return result.split >= (call.preroll_bytes / BYTE_RATE) - TAIL_EDGE_SECONDS
  
@@ -289,7 +289,7 @@ index 1577eff3..79974d8a 100644
      async def _audio_through(self, call: Call, want: int, timeout: float) -> bool:
          """Wait for the call to have ``want`` bytes. False if it never does."""
          deadline = time.monotonic() + timeout
-@@ -2082,7 +2160,7 @@ class VoiceCallApp:
+@@ -2082,7 +2160,7 @@ class VoiceLabsApp:
          self, label: str, call: Call, offset: int
      ) -> tuple[Any, bytes]:
          """Verify the pre-roll-sized window that starts ``offset`` bytes in."""
@@ -298,7 +298,7 @@ index 1577eff3..79974d8a 100644
          result = await self.wake.verify(window, call.wake_word or None)
          assert result is not None
          _LOGGER.info(
-@@ -2106,7 +2184,7 @@ class VoiceCallApp:
+@@ -2106,7 +2184,7 @@ class VoiceLabsApp:
          off its end, and the second opinion on a `last`/`prefix` rejection.
          A wake word with no verifier (a custom one) stands as detected."""
          if call.wake_word and not self.wake.knows(call.wake_word):
@@ -307,7 +307,7 @@ index 1577eff3..79974d8a 100644
              if call.record is not None:
                  call.record.stage("wake_unverified", wake_word=call.wake_word)
              return WakeVerdict(True, VerifyResult(call.wake_word, accepted=True), 0, window)
-@@ -2153,7 +2231,17 @@ class VoiceCallApp:
+@@ -2153,7 +2231,17 @@ class VoiceLabsApp:
          return verdict
  
      async def _verify(self, session: Session, call: Call) -> None:
@@ -325,7 +325,7 @@ index 1577eff3..79974d8a 100644
          result = verdict.result
  
          if not verdict.accepted:
-@@ -2170,13 +2258,17 @@ class VoiceCallApp:
+@@ -2170,13 +2258,17 @@ class VoiceLabsApp:
              )
  
          self._place_split(call, verdict)
@@ -345,7 +345,7 @@ index 1577eff3..79974d8a 100644
          await self._event(session, "listening", stage="listening")
          if call.endpointer.process(bytes(call.command)) and not call.finished:
              self._command_ended(session, call)
-@@ -2194,11 +2286,14 @@ class VoiceCallApp:
+@@ -2194,11 +2286,14 @@ class VoiceLabsApp:
              return
          start, gain = call.split_bytes, 1.0
          audio: dict[str, Any] = {"channel": "agc", "from": round(call.split_bytes / BYTE_RATE, 3)}
@@ -362,7 +362,7 @@ index 1577eff3..79974d8a 100644
              start = max(0, start + shift)
              if voice.stt_audio == "aec_boost":
                  wake_start = (
-@@ -2228,7 +2323,8 @@ class VoiceCallApp:
+@@ -2228,7 +2323,8 @@ class VoiceLabsApp:
              return
          if stream.audio["channel"] == "aec":
              # Up to the end of the AGC capture, lined up.
@@ -372,7 +372,7 @@ index 1577eff3..79974d8a 100644
              pcm = bytes(call.aec[stream.position : end])
              if call.stt_gain != 1.0 and pcm:
                  scaled = np.clip(np.frombuffer(pcm, dtype="<i2").astype(np.float32) * call.stt_gain, -32768, 32767)
-@@ -2373,6 +2469,9 @@ class VoiceCallApp:
+@@ -2373,6 +2469,9 @@ class VoiceLabsApp:
          else:
              transcriber = await self._transcriber(satellite)
          agc, aec = bytes(call.audio), bytes(call.aec)
@@ -382,7 +382,7 @@ index 1577eff3..79974d8a 100644
          stop = self._speaker_stop(call)
          if stop is not None:
              # Someone else's speech ended it: recognized up to the speaker's last word.
-@@ -2386,7 +2485,7 @@ class VoiceCallApp:
+@@ -2386,7 +2485,7 @@ class VoiceLabsApp:
                  (call.aec_preroll_bytes or call.preroll_bytes) // 2,
                  capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
                  boost=satellite.voice.stt_audio == "aec_boost",
@@ -391,10 +391,10 @@ index 1577eff3..79974d8a 100644
              )
          async with self._model_lock:
              assert self.engine is not None
-diff --git b/voice_call/voice_call/web/app.js a/voice_call/voice_call/web/app.js
+diff --git b/voice_labs/voice_labs/web/app.js a/voice_labs/voice_labs/web/app.js
 index 85d43174..d80bf3b2 100644
---- b/voice_call/voice_call/web/app.js
-+++ a/voice_call/voice_call/web/app.js
+--- b/voice_labs/voice_labs/web/app.js
++++ a/voice_labs/voice_labs/web/app.js
 @@ -3511,7 +3511,7 @@ function stepGlance(stage) {
    const d = stage;
    switch (stage.stage) {

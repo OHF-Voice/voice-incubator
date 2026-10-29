@@ -1,0 +1,190 @@
+# voice-labs-vpe.yaml with learn-tv: a two-mic null on whatever has been
+# playing for the last ~20 s (a TV), for wake words and the call's audio --
+# and a switch back to the stock XMOS taps (AGC, NS), to compare.
+#
+# Spec: mic_tap/okay-nabu-tv/LEARN_TV_IMPLEMENTATION.md. In learn-tv mode both
+# XMOS channels carry a mic after AEC (the aec-both-mics XMOS firmware,
+# 1.3.101: channel 0 is its stage 5, mic 0 after AEC; channel 1 the stock AEC
+# stage, mic 1). learn_tv makes four channels of them, one for each use:
+#
+#   channel       learn-tv (mic 0, mic 1 after AEC)    stock (AGC, NS)
+#   0 wake words  mic 0 with the null, gain 4          NS, gain 4
+#   1 the call    mic 0 with the null, gain 16         AGC, gain 1
+#   2 second      mic 0, gain 16                       NS, gain 16
+#   3 fallback    mic 0, gain 4                        off
+#
+# A wake word only the fallback detector hears (the talker stands in the null)
+# starts a call with the call and second captures swapped, so the app hears
+# mic 0. The null keeps what it learned during a call but learns nothing more
+# (the talker is not the TV). Home Assistant gets a "learn-tv" switch (the
+# mode, kept across reboots) and where the null points ("Null direction",
+# degrees from the mic axis: a two-mic null can't tell a direction from its
+# mirror about that axis; "Null coherence", how steady it is).
+#
+# voice_kit installs the XMOS firmware from ${xmos_firmware_url} when it
+# compiles; serve the upgrade image there meanwhile:
+#
+#   cd ~/opt/voice-kit-xmos-firmware/build-aec0 && python3 -m http.server 8765
+#   esphome run voice-labs-vpe-learn-tv.yaml
+packages:
+  base: !include voice-labs-vpe.yaml
+
+substitutions:
+  xmos_firmware_url: http://localhost:8765/example_ffva_int_fixed_delay_upgrade.bin
+
+external_components:
+  - source:
+      type: local
+      path: ../my_components_voice_labs
+    components: [learn_tv]
+
+voice_kit:
+  # Channel 0 becomes stage 5 (mic 0 after AEC) below: voice_kit's stage names
+  # stop at AGC.
+  channel_0_stage: NONE
+  channel_1_stage: AEC
+  firmware:
+    url: ${xmos_firmware_url}
+    version: "1.3.101"
+    md5: 8f93b6ac71c4bda417d1611d253447c4
+
+microphone:
+  - platform: learn_tv
+    id: learn_tv_mics
+    source: i2s_mics
+    tau: 20s
+    warmup: 2s
+
+voice_labs:
+  # One learn_tv channel each, at learn-tv mode's gains (apply_audio_mode sets
+  # them for the mode). The XMOS's AEC taps sit ~45 dB below full scale: 16
+  # brings them to the AGC tap's level before the 16-bit truncation (README
+  # "Two captures per call").
+  microphone:
+    microphone: learn_tv_mics
+    channels: 1
+    gain_factor: 16
+  wake_microphone:
+    microphone: learn_tv_mics
+    channels: 0
+    gain_factor: 4
+  aec_microphone:
+    microphone: learn_tv_mics
+    channels: 2
+    gain_factor: 16
+  fallback_microphone:
+    microphone: learn_tv_mics
+    channels: 3
+    gain_factor: 4
+  # learn_tv delays its channels alike; in stock mode NS and AGC leave the
+  # XMOS together (AGC works in place on NS's output), unlike AEC and AGC.
+  aec_lead: 0ms
+  on_call_start:
+    - lambda: id(learn_tv_mics).set_frozen(true);
+  on_call_end:
+    - lambda: id(learn_tv_mics).set_frozen(false);
+
+globals:
+  # The mode learn_tv, the gains and the fallback were last set for (-1: none yet).
+  - id: applied_audio_mode
+    type: int
+    initial_value: "-1"
+
+script:
+  # The audio path for the mode: the XMOS's taps (read back, and written when
+  # they differ: the XMOS starts over when voice_kit updates its firmware, and
+  # a stage written while it starts up does not always stay), learn_tv's
+  # routing, the gains, the fallback detector.
+  - id: apply_audio_mode
+    then:
+      - lambda: |-
+          auto *vk = id(voice_kit_component);
+          if (vk->is_failed() || !vk->can_proceed())
+            return;  // the XMOS isn't up yet (or is being updated)
+          const bool learn = id(learn_tv_switch).state;
+          // voice_kit's stage names stop at AGC: 5 is the aec-both-mics firmware's mic 0 after AEC.
+          const auto ch0 = learn ? static_cast<voice_kit::PipelineStages>(5) : voice_kit::PIPELINE_STAGE_AGC;
+          const auto ch1 = learn ? voice_kit::PIPELINE_STAGE_AEC : voice_kit::PIPELINE_STAGE_NS;
+          bool rewritten = false;
+          if (vk->read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_0) != ch0 ||
+              vk->read_pipeline_stage(voice_kit::MICROPHONE_CHANNEL_1) != ch1) {
+            vk->set_channel_0_stage(ch0);
+            vk->set_channel_1_stage(ch1);
+            vk->write_pipeline_stages();
+            rewritten = true;
+            ESP_LOGI("learn_tv", "XMOS channels set to %s", learn ? "mic 0 and mic 1 after AEC" : "AGC and NS");
+          }
+          if (!rewritten && id(applied_audio_mode) == (learn ? 1 : 0))
+            return;
+          id(learn_tv_mics).set_mode(learn ? learn_tv::MODE_LEARN : learn_tv::MODE_STOCK);
+          if (learn)
+            id(learn_tv_mics).reset();  // what it heard before was other taps
+          id(vc).set_source_gains(learn ? 16 : 1, 4, 16, 4);
+          id(vc).set_fallback_enabled(learn);
+          id(applied_audio_mode) = learn ? 1 : 0;
+          ESP_LOGI("learn_tv", "Audio: %s", learn ? "learn-tv" : "stock (AGC, NS)");
+
+switch:
+  # learn-tv mode, or the stock XMOS taps; kept across reboots.
+  - platform: template
+    id: learn_tv_switch
+    name: learn-tv
+    icon: mdi:television-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - script.execute: apply_audio_mode
+    on_turn_off:
+      - script.execute: apply_audio_mode
+
+sensor:
+  # Where the null points, from the mic axis: 0 degrees where a source reaches
+  # mic 0 first (+0.25 ms on a VPE), 180 mic 1's end, 90 broadside. Unknown
+  # in stock mode and while it warms up.
+  - platform: template
+    name: Null direction
+    icon: mdi:angle-acute
+    unit_of_measurement: "°"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      float tau_ms, coherence;
+      if (!id(learn_tv_mics).null_direction(&tau_ms, &coherence))
+        return NAN;
+      return acosf(std::max(-1.0f, std::min(1.0f, tau_ms / 0.25f))) * 180.0f / (float) M_PI;
+    filters:
+      - or:
+          - delta: 3
+          - heartbeat: 60s
+  # How steady the null's direction is, 0-100% (below ~10% it points nowhere).
+  - platform: template
+    name: Null coherence
+    icon: mdi:target
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      float tau_ms, coherence;
+      if (!id(learn_tv_mics).null_direction(&tau_ms, &coherence))
+        return NAN;
+      return coherence * 100.0f;
+    filters:
+      - or:
+          - delta: 2
+          - heartbeat: 60s
+
+interval:
+  - interval: 10s
+    then:
+      - script.execute: apply_audio_mode
+  # What learn-tv costs, for checking it on device.
+  - interval: 60s
+    then:
+      - lambda: |-
+          uint32_t avg_us, max_us, frames;
+          id(learn_tv_mics).take_stats(&avg_us, &max_us, &frames);
+          ESP_LOGI("learn_tv", "%s: %u frames, %u us average, %u us max (of 16000)",
+                   id(learn_tv_switch).state ? "learn-tv" : "stock", frames, avg_us, max_us);
+          ESP_LOGI("learn_tv", "Free heap: internal %u (largest block %u), PSRAM %u",
+                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                   heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
