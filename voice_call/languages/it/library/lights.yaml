@@ -132,8 +132,8 @@ commands:
       {%- set ns.areas = [satellite.area_id] -%}
       {%- endif -%}
       {%- set where = (' ' ~ place.said) if place.said else '' -%}
-      {%- for s in states.light if s.entity_id in exposed and (not ns.areas or area_id(s.entity_id) in ns.areas) and s.state == 'on' -%}
-      {%- set ns.on = ns.on + [s.name] -%}
+      {%- for s in states.light if s.entity_id in devices and (not ns.areas or devices[s.entity_id] in ns.areas) and s.state == 'on' -%}
+      {%- set ns.on = ns.on + [names.get(s.entity_id, s.name)] -%}
       {%- endfor -%}
       {%- set count = ns.on | count -%}
       {%- if count == 0 -%}

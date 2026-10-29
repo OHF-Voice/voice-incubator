@@ -58,7 +58,7 @@ from .protocol import (
 from .enrollment import MIN_SECONDS as ENROLL_MIN_SECONDS
 from .enrollment import Enrollment
 from .speaker import PALETTE, Identification, SpeakerId
-from .store import Compiled, Store
+from .store import Compiled, Device, Store
 from .tts import Speech, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
@@ -837,10 +837,19 @@ class VoiceCallApp:
     # ------------------------------------------------- devices, responses, agent
 
     def _entity_area(self, entity_id: str) -> str | None:
-        """A device's area in Home Assistant (its own, else its device's)."""
+        """A device's area for voice: the Names page's, else Home Assistant's
+        (its own, else its device's)."""
+        device = self.voice_devices().get(entity_id)
+        if device is not None and device.area:
+            return device.area
         catalog = self.hass.catalog
         entity = catalog.entities.get(entity_id) if catalog is not None else None
         return entity.area_id if entity is not None else None
+
+    def voice_devices(self) -> dict[str, Device]:
+        """The devices added on the Names page, by entity id: all voice acts on."""
+        compiled = self.engine.compiled if self.engine is not None else None
+        return dict(compiled.devices) if compiled is not None else {}
 
     def end_of_speech_base(self) -> EndOfSpeech:
         """The defaults under the Settings page's: the options
@@ -2499,7 +2508,8 @@ class VoiceCallApp:
             compiled = self.engine.compiled if self.engine is not None else None
             if compiled is not None and compiled.unknown and decision.refused is None:
                 # Nothing understood it: the Unknown command says what to say.
-                values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, self.hass.catalog, wake_word)
+                catalog = actions.voice_catalog(self.hass.catalog, compiled.devices)
+                values = actions.unknown_variables(decision, satellite, speaker, compiled.commands, catalog, wake_word)
                 started = time.perf_counter()
                 said, error = await actions.render_said(self.hass, compiled.unknown, values)
                 if record is not None:
@@ -2524,6 +2534,7 @@ class VoiceCallApp:
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
             home=self.store.settings.get("home"), satellites=self, names=self.said_names(),
+            devices=self.voice_devices(),
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))

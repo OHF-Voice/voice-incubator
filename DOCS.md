@@ -423,12 +423,11 @@ looks like you're trying to …, but that isn't set up here."
 
 A command can run one of Home Assistant's intents -- HassTurnOn, HassLightSet,
 HassClimateSetTemperature … -- instead of an action, and the library's
-commands for lights, the thermostat, covers and locks do. An intent runs as
-Assist would, on what was heard: each area or floor named, else the
-satellite's area -- there, **only devices exposed to Assist** (Settings →
-Voice assistants → Expose) -- or each device named (by its entity id), which
-is yours on the Names page, exposed or not. An unavailable device is said,
-not counted as done. Its other slots are the command's
+commands for lights, the thermostat, covers and locks do. An intent runs on
+what was heard: each device named (by its entity id), or the devices of its
+kind added on the Names page to each area or floor named, else to the
+satellite's area -- each by name, not by name only, whether exposed to Assist
+or not. An unavailable device is said, not counted as done. Its other slots are the command's
 (`domain: light`, `brightness: "{{ slots.percentage }}"`: a template sees
 the same variables as a response). `anywhere: true` means the whole home
 when nothing of the kind is in the satellite's area ("open the garage door"
@@ -445,10 +444,9 @@ Besides done and failed, an intent's outcomes say why it acted on nothing:
 
 | outcome | when | says |
 |---|---|---|
-| `no_devices` | nothing of the kind there | "There's nothing like that in the Kitchen." |
-| `not_exposed` | some there, none exposed to Assist | "Nothing like that in the Kitchen is exposed to Assist." |
+| `no_devices` | nothing of the kind added there | "There's nothing like that in the Kitchen." |
 | `not_supported` | none of it can do what it needs | "Nothing in the Kitchen can change color." |
-| `unavailable` | exposed, all unavailable | "Everything like that in the Kitchen is unavailable right now." |
+| `unavailable` | all unavailable | "Everything like that in the Kitchen is unavailable right now." |
 | `no_area` | nothing named, and the satellite has no area | "I don't know which area I'm in. Give this satellite an area." |
 
 When it acted on some, it is done on those: its response sees `result.count`,
@@ -458,9 +456,9 @@ any). An **action** with `target: "{{ target }}"` reaches every device in the
 area, exposed or not.
 
 The library's questions answer the same way: "are any lights on in the
-kitchen", "are the blinds open", "is everything locked" count only what is
-exposed to Assist (their templates filter by `exposed`), while "is the desk
-lamp on" asks about the device named.
+kitchen", "are the blinds open", "is everything locked" count the devices
+added there on the Names page (their templates filter by `devices`), while
+"is the desk lamp on" asks about the device named.
 
 ### What a device can do
 
@@ -511,7 +509,7 @@ The action, the script and the response template all see:
 | `command` | `id`, `description`, `text` (what was heard) |
 | `place` | where it acted: `said` ("in the Kitchen", "upstairs"; empty when unknown; by the rooms' names on the Names page), `here` (only the satellite's area), `areas` (ids; a floor's every area) |
 | `names` | what each device is called when said: its name on the Names page, else Home Assistant's, by entity id -- every one named there, and the command's own: `{{ names[slots.entity[0]] }}`, or for another, `{{ names.get(e, state_attr(e, 'friendly_name')) }}` (not in the `voice_call_command` event) |
-| `exposed` | the entity ids exposed to Assist (not in the `voice_call_command` event) |
+| `devices` | what is meant as part of an area: the devices added on the Names page (not by name only), each with its area there -- `devices.get(s.entity_id) in place.areas` (not in the `voice_call_command` event) |
 | `result` | in the response only: what a script returned (`stop` with `response_variable`), plus `outcome`, `speech` (what would be said without your response) and, when it failed, `error` |
 
 A script is called with these as its data, so its fields see them. What it
@@ -652,8 +650,8 @@ library's **Music** group:
 - Pausing, skipping, the volume and muting work on **any media player**, not
   only Music Assistant's: with nothing named, whatever plays in the
   satellite's area -- its own music first, then another of Music Assistant's
-  players there, then any media player exposed to Assist that plays, such as
-  the TV. Say which when both play: "pause **the music**" is Music
+  players added there (Names), then any other media player added there that
+  plays, such as the TV. Say which when both play: "pause **the music**" is Music
   Assistant's players only, "turn **the TV** down" (or "the television") the
   media players whose device class is TV -- here, or in an area or floor
   named. A TV that only steps its volume is stepped, and asked for a level
@@ -707,7 +705,7 @@ in an area or floor named ("dim the lights upstairs"), or a light by name
 - **Brighter** and **Dimmer**: a fifth at a time ("make the lights
   brighter", "turn the lights down", "dim the bed light", "brighter"),
   never down to off. In an area, only the lights that are on change, of
-  those exposed to Assist and able to dim; a light by name that is off comes
+  those added there and able to dim; a light by name that is off comes
   on to be brightened. With none on, the satellite says so.
 - **Set the color temperature**: the white a light shines, by name -- warm
   white, soft white, neutral white, cool white, daylight ("set the lights to
@@ -1081,22 +1079,36 @@ never asks the agent, since it can act in your home.
 
 ## Names
 
-What things are called when spoken, each pointing at one Home Assistant id.
-Nothing is taken from Home Assistant automatically: search for an entity,
-area or floor and its name and aliases are offered as a starting point. Add
-the spellings the speech model actually uses as aliases ("Echo Bee" for
-ecobee). Home Assistant's suggestion is its entity's own name (else its
-friendly name), and its voice assistant aliases -- not one that is the name
-again.
+What voice acts on, and what things are called when spoken, each pointing at
+one Home Assistant id. Nothing is taken from Home Assistant automatically:
+search for an entity, area or floor and its name, aliases and area are
+offered as a starting point. Add the spellings the speech model actually uses
+as aliases ("Echo Bee" for ecobee). Home Assistant's suggestion is its
+entity's own name (else its friendly name), and its voice assistant aliases
+-- not one that is the name again.
+
+**Devices.** Voice acts only on the devices added here -- Home Assistant's
+exposure to Assist doesn't count -- each listed under its area: Home
+Assistant's, unless you pick another for voice. Each is **controlled from**:
+
+| | by its name | as part of its area ("turn on the lights") |
+|---|---|---|
+| **Anywhere** (the default) | from every satellite | yes |
+| **Its area** | only from a satellite in its area -- not even with the area said elsewhere | yes |
+| **By name only** | from every satellite | no |
+| **Only implicitly** | no name | yes |
+
+"Turn on the lights" in an area is its lights added here, but those by name
+only: a night light by name only stays as it is, and is still "the night
+light". "Close the blinds" is its blinds, "pause" what plays there, "is
+everything locked" every lock added.
 
 Several devices may share a name -- a Lamp in the office, one in the
-bedroom: each satellite hears the one in its room, and "the lamp in the
-bedroom" from anywhere. A device set **Only from its room** answers to its
-name only from a satellite in its area, or with its room said, even with no
-other of that name ("the overhead light" in the office, not from the
-kitchen). Devices are limited to lights, switches, fans, covers, locks,
-climate, media players, scenes, scripts, input booleans, valves, vacuums,
-sensors and binary sensors; an implied target may be any entity.
+bedroom: each satellite hears the one in its area, and "the lamp in the
+bedroom" from anywhere; from an area with none, nothing is guessed. Devices
+are limited to lights, switches, fans, covers, locks, climate, media players,
+scenes, scripts, input booleans, valves, vacuums, sensors and binary sensors;
+an implied target may be any entity.
 
 A name is in the language it was given in. In another language than your
 commands', a thing's name and aliases go under the language's code,

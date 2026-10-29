@@ -222,14 +222,14 @@ commands:
       {%- set ns.areas = [satellite.area_id] -%}
       {%- endif -%}
       {%- set where = (' ' ~ place.said) if named else '' -%}
-      {%- set every = states.cover | selectattr('entity_id', 'in', exposed) | selectattr('attributes.device_class', 'defined')
+      {%- set every = states.cover | selectattr('entity_id', 'in', devices) | selectattr('attributes.device_class', 'defined')
         | selectattr('attributes.device_class', 'eq', slots.device_class) | list -%}
-      {%- for s in every if area_id(s.entity_id) in ns.areas -%}
+      {%- for s in every if devices[s.entity_id] in ns.areas -%}
       {%- set ns.picked = ns.picked + [s] -%}
       {%- endfor -%}
       {%- set covers = ns.picked if ns.picked or named else every -%}
       {%- for s in covers if s.state in ['open', 'opening'] -%}
-      {%- set ns.opened = ns.opened + [s.name] -%}
+      {%- set ns.opened = ns.opened + [names.get(s.entity_id, s.name)] -%}
       {%- endfor -%}
       {%- set count = ns.opened | count -%}
       {%- if not covers -%}
@@ -317,17 +317,17 @@ commands:
       {%- set words = {'unlocked': 'aufgeschlossen', 'jammed': 'blockiert', 'locking': 'am Abschließen',
         'unlocking': 'am Aufschließen', 'open': 'offen', 'unavailable': 'nicht erreichbar', 'unknown': 'unbekannt'} -%}
       {%- set ns = namespace(open=[], total=0) -%}
-      {%- for s in states.lock if s.entity_id in exposed -%}
+      {%- for s in states.lock if s.entity_id in devices -%}
       {%- set ns.total = ns.total + 1 -%}
       {%- if s.state != 'locked' -%}
-      {%- set ns.open = ns.open + [s.name ~ ' ist ' ~ words.get(s.state, s.state)] -%}
+      {%- set ns.open = ns.open + [names.get(s.entity_id, s.name) ~ ' ist ' ~ words.get(s.state, s.state)] -%}
       {%- endif -%}
       {%- endfor -%}
-      {%- for s in states.binary_sensor | selectattr('entity_id', 'in', exposed) | selectattr('attributes.device_class', 'defined')
+      {%- for s in states.binary_sensor | selectattr('entity_id', 'in', devices) | selectattr('attributes.device_class', 'defined')
         | selectattr('attributes.device_class', 'eq', 'lock') -%}
       {%- set ns.total = ns.total + 1 -%}
       {%- if s.state != 'off' -%}
-      {%- set ns.open = ns.open + [s.name ~ ' ist ' ~ ('aufgeschlossen' if s.state == 'on' else words.get(s.state, s.state))] -%}
+      {%- set ns.open = ns.open + [names.get(s.entity_id, s.name) ~ ' ist ' ~ ('aufgeschlossen' if s.state == 'on' else words.get(s.state, s.state))] -%}
       {%- endif -%}
       {%- endfor -%}
       {%- set count = ns.open | count -%}

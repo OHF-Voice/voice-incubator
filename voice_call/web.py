@@ -47,6 +47,7 @@ from .skills import load as load_skill_settings
 from .store import (
     NAME_KINDS,
     command_language,
+    device_of,
     dump,
     file_language,
     language_name,
@@ -338,11 +339,14 @@ class Api:
                 "sections": library_sections()[0],
                 # What things are called in the app's language; other languages' are hidden.
                 "names": {kind: names.get(kind) or {} for kind in NAME_KINDS},
-                # Devices heard by their name only from their own room.
-                "local_names": sorted(
-                    str(item_id) for item_id, entry in ((data.get("names") or {}).get("entities") or {}).items()
-                    if isinstance(entry, dict) and entry.get("local")
-                ),
+                # Every device added (all voice acts on): how it is reached, its
+                # area set here (None: Home Assistant's), and Home Assistant's.
+                "devices": {
+                    str(item_id): {"reach": device.reach, "area": device.area, "ha_area": self._ha_area(str(item_id))}
+                    for item_id, device in (
+                        (i, device_of(e)) for i, e in ((data.get("names") or {}).get("entities") or {}).items()
+                    )
+                },
                 "hidden_names": [
                     {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_names.items())
                 ],
@@ -428,13 +432,20 @@ class Api:
     async def delete_command(self, request: web.Request) -> web.Response:
         return await self._saved(self.app.store.delete_command(request.match_info["id"]))
 
+    def _ha_area(self, entity_id: str) -> str | None:
+        catalog = self.app.hass.catalog
+        entity = catalog.entities.get(entity_id) if catalog is not None else None
+        return entity.area_id if entity is not None else None
+
     async def put_name(self, request: web.Request) -> web.Response:
         body = _clean(await request.json())
         name = str(body.get("name") or "").strip()
         aliases = [str(a).strip() for a in body.get("aliases") or [] if str(a).strip()]
-        if not name:
+        # A device's own: how it is reached, its area for voice (empty: Home Assistant's).
+        own = {k: (body.get(k) or None) for k in ("reach", "area") if k in body}
+        if not name and own.get("reach") != "implicit":
             raise ConfigError("A name needs a name")
-        spec = {"name": name, **({"aliases": aliases} if aliases else {}), "local": bool(body.get("local"))}
+        spec = {"name": name, **({"aliases": aliases} if aliases else {}), **own}
         compiled = self.app.store.put_name(
             request.match_info["kind"], request.match_info["id"], spec
         )

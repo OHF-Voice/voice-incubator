@@ -28,6 +28,9 @@ variables, which the sequence and the response template can both use:
                 Names page, else Home Assistant's -- by entity id, every one
                 named there and the command's own (``names[slots.entity[0]]``;
                 another: ``names.get(e, state_attr(e, 'friendly_name'))``)
+``devices``     what is meant as part of an area, by entity id: its area id --
+                the devices added on the Names page (not by name only), each
+                in its area there: ``devices.get(s.entity_id) in place.areas``
 ``place``       where it acts: ``here`` (only the satellite's area),
                 ``said`` ("in the Kitchen", "upstairs"; empty when unknown),
                 ``areas`` (ids; a floor's every area)
@@ -89,12 +92,13 @@ looks like you're trying to …, but …"; empty when nothing came close),
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from adapt_ctc.text import spoken_words
@@ -189,7 +193,6 @@ def variables(
             target[key] = list(slots[slot])
     if not target and satellite.area_id:
         target = {"area_id": [satellite.area_id]}
-    exposed = getattr(catalog, "exposed", None)
     return {
         "slots": slots,
         "satellite": satellite.as_dict(),
@@ -199,16 +202,14 @@ def variables(
         "command": {"id": command.id, "description": command.description, "text": text},
         "place": place(slots, satellite, catalog, names),
         "names": device_names([str(e) for e in slots.get("entity") or []], catalog, names),
-        # What a question about a place counts: what is exposed to Assist
-        # (not known: every entity the app knows of).
-        "exposed": sorted(exposed if exposed is not None else getattr(catalog, "entities", None) or []),
+        "devices": implicit_devices(catalog),
     }
 
 
 NO_WAKE_WORD = {"id": None, "name": None, "phrase": None}
 """``wake_word`` when nothing woke the satellite (typed on the web page)."""
 
-PRIVATE = ("exposed", "names")
+PRIVATE = ("devices", "names")
 """Variables left out of the command event and the call's record: long, and
 the same every time."""
 
@@ -237,7 +238,7 @@ def unknown_variables(
         "wake_word": wake_word or NO_WAKE_WORD,
         "target": {"area_id": [satellite.area_id]} if satellite.area_id else {},
         "place": place({}, satellite, catalog),
-        "exposed": sorted(getattr(catalog, "exposed", None) or getattr(catalog, "entities", None) or []),
+        "devices": implicit_devices(catalog),
     }
 
 
@@ -252,6 +253,43 @@ async def render_said(
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         return None, str(err) or type(err).__name__
     return (said or None), None
+
+
+def implicit_devices(catalog: Any) -> dict[str, str | None]:
+    """What is meant as part of an area, by entity id: its area id. As voice
+    sees it (``voice_catalog``), the devices added on the Names page but
+    those by name only; else what is exposed to Assist (not known: every
+    device)."""
+    entities = getattr(catalog, "entities", None) or {}
+    exposed = getattr(catalog, "exposed", None)
+    return {e: entities[e].area_id for e in sorted(exposed if exposed is not None else entities) if e in entities}
+
+
+def voice_catalog(catalog: Any, devices: dict[str, Any]) -> Any:
+    """Home Assistant's catalog as voice sees it: each device added on the
+    Names page (``store.Device``, by entity id) in its area there, and
+    ``exposed`` those meant as part of their area -- Assist's exposure
+    doesn't count."""
+    if catalog is None:
+        return None
+    entities = dict(catalog.entities)
+    for entity_id, device in devices.items():
+        entity = entities.get(entity_id)
+        if entity is not None and device.area and device.area != entity.area_id:
+            entities[entity_id] = replace(entity, area_id=device.area)
+    exposed = {e for e, device in devices.items() if device.implicit}
+    return replace(catalog, entities=entities, exposed=exposed, voiced=True)
+
+
+class _Voiced:
+    """``hass`` with its catalog as voice sees it (voice_catalog)."""
+
+    def __init__(self, hass: Any, catalog: Any) -> None:
+        self._hass = hass
+        self.catalog = catalog
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._hass, name)
 
 
 def place(
@@ -322,6 +360,7 @@ async def run(
     home: dict[str, Any] | None = None,
     satellites: Any = None,
     names: dict[str, dict[str, str]] | None = None,
+    devices: dict[str, Any] | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
@@ -330,9 +369,14 @@ async def run(
     a command on the speaker's (``mine``); ``home``: the home's (Settings),
     for one on the home's without its own (``home``). ``satellites``: the
     other satellites, to announce on and connect the intercom to (the app:
-    ``others``, ``announce``, ``intercom_problem``, ``intercom``)."""
+    ``others``, ``announce``, ``intercom_problem``, ``intercom``).
+    ``names``: what things are called (said_names); ``devices``: the
+    devices added on the Names page (store.Device, by entity id) -- all it
+    acts on without a name, Assist's exposure aside (voice_catalog)."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
+    if devices is not None:
+        hass = _Voiced(hass, voice_catalog(getattr(hass, "catalog", None), devices))
     catalog = getattr(hass, "catalog", None)
     known, theirs = (True, {}) if not behavior.mine else people_ops.mine(behavior.mine, speaker, people or {})
     if theirs:
@@ -647,6 +691,38 @@ async def _now(hass: HomeAssistant, wanted: dict[str, str | None]) -> dict[str, 
     return dict(zip(wanted, values)) if isinstance(values, list) else {}
 
 
+INTENT_DOMAINS = {
+    "HassLightSet": ("light",),
+    "HassClimateSetTemperature": ("climate",),
+    "HassSetPosition": ("cover", "valve"),
+}
+"""What an intent acts on when its slots don't say (``domain``)."""
+
+
+def _implicit(catalog: Any, areas: list[str] | None, kind: dict[str, Any], intent: str) -> list[str]:
+    """What an intent means in ``areas`` (None: the whole home) without a
+    name: the devices there meant as part of their area (``exposed``, as voice
+    sees it), of its kind -- ``domain`` (else the intent's, INTENT_DOMAINS),
+    ``device_class``."""
+    domains = set(_listed(kind.get("domain"))) or set(INTENT_DOMAINS.get(intent, ()))
+    classes = set(_listed(kind.get("device_class")))
+    out = []
+    for entity_id in sorted(getattr(catalog, "exposed", None) or ()):
+        entity = catalog.entities.get(entity_id)
+        if entity is None or (areas is not None and entity.area_id not in areas):
+            continue
+        if (domains and entity.domain not in domains) or (classes and (entity.attributes or {}).get("device_class") not in classes):
+            continue
+        out.append(entity_id)
+    return out
+
+
+def _listed(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    return [str(v) for v in value] if isinstance(value, (list, tuple)) else [str(value)]
+
+
 def _slot_value(value: Any, slots: dict[str, Any]) -> Any:
     """An intent's slot as written, or the slot its template is
     (``{{ slots.device_class }}``); None for a template that says more."""
@@ -726,6 +802,24 @@ async def _run_intent(
     placed = bool(slots.get("area") or slots.get("floor"))
     # A device by name is said as itself ("That isn't exposed"); else where.
     where = "" if named else str(values["place"].get("said") or "")
+    catalog = getattr(hass, "catalog", None)
+    voiced = bool(getattr(catalog, "voiced", False))
+    if voiced and not (named or only):
+        # Without a name: the devices added on the Names page there, of the
+        # intent's kind, each by name -- Assist's exposure doesn't count.
+        whole = call.home and not placed
+        areas = None if whole else [str(a) for a in values["place"].get("areas") or []]
+        kind = {key: _slot_value(call.slots.get(key), slots) for key in ("domain", "device_class")}
+        found = _implicit(catalog, areas, kind, call.name) if areas != [] else []
+        if not found and call.anywhere and not placed:
+            found = _implicit(catalog, None, kind, call.name)  # nothing of the kind here: the whole home's
+        if not found and areas == [] and not call.anywhere:
+            outcome.error = "the satellite has no area"
+            return await _say(hass, behavior, values, outcome, "no_area", say.NO_AREA, {"error": outcome.error})
+        if not found:
+            none = {"count": 0, "names": [], "ids": [], "unavailable": [], "speech": ""}
+            return await _say(hass, behavior, values, outcome, "no_devices", say.nothing_there(where), none)
+        only = found
     if named:
         targets = [{"name": str(e)} for e in slots["entity"]]
     elif only:
@@ -752,24 +846,32 @@ async def _run_intent(
     results: list[dict[str, Any]] = []
     language = languages.current().code
     seen = {k: v for k, v in values.items() if k not in PRIVATE}
+    by_name = named or voiced  # a device named, or added on the Names page: Assist's exposure aside
     try:
-        for slots_of in calls:
-            result = await hass.handle_intent(
-                call.name, slots_of, seen, language, satellite.device_id, values["command"]["text"],
-                exposed_only=not named,
-            )
-            if (
-                call.anywhere and not (named or placed)
-                and (result.get("error") or {}).get("reason") == "area"
-            ):
-                # Nothing of the kind here: the whole home's.
-                anywhere = {k: v for k, v in slots_of.items() if k != "area"}
-                outcome.sequence.append({"intent": call.name, "slots": anywhere})
+        if voiced and all("name" in c for c in calls):
+            # One for each device, together.
+            results = list(await asyncio.gather(*(
+                hass.handle_intent(call.name, c, seen, language, satellite.device_id, values["command"]["text"], exposed_only=False)
+                for c in calls
+            )))
+        else:
+            for slots_of in calls:
                 result = await hass.handle_intent(
-                    call.name, anywhere, seen, language, satellite.device_id, values["command"]["text"],
-                    exposed_only=not named,
+                    call.name, slots_of, seen, language, satellite.device_id, values["command"]["text"],
+                    exposed_only=not by_name,
                 )
-            results.append(result)
+                if (
+                    call.anywhere and not (named or placed)
+                    and (result.get("error") or {}).get("reason") == "area"
+                ):
+                    # Nothing of the kind here: the whole home's.
+                    anywhere = {k: v for k, v in slots_of.items() if k != "area"}
+                    outcome.sequence.append({"intent": call.name, "slots": anywhere})
+                    result = await hass.handle_intent(
+                        call.name, anywhere, seen, language, satellite.device_id, values["command"]["text"],
+                        exposed_only=not by_name,
+                    )
+                results.append(result)
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         outcome.error = str(err)
         _LOGGER.error("Intent %s failed: %s", call.name, err)
@@ -1221,9 +1323,12 @@ def _music_players(
     satellite's area. Music Assistant's -- and for a control (CONTROLS), any
     media player exposed to Assist after them, but the satellite's own
     speaker; "the music" (``kind``) is Music Assistant's alone, "the TV" the
-    TVs."""
+    TVs. As voice sees it (voice_catalog), a player is in an area when it was
+    added to it on the Names page."""
     catalog = getattr(hass, "catalog", None)
     music = catalog.music_players() if catalog is not None else []
+    if catalog is not None and catalog.voiced:
+        music = [p for p in music if p.entity_id in (catalog.exposed or ())]
     kind = slots.get("kind")
     others: list[Any] = []
     if catalog is not None and (operation in music_ops.CONTROLS or kind == "tv"):

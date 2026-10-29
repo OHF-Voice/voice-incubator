@@ -2,6 +2,15 @@
 
 ## 0.2.0
 
+- **The Names page decides what voice acts on**: only the devices added
+  there, each under its area (Home Assistant's, unless set there for voice),
+  and **controlled from** anywhere, its area (by name only from a satellite
+  there -- not even with the area said elsewhere), by name only (never part of
+  "turn on the lights"), or only implicitly (no name). "Turn on the lights",
+  "close the blinds", "lock up", pausing what plays and the questions about
+  an area act on the devices added there, each by name; Home Assistant's
+  exposure to Assist no longer counts. Templates see `devices` in place of
+  `exposed`. (`local: true` is read as `reach: area`.)
 - **Devices are said by their names on the Names page**, not Home
   Assistant's ("Outdoor Humidity is 54 percent.", not "GW2000B Humidity"):
   the library's replies, the app's own ("Ecobee can't …"), what an intent

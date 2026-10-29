@@ -60,7 +60,7 @@ from adapt_ctc.config import ConfigError, _phrase
 from . import languages, skills
 from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots
 from .fallback import kin, label_of
-from .store import Compiled
+from .store import Compiled, Device
 from .voices import TypedText, VoiceChoice
 
 _LOGGER = logging.getLogger(__name__)
@@ -832,9 +832,9 @@ class Engine:
         and one in the bedroom). Said with a room, they are the ones there --
         none there, and nothing runs: the hint says why. Without one, a name
         shared by several is the one in the satellite's area; with none
-        there, nothing runs and the hint says where they are. A device heard
-        only from its own room (``local``) is the same: elsewhere, only with
-        its room said."""
+        there, nothing runs and the hint says where they are. One controlled
+        only from its area (``reach: area``, the Names page) is heard only
+        from a satellite there, not even with its area said elsewhere."""
         slots = decision.slots
         entities = list(slots.get("entity") or [])
         if not entities or decision.command is None:
@@ -854,6 +854,14 @@ class Engine:
         item = names.get(entities[0]) or {}
         device = item if isinstance(item, str) else item.get("name") or entities[0]
         say = languages.speech()
+        # Controlled only from its area: elsewhere, it isn't there to hear.
+        candidates = [
+            c for c in candidates
+            if (compiled.devices.get(c) or Device()).reach != "area" or (satellite.area_id and where[c] == satellite.area_id)
+        ]
+        if not candidates:
+            why = say.not_here(device, [])
+            return {"source": "place", "command": decision.command.id, "text": say.hint(decision.command.description, why)}
 
         def room(area_id: str) -> str:
             area_item = ((compiled.data.get("names") or {}).get("areas") or {}).get(area_id) or {}
@@ -861,10 +869,10 @@ class Engine:
 
         if not areas:
             here = [c for c in candidates if satellite.area_id and where[c] == satellite.area_id]
-            shared = len(candidates) > len(entities)
-            if here and shared:
-                slots["entity"] = here
-            if here or not (shared or any(e in compiled.local for e in entities)):
+            # More with the names heard than were heard ("lamp" and "fan" are two).
+            shared = len(candidates) > max(len([e for e in entities if e in candidates]), 1)
+            if here or not shared:
+                slots["entity"] = here or candidates
                 return None
             # Not here, and not to be guessed: where they are, said.
             rooms = list(dict.fromkeys(room(where[c]) for c in candidates if where[c] is not None))

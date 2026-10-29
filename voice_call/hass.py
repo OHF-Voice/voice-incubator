@@ -144,6 +144,10 @@ class Catalog:
     """MAC (aa:bb:..) -> the devices with it (an ESPHome device, ...)."""
     exposed: set[str] | None = None
     """The entities exposed to Assist (every domain's); None: not known."""
+    voiced: bool = False
+    """As voice sees it (actions.voice_catalog): each device added on the
+    Names page in its area there, and ``exposed`` what is meant as part of an
+    area -- Assist's exposure doesn't count."""
 
     def device_media_player(self, mac: str) -> str | None:
         """The ESPHome media player of the device with this MAC: where Home

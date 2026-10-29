@@ -128,22 +128,36 @@ def test_names_are_in_their_language(english, tmp_path):
     assert "kitchen" not in plain_names(store)
 
 
-def test_a_device_heard_only_from_its_room(english, tmp_path):
-    """``local`` is the device's, whatever it is called in: kept when it is
-    named in another language, and gone when it is no longer set."""
+def test_a_devices_own_whatever_it_is_called_in(english, tmp_path):
+    """How a device is reached (reach) and its area for voice are its own,
+    whatever it is called in: kept when it is named in another language. One
+    only implicit has no name; removed, it is gone."""
+    from voice_call.store import Device  # pylint: disable=import-outside-toplevel
+
     store = Store(tmp_path)
-    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "local": True})
-    assert store.load().local == frozenset({"light.office_lamp"})
+    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "reach": "area", "area": "office"})
+    assert store.load().devices == {"light.office_lamp": Device("area", "office")}
     languages.use("de")
     store.put_name("entities", "light.office_lamp", {"name": "Lampe"})
     entities = store.document()["names"]["entities"]
-    assert entities["light.office_lamp"] == {"name": "Lamp", "de": {"name": "Lampe"}, "local": True}
-    assert store.load().local == frozenset({"light.office_lamp"})
+    assert entities["light.office_lamp"] == {"name": "Lamp", "de": {"name": "Lampe"}, "reach": "area", "area": "office"}
     assert store.load().data["names"]["entities"]["light.office_lamp"] == {"name": "Lampe"}  # what adapt-ctc reads
-    store.put_name("entities", "light.office_lamp", {"name": "Lampe", "local": False})
-    assert "local" not in store.document()["names"]["entities"]["light.office_lamp"]
-    with pytest.raises(ConfigError, match="local: true or false, for a device"):
-        compile_store({"names": {"areas": {"office": {"name": "Office", "local": True}}}})
+    languages.use("en")
+    store.put_name("entities", "light.office_lamp", {"name": "Lamp", "reach": "anywhere", "area": None})
+    assert store.document()["names"]["entities"]["light.office_lamp"] == {"name": "Lamp", "de": {"name": "Lampe"}}
+    # Only implicit: no name, heard by none.
+    store.put_name("entities", "light.night", {"name": "", "reach": "implicit"})
+    assert store.document()["names"]["entities"]["light.night"] == {"reach": "implicit"}
+    compiled = store.load()
+    assert compiled.devices["light.night"] == Device("implicit") and "light.night" not in compiled.data["names"]["entities"]
+    store.put_name("entities", "light.night", None)
+    assert "light.night" not in store.document()["names"]["entities"]
+    # What it was: local, its area's.
+    assert compile_store({"names": {"entities": {"light.x": {"name": "X", "local": True}}}}).devices["light.x"].reach == "area"
+    with pytest.raises(ConfigError, match="reach: one of anywhere, area, name, implicit"):
+        compile_store({"names": {"entities": {"light.x": {"name": "X", "reach": "everywhere"}}}})
+    with pytest.raises(ConfigError, match="only a device has one"):
+        compile_store({"names": {"areas": {"office": {"name": "Office", "reach": "area"}}}})
 
 
 def test_lists_are_in_their_language(english, tmp_path):

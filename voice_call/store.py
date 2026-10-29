@@ -136,9 +136,9 @@ class Compiled:
     """Lists with phrases in other languages but none in the app's: how
     many, by language. ``data``'s lists are the language's built-in ones
     (``Pack.lists``) with the home's own in it on top."""
-    local: frozenset[str] = frozenset()
-    """Devices heard by their name only from a satellite in their area, or
-    with their area said (``local``)."""
+    devices: dict[str, Device] = field(default_factory=dict)
+    """The devices added on the Names page, by entity id: all voice may act
+    on, and how (``Device``)."""
 
 
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
@@ -158,9 +158,45 @@ def language_name(code: str) -> str:
 
 
 NAME_FIELDS = ("name", "aliases")
-THING_FIELDS = ("local",)
-"""The thing's own, whatever language it is named in: ``local``, a device
-heard by its name only from a satellite in its area, or with its area said."""
+REACH = ("anywhere", "area", "name", "implicit")
+"""How a device added on the Names page is reached by voice ("Controlled
+from"): ``anywhere``, by its name from every satellite, and as part of its
+area ("turn on the lights"); ``area``, by its name only from a satellite in
+its area -- not even with the area said -- and as part of it; ``name``, by
+its name from every satellite, never as part of its area; ``implicit``, only
+as part of its area, with no name."""
+THING_FIELDS = ("reach", "area", "local")
+"""The device's own, whatever language it is named in: its ``reach`` and its
+``area`` for voice, in place of Home Assistant's. (``local``: what ``reach:
+area`` was.)"""
+
+
+@dataclass(frozen=True)
+class Device:
+    """A device added on the Names page: what voice may act on, and how."""
+
+    reach: str = "anywhere"
+    """REACH."""
+    area: str | None = None
+    """Its area for voice, set on the Names page; None: Home Assistant's."""
+
+    @property
+    def named(self) -> bool:
+        """Whether it is heard by a name."""
+        return self.reach != "implicit"
+
+    @property
+    def implicit(self) -> bool:
+        """Whether it is part of what is meant in its area ("the lights")."""
+        return self.reach != "name"
+
+
+def device_of(entry: Any) -> Device:
+    """A Names page entry as a device."""
+    if not isinstance(entry, dict):
+        return Device()
+    reach = entry.get("reach") or ("area" if entry.get("local") else "anywhere")
+    return Device(str(reach), str(entry["area"]) if entry.get("area") else None)
 
 
 def name_in(entry: Any, here: str, default: str) -> Any:
@@ -199,10 +235,11 @@ def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
             if isinstance(entry, dict):
                 for key in entry:
                     if key in THING_FIELDS:
-                        if kind != "entities" or not isinstance(entry[key], bool):
-                            raise ConfigError(f"names.{kind}.{item_id}.{key}: true or false, for a device")
+                        _check_own(kind, str(item_id), key, entry[key])
                     elif key not in NAME_FIELDS and not LANGUAGE_CODE.fullmatch(str(key)):
                         raise ConfigError(f"names.{kind}.{item_id}: {key!r} is neither name, aliases nor a language code")
+            if kind == "entities" and not device_of(entry).named:
+                continue  # heard by no name: only as part of its area
             said = name_in(entry, here, default)
             if said is not None:
                 out[kind][str(item_id)] = said
@@ -210,6 +247,19 @@ def names_in(names: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
             for language in named_languages(entry, default):
                 hidden[language] = hidden.get(language, 0) + 1
     return out, hidden
+
+
+def _check_own(kind: str, item_id: str, key: str, value: Any) -> None:
+    """A device's own (THING_FIELDS), as it may be."""
+    where = f"names.{kind}.{item_id}.{key}"
+    if kind != "entities":
+        raise ConfigError(f"{where}: only a device has one")
+    if key == "reach" and value not in REACH:
+        raise ConfigError(f"{where}: one of {', '.join(REACH)}")
+    if key == "area" and not (isinstance(value, str) and value):
+        raise ConfigError(f"{where}: an area id")
+    if key == "local" and not isinstance(value, bool):
+        raise ConfigError(f"{where}: true or false")
 
 
 def list_in(values: Any, here: str, default: str) -> Any:
@@ -306,13 +356,10 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     config = adapt_config(data, commands)
     if config is not None:
         parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
-    local = frozenset(
-        str(item_id) for item_id, entry in (names.get("entities") or {}).items()
-        if isinstance(entry, dict) and entry.get("local") and str(item_id) in said.get("entities", {})
-    )
+    devices = {str(item_id): device_of(entry) for item_id, entry in (names.get("entities") or {}).items()}
     return Compiled(
         data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names,
-        hidden_lists, local,
+        hidden_lists, devices,
     )
 
 
@@ -493,12 +540,20 @@ class Store:
         return self.update(edit)
 
     def put_name(self, kind: str, item_id: str, spec: dict[str, Any] | None) -> Compiled:
-        """Name a thing in the app's language (None: no longer), and set its
-        ``THING_FIELDS`` (``local``), kept whatever it is called in."""
+        """Name a thing in the app's language, and for a device set its own
+        (``reach``, ``area``: THING_FIELDS), kept whatever it is called in.
+        One reached only as part of its area (``reach: implicit``) has no
+        name. None: no longer named in the app's language -- and a thing
+        named in no language any more, or a device with no name, is gone."""
         if kind not in NAME_KINDS:
             raise ConfigError(f"names: unknown kind {kind!r}")
         spec = dict(spec) if spec is not None else None
-        local = spec.pop("local", None) if spec is not None else None
+        own = {k: spec.pop(k) for k in ("reach", "area") if k in spec} if spec is not None else {}
+        for key, value in own.items():
+            if value is not None:
+                _check_own(kind, item_id, key, value)
+        if own.get("reach") == "implicit":
+            spec = {}  # no name
 
         def edit(document: dict[str, Any]) -> None:
             names = document["names"]
@@ -513,22 +568,24 @@ class Store:
                 if isinstance(entry, dict)
                 else {}
             )
-            # Only from its room: as set, else as it was.
-            only_here = bool(local) if local is not None else bool(isinstance(entry, dict) and entry.get("local"))
+            # Its own: as set, else as it was.
+            was = device_of(entry) if isinstance(entry, dict) else Device()
+            reach = own["reach"] if own.get("reach") else was.reach
+            area = own["area"] if "area" in own else was.area
             if here != default:
                 if isinstance(entry, str) or (isinstance(entry, dict) and any(entry.get(k) for k in NAME_FIELDS)):
                     base = {"name": entry} if isinstance(entry, str) else {k: entry[k] for k in NAME_FIELDS if k in entry}
                 else:
                     base = {}
-                kept = {**base, **others, **({here: spec} if spec is not None else {})}
+                kept = {**base, **others, **({here: spec} if spec else {})}
             else:
                 kept = {**(spec or {}), **others}
-            if kept and only_here:
-                kept["local"] = True
-            if kept:
-                items[item_id] = kept
-            else:
+            if not kept and (spec is None or kind != "entities"):
                 items.pop(item_id, None)  # named in no language any more
+                return
+            if kind == "entities":
+                kept.update({**({"reach": reach} if reach != "anywhere" else {}), **({"area": area} if area else {})})
+            items[item_id] = kept
 
         return self.update(edit)
 

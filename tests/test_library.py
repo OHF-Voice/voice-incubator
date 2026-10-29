@@ -157,9 +157,10 @@ def test_every_language_files_its_commands_as_english_does():
 
 
 def test_a_name_in_several_rooms():
-    """A name several devices share is the one in the satellite's room, or
-    the room said; with none there, nothing is guessed. One heard only from
-    its room (local) is the same, however many have it."""
+    """A name several devices share is the one in the satellite's area, or
+    the area said; with none there, nothing is guessed. One controlled from
+    its area (reach: area) is heard only there -- not even with its area said
+    elsewhere; one by name only from anywhere; one only implicit, by none."""
     from voice_call.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
     from voice_call.store import compile_store  # pylint: disable=import-outside-toplevel
 
@@ -171,7 +172,8 @@ def test_a_name_in_several_rooms():
         "names": {
             "entities": {
                 "light.office_lamp": {"name": "Lamp"}, "light.bedroom_lamp": {"name": "Lamp"},
-                "light.office_overhead": {"name": "Overhead Light", "local": True}, "light.porch": {"name": "Porch Light"},
+                "light.office_overhead": {"name": "Overhead Light", "reach": "area"}, "light.porch": {"name": "Porch Light"},
+                "light.desk": {"name": "Desk Light", "reach": "name"}, "light.night": {"name": "Night Light", "reach": "implicit"},
             },
             "areas": {"office": "Office", "bedroom": "Bedroom", "kitchen": "Kitchen"},
         },
@@ -181,7 +183,7 @@ def test_a_name_in_several_rooms():
     engine = Engine(ctc, None, None, threads=2)
     engine.build(compile_store(store))
     engine.entity_area = {"light.office_lamp": "office", "light.bedroom_lamp": "bedroom", "light.office_overhead": "office",
-                          "light.porch": None}.get
+                          "light.porch": None, "light.desk": "office", "light.night": "office"}.get
 
     def heard(text, area):
         decision = engine.recognize_text(text, Satellite("s", area.title(), area, area.title()))
@@ -193,10 +195,13 @@ def test_a_name_in_several_rooms():
     assert heard("turn on the lamp", "kitchen") == (
         "It looks like you're trying to turn on a device, but there's no Lamp here, only in the Office and in the Bedroom.")
     assert heard("turn on the overhead light", "office") == ["light.office_overhead"]
-    assert heard("turn on the overhead light", "kitchen").endswith("but there's no Overhead Light here, only in the Office.")
-    assert heard("turn on the overhead light in the office", "kitchen") == ["light.office_overhead"]
-    # One no other has, not only its room's: from anywhere.
+    assert heard("turn on the overhead light", "kitchen").endswith("but there's no Overhead Light here.")
+    assert heard("turn on the overhead light in the office", "kitchen").endswith("but there's no Overhead Light here.")
+    # One no other has, from anywhere: by name only, too.
     assert heard("turn on the porch light", "kitchen") == ["light.porch"]
+    assert heard("turn on the desk light", "kitchen") == ["light.desk"]
+    # Only implicit: no name to hear.
+    assert heard("turn on the night light", "office") != ["light.night"]
 
 def test_icons_are_material_design_names():
     base = {"description": "x", "examples": ["x"], "response": "ok"}

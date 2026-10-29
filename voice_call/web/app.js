@@ -2294,29 +2294,110 @@ function fillSpeechPanel(panel, voices) {
 
 // ------------------------------------------------------------------- names
 
+// How a device is reached by voice (store.REACH): "Controlled from".
+const REACH = [
+  ["anywhere", "Anywhere", "by its name from every satellite, and as part of its area (“turn on the lights”)"],
+  ["area", "Its area", "by its name only from a satellite in its area, and as part of it"],
+  ["name", "By name only", "by its name from every satellite, never as part of its area"],
+  ["implicit", "Only implicitly", "only as part of its area, with no name"],
+];
+
+// Home Assistant's aliases, but not one that is the name again.
+const sameName = (a, b) => String(a).toLowerCase().split(/\s+/).join(" ").trim() === String(b).toLowerCase().split(/\s+/).join(" ").trim();
+
+// The devices voice acts on: each added to an area, by name or as part of it.
+function devicesPanel(store, areas) {
+  const devices = store.devices || {};
+  const names = store.names.entities || {};
+  const areaName = (id) => (id ? areas[id] || id : "No area");
+  const reachLabel = (value) => (REACH.find(([v]) => v === value) || REACH[0])[1];
+  const form = h("div");
+  function edit(itemId, suggestion) {
+    const device = devices[itemId] || {};
+    const entry = names[itemId];
+    const haArea = suggestion ? suggestion.area_id : device.ha_area;
+    const name = h("input", { type: "text", placeholder: "name",
+      value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : "") });
+    let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
+      : (suggestion ? asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name)) : []);
+    const area = h("select", {},
+      h("option", { value: "" }, `${areaName(haArea)} (Home Assistant's)`),
+      ...Object.entries(areas).map(([id, text]) => h("option", { value: id, selected: device.area === id }, text)));
+    const reach = h("select", {}, ...REACH.map(([value, label]) => h("option", { value, selected: (device.reach || "anywhere") === value }, label)));
+    const naming = h("div", { class: "grid2" },
+      field("Name", name),
+      field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Echo Bee"), "Other names, and spellings the speech model uses (it writes ecobee as “Echo Bee”)."));
+    const shown = () => { naming.style.display = reach.value === "implicit" ? "none" : ""; };
+    reach.addEventListener("change", shown);
+    shown();
+    fill(form, h("div", { class: "panel" },
+      h("div", { class: "row" }, h("b", {}, itemId), suggestion ? h("span", { class: "muted small" }, "suggested from Home Assistant — edit before saving") : null),
+      h("div", { class: "grid2" },
+        field("Area", area, "Where it is for voice: Home Assistant's area unless you pick another."),
+        field("Controlled from", reach, REACH.map(([, label, what]) => `${label}: ${what}.`).join(" "))),
+      naming,
+      h("div", { class: "row" },
+        h("button", { class: "primary", onclick: async () => {
+          try {
+            await api("PUT", `names/entities/${encodeURIComponent(itemId)}`, { name: name.value, aliases, reach: reach.value, area: area.value || null });
+            toast("Saved"); pageNames(); refreshStatus();
+          } catch (err) { form.append(errorBox(err)); }
+        } }, "Save"),
+        h("button", { onclick: () => fill(form) }, "Cancel"))));
+  }
+  // By the area each is in for voice.
+  const byArea = {};
+  for (const [itemId, device] of Object.entries(devices)) {
+    const where = device.area || device.ha_area || "";
+    (byArea[where] = byArea[where] || []).push(itemId);
+  }
+  const order = Object.keys(byArea).sort((a, b) => (a ? areaName(a) : "\uffff").localeCompare(b ? areaName(b) : "\uffff"));
+  const said = (itemId) => { const entry = names[itemId]; return entry ? (typeof entry === "string" ? entry : entry.name) : ""; };
+  return h("div", { class: "panel" },
+    heading("h2", "Devices", "Voice acts only on the devices added here: by name, or as part of their area (“turn on the lights”). Home Assistant's exposure to Assist doesn't count."),
+    order.length ? order.map((where) => h("div", { class: "section" },
+      h("h3", { class: "row" }, areaName(where), h("span", { class: "badge" }, String(byArea[where].length))),
+      h("table", {}, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {}, "Controlled from"), h("th", {})),
+        ...byArea[where].map((itemId) => {
+          const entry = names[itemId];
+          const device = devices[itemId];
+          return h("tr", {},
+            h("td", {}, h("code", {}, itemId)),
+            h("td", {}, device.reach === "implicit" ? h("span", { class: "muted" }, "no name") : said(itemId)),
+            h("td", {}, entry && typeof entry !== "string" ? asList(entry.aliases).join(", ") : ""),
+            h("td", {}, reachLabel(device.reach), device.area ? h("span", { class: "badge", style: "margin-left:8px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+            h("td", { style: "text-align:right; white-space:nowrap" },
+              h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
+              h("button", { class: "link", onclick: async () => {
+                if (!confirm(`Remove ${itemId} from voice?`)) return;
+                try { await api("DELETE", `names/entities/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
+              } }, "remove")));
+        })))) : h("p", { class: "muted" }, "None yet."),
+    field("Add", hassPicker("entity", (item) => edit(item.id, item)), "Pick from Home Assistant; its name, aliases and area are offered as a starting point."),
+    form);
+}
+
 async function pageNames() {
-  const store = await loadStore();
-  const kinds = [["entities", "entity", "Devices"], ["areas", "area", "Areas"], ["floors", "floor", "Floors"]];
-  const sections = kinds.map(([plural, kind, title]) => {
+  const [store, haAreas] = await Promise.all([loadStore(), areaLabels()]);
+  // Home Assistant's areas, and those named here (when it isn't connected).
+  const named = Object.fromEntries(Object.entries(store.names.areas || {}).map(([id, e]) => [id, typeof e === "string" ? e : e.name]));
+  const areas = { ...named, ...haAreas };
+  const kinds = [["areas", "area", "Areas"], ["floors", "floor", "Floors"]];
+  const sections = [devicesPanel(store, areas), ...kinds.map(([plural, kind, title]) => {
     const names = store.names[plural] || {};
     const form = h("div");
     function edit(itemId, entry, suggestion) {
       const name = h("input", { type: "text", value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : ""), placeholder: "name" });
-      // Home Assistant's aliases, but not one that is the name again.
-      const same = (a, b) => String(a).toLowerCase().split(/\s+/).join(" ").trim() === String(b).toLowerCase().split(/\s+/).join(" ").trim();
       let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
-        : (suggestion ? asList(suggestion.aliases).filter((a) => !same(a, suggestion.name)) : []);
-      const local = h("input", { type: "checkbox", checked: (store.local_names || []).includes(itemId) });
+        : (suggestion ? asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name)) : []);
       fill(form, h("div", { class: "panel" },
         h("div", { class: "row" }, h("b", {}, itemId), suggestion ? h("span", { class: "muted small" }, "suggested from Home Assistant — edit before saving") : null),
         h("div", { class: "grid2" },
           field("Name", name),
-          field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Echo Bee"), "Other names, and spellings the speech model uses (it writes ecobee as “Echo Bee”).")),
-        kind === "entity" ? h("label", { class: "row" }, local, "Only from its room",
-          hint("Heard by this name only from a satellite in its area, or with its room said. A name several devices share is always the one in the satellite's room.")) : null,
+          field("Also called", chipsInput(aliases, (v) => { aliases = v; }, "Kitchenette"), "Other names, and spellings the speech model uses.")),
         h("div", { class: "row" },
           h("button", { class: "primary", onclick: async () => {
-            try { await api("PUT", `names/${plural}/${encodeURIComponent(itemId)}`, { name: name.value, aliases, ...(kind === "entity" ? { local: local.checked } : {}) }); toast("Saved"); pageNames(); refreshStatus(); }
+            try { await api("PUT", `names/${plural}/${encodeURIComponent(itemId)}`, { name: name.value, aliases }); toast("Saved"); pageNames(); refreshStatus(); }
             catch (err) { form.append(errorBox(err)); }
           } }, "Save"),
           h("button", { onclick: () => fill(form, ) }, "Cancel"))));
@@ -2326,8 +2407,7 @@ async function pageNames() {
       Object.keys(names).length ? h("table", {}, h("tr", {}, h("th", {}, "Id"), h("th", {}, "Name"), h("th", {}, "Also called"), h("th", {})),
         ...Object.entries(names).map(([itemId, entry]) => h("tr", {},
           h("td", {}, h("code", {}, itemId)),
-          h("td", {}, typeof entry === "string" ? entry : entry.name,
-            (store.local_names || []).includes(itemId) ? h("span", { class: "badge", style: "margin-left:8px", title: "Heard by this name only from its room" }, "its room") : null),
+          h("td", {}, typeof entry === "string" ? entry : entry.name),
           h("td", {}, typeof entry === "string" ? "" : asList(entry.aliases).join(", ")),
           h("td", { style: "text-align:right; white-space:nowrap" },
             h("button", { class: "link", onclick: () => edit(itemId, entry) }, "edit"),
@@ -2335,7 +2415,7 @@ async function pageNames() {
         h("p", { class: "muted" }, "None yet."),
       field("Add", hassPicker(kind, (item) => edit(item.id, null, item)), "Pick from Home Assistant; its name and aliases are offered as a starting point."),
       form);
-  });
+  })];
 
   const listForm = h("div");
   function editList(name, values) {
@@ -2352,7 +2432,7 @@ async function pageNames() {
   }
 
   fill($main, 
-    heading("h1", "Names", "What things are called when spoken. Each name points at one Home Assistant id. Nothing is taken from Home Assistant automatically: its names and aliases are offered as suggestions."),
+    heading("h1", "Names", "What voice acts on, and what things are called when spoken. Nothing is taken from Home Assistant automatically: its names, aliases and areas are offered as suggestions."),
     hiddenNotice(store.hidden_names, "name", "names",
       "A name is in the language it was given in. Name a thing here for this language too; its other names come back when the app's Language option is theirs again."),
     ...sections,
@@ -3383,7 +3463,7 @@ function sessionGlance(record) {
 
 // How an intent command can turn out (commands.INTENT_OUTCOMES), and the
 // intents offered by name.
-const INTENT_OUTCOMES = ["done", "no_devices", "not_exposed", "not_supported", "unavailable", "no_area", "failed"];
+const INTENT_OUTCOMES = ["done", "no_devices", "not_supported", "unavailable", "no_area", "failed"];
 const INTENTS = ["HassTurnOn", "HassTurnOff", "HassToggle", "HassLightSet", "HassClimateSetTemperature", "HassSetPosition",
   "HassMediaPause", "HassMediaUnpause", "HassMediaNext", "HassMediaPrevious", "HassSetVolume", "HassFanSetSpeed",
   "HassVacuumStart", "HassVacuumReturnToBase", "HassListAddItem", "HassGetState"];
