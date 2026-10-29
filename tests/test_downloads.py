@@ -122,3 +122,21 @@ def test_the_app_runs_on_what_it_downloads(tmp_path):
     assert has_shared_model(pack.transducer_dir(tmp_path), ctc)
     (ctc / "tokens.txt").unlink()
     assert pack.missing(tmp_path) == ["models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"]
+
+
+def test_the_model_folders_are_as_the_download_left_them(tmp_path):
+    """Found when they're used, not when the app is made: on the first start,
+    the CTC model's int8 folder is a link to nothing until it is downloaded."""
+    from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
+
+    from voice_labs import languages  # pylint: disable=import-outside-toplevel
+    from voice_labs.server import VoiceLabsApp  # pylint: disable=import-outside-toplevel
+
+    app = SimpleNamespace(language=languages.load("en"), root=tmp_path)
+    ctc = tmp_path / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
+    ctc.parent.mkdir(parents=True)
+    ctc.symlink_to(tmp_path / "data/ctc")
+    assert VoiceLabsApp._ctc_dir.fget(app).name == "stt_en_parakeet_tdt_ctc_110m"  # pylint: disable=protected-access
+    (tmp_path / "data/ctc").mkdir(parents=True)
+    (tmp_path / "data/ctc/tokens.txt").write_text("<blk> 0\n", encoding="utf-8")
+    assert VoiceLabsApp._ctc_dir.fget(app) == ctc  # pylint: disable=protected-access

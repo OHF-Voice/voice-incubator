@@ -565,10 +565,6 @@ class VoiceLabsApp:
             self.wake_training.training_steps = [max(1, options.wake_training_steps // rungs)] * rungs
         self._wake_lock = asyncio.Lock()
         """One wake word change at a time: each may rebuild a verifier."""
-        # The fp32 encoder is 862 MB resident, which is most of a 2 GB Pi.
-        # Prefer the int8 build when it has been produced.
-        self._ctc_dir = self.language.ctc_dir(root)
-        self._tdt_dirs = tdt_models(root)
         self.tdt_status: str | None = None
         """What became of the last change of TDT model, for the UI."""
         self._model_status: str | None = None
@@ -3370,6 +3366,18 @@ class VoiceLabsApp:
         """settings.json ``instrument``: what the satellite's sounds are played
         on (Speech.instruments; None: tts.INSTRUMENT)."""
         return self.store.settings.get("instrument")
+
+    @property
+    def _ctc_dir(self) -> Path:
+        """The CTC model's directory, as it is now: its int8 build -- which
+        the first start downloads -- when there is one (the fp32 encoder is
+        862 MB resident, most of a 2 GB Pi)."""
+        return self.language.ctc_dir(self.root)
+
+    @property
+    def _tdt_dirs(self) -> dict[str, Path]:
+        """Each transducer's directory, as it is now (tdt_models)."""
+        return tdt_models(self.root)
 
     def piper_settings(self) -> dict[str, Any]:
         """settings.json ``piper``: the voice replies are said in, its
