@@ -7,6 +7,9 @@
   (the wake word furthest above the background, on the echo-cancelled
   audio); the others end their call (`answered_elsewhere`), and new firmware
   flashes their ring dimly. Sessions record each one's measure.
+- **Piper speaks when Home Assistant can't reach the media player** a TTS
+  entity would speak on (unavailable: an ESPHome device it can't connect to),
+  rather than ten silent seconds waiting for it.
 - **The Names page decides what voice acts on**: only the devices added
   there, each under its area (Home Assistant's, unless set there for voice),
   and **controlled from** anywhere, its area (by name only from a satellite

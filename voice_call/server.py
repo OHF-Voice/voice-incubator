@@ -2709,6 +2709,11 @@ class VoiceCallApp:
         if voice.tts_voice:
             data["options"] = {"voice": voice.tts_voice}
         own = target == satellite.device_media_player
+        # Asked to speak on a media player it can't reach (an ESPHome device it
+        # can't connect to), Home Assistant only warns in its log: Piper
+        # speaks instead.
+        if await self.hass.render_template("{{ states(target) }}", {"target": target}) == "unavailable":
+            raise HassError(f"{target} is unavailable")
         session.announcing.clear()
         session.announced.clear()
         started = time.perf_counter()

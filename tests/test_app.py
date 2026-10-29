@@ -935,6 +935,17 @@ async def _voices(tmp_path: Path) -> None:
         assert 0 <= speech["requested"] <= speech["started"]  # Home Assistant took it, then the device said it
         assert satellite.played == played  # nothing streamed: the satellite fetched it
 
+        # Its media player unavailable (Home Assistant can't connect to it):
+        # Piper speaks, over the call.
+        own_player = fake_hass.ESPHOME_DEVICE["media_player"]
+        hass.states[own_player] = ("unavailable", {})
+        asked = len(spoken)
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        assert len(spoken) == asked and satellite.played > played
+        failed = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech_failed")
+        assert failed["on"] == own_player and "unavailable" in failed["error"]
+        del hass.states[own_player]
+
         # Free text comes from the STT entity (said by Piper, so there is audio
         # for it to hear).
         hass.stt_text = "Please play the album Kind of Blue."
