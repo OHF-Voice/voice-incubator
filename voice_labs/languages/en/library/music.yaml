@@ -298,8 +298,11 @@ commands:
     title: Set the volume
     icon: mdi:volume-equal
     description: set the volume
-    require: [[volume]]
-    optional: [[set, change, make], [to], [percent], [in, on], [the]]
+    # Also turned up or down to a number: "turn the TV up to 50", "turn down
+    # the volume to 20 percent"; never the lights' or the heat's.
+    require: [[volume, turn up, turn ... up, turn down, turn ... down]]
+    optional: [[set, change, make, turn up, turn down], [volume], [it], [to, at], [percent], [in, on], [the]]
+    exclude: [light, lights, brightness, heat, temperature, thermostat, degrees]
     number: percentage
     lists:
       kind: {list: media_kinds}

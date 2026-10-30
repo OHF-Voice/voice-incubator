@@ -77,8 +77,9 @@ commands:
     title: Set your volume
     icon: mdi:volume-equal
     description: set the satellite's own volume
-    require: [[your volume]]
-    optional: [[set, change, make], [to], [percent]]
+    # Also turned up or down to a number: "turn yourself up to 50".
+    require: [[your volume, yourself]]
+    optional: [[set, change, make, turn, turn up, turn down], [up, down], [to, at], [percent]]
     number: percentage
     action:
       action: media_player.volume_set

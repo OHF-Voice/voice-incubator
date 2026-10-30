@@ -46,7 +46,10 @@
   brightness** also hears the lights turned on, up or down, brightened or
   dimmed to a number ("dim the lights to 20", "turn on the kitchen lights to
   50 percent", "turn the desk lamp up to 80 percent"), and the lights given
-  a number alone ("set the lights to 50", which set the thermostat).
+  a number alone ("set the lights to 50", which set the thermostat). **Set
+  the volume** likewise hears it turned up or down to a number ("turn the TV
+  up to 50", "turn down the volume to 20 percent"), and **Set your volume**
+  "turn yourself down to 20".
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):
