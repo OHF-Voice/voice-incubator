@@ -42,6 +42,11 @@
   own, the electric piano G5, the rest C5), and **Try** plays them in the
   browser; an area may have its own of both. `electric_piano` in settings is
   the Tine Electric Piano, as it was.
+- **Brighter and Dimmer go 30 percent at a time**, not a fifth. **Set the
+  brightness** also hears the lights turned on, up or down, brightened or
+  dimmed to a number ("dim the lights to 20", "turn on the kitchen lights to
+  50 percent", "turn the desk lamp up to 80 percent"), and the lights given
+  a number alone ("set the lights to 50", which set the thermostat).
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):

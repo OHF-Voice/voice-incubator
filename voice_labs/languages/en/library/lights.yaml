@@ -21,7 +21,7 @@ shared:
     combinations: [[area], [floor]]
     needs:
       - Add names for the areas and floors it may act in (Names page).
-  # A fifth brighter or dimmer (slots.step), never to off: the lights that
+  # 30 percent brighter or dimmer (slots.step), never to off: the lights that
   # are on here, or in an area or floor named, of those added there (Names) --
   # no intent changes brightness by a step -- or a light by name, which
   # comes on to be brightened.
@@ -225,9 +225,21 @@ commands:
     icon: mdi:brightness-6
     description: set the brightness of the lights
     supports: brightness
-    require: [[brightness, percent]]
-    optional: [[set, change, make], [light, lights], [to], [in, on], [the], [brightness], [percent]]
-    exclude: [volume]
+    # To a number, also turned on, up or down, brightened or dimmed: "dim the
+    # lights to twenty", "turn on the kitchen lights to fifty percent". Turned
+    # up or down only with the lights, brightness or percent said, not to be
+    # the heat's or the TV's.
+    require: [[brightness, percent, brighten, dim, light, lights]]
+    optional:
+      - [set, change, make, turn, turn on, switch on, brighten, dim, turn up, turn down]
+      - [up, down]
+      - [light, lights]
+      - [to, at]
+      - [in, on]
+      - [the]
+      - [brightness]
+      - [percent]
+    exclude: [volume, music, tv, television]
     number: percentage
     intent:
       name: HassLightSet
@@ -300,7 +312,7 @@ commands:
     supports: brightness
     require: [[brighter, brighten, turn up, turn ... up, raise, increase], [light, lights, brightness]]
     optional: [[make], [a bit, a little], [in, on], [the]]
-    slots: {step: 20}
+    slots: {step: 30}
     action: *brightness_step
     verbosity: beep
     response:
@@ -334,7 +346,7 @@ commands:
     supports: brightness
     require: [[dimmer, dim, darker, turn down, turn ... down, lower, decrease], [light, lights, brightness]]
     optional: [[make], [a bit, a little], [in, on], [the]]
-    slots: {step: -20}
+    slots: {step: -30}
     action: *brightness_step
     verbosity: beep
     response:
