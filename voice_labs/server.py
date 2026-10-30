@@ -90,6 +90,10 @@ STOP_MODEL = STOP
 # once.
 PLAY_LEAD = 0.3
 
+# A command done at once: the acknowledgement sound waits this long after the
+# heard sound, rather than running straight on from it.
+ACKNOWLEDGE_GAP = 0.5
+
 
 # Home Assistant TTS on the satellite: how long until its media player starts
 # the announcement (synthesis, then fetching the URL), and plays it out.
@@ -357,6 +361,9 @@ class Cues:
         """Bytes the device was sent in this stream."""
         self.instrument = instrument
         """What they are played on (None: the whole home's)."""
+        self.until = 0.0
+        """When they have played out, by the loop's clock (about: the device's
+        own lag aside)."""
         self._app, self._session = app, session
         self._lock = asyncio.Lock()
 
@@ -370,10 +377,17 @@ class Cues:
         async with self._lock:
             if not self.sent:
                 self._session.drained.clear()  # an earlier "drained" must not answer for this
+            self.until = max(self.until, asyncio.get_running_loop().time()) + len(sound) / BYTE_RATE
             for offset in range(0, len(sound), MAX_PAYLOAD):
                 chunk = sound[offset : offset + MAX_PAYLOAD]
                 await self._app._send(self._session, Message.AUDIO_OUT, chunk)  # pylint: disable=protected-access
                 self.sent += len(chunk)
+
+    async def pause(self, seconds: float) -> None:
+        """Wait until ``seconds`` after they have played out."""
+        wait = self.until + seconds - asyncio.get_running_loop().time()
+        if wait > 0:
+            await asyncio.sleep(wait)
 
     async def stop(self, close: bool) -> None:
         """No more of them. ``close``: and end their stream, once played out;
@@ -2715,6 +2729,7 @@ class VoiceLabsApp:
             if not pieces:
                 timing["first"], timing["seconds"] = 0.0, len(acknowledge)
                 await self._quiet(session, close=False)
+                await self._after_cues(session, ACKNOWLEDGE_GAP)
                 yield acknowledge
                 return
             for piece in pieces:
@@ -3388,6 +3403,12 @@ class VoiceLabsApp:
         call = session.call
         if call is not None and call.cues is not None:
             await call.cues.stop(close)
+
+    async def _after_cues(self, session: Session, seconds: float) -> None:
+        """Wait until ``seconds`` after the call's sounds (``Cues.pause``)."""
+        call = session.call
+        if call is not None and call.cues is not None:
+            await call.cues.pause(seconds)
 
     async def _cue(self, session: Session, sound: str) -> None:
         """One of the call's sounds (tts.SOUNDS), when it has them (``Cues``)."""

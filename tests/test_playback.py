@@ -81,3 +81,22 @@ def test_paced_audio_stays_just_ahead_of_the_device():
         await asyncio.wait_for(play, 1)
 
     asyncio.run(scenario())
+
+
+def test_what_follows_the_sounds_waits_a_beat():
+    # A command done at once: the acknowledgement doesn't run straight on from
+    # the heard sound; done later, it doesn't wait.
+    async def scenario():
+        app, session = Recorder(), _session()
+        cues = server.Cues(app, session)
+        loop = asyncio.get_running_loop()
+        begun = loop.time()
+        await cues.play(bytes(int(0.3 * BYTE_RATE)))
+        await cues.pause(0.2)
+        assert loop.time() - begun >= 0.49
+        await asyncio.sleep(0.3)
+        begun = loop.time()
+        await cues.pause(0.2)
+        assert loop.time() - begun < 0.05
+
+    asyncio.run(scenario())

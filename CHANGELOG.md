@@ -30,6 +30,9 @@
   firmware also starts a call from the center button (press to talk), shows
   the mute switch on the ring, keeps Sendspin's delay for a speaker on the
   headphone jack, and plays the stock firmware's sounds for both.
+- **The acknowledgement sound waits a beat** after the heard sound (half a
+  second) when a command is done at once, rather than running straight on
+  from it.
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):
