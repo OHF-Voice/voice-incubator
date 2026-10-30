@@ -312,6 +312,10 @@ ROUTES = [
     ("turn the thermostat down", "heat_down", {"step": -1}),
     ("turn up the heat to 72", "set_thermostat", {"temperature": 72}),
     ("turn up the heating", "heat_up", {"step": 1}),
+    # Turned up or to a number, but none of these.
+    ("turn up the volume by 20 percent", "It looks like you're trying to set the volume, but I wasn't sure.", {}),
+    ("turn the air conditioning up to 72", "It looks like you're trying to set the volume, but I wasn't sure.", {}),
+    ("set the lights to 3000 kelvin", "It looks like you're trying to set the brightness of the lights, but I wasn't sure.", {}),
     ("open the blinds", "open_covers_here", {"device_class": "blind"}),
     ("open the skylight", "open_covers_device", {"entity": ["cover.skylight"]}),
     ("close the shades upstairs", "close_covers_place", {"floor": ["upstairs"], "device_class": "shade"}),

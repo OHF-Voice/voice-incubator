@@ -228,7 +228,8 @@ commands:
     # To a number, also turned on, up or down, brightened or dimmed: "dim the
     # lights to twenty", "turn on the kitchen lights to fifty percent". Turned
     # up or down only with the lights, brightness or percent said, not to be
-    # the heat's or the TV's.
+    # the heat's or the TV's; never by a number ("dim the lights by 20"), in
+    # kelvin, or in some minutes.
     require: [[brightness, percent, brighten, dim, light, lights]]
     optional:
       - [set, change, make, turn, turn on, switch on, brighten, dim, turn up, turn down]
@@ -239,7 +240,8 @@ commands:
       - [the]
       - [brightness]
       - [percent]
-    exclude: [volume, music, tv, television]
+    exclude: [volume, music, tv, television, thermostat, temperature, degrees, kelvin, by,
+              minute, minutes, hour, hours, second, seconds]
     number: percentage
     intent:
       name: HassLightSet

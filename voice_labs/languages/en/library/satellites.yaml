@@ -80,6 +80,7 @@ commands:
     # Also turned up or down to a number: "turn yourself up to 50".
     require: [[your volume, yourself]]
     optional: [[set, change, make, turn, turn up, turn down], [up, down], [to, at], [percent]]
+    exclude: [by]
     number: percentage
     action:
       action: media_player.volume_set
