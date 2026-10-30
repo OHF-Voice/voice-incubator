@@ -308,6 +308,7 @@ and copies (`Satellite.first`).
 | `tests/commands.txt` | the spoken test corpus, one utterance per line |
 | `tests/corpus_expected.yaml` | the command and slots each prompt must come back as, or that it must be refused |
 | `tests/corpus_expected.tsv` | the sentence each prompt was meant to be, for the take audits (`scripts/audit_*.py`) |
+| `tests/routes.yaml` | where 365 sentences go as text with English's library (command and slots, or none), so a library change that moves one shows; `UPDATE_ROUTES=1` writes it over when that's meant |
 | `scripts/bench_corpus.py` | runs the whole chain over a mic_tap corpus |
 | `scripts/report_corpus.py` | per channel, per prompt, per failure |
 | `models/` | everything needed to run offline (~770 MB) |

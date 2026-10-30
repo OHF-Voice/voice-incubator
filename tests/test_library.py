@@ -2,6 +2,7 @@
 language (``language``) -- and English's versions."""
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -323,10 +324,10 @@ ROUTES = [
 ]
 
 
-def test_each_version_takes_its_own_sentences():
-    """Every version added at once: nothing named goes to the one for the
-    satellite, a device named to the device's, an area or floor to the
-    place's."""
+@pytest.fixture(name="routing", scope="module")
+def fixture_routing():
+    """English's library, every version added at once (but the timers), in a
+    home with a few names, and a satellite in its Office."""
     from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
     from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
 
@@ -351,9 +352,55 @@ def test_each_version_takes_its_own_sentences():
     }
     engine = Engine(ctc, None, None, threads=2)
     engine.build(compile_store(store))
-    office = Satellite("s", "Office", "office", "Office")
+    return engine, Satellite("s", "Office", "office", "Office")
+
+
+def test_each_version_takes_its_own_sentences(routing):
+    """Every version added at once: nothing named goes to the one for the
+    satellite, a device named to the device's, an area or floor to the
+    place's."""
+    engine, office = routing
     heard = []
     for text, _command, _slots in ROUTES:
         decision = engine.recognize_text(text, office)
         heard.append((text, decision.command.id if decision.command else decision.message, decision.slots))
     assert heard == ROUTES
+
+
+ROUTES_FILE = Path(__file__).with_name("routes.yaml")
+"""Where each of a few hundred sentences went, as text (``routing``)."""
+
+
+def _route(engine, office, text):
+    decision = engine.recognize_text(text, office)
+    if decision.command is None:
+        return None
+    return {"command": decision.command.id, **({"slots": decision.slots} if decision.slots else {})}
+
+
+def _write_routes(routes):
+    header = [line for line in ROUTES_FILE.read_text().splitlines() if line.startswith("#")]
+    lines = []
+    for text, route in sorted(routes.items()):
+        key = text if re.fullmatch(r"[a-z0-9][a-z0-9 ',.?$%-]*", text) and not text.endswith((":", "?")) else json.dumps(text)
+        lines.append(f"{key}: {json.dumps(route) if route is not None else 'null'}")
+    ROUTES_FILE.write_text("\n".join(header + lines) + "\n")
+
+
+def test_every_sentence_goes_where_it_went(routing):
+    """Each sentence in tests/routes.yaml still goes to the command it went
+    to, with the same slots, or still to none. A change to the library that
+    moves one shows here; when that's meant, or to add a sentence (a line
+    of its own, ``: null``), write the file over with where they go now:
+    ``UPDATE_ROUTES=1 pytest tests/test_library.py -k went``, and look at
+    its diff."""
+    import yaml  # pylint: disable=import-outside-toplevel
+
+    engine, office = routing
+    expected = yaml.safe_load(ROUTES_FILE.read_text())
+    heard = {text: _route(engine, office, text) for text in expected}
+    if os.environ.get("UPDATE_ROUTES"):
+        _write_routes(heard)
+        return
+    moved = [f"{text!r}: {expected[text]} -> {heard[text]}" for text in expected if heard[text] != expected[text]]
+    assert not moved, "moved (UPDATE_ROUTES=1 to keep):\n" + "\n".join(moved)
