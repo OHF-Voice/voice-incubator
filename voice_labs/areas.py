@@ -15,7 +15,7 @@ What an area may have its own of (``KEYS``):
   commands use without a target of their own (``home``; the weather is the
   whole home's).
 - ``voice`` (and its ``speaker``): Piper's voice, which replies are said in.
-- ``sounds`` (false: none) and ``instrument``: the call's sounds.
+- ``sounds`` (false: none), ``instrument`` and ``pitch``: the call's sounds.
 - ``at_most``: the most a command says, ``brief`` or ``beep`` (the whole
   home's may have one too); a question still answers.
 - ``silence_seconds``: silence that ends a command (a satellite's own wins).
@@ -32,12 +32,13 @@ from adapt_ctc.config import ConfigError
 
 from .commands import HOME_THINGS, VERBOSITY
 from .endpoint import LIMITS
+from .instruments import key_of, note_name
 
 HOME = ("climate", "shopping_list", "todo_list")
 """The home's own things an area may have its own of."""
 AT_MOST = ("brief", "beep")
 """The most a command may say, where it is capped."""
-KEYS = (*HOME, "voice", "speaker", "sounds", "instrument", "at_most", "silence_seconds")
+KEYS = (*HOME, "voice", "speaker", "sounds", "instrument", "pitch", "at_most", "silence_seconds")
 
 
 def own(settings: dict[str, Any], area: str | None) -> dict[str, Any]:
@@ -71,6 +72,7 @@ def effective(settings: dict[str, Any], area: str | None) -> dict[str, Any]:
         "speaker": mine.get("speaker") if mine.get("voice") else None,
         "sounds": mine["sounds"] if isinstance(mine.get("sounds"), bool) else whole_sounds(settings),
         "instrument": mine.get("instrument") or settings.get("instrument"),
+        "pitch": mine.get("pitch") or settings.get("pitch"),
         "at_most": at_most if at_most in AT_MOST else None,
         "silence_seconds": mine.get("silence_seconds"),
     }
@@ -90,6 +92,14 @@ def at_most_value(value: Any, where: str = "at_most") -> str | None:
     if value not in AT_MOST:
         raise ConfigError(f"{where}: one of {', '.join(AT_MOST)}, or none")
     return str(value)
+
+
+def pitch_value(value: Any) -> str:
+    """A pitch (instruments.key_of's note), as it is kept. Raises ConfigError."""
+    try:
+        return note_name(key_of(value))
+    except ValueError as err:
+        raise ConfigError(f"pitch: {err}") from err
 
 
 def put(settings: dict[str, Any], area: str, values: dict[str, Any] | None, voices: dict[str, Any],
@@ -134,7 +144,9 @@ def put(settings: dict[str, Any], area: str, values: dict[str, Any] | None, voic
                 raise ConfigError("sounds: true or false")
         elif key == "instrument":
             if value not in instruments:
-                raise ConfigError(f"instrument: one of {', '.join(instruments)}")
+                raise ConfigError(f"instrument: no instrument {value!r}")
+        elif key == "pitch":
+            value = pitch_value(value)
         elif key == "at_most":
             value = at_most_value(value)
         elif key == "silence_seconds":

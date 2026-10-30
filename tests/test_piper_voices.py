@@ -47,7 +47,7 @@ def test_a_voice_speaks_as_set():
     """Slower with a longer length scale, quieter with less volume; the
     voice's own settings as its defaults; another voice from now on."""
     settings: dict = {}
-    speech = Speech(KRISTIN, ROOT / "sounds", synthesis=lambda: settings)
+    speech = Speech(KRISTIN, ROOT / "models", synthesis=lambda: settings)
     asyncio.run(speech.start())
     defaults = speech.defaults
     assert defaults["speakers"] == [] and 0.5 < defaults["noise_scale"] < 1 and defaults["volume"] == 1.0

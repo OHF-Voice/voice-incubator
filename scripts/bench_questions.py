@@ -81,7 +81,7 @@ async def main() -> int:
         engine = Engine(ctc, tdt_models(ROOT)["en"], DEFAULT_EMBEDDING_MODEL, threads=args.threads)
         engine.build(compile_store(library_store()))
         engine.fallback = Fallback(embedding_accept=True)
-        speech = Speech(ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx", ROOT / "sounds")
+        speech = Speech(ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx", ROOT / "models")
         await speech.start()
     satellite = Satellite("bench", "Bench", "kitchen", "Kitchen")
     out = []

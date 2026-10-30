@@ -213,7 +213,7 @@ async def run_chain(args, compiled, utterances) -> dict[str, Any]:
     model = None if args.no_model else _model(args)
     engine.fallback = Fallback(embedding_accept=args.embedding_accept, model=model, top_k=args.top_k)
     engine.fallback.prepare(engine, wait=True)
-    speech = Speech(ROOT / "models/piper" / pack.piper, ROOT / "sounds")
+    speech = Speech(ROOT / "models/piper" / pack.piper, ROOT / "models")
     await speech.start()
     satellite = Satellite("bench", "Bench", "kitchen", "Kitchen")
     rows = []

@@ -356,11 +356,13 @@ class Cues:
     ``stop(close=True)`` ends the stream (and waits until it has played out)
     for a reply spoken some other way, or none."""
 
-    def __init__(self, app: VoiceLabsApp, session: Session, instrument: str | None = None) -> None:
+    def __init__(
+        self, app: VoiceLabsApp, session: Session, instrument: str | None = None, pitch: str | None = None
+    ) -> None:
         self.sent = 0
         """Bytes the device was sent in this stream."""
-        self.instrument = instrument
-        """What they are played on (None: the whole home's)."""
+        self.instrument, self.pitch = instrument, pitch
+        """What they are played on, and from what note (None: the whole home's)."""
         self.until = 0.0
         """When they have played out, by the loop's clock (about: the device's
         own lag aside)."""
@@ -368,8 +370,8 @@ class Cues:
         self._lock = asyncio.Lock()
 
     async def sound(self, name: str) -> None:
-        """One of tts.SOUNDS, on its instrument."""
-        await self.play(self._app.speech.sound(name, self.instrument))
+        """One of instruments.SOUNDS, on its instrument."""
+        await self.play(await self._app.speech.sound(name, self.instrument, self.pitch))
 
     async def play(self, sound: bytes) -> None:
         if not sound:
@@ -604,9 +606,10 @@ class VoiceLabsApp:
         """A voice the Settings page picked, while it downloads."""
         self.speech = Speech(
             self.piper_dir / self.language.piper,
-            root / "sounds",
+            root / "models",
             root / "sounds/timer_finished.flac",
             instrument=self.instrument,
+            pitch=self.pitch,
             synthesis=self.piper_settings,
         )
         speaker_model = root / "models/speaker/redimnet_b2_vox2.onnx"
@@ -700,6 +703,7 @@ class VoiceLabsApp:
         self.configure_agent()
         await self._ensure_ratios()
         await self.speech.start()
+        self._spawn(self.play_sounds())
         if self.speakers is not None:
             await self.speakers.start()
         release_memory()  # what loading the models needed only meanwhile
@@ -2424,7 +2428,7 @@ class VoiceLabsApp:
         heard sound plays the moment the command ended."""
         here = self.satellite(session.satellite).settings
         if here["sounds"]:
-            call.cues = Cues(self, session, here["instrument"])
+            call.cues = Cues(self, session, here["instrument"], here["pitch"])
             await call.cues.sound("heard")
         try:
             await self._respond_unguarded(session, call)
@@ -2722,7 +2726,9 @@ class VoiceLabsApp:
         # the satellite even when its responses are spoken elsewhere.
         started = time.perf_counter()
         timing = {"seconds": 0, "synthesis": 0.0, "first": None}
-        acknowledge = self.speech.sound("acknowledge", satellite.settings.get("instrument"))
+        acknowledge = await self.speech.sound(
+            "acknowledge", satellite.settings.get("instrument"), satellite.settings.get("pitch")
+        )
         model, synthesis = await self._area_voice(satellite) if pieces else (None, None)
 
         async def spoken():
@@ -3411,7 +3417,7 @@ class VoiceLabsApp:
             await call.cues.pause(seconds)
 
     async def _cue(self, session: Session, sound: str) -> None:
-        """One of the call's sounds (tts.SOUNDS), when it has them (``Cues``)."""
+        """One of the call's sounds (instruments.SOUNDS), when it has them (``Cues``)."""
         call = session.call
         if call is not None and call.cues is not None:
             await call.cues.sound(sound)
@@ -3431,8 +3437,22 @@ class VoiceLabsApp:
 
     def instrument(self) -> str | None:
         """settings.json ``instrument``: what the satellite's sounds are played
-        on (Speech.instruments; None: tts.INSTRUMENT)."""
+        on (Speech.instruments; None: instruments.INSTRUMENT)."""
         return self.store.settings.get("instrument")
+
+    def pitch(self) -> str | None:
+        """settings.json ``pitch``: the note the satellite's sounds start from
+        (None: the instrument's own)."""
+        return self.store.settings.get("pitch")
+
+    async def play_sounds(self) -> None:
+        """Play the sounds on each instrument chosen -- the whole home's, the
+        areas' own -- ahead of the calls that want them: most take a few
+        hundredths of a second, a big one (the grand piano) seconds."""
+        for area in (None, *areas.listed(self.store.settings)):
+            here = areas.effective(self.store.settings, area)
+            if here["sounds"]:
+                await self.speech.sounds(here["instrument"], here["pitch"])
 
     @property
     def _ctc_dir(self) -> Path:

@@ -46,10 +46,10 @@ def test_sentences_without_markup():
 
 @pytest.mark.skipif(not VOICE.exists(), reason="needs the English Piper voice")
 def test_said_whole_or_acknowledged():
-    speech = Speech(VOICE, ROOT / "sounds")
+    speech = Speech(VOICE, ROOT / "models")
     asyncio.run(speech.start())
     whole = asyncio.run(speech.say("**Lift:** it rises. *Then* it flies."))
     parts = b"".join(speech.synthesize(piece) for piece in sentences_of("**Lift:** it rises. *Then* it flies."))
     # Piper draws noise for each synthesis: the same length, near enough.
     assert len(whole) > 16000 and abs(len(whole) - len(parts)) < 0.25 * len(parts)
-    assert asyncio.run(speech.say("**")) == speech.acknowledge
+    assert asyncio.run(speech.say("**")) == asyncio.run(speech.sound("acknowledge"))

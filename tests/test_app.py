@@ -15,6 +15,7 @@ import aiohttp
 import pytest
 
 from voice_labs import people as people_mod
+from voice_labs.instruments import Instruments
 from voice_labs.server import Options, VoiceLabsApp
 from voice_labs.store import styled
 
@@ -419,13 +420,15 @@ async def _scenario(tmp_path: Path) -> None:
             assert "bedroom" in {a["id"] for a in places["others"]} and places["floors"][0]["name"] == "Ground Floor"
             assert (await http.put("/api/areas/bedroom", json={})).status == 200
             assert "bedroom" in {a["id"] for a in (await (await http.get("/api/areas")).json())["areas"]}
-            own = {"at_most": "beep", "climate": "climate.upstairs", "sounds": False, "silence_seconds": 1.2, "instrument": "koto"}
+            own = {"at_most": "beep", "climate": "climate.upstairs", "sounds": False, "silence_seconds": 1.2, "instrument": "koto",
+                   "pitch": "c4"}
             assert (await http.put("/api/areas/kitchen", json={"settings": own})).status == 200
             here = app.satellite(MAC).settings
             assert here["at_most"] == "beep" and here["home"]["climate"] == "climate.upstairs" and here["sounds"] is False
-            assert here["instrument"] == "koto" and app.end_of_speech(MAC).silence_seconds == 1.2
+            assert here["instrument"] == "koto" and here["pitch"] == "C4" and app.end_of_speech(MAC).silence_seconds == 1.2
             assert app.place("office").settings["sounds"] is True  # the whole home's
-            for wrong in ({"at_most": "loud"}, {"climate": "light.x"}, {"wake_word": "x"}, {"voice": "nobody"}, {"instrument": "tuba"}):
+            for wrong in ({"at_most": "loud"}, {"climate": "light.x"}, {"wake_word": "x"}, {"voice": "nobody"}, {"instrument": "kazoo"},
+                          {"pitch": "H2"}):
                 assert (await http.put("/api/areas/kitchen", json={"settings": wrong})).status == 400, wrong
             assert (await http.put("/api/areas/kitchen", json={"settings": {k: None for k in own}})).status == 200
             assert app.store.settings["areas"] == {"bedroom": {}, "kitchen": {}}
@@ -828,6 +831,7 @@ commands:
 """
 
 
+@pytest.mark.skipif(Instruments(ROOT / "models").soundfont is None, reason="needs MuseScore General's SoundFont")
 def test_the_sounds(tmp_path):
     asyncio.run(_sounds(tmp_path))
 
@@ -866,31 +870,52 @@ async def _sounds(tmp_path):
     try:
         await asyncio.wait_for(satellite.ready.wait(), 30)
         speech = app.speech
-        assert app.sounds() and speech.heard and speech.not_understood and speech.asking
+        heard, not_understood, asking = [await speech.sound(name) for name in ("heard", "not_understood", "asking")]
+        assert app.sounds() and heard and not_understood and asking
         # Heard the moment the command ended, the reply after it in the same stream.
         sent, reply = await call("call-15788.wav", "done")
-        assert reply > 0 and near(sent, len(speech.heard), reply)
+        assert reply > 0 and near(sent, len(heard), reply)
         # Not understood: heard, then not understood before what is said.
         sent, reply = await call("call-19757.wav", "not_recognized")
-        assert reply > 0 and near(sent, len(speech.heard), len(speech.not_understood), reply)
+        assert reply > 0 and near(sent, len(heard), len(not_understood), reply)
         # The conversation agent asked: heard, then asking, then its answer.
         assert await put({"agent": "conversation.chatty"}) == 200
         sent, reply = await call("call-19757.wav", "done")
-        assert app.calls.recent[-1].outcome == "answered" and near(sent, len(speech.heard), len(speech.asking), reply)
+        assert app.calls.recent[-1].outcome == "answered" and near(sent, len(heard), len(asking), reply)
         assert await put({"agent": None}) == 200
-        # Played on the koto, from the next call on; the electric piano is the default.
+        # The SoundFont's instruments, by family, each from its own pitch: the
+        # electric piano, the default, from G5; no drum kits.
         async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
             status = await (await http.get("/api/status")).json()
-        assert [i["id"] for i in status["instruments"]] == ["electric_piano", "koto"]
-        assert status["instrument"] == "electric_piano" and status["instruments"][0]["name"] == "Electric piano"
-        piano = speech.heard
+        instruments = {i["id"]: i for i in status["instruments"]}
+        assert status["instrument"] == "tine_electric_piano" and status["pitch"] is None
+        assert instruments["tine_electric_piano"] == {"id": "tine_electric_piano", "name": "Tine Electric Piano", "family": "Piano", "pitch": "G5"}
+        assert instruments["koto"] == {"id": "koto", "name": "Koto", "family": "Ethnic", "pitch": "C5"}
+        assert len(instruments) > 150 and not any("Drum Kit" in i["name"] or i["name"].endswith("Expr.") for i in instruments.values())
+        assert status["pitches"][0] == "C2" and status["pitches"][-1] == "C7" and "F#4" in status["pitches"]
+        # Played on the koto, from the next call on.
+        piano = heard
         assert await put({"instrument": "koto"}) == 200 and app.store.settings["instrument"] == "koto"
-        assert speech.heard != piano and speech.acknowledge == speech.instruments["koto"]["acknowledge"]
+        koto = await speech.sound("heard")
+        assert koto != piano
         sent, reply = await call("call-15788.wav", "done")
-        assert near(sent, len(speech.heard), reply)
-        assert await put({"instrument": "harp"}) == 400
-        assert await put({"instrument": "electric_piano"}) == 200 and "instrument" not in app.store.settings
-        assert speech.heard == piano
+        assert near(sent, len(koto), reply)
+        # From another note.
+        assert await put({"pitch": "g3"}) == 200 and app.store.settings["pitch"] == "G3"
+        assert await speech.sound("heard") not in (koto, piano)
+        for wrong in ({"pitch": "H3"}, {"pitch": "C9"}, {"instrument": "kazoo"}):
+            assert await put(wrong) == 400, wrong
+        # Tried before it is saved: the four, one after another.
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            async with http.post("/api/sounds/try", json={"instrument": "tuba", "pitch": "C3"}) as response:
+                assert response.status == 200 and response.content_type == "audio/wav"
+                tuba = await speech.sounds("tuba", "C3")
+                assert len(await response.read()) > sum(len(sound) for sound in tuba.values())
+            assert (await http.post("/api/sounds/try", json={"instrument": "kazoo"})).status == 400
+        # The electric piano, as before ("electric_piano"), from its own pitch.
+        assert await put({"instrument": "electric_piano", "pitch": None}) == 200
+        assert "instrument" not in app.store.settings and "pitch" not in app.store.settings
+        assert await speech.sound("heard") == piano
         # Turned off: the reply alone (and from before, thinking_sound: false meant so).
         assert await put({"sounds": False}) == 200
         assert app.store.settings["sounds"] is False and not app.sounds()

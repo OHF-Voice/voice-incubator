@@ -83,7 +83,7 @@ async def main() -> None:
     started = time.monotonic()
     speech = Speech(
         ROOT / "models/piper/en_GB-jenny_dioco-medium.onnx",
-        ROOT / "sounds",
+        ROOT / "models",
     )
     await speech.start()
     print(f"  {'piper load':<24} {(time.monotonic() - started) * 1000:7.0f} ms")

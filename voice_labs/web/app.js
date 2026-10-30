@@ -505,6 +505,39 @@ function endOfSpeechPanel() {
       h("button", { onclick: () => save(null) }, "Restore defaults")));
 }
 
+// The sounds' instruments, by General MIDI's families, as a select's options.
+function instrumentOptions(value) {
+  const instruments = (state.status && state.status.instruments) || [];
+  return [...new Set(instruments.map((i) => i.family))].map((family) => h("optgroup", { label: family },
+    instruments.filter((i) => i.family === family).map((i) => h("option", { value: i.id, selected: i.id === value }, i.name))));
+}
+
+// The instrument's own pitch: where its sounds start unless one is chosen.
+function ownPitch(instrument) {
+  return (((state.status && state.status.instruments) || []).find((i) => i.id === instrument) || {}).pitch;
+}
+
+// The notes the sounds may start from, the instrument's own marked.
+function pitchOptions(value, instrument) {
+  const own = ownPitch(instrument);
+  return ((state.status && state.status.pitches) || []).map((p) => h("option", { value: p, selected: p === (value || own) }, p === own ? `${p} (default)` : p));
+}
+
+// The call's sounds on an instrument from a pitch, played here.
+const soundsAudio = new Audio();
+async function trySounds(instrument, pitch) {
+  try {
+    const response = await fetch("api/sounds/try", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instrument, pitch }) });
+    if (!response.ok) throw new Error((await response.json()).error || response.statusText);
+    soundsAudio.src = URL.createObjectURL(await response.blob());
+    await soundsAudio.play();
+  } catch (err) { toast(err.message); }
+}
+
+function tryButton(instrument, pitch) {
+  return h("button", { type: "button", title: "Play the sounds here", onclick: () => trySounds(instrument.value, pitch ? pitch.value : null) }, "Try");
+}
+
 // What a command that beeps says when it acted out of sight.
 function responsesPanel() {
   const verbosity = (state.status && state.status.verbosity) || {};
@@ -513,9 +546,21 @@ function responsesPanel() {
     catch (err) { toast(err.message); }
   } });
   const instrument = h("select", { onchange: async (e) => {
-    try { await api("PUT", "settings", { instrument: e.target.value }); toast("Saved"); await refreshStatus(); }
-    catch (err) { toast(err.message); }
-  } }, ((state.status && state.status.instruments) || []).map((i) => h("option", { value: i.id, selected: state.status.instrument === i.id }, i.name)));
+    try {
+      await api("PUT", "settings", { instrument: e.target.value });
+      toast("Saved");
+      await refreshStatus();
+      fill(pitch, pitchOptions(state.status.pitch, e.target.value));
+    } catch (err) { toast(err.message); }
+  } }, instrumentOptions(state.status && state.status.instrument));
+  // The instrument's own is kept as none: another instrument starts from its own.
+  const pitch = h("select", { "aria-label": "Pitch", onchange: async (e) => {
+    try {
+      await api("PUT", "settings", { pitch: e.target.value === ownPitch(instrument.value) ? null : e.target.value });
+      toast("Saved");
+      await refreshStatus();
+    } catch (err) { toast(err.message); }
+  } }, pitchOptions(state.status && state.status.pitch, state.status && state.status.instrument));
   const select = h("select", { onchange: async (e) => {
     try { await api("PUT", "settings", { beep_elsewhere: e.target.value }); toast("Saved"); await refreshStatus(); }
     catch (err) { toast(err.message); }
@@ -525,13 +570,14 @@ function responsesPanel() {
     catch (err) { toast(err.message); }
   } }, Object.entries(AT_MOST).map(([value, label]) => h("option", { value, selected: (verbosity.at_most || "") === value }, label)));
   return h("div", { class: "panel" },
-    withOwn(heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."), ["sounds", "instrument", "at_most"]),
+    withOwn(heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."), ["sounds", "instrument", "pitch", "at_most"]),
     h("div", { class: "row", style: "align-items:flex-start" },
       field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
       field("Say at most", atMost, "No command says more than this, whatever its own level; a question still answers. An area may have its own.")),
     h("div", { class: "row" },
       h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked.")),
-      field("Instrument", instrument, "What the sounds, and the beep when a command is done, are played on.")));
+      field("Instrument", instrument, "What the sounds, and the beep when a command is done, are played on."),
+      field("Pitch", h("div", { class: "row" }, pitch, tryButton(instrument, pitch)), "The note the sounds start from.")));
 }
 
 // The home's own things (a command's home), by the entity domain they are:
@@ -4591,7 +4637,16 @@ function areaSettingsPanel(area) {
         (v, onChange) => select([["true", "On"], ["false", "Off"]], String(v), (x) => onChange(x === "true")),
         "A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked."],
       ["instrument", "Instrument", "responses", status.instrument, (v) => ((instruments.find((i) => i.id === v) || {}).name || v),
-        (v, onChange) => select(instruments.map((i) => [i.id, i.name]), v, onChange)],
+        (v, onChange) => {
+          const chosen = h("select", { "aria-label": "Instrument", onchange: (e) => onChange(e.target.value) }, instrumentOptions(v));
+          return h("div", { class: "row" }, chosen, tryButton(chosen, { value: own.pitch || status.pitch || ownPitch(v) }));
+        }],
+      ["pitch", "Pitch", "responses", status.pitch, (v) => v || "the instrument's own",
+        (v, onChange) => {
+          const chosen = h("select", { "aria-label": "Pitch", onchange: (e) => onChange(e.target.value) }, pitchOptions(v, own.instrument || status.instrument));
+          return h("div", { class: "row" }, chosen, tryButton({ value: own.instrument || status.instrument }, chosen));
+        },
+        "The note the sounds start from."],
       ["at_most", "Say at most", "responses", (status.verbosity || {}).at_most || "", (v) => AT_MOST[v || ""],
         (v, onChange) => select(Object.entries(AT_MOST), v || "", (x) => onChange(x || null)),
         "No command here says more than this, whatever its own level; a question still answers."],

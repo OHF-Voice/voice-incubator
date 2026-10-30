@@ -13,9 +13,11 @@ RUN \
     && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
+        libfluidsynth3 \
         libgomp1 \
         libicu-dev \
         libopenblas0 \
+        musescore-general-soundfont-small \
         python3 \
         python3-dev \
         python3-pip \

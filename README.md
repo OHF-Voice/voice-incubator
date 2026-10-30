@@ -60,9 +60,13 @@ one call at a time:
    agent is asked, and `not_understood` before a reply that it wasn't
    understood or went wrong -- in one stream, which the reply follows (Home
    Assistant's speech, or none, ends it first). They and the acknowledgement
-   are in `sounds/<instrument>/` (settings.json `instrument`: an instrument
-   folder; none, `electric_piano`), made by `scripts/make_sounds.py` with
-   FluidSynth.
+   are played by FluidSynth from MuseScore General's SoundFont
+   (`voice_labs/instruments.py`; Debian's
+   `musescore-general-soundfont-small`, else
+   `models/soundfonts/MuseScore_General_Lite.sf3`) on settings.json
+   `instrument` (a preset's name in underscores; none,
+   `tine_electric_piano`) from `pitch` (a note; none, the instrument's own),
+   when first wanted, and kept.
 
 Commands, names, satellites and debugging are described for users in the
 guide, [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs)'s README.

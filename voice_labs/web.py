@@ -65,7 +65,7 @@ from .people import find as people_find
 from .piper_voices import SETTINGS as PIPER_SETTINGS
 from .piper_voices import catalog as piper_catalog
 from .piper_voices import voices as listed_voices
-from .tts import INSTRUMENT
+from .instruments import HIGHEST, INSTRUMENT, LOWEST, SOUNDS, note_name
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
 from .voices import language_code
@@ -163,6 +163,7 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.get("/api/voices", api.voices),
             web.get("/api/piper/voices", api.piper_voices),
             web.post("/api/piper/try", api.try_piper),
+            web.post("/api/sounds/try", api.try_sounds),
             web.get("/api/agents", api.agents),
             web.get("/api/voices/{entity_id}", api.tts_voices),
             web.put("/api/settings", api.put_settings),
@@ -283,10 +284,16 @@ class Api:
                     "at_most": app.store.settings.get("at_most"),
                 },
                 # The call's sounds: heard, not understood, asking the agent;
-                # and what they and the acknowledgement are played on.
+                # and what they and the acknowledgement are played on, from
+                # what note (null: the instrument's own), of which.
                 "sounds": app.sounds(),
-                "instrument": app.instrument() or INSTRUMENT,
-                "instruments": [{"id": i, "name": i.replace("_", " ").capitalize()} for i in app.speech.instruments],
+                "instrument": app.speech.instruments.resolve(app.instrument()) or INSTRUMENT,
+                "pitch": app.pitch(),
+                "instruments": [
+                    {"id": i.id, "name": i.name, "family": i.family, "pitch": note_name(app.speech.instruments.pitch(i.id))}
+                    for i in app.speech.instruments.presets.values()
+                ],
+                "pitches": [note_name(key) for key in range(LOWEST, HIGHEST + 1)],
                 # Piper: the voice picked, the one speaking (until a new one is
                 # downloaded), its own settings, and the Settings page's.
                 "piper": {
@@ -585,6 +592,25 @@ class Api:
             wav.setsampwidth(2)
             wav.setframerate(SAMPLE_RATE)
             wav.writeframes(pcm)
+        return web.Response(body=out.getvalue(), content_type="audio/wav")
+
+    async def try_sounds(self, request: web.Request) -> web.Response:
+        """The call's sounds on ``instrument`` from ``pitch`` (the Settings
+        page's, before they are saved), one after another, as WAV."""
+        body = await _json_or_empty(request)
+        app = self.app
+        instrument = app.speech.instruments.resolve(body.get("instrument"))
+        if instrument is None:
+            raise ConfigError(f"instrument: no instrument {body.get('instrument')!r}")
+        pitch = areas.pitch_value(body["pitch"]) if body.get("pitch") else note_name(app.speech.instruments.pitch(instrument))
+        made = await app.speech.sounds(instrument, pitch)
+        gap = bytes(int(0.6 * SAMPLE_RATE) * 2)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(SAMPLE_RATE)
+            wav.writeframes(gap.join(made.get(name, b"") for name in SOUNDS))
         return web.Response(body=out.getvalue(), content_type="audio/wav")
 
     async def delete_name(self, request: web.Request) -> web.Response:
@@ -897,8 +923,10 @@ class Api:
             raise ConfigError("an area's id")
         body = await _json_or_empty(request)
         settings = self.app.store.settings
-        own = areas.put(settings, area_id, body.get("settings") or {}, piper_catalog(), list(self.app.speech.instruments))
+        own = areas.put(settings, area_id, body.get("settings") or {}, piper_catalog(), list(self.app.speech.instruments.presets))
         self.app.store.save_settings()
+        if {"sounds", "instrument", "pitch"} & set(body.get("settings") or {}):
+            self.app._spawn(self.app.play_sounds())  # pylint: disable=protected-access
         voice = piper_catalog().get(str(own.get("voice") or ""))
         if voice is not None:
             self.app.fetch_area_voice(voice)
@@ -1287,13 +1315,21 @@ class Api:
             if voice is not None and voice.model(self.app.piper_dir) != self.app.speech.voice_path:
                 self.app._spawn(self.app.use_voice(voice))  # pylint: disable=protected-access
         if "instrument" in body:
-            instrument = body["instrument"] or INSTRUMENT
-            if instrument not in self.app.speech.instruments:
-                raise ConfigError(f"instrument: one of {', '.join(self.app.speech.instruments)}")
+            instrument = self.app.speech.instruments.resolve(body["instrument"])
+            if instrument is None:
+                raise ConfigError(f"instrument: no instrument {body['instrument']!r}")
             if instrument == INSTRUMENT:
                 settings.pop("instrument", None)
             else:
                 settings["instrument"] = instrument
+        if "pitch" in body:
+            # A note, or null for the instrument's own.
+            if body["pitch"] in (None, ""):
+                settings.pop("pitch", None)
+            else:
+                settings["pitch"] = areas.pitch_value(body["pitch"])
+        if {"sounds", "instrument", "pitch"} & set(body):
+            self.app._spawn(self.app.play_sounds())  # pylint: disable=protected-access
         if "sounds" in body:
             for before in ("thinking_sound", "thinking_delay"):
                 settings.pop(before, None)

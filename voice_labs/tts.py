@@ -1,4 +1,4 @@
-"""Speech output: Piper for conversation responses, a stock sound otherwise."""
+"""Speech output: Piper for conversation responses, the call's sounds otherwise."""
 
 from __future__ import annotations
 
@@ -18,8 +18,9 @@ import soxr
 from piper import PiperConfig, PiperVoice, SynthesisConfig
 from sentence_stream import stream_to_sentences
 
-from adapt_ctc.runtime import session_options
+from adapt_ctc.runtime import release_memory, session_options
 
+from .instruments import Instruments, key_of
 from .piper_voices import synthesis
 from .protocol import SAMPLE_RATE
 
@@ -68,33 +69,35 @@ OTHER_VOICES = 2
 (voice_labs/areas.py), the least lately used let go first."""
 """Silence between repeats of the timer alarm, as the stock VPE firmware has."""
 
-
-INSTRUMENT = "electric_piano"
-"""The instrument the satellite's sounds are played on unless another is chosen."""
-SOUNDS = ("heard", "acknowledge", "not_understood", "asking")
-"""An instrument's sounds (sounds/<instrument>/<sound>.flac): the command
-ended; done, with nothing to say; not understood, or it went wrong; the
-conversation agent is asked."""
+KEPT_SOUNDS = 16
+"""Instruments and pitches whose sounds (instruments.SOUNDS) are kept played,
+the least lately used let go first."""
 
 
 class Speech:
     def __init__(
-        self, voice_path: Path, sounds_dir: Path, alarm_path: Path | None = None,
+        self, voice_path: Path, models_dir: Path | None = None, alarm_path: Path | None = None,
         instrument: Callable[[], str | None] | None = None,
+        pitch: Callable[[], str | None] | None = None,
         synthesis: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.voice_path = Path(voice_path)
         """Piper's voice (its .onnx, the .onnx.json beside it)."""
         self._synthesis = synthesis or dict
         """How it speaks (piper_voices.synthesis's settings), asked each time it does."""
-        self.sounds_dir = Path(sounds_dir)
         self.alarm_path = Path(alarm_path) if alarm_path is not None else None
+        self.instruments = Instruments(models_dir)
+        """What the call's sounds may be played on (its SoundFont's, in
+        models_dir/soundfonts/ unless the system has it)."""
         self._instrument = instrument or (lambda: None)
-        """The instrument chosen (None: INSTRUMENT), asked each time a sound plays."""
+        """The instrument chosen (None: instruments.INSTRUMENT), asked each time a sound plays."""
+        self._pitch = pitch or (lambda: None)
+        """The pitch chosen, a note (None: the instrument's own), asked likewise."""
         self._voice: PiperVoice | None = None
         self._others: OrderedDict[Path, PiperVoice] = OrderedDict()
-        self.instruments: dict[str, dict[str, bytes]] = {}
-        """Each instrument's SOUNDS, by its folder's name."""
+        self._sounds: OrderedDict[tuple[str, int], dict[str, bytes]] = OrderedDict()
+        """The sounds played, by instrument and key: KEPT_SOUNDS of them."""
+        self._playing: dict[tuple[str, int], asyncio.Future] = {}
         self.alarm = b""
         """One repeat of the timer alarm, pause included."""
 
@@ -103,12 +106,8 @@ class Speech:
         if self.alarm_path is not None:
             sound = await asyncio.to_thread(self._load_file, self.alarm_path)
             self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
-        for folder in sorted(p for p in self.sounds_dir.iterdir() if p.is_dir()):
-            made = {name: await asyncio.to_thread(self._load_file, folder / f"{name}.flac")
-                    for name in SOUNDS if (folder / f"{name}.flac").is_file()}
-            if "acknowledge" in made:
-                self.instruments[folder.name] = made
-        _LOGGER.info("Speech ready (%s; sounds: %s)", self.voice_path.name, ", ".join(self.instruments))
+        await asyncio.to_thread(self.instruments.load)
+        _LOGGER.info("Speech ready (%s)", self.voice_path.name)
 
     async def use(self, voice_path: Path) -> None:
         """Speak with this voice from now on."""
@@ -145,29 +144,44 @@ class Speech:
         samples, rate = sf.read(path, dtype="float32", always_2d=False)
         return _to_device_pcm(samples, rate)
 
-    def sound(self, name: str, instrument: str | None = None) -> bytes:
-        """One of SOUNDS, on ``instrument`` (else the one chosen, else
-        INSTRUMENT); none when it hasn't that one."""
-        wanted = instrument or self._instrument() or INSTRUMENT
-        chosen = self.instruments.get(wanted) or self.instruments.get(INSTRUMENT) or {}
-        return chosen.get(name, b"")
+    async def sound(self, name: str, instrument: str | None = None, pitch: str | None = None) -> bytes:
+        """One of instruments.SOUNDS (``sounds``'); none without the SoundFont."""
+        return (await self.sounds(instrument, pitch)).get(name, b"")
 
-    @property
-    def heard(self) -> bytes:
-        return self.sound("heard")
+    async def sounds(self, instrument: str | None = None, pitch: str | None = None) -> dict[str, bytes]:
+        """instruments.SOUNDS on ``instrument`` (else the one chosen, else
+        instruments.INSTRUMENT), from ``pitch`` (a note; else the one chosen,
+        else the instrument's own) -- played the first time they are wanted,
+        and kept. An instrument the SoundFont hasn't: the default."""
+        wanted = self.instruments.resolve(instrument or self._instrument()) or self.instruments.resolve(None)
+        if wanted is None:
+            return {}
+        try:
+            key = key_of(pitch or self._pitch())
+        except ValueError:
+            key = self.instruments.pitch(wanted)
+        which = (wanted, key)
+        if which in self._sounds:
+            self._sounds.move_to_end(which)
+            return self._sounds[which]
+        playing = self._playing.get(which)
+        if playing is None:
+            playing = self._playing[which] = asyncio.ensure_future(asyncio.to_thread(self._play, *which))
+            playing.add_done_callback(lambda _: self._playing.pop(which, None))
+        try:
+            made = await asyncio.shield(playing)
+        except OSError as err:
+            _LOGGER.warning("Can't play the sounds on %s (%s)", wanted, err)
+            return {}
+        self._sounds[which] = made
+        while len(self._sounds) > KEPT_SOUNDS:
+            self._sounds.popitem(last=False)
+        return made
 
-    @property
-    def acknowledge(self) -> bytes:
-        """What a reply with nothing to say plays."""
-        return self.sound("acknowledge")
-
-    @property
-    def not_understood(self) -> bytes:
-        return self.sound("not_understood")
-
-    @property
-    def asking(self) -> bytes:
-        return self.sound("asking")
+    def _play(self, instrument: str, key: int) -> dict[str, bytes]:
+        made = {name: _to_device_pcm(x, SAMPLE_RATE) for name, x in self.instruments.render(instrument, key).items()}
+        release_memory()  # a big instrument's samples (the grand piano's, about 90 MB)
+        return made
 
     def synthesize(self, text: str, settings: dict[str, Any] | None = None, voice: PiperVoice | None = None) -> bytes:
         """``text`` (a sentence of ``sentences_of``) as device PCM, as the
@@ -192,7 +206,7 @@ class Speech:
         pieces = sentences_of(text)
         if not pieces:
             _LOGGER.info("No conversation response; playing acknowledgement")
-            return self.acknowledge
+            return await self.sound("acknowledge")
         pcm = b"".join([await asyncio.to_thread(self.synthesize, piece) for piece in pieces])
         _LOGGER.info("Synthesized %r (%.2fs)", " ".join(pieces), len(pcm) / (SAMPLE_RATE * 2))
         return pcm

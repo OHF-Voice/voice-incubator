@@ -33,6 +33,15 @@
 - **The acknowledgement sound waits a beat** after the heard sound (half a
   second) when a command is done at once, rather than running straight on
   from it.
+- **The sounds are played on any instrument, from any pitch.** The app
+  plays them itself with FluidSynth from the MuseScore General SoundFont
+  (Debian's `musescore-general-soundfont-small`, about 40 MB, MIT), when
+  first wanted: its 181 melodic instruments, by General MIDI's families, in
+  place of the two played beforehand. The Settings page picks the
+  instrument and the note they start from (`pitch`; each instrument has its
+  own, the electric piano G5, the rest C5), and **Try** plays them in the
+  browser; an area may have its own of both. `electric_piano` in settings is
+  the Tine Electric Piano, as it was.
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):
