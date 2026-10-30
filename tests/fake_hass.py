@@ -111,6 +111,8 @@ class FakeHass:
         self.services: list[dict[str, Any]] = []
         self.satellites: dict[str, dict[str, Any]] = {}
         self.device_areas: dict[str, str | None] = {}
+        self.do_not_disturb: dict[str, bool] = {}
+        """Each satellite's area's do not disturb switch: on or off, by area id."""
         self.timers: dict[str, dict[str, dict[str, Any]]] = {}
         """timer list entity -> timer id -> timer."""
         self._timer_ids = itertools.count(1)
@@ -372,6 +374,13 @@ class FakeHass:
                     }
                 )
             await result({"satellites": out})
+        elif kind == "voice_labs/do_not_disturb":
+            if not self.integration:
+                await result(success=False, error="unknown command")
+                return
+            await result({"areas": {
+                area: {"entity_id": f"switch.{area}_do_not_disturb", "on": on} for area, on in sorted(self.do_not_disturb.items())
+            }})
         elif kind == "config/device_registry/update":
             self.device_areas[message["device_id"]] = message.get("area_id")
             await result({})
@@ -500,6 +509,12 @@ class FakeHass:
             return None
         if message["domain"] in ("music_assistant", "media_player"):
             return self._music(message)
+        if message["domain"] == "switch" and message["service"] in ("turn_on", "turn_off"):
+            for entity_id in [message["target"]["entity_id"]] if isinstance(message["target"]["entity_id"], str) else message["target"]["entity_id"]:
+                area = entity_id.removeprefix("switch.").removesuffix("_do_not_disturb")
+                if area in self.do_not_disturb:
+                    self.do_not_disturb[area] = message["service"] == "turn_on"
+            return None
         if message["domain"] == "todo" and message["service"] == "get_items":
             entity_id = message["target"]["entity_id"]
             return {entity_id: {"items": list(self.todo_items.get(entity_id, []))}}

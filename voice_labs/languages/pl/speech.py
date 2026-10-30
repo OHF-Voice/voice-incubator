@@ -112,6 +112,11 @@ def no_satellites(place: str) -> str:
     return f"Nie ma innego satelity {place}." if place else "Nie ma innych satelitów."
 
 
+def do_not_disturb(place: str) -> str:
+    """Kept out of where do not disturb is on, ``place`` ("in the Bedroom")."""
+    return f"Tryb Nie przeszkadzać jest włączony {place}."
+
+
 def connecting(to: str) -> str:
     """The intercom, about to connect ``to`` there (``place(to=True)``)."""
     return f"Łączę {to}."

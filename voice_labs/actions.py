@@ -456,12 +456,20 @@ async def run(
         return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     if behavior.timer:
         return await _run_timer(hass, behavior, values, satellite, outcome, integration)
+    # Where do not disturb is on, but here: asked only by what keeps out of it
+    # (music only to start, change or turn it up).
+    quiet: set[str] = set()
+    if behavior.respects_do_not_disturb and (not behavior.music or behavior.music in music_ops.LOUDER):
+        quiet = await _quiet_areas(integration, satellite)
     if behavior.music:
-        return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass), names)
+        return await _run_music(hass, behavior, values, satellite, outcome, music or music_ops.Music(hass), names, quiet)
     if behavior.announce:
-        return await _run_announce(hass, behavior, values, satellite, outcome, satellites)
+        return await _run_announce(hass, behavior, values, satellite, outcome, satellites, quiet, names)
     if behavior.intercom:
-        return await _run_intercom(hass, behavior, values, satellite, outcome, satellites, names)
+        return await _run_intercom(hass, behavior, values, satellite, outcome, satellites, names, quiet)
+    kept = [a for a in values["place"]["areas"] if a in quiet]
+    if kept:
+        return await _say(hass, behavior, values, outcome, "do_not_disturb", _do_not_disturb(kept, satellite, catalog, names))
 
     if behavior.intent:
         return await _run_intent(hass, behavior, values, satellite, outcome, checked.entities)
@@ -794,6 +802,23 @@ def _capital(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+async def _quiet_areas(integration: Any, satellite: Satellite) -> set[str]:
+    """The areas on do not disturb (the integration's switches), but the
+    satellite's own: what is said in an area still works there."""
+    ask = getattr(integration, "quiet_areas", None)
+    if ask is None:
+        return set()
+    return set(await ask()) - {satellite.area_id}
+
+
+def _do_not_disturb(
+    areas: list[str], satellite: Satellite, catalog: Any, names: dict[str, dict[str, str]] | None = None
+) -> str:
+    """That do not disturb is on in these areas, said: "Do not disturb is on
+    in the Bedroom."."""
+    return languages.speech().do_not_disturb(place({"area": list(dict.fromkeys(areas))}, satellite, catalog, names)["said"])
+
+
 async def _run_intent(
     hass: HomeAssistant,
     behavior: Behavior,
@@ -991,17 +1016,26 @@ async def _run_timer(
 
 
 async def _run_announce(
-    hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any
+    hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any,
+    quiet: set[str] | None = None, names: dict[str, dict[str, str]] | None = None,
 ) -> Outcome:
     """Say the announcement on the other satellites: those in the areas or
-    floor named, else every one. Each says it once it is free (after a call
-    there); this one says it was announced."""
+    floor named, else every one -- but in an area on do not disturb
+    (``quiet``), which is said after. Each says it once it is free (after a
+    call there); this one says it was announced."""
     slots, say = values["slots"], languages.speech()
     placed = bool(slots.get("area") or slots.get("floor"))
     where = str(values["place"].get("said") or "") if placed else ""
     targets = satellites.others(satellite.key, values["place"]["areas"] if placed else None) if satellites is not None else []
     if not targets:
         return await _say(hass, behavior, values, outcome, "no_satellites", say.no_satellites(where))
+    kept = [t["area_id"] for t in targets if t.get("area_id") in (quiet or ())]
+    if kept:
+        targets = [t for t in targets if t.get("area_id") not in (quiet or ())]
+        sentence = _do_not_disturb(kept, satellite, getattr(hass, "catalog", None), names)
+        if not targets:
+            return await _say(hass, behavior, values, outcome, "do_not_disturb", sentence)
+        outcome.also_said = sentence
     assert behavior.announce is not None
     try:
         text = _tidy(await hass.render_template(behavior.announce, values))
@@ -1021,11 +1055,11 @@ async def _run_announce(
 
 async def _run_intercom(
     hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any,
-    names: dict[str, dict[str, str]] | None = None,
+    names: dict[str, dict[str, str]] | None = None, quiet: set[str] | None = None,
 ) -> Outcome:
     """Join this satellite and the one in the area said, once this call has
     ended: each one's microphone on the other's speaker, until the button on
-    either is pressed."""
+    either is pressed. Not an area on do not disturb (``quiet``)."""
     slots, say = values["slots"], languages.speech()
     areas = values["place"]["areas"] if slots.get("area") or slots.get("floor") else []
     where = str(values["place"].get("said") or "")
@@ -1036,6 +1070,9 @@ async def _run_intercom(
         return await _say(hass, behavior, values, outcome, "no_satellites", say.no_satellites(where))
     target = targets[0]
     found = {"satellite": target}
+    if target.get("area_id") in (quiet or ()):
+        sentence = _do_not_disturb([target["area_id"]], satellite, getattr(hass, "catalog", None), names)
+        return await _say(hass, behavior, values, outcome, "do_not_disturb", sentence, found)
     problem = satellites.intercom_problem(satellite.key, target["key"])
     if problem == "needs_firmware":
         return await _say(hass, behavior, values, outcome, "needs_firmware", say.INTERCOM_FIRMWARE, found)
@@ -1119,9 +1156,12 @@ async def _run_music(
     outcome: Outcome,
     music: music_ops.Music,
     names: dict[str, dict[str, str]] | None = None,
+    quiet: set[str] | None = None,
 ) -> Outcome:
     """Find the player (and, to play, the music), carry it out (unless a dry
-    run), and say how it went. ``names``: the Names page's (said_names)."""
+    run), and say how it went. ``names``: the Names page's (said_names).
+    Nothing starts, changes or gets louder in an area on do not disturb
+    (``quiet``): the other players do, and it is said after."""
     operation = behavior.music
     assert operation is not None
     slots = values["slots"]
@@ -1150,11 +1190,26 @@ async def _run_music(
     trace["players"] = {k: p.as_dict() for k, p in players.items()}
     if operation == "move":
         return await _move_music(
-            hass, behavior, values, satellite, outcome, music, players, own, named, nearby, sent, started, names
+            hass, behavior, values, satellite, outcome, music, players, own, named, nearby, sent, started, names, quiet
         )
     choosing = "play" if operation == "radio" and not music_ops.generic(query) else operation
     choice = music_ops.choose(choosing, players, own, named, nearby, music.paused_by_voice(satellite.key), sent)
     chosen = choice.players
+    catalog = getattr(hass, "catalog", None)
+    level = music_ops.volume_level(slots) if operation == "volume_set" else None
+    kept = [
+        p for p in chosen
+        if _player_area(p.entity_id, satellite, catalog) in (quiet or ())
+        and (operation != "volume_set" or level is None or p.volume is None or level > p.volume)
+    ]
+    if kept:
+        chosen = [p for p in chosen if p not in kept]
+        trace["do_not_disturb"] = [p.entity_id for p in kept]
+        sentence = _do_not_disturb([str(_player_area(p.entity_id, satellite, catalog)) for p in kept], satellite, catalog, names)
+        if not chosen:
+            values = {**values, "player": kept[0].as_dict(), "players": [p.as_dict() for p in kept]}
+            return await _say(hass, behavior, values, outcome, "do_not_disturb", sentence)
+        outcome.also_said = sentence
     values = {
         **values,
         "player": chosen[0].as_dict() if chosen else None,
@@ -1259,9 +1314,11 @@ async def _move_music(
     sent: list[str],
     started: float,
     names: dict[str, dict[str, str]] | None = None,
+    quiet: set[str] | None = None,
 ) -> Outcome:
     """The music playing here to the player the command names, queue and
-    all (Music Assistant's ``transfer_queue``)."""
+    all (Music Assistant's ``transfer_queue``) -- not one in an area on do
+    not disturb (``quiet``)."""
     choice = music_ops.choose_move(players, own, named, nearby, sent)
     trace = outcome.music or {}
     if choice.source is not None:
@@ -1272,6 +1329,10 @@ async def _move_music(
     source, target = choice.source, choice.players[0]
     assert source is not None
     catalog = getattr(hass, "catalog", None)
+    area = _player_area(target.entity_id, satellite, catalog)
+    if area in (quiet or ()):
+        values = {**values, "player": target.as_dict(), "players": [target.as_dict()]}
+        return await _say(hass, behavior, values, outcome, "do_not_disturb", _do_not_disturb([area], satellite, catalog, names))
     to = "" if values["slots"].get("entity") else languages.speech().place(_where(values["slots"], satellite, catalog)[1], to=True)
     values = {
         **values,
@@ -1314,18 +1375,20 @@ def _all_music_players(hass: HomeAssistant) -> list[str]:
     return [p.entity_id for p in catalog.music_players()] if catalog is not None else []
 
 
+def _player_area(entity_id: str, satellite: Satellite, catalog: Any) -> str | None:
+    """A player's area: the satellite's own player is where it is."""
+    if entity_id == satellite.media_player:
+        return satellite.area_id
+    entity = catalog.entities.get(entity_id) if catalog is not None else None
+    return entity.area_id if entity is not None else None
+
+
 def _players_place(
     players: list[music_ops.Player], satellite: Satellite, catalog: Any, names: dict[str, dict[str, str]] | None = None
 ) -> dict[str, Any]:
     """Where music acts: the players' areas (the satellite's own player is
     where it is)."""
-    areas = []
-    for player in players:
-        entity = catalog.entities.get(player.entity_id) if catalog is not None else None
-        if player.entity_id == satellite.media_player:
-            areas.append(satellite.area_id)
-        else:
-            areas.append(entity.area_id if entity is not None else None)
+    areas = [_player_area(player.entity_id, satellite, catalog) for player in players]
     here = bool(areas) and all(a is not None and a == satellite.area_id for a in areas)
     known = [a for a in dict.fromkeys(areas) if a]
     said = place({"area": known}, satellite, catalog, names)["said"] if known else ""

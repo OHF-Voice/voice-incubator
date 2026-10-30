@@ -10,7 +10,9 @@ entity for its timers. The app:
   learns its device and timer list;
 * follows each timer list (``voice_timer_list/item/subscribe``): which timers are
   running, for matching timer commands and for recognizing their names, and
-  which finish, to ring the satellite.
+  which finish, to ring the satellite;
+* asks which areas are on do not disturb (``voice_labs/do_not_disturb``: a
+  switch for each satellite's area) before it sends something there.
 
 All of it is renewed on every reconnection to Home Assistant.
 """
@@ -69,6 +71,7 @@ class Integration:
         self._wanted: dict[str, str] = {}
         self._subscriptions: dict[str, int] = {}
         self._sync_task: asyncio.Task | None = None
+        self._said_no_quiet = False
         hass.on_connect(self._on_connect)
         # A player Music Assistant adds later (a satellite's Sendspin client
         # found after it registered) shows up as a registry change.
@@ -193,6 +196,31 @@ class Integration:
                 if t.get("status") in RUNNING and t.get("name")
             }
         )
+
+    # ------------------------------------------------------ do not disturb
+
+    async def do_not_disturb(self) -> dict[str, dict[str, Any]]:
+        """Each satellite's area's do not disturb switch, by area id: its
+        ``entity_id`` and whether it is ``on``. Asked each time, so an
+        automation's change counts at once; none when it can't be asked (an
+        integration from before it had them: said once)."""
+        if not self.ready:
+            return {}
+        try:
+            result = await self.hass.call({"type": "voice_labs/do_not_disturb"}, timeout=5)
+        except HassError as err:
+            if not self._said_no_quiet:
+                self._said_no_quiet = True
+                _LOGGER.warning("No do not disturb (update the Voice Labs integration): %s", err)
+            return {}
+        except (ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Could not ask which areas are on do not disturb: %s", err)
+            return {}
+        return {str(k): v for k, v in (result.get("areas") or {}).items() if isinstance(v, dict)}
+
+    async def quiet_areas(self) -> set[str]:
+        """The areas whose do not disturb is on."""
+        return {area for area, switch in (await self.do_not_disturb()).items() if switch.get("on")}
 
     async def fresh_timers(self, key: str) -> list[dict[str, Any]]:
         """The satellite's timers straight from Home Assistant."""

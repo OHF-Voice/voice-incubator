@@ -113,7 +113,7 @@ def test_announce_and_intercom():
                                    "wildcard": {"slot": "message", "after": ["announce"], "to_end": True},
                                    "announce": "{{ slots.message }}"})
     assert announce.behavior.does == "announce" and announce.behavior.sequence() == []
-    assert announce.behavior.outcomes() == ("done", "no_satellites", "failed")
+    assert announce.behavior.outcomes() == ("done", "no_satellites", "failed", "do_not_disturb")
     intercom = parse_command("i", {"description": "talk with a room", "require": [["connect"]],
                                    "names": {"area": {"count": 1}}, "intercom": "connect"})
     assert intercom.behavior.does == "intercom" and "busy" in intercom.behavior.outcomes()
@@ -123,6 +123,22 @@ def test_announce_and_intercom():
         parse_command("x", {"description": "x", "examples": ["x"], "intercom": "listen"})
     with pytest.raises(ConfigError, match="give one of"):
         parse_command("x", {"description": "x", "examples": ["x"], "intercom": "connect", "announce": "hi"})
+
+
+def test_do_not_disturb():
+    """Announcements, the intercom and music keep out of an area on do not
+    disturb unless told not to; anything else when told to."""
+    spec = {"description": "x", "examples": ["x"]}
+    assert parse_command("a", {**spec, "announce": "hi"}).behavior.respects_do_not_disturb
+    assert parse_command("m", {**spec, "music": "pause"}).behavior.respects_do_not_disturb
+    urgent = parse_command("u", {**spec, "announce": "hi", "do_not_disturb": False}).behavior
+    assert not urgent.respects_do_not_disturb and "do_not_disturb" not in urgent.outcomes()
+    lights = {**spec, "intent": "HassTurnOn"}
+    assert not parse_command("l", lights).behavior.respects_do_not_disturb
+    story = parse_command("s", {**lights, "do_not_disturb": True, "response": {"do_not_disturb": "Shh."}}).behavior
+    assert story.respects_do_not_disturb and story.response_for("do_not_disturb") == "Shh."
+    with pytest.raises(ConfigError, match="do_not_disturb: true or false"):
+        parse_command("x", {**spec, "do_not_disturb": "yes"})
 
 
 def test_a_missing_scene_is_said_as_one():

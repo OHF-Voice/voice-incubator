@@ -140,6 +140,17 @@ when the small LLM picks it. Neither unless chosen::
 
     lights_off:
       fallback: [meaning, llm]
+
+``do_not_disturb`` keeps a command out of an area on do not disturb (its
+switch in Home Assistant, from the integration) when it is heard in another:
+it turns out ``do_not_disturb``. Announcements, the intercom and music do
+unless given ``false`` -- an announcement is still said everywhere else, and
+music is kept from starting or getting louder there, not from pausing or
+getting quieter -- and any other command does when given ``true``, by the
+areas it acts in (actions.place)::
+
+    goodnight_story:
+      do_not_disturb: true
 """
 
 from __future__ import annotations
@@ -222,6 +233,7 @@ COMMAND_KEYS = {
     "on_list",
     "adds_to_list",
     "fallback",
+    "do_not_disturb",
     "combinations",
     *LISTEN_KEYS,
     *DO_KEYS,
@@ -381,6 +393,16 @@ class Behavior:
     adds_to_list: AddsToList | None = None
     """What it adds to a to-do list: it can then turn out ``already_on_list``."""
 
+    do_not_disturb: bool | None = None
+    """Whether it is kept out of an area on do not disturb, heard elsewhere
+    (None: an announcement, the intercom and music are)."""
+
+    @property
+    def respects_do_not_disturb(self) -> bool:
+        if self.do_not_disturb is not None:
+            return self.do_not_disturb
+        return bool(self.announce or self.intercom or self.music)
+
     def response_for(self, outcome: str, level: str | None = None) -> str | None:
         """The template for this outcome; a plain response is for ``done``.
         Written by level, done's is the one for ``level`` (the command's own,
@@ -435,6 +457,7 @@ class Behavior:
             + (("not_supported",) if self.supports else ())
             + (("not_on_list",) if self.on_list else ())
             + (("already_on_list",) if self.adds_to_list else ())
+            + (("do_not_disturb",) if self.respects_do_not_disturb else ())
         ))
 
     def _outcomes(self) -> tuple[str, ...] | None:
@@ -862,7 +885,14 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         supports=supports,
         on_list=on_list,
         adds_to_list=adds_to_list,
+        do_not_disturb=_flag(spec.get("do_not_disturb"), f"{where}.do_not_disturb"),
     )
+
+
+def _flag(value: Any, where: str) -> bool | None:
+    if value is not None and not isinstance(value, bool):
+        raise ConfigError(f"{where}: true or false")
+    return value
 
 
 def _adds_to_list(value: Any, where: str) -> AddsToList | None:

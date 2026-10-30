@@ -146,6 +146,7 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.put("/api/areas/{id}", api.put_area),
             web.delete("/api/areas/{id}", api.delete_area),
             web.put("/api/areas/{id}/off", api.put_area_off),
+            web.put("/api/areas/{id}/do_not_disturb", api.put_area_quiet),
             web.get("/api/satellites", api.satellites),
             web.put("/api/satellites/{key}", api.put_satellite),
             web.post("/api/satellites/{key}/debug", api.debug_session),
@@ -210,6 +211,7 @@ def intent_examples() -> dict[str, str]:
         "unavailable": say.unavailable(room),
         "not_supported": say.none_can(room, None),
         "no_area": say.NO_AREA,
+        "do_not_disturb": say.do_not_disturb(room),
     }
 
 
@@ -219,11 +221,15 @@ def satellite_examples() -> dict[str, dict[str, str]]:
     say = languages.speech()
     room = say.place([("area", say.EXAMPLE_NAMES["room"])])
     return {
-        "announce": {"done": say.announced(room)["specific"], "no_satellites": say.no_satellites(room)},
+        "announce": {
+            "done": say.announced(room)["specific"], "no_satellites": say.no_satellites(room),
+            "do_not_disturb": say.do_not_disturb(room),
+        },
         "intercom": {
             "done": say.connecting(say.place([("area", say.EXAMPLE_NAMES["room"])], to=True)),
             "no_satellites": say.no_satellites(room), "here": say.INTERCOM_HERE,
             "busy": say.intercom_busy(room), "needs_firmware": say.INTERCOM_FIRMWARE,
+            "do_not_disturb": say.do_not_disturb(room),
         },
     }
 
@@ -850,10 +856,13 @@ class Api:
     async def areas(self, request: web.Request) -> web.Response:
         """The areas the Home page lists -- those added there, and those with
         a satellite, a device, a command of their own or one turned off --
-        each with what it has; Home Assistant's other areas (``others``), to
-        add; the satellites in no area; and the floors."""
+        each with what it has, and its do not disturb switch (``entity_id``,
+        ``on``; none until a satellite is there); Home Assistant's other
+        areas (``others``), to add; the satellites in no area; and the
+        floors."""
         app = self.app
         catalog = app.hass.catalog
+        quiet = await app.integration.do_not_disturb()
         settings = app.store.settings
         data = app.store.document()
         here, default = languages.current().code, file_language(data)
@@ -901,6 +910,7 @@ class Api:
                     "off": off.get(area_id, 0),
                     "listed": area_id in listed,
                     "own": areas.own(settings, area_id),
+                    "do_not_disturb": quiet.get(area_id),
                 }
             )
         floors = sorted(catalog.floors.values(), key=lambda f: (f.level is None, f.level or 0, f.name.lower()))
@@ -937,6 +947,18 @@ class Api:
         satellite, device or command is listed anyway)."""
         areas.put(self.app.store.settings, request.match_info["id"], None, {}, [])
         self.app.store.save_settings()
+        return web.json_response({"ok": True})
+
+    async def put_area_quiet(self, request: web.Request) -> web.Response:
+        """An area's do not disturb on (``on``: true) or off: its switch in
+        Home Assistant, which holds it."""
+        body = await request.json()
+        if not isinstance(body.get("on"), bool):
+            raise ConfigError("on: true or false")
+        switch = (await self.app.integration.do_not_disturb()).get(request.match_info["id"])
+        if not switch:
+            raise FileNotFoundError("No do not disturb there: it comes with a satellite in the area")
+        await self.app.hass.call_service("switch", "turn_on" if body["on"] else "turn_off", {}, {"entity_id": switch["entity_id"]})
         return web.json_response({"ok": True})
 
     async def put_area_off(self, request: web.Request) -> web.Response:

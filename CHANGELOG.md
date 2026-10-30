@@ -56,6 +56,15 @@
   "raise the temperature"), where "turn up the thermostat" turned up the
   volume. **Set the thermostat** also hears the heat ("turn the heat up to
   72").
+- **Do not disturb, in each area.** The integration gives each area with a
+  satellite a switch (`switch.bedroom_do_not_disturb`), for automations; the
+  area's page has it too. On, announcements from elsewhere skip the area (and
+  say so), the intercom doesn't connect there, and music doesn't start,
+  move, resume, skip or get louder there; what is said in the area still
+  works there. A command keeps out with `do_not_disturb: true` (**Kept out of
+  areas on do not disturb** on its page), and an announcement, call or music
+  command gets through with `false`. With an older integration, nothing is
+  kept out.
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):

@@ -306,6 +306,7 @@ a.place:hover { background: var(--panel); text-decoration: none; }
 a.place.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 a.place.on .icon { color: var(--accent); }
 .place .dots { display: flex; gap: 3px; }
+.place .icon.quiet { opacity: 0.7; }
 .place .dot { width: 8px; height: 8px; }
 .floor-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; margin: 12px 10px 2px; }
 .add-place { margin: 10px 4px 0; align-self: flex-start; }

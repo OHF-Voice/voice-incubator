@@ -154,11 +154,21 @@ async def _hass():
 SATELLITE = Satellite("aabbccddeeff", "Fake VPE", "office", "Office")
 
 
-def _run(hass, spec, slots=None, satellite=None, dry_run=False, helper=None):
+def _run(hass, spec, slots=None, satellite=None, dry_run=False, helper=None, integration=None):
     command = parse_command("c", {"description": "do it", "examples": ["do it"], **spec})
     decision = Decision({"transcript": "do it"}, command, command.behavior, "command", slots=slots or {})
     sat = satellite or Satellite(**{**SATELLITE.__dict__, "media_player": hass.catalog.music_player_for(SATELLITE.key, "fake-vpe")})
-    return actions.run(hass, decision, sat, None, dry_run, None, helper or music.Music(hass))
+    return actions.run(hass, decision, sat, None, dry_run, integration, helper or music.Music(hass))
+
+
+class _Quiet:
+    """The integration, as far as do not disturb goes: these areas are on."""
+
+    def __init__(self, *areas):
+        self.areas = set(areas)
+
+    async def quiet_areas(self):
+        return set(self.areas)
 
 
 def test_play_pause_and_resume_through_home_assistant():
@@ -446,3 +456,36 @@ def test_free_text_without_the_place_it_ends_on():
     assert without_place("the mark 2", ["mark two"]) == "the mark 2"  # nothing left: it is the text
     # "Like this": like what is playing.
     assert music.generic("this") and music.generic("that song") and not music.generic("this will destroy you")
+
+
+def test_do_not_disturb_keeps_the_music_from_starting_there():
+    """Nothing starts, changes or gets louder in an area on do not disturb;
+    it still pauses and gets quieter there."""
+    async def scenario():
+        fake, server, hass = await _hass()
+        try:
+            helper = music.Music(hass)
+            quiet = _Quiet("kitchen")
+            move = {"music": "move", "names": {"area": {"count": 1}}}
+            album = {"query": "the album kind of blue"}
+            outcome = await _run(hass, {"music": "play"}, {**album, "area": ["kitchen"]}, helper=helper, integration=quiet)
+            assert (outcome.name, outcome.speech) == ("do_not_disturb", "Do not disturb is on in the Kitchen.")
+            assert not [m for m in fake.services if m["service"] == "play_media"]
+            # Here, it plays; it isn't moved there.
+            outcome = await _run(hass, {"music": "play"}, album, helper=helper, integration=quiet)
+            assert outcome.name == "done" and fake.states[OWN][0] == "playing"
+            outcome = await _run(hass, move, {"area": ["kitchen"]}, helper=helper, integration=quiet)
+            assert (outcome.name, outcome.speech) == ("do_not_disturb", "Do not disturb is on in the Kitchen.")
+            assert fake.states[KITCHEN][0] != "playing"
+            # Moved there before it was on: paused there, not resumed.
+            outcome = await _run(hass, move, {"area": ["kitchen"]}, helper=helper)
+            assert outcome.name == "done" and fake.states[KITCHEN][0] == "playing"
+            outcome = await _run(hass, {"music": "pause"}, helper=helper, integration=quiet)
+            assert outcome.name == "done" and fake.states[KITCHEN][0] == "paused"
+            outcome = await _run(hass, {"music": "resume"}, helper=helper, integration=quiet)
+            assert outcome.name == "do_not_disturb" and fake.states[KITCHEN][0] == "paused"
+        finally:
+            await hass.stop()
+            server.close()
+
+    asyncio.run(scenario())

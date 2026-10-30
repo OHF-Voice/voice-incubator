@@ -62,6 +62,8 @@ DEFAULTS = [
     "mdi:check-circle",
     "mdi:close-circle",
     "mdi:alert-circle",
+    # An area on do not disturb.
+    "mdi:minus-circle-outline",
 ]
 # A satellite's icon: where it is, or what it is.
 SATELLITE_PICKER = [

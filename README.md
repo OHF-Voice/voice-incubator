@@ -283,7 +283,7 @@ and copies (`Satellite.first`).
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers |
+| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's do not disturb switch |
 | [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) | the satellites' ESPHome firmware: `voice-labs.yaml`, the `components/voice_labs` component, and the install page's build |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |

@@ -112,6 +112,11 @@ def no_satellites(place: str) -> str:
     return f"Другого устройства {place} нет." if place else "Других устройств нет."
 
 
+def do_not_disturb(place: str) -> str:
+    """Kept out of where do not disturb is on, ``place`` ("in the Bedroom")."""
+    return f"Режим «Не беспокоить» включён {place}."
+
+
 def connecting(to: str) -> str:
     """The intercom, about to connect ``to`` there (``place(to=True)``)."""
     return f"Соединяю {to}."

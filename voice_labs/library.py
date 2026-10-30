@@ -33,11 +33,11 @@ from .store import compile_store, plain
 
 REFERENCE = "from"
 """A command's key that names the library command it follows (``file/id``)."""
-SETTINGS = ("area", "off", "disabled", "verbosity", "fallback", "title", "icon", "slots", "examples", "language")
+SETTINGS = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "title", "icon", "slots", "examples", "language")
 """What a command that follows the library may set itself. ``slots``: its
 implied target, in place of the library's; ``examples``: sentences added to
 the library's."""
-REPLACED = ("area", "off", "disabled", "verbosity", "fallback", "title", "icon", "slots")
+REPLACED = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "title", "icon", "slots")
 """The settings that take the library's place (null: none of it)."""
 COPY_SUFFIX = r"(_\d+|_[a-z]{2}|_copy(_\d+)?)?"
 """What an added command's id may have after the library's: a number (one

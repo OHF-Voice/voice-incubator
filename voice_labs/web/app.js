@@ -814,7 +814,7 @@ async function pageCommand(id, prefill, query) {
     if (following) {
       // What it may set itself: the library's version is the rest.
       const out = { from: reference.from, examples: extras, slots: spec.slots || {} };
-      for (const key of ["area", "off", "disabled", "verbosity", "fallback", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
+      for (const key of ["area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
       if (reference.language) out.language = reference.language;
       return out;
     }
@@ -897,7 +897,7 @@ async function pageCommand(id, prefill, query) {
         h("input", { type: "radio", name: `do-${Math.random()}`, checked: mode === value, onchange: () => {
           // Responses for outcomes only the old kind had go (a script's own stay with an action).
           const scripted = (m) => m === "script" || m === "action";
-          const own = { intent: INTENT_OUTCOMES, announce: ["done", "no_satellites", "failed"], intercom: ["done", "no_satellites", "here", "busy", "needs_firmware", "failed"] };
+          const own = { intent: [...INTENT_OUTCOMES, "do_not_disturb"], announce: ["done", "no_satellites", "do_not_disturb", "failed"], intercom: ["done", "no_satellites", "here", "busy", "needs_firmware", "do_not_disturb", "failed"] };
           if (!(scripted(mode) && scripted(value))) keepOutcomes(value === "nothing" ? [] : value === "respond" ? ["done"] : own[value] || ["done", "failed"]);
           mode = value;
           delete target.script; delete target.scene; delete target.timer; delete target.music; delete target.intent; delete target.announce; delete target.intercom;
@@ -909,6 +909,7 @@ async function pageCommand(id, prefill, query) {
           if (value !== "action") yamlBox.value = "";
           if (value === "action" && !yamlBox.value) yamlBox.value = "action: light.turn_on\ntarget: \"{{ target }}\"\n";
           render();
+          renderQuiet();
         } }), label)));
       let control = null;
       if (mode === "script" || mode === "scene") {
@@ -1064,8 +1065,8 @@ async function pageCommand(id, prefill, query) {
       const rows = [];
       if (mode === "intent") {
         const said = outcomeInfo().intent || {};
-        const labels = { no_devices: "Nothing of the kind there", not_exposed: "None of it exposed to Assist", not_supported: "None of it able to", unavailable: "All of it unavailable", no_area: "This satellite has no area" };
-        for (const key of INTENT_OUTCOMES) {
+        const labels = { no_devices: "Nothing of the kind there", not_exposed: "None of it exposed to Assist", not_supported: "None of it able to", unavailable: "All of it unavailable", no_area: "This satellite has no area", do_not_disturb: "Do not disturb there" };
+        for (const key of [...INTENT_OUTCOMES, ...(target.do_not_disturb === true ? ["do_not_disturb"] : [])]) {
           if (key !== "done" && key !== "failed") rows.push(field(labels[key], box(key, said[key] || "", false)));
         }
         rows.push(field("If it fails", box("failed", info.failed, false), "Home Assistant refused. result.error says why."));
@@ -1076,7 +1077,7 @@ async function pageCommand(id, prefill, query) {
       }
       if (mode === "announce" || mode === "intercom") {
         const said = outcomeInfo()[mode] || {};
-        const labels = { no_satellites: "No other satellite there", here: "Only this one there", busy: "That one is busy", needs_firmware: "Firmware can't" };
+        const labels = { no_satellites: "No other satellite there", here: "Only this one there", busy: "That one is busy", needs_firmware: "Firmware can't", do_not_disturb: "Do not disturb there" };
         for (const [key, example] of Object.entries(said)) {
           if (key !== "done") rows.push(field(labels[key] || key, box(key, example, false)));
         }
@@ -1089,7 +1090,7 @@ async function pageCommand(id, prefill, query) {
       if (mode === "music") {
         const said = musicOutcomes();
         const levels = (info.music_levels || {})[target.music];
-        const labels = { no_player: "No music player", nothing_playing: "Nothing playing", not_found: "Nothing found", missing_query: "Nothing asked for", missing_volume: "No volume heard", already: "Already playing" };
+        const labels = { no_player: "No music player", nothing_playing: "Nothing playing", not_found: "Nothing found", missing_query: "Nothing asked for", missing_volume: "No volume heard", already: "Already playing", do_not_disturb: "Do not disturb there" };
         for (const [key, example] of Object.entries(said)) {
           if (key !== "done") rows.push(field(labels[key] || key, box(key, example || "(a short sound)", false)));
         }
@@ -1337,6 +1338,21 @@ async function pageCommand(id, prefill, query) {
       ((state.status || {}).fallback || {})[step] === false
         ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” in Whole Home's Settings" }, "off in Settings") : null);
   }
+  // Kept out of an area on do not disturb, heard in another: announcements,
+  // the intercom and music unless unticked, anything else when ticked. Drawn
+  // again when what it does changes.
+  const quietWrap = h("div", { class: "wake-list" });
+  function renderQuiet() {
+    const usual = ["announce", "intercom", "music"].includes(kindOf(spec));
+    fill(quietWrap, h("label", {},
+      h("input", { type: "checkbox", checked: typeof spec.do_not_disturb === "boolean" ? spec.do_not_disturb : usual, onchange: (e) => {
+        if (e.target.checked === usual) delete spec.do_not_disturb; else spec.do_not_disturb = e.target.checked;
+        if (renderBehavior) renderBehavior();
+      } }),
+      "Kept out of areas on do not disturb",
+      hint("Heard in another area, it doesn't act in an area whose do not disturb is on; said there, it does. An announcement skips that area, and music doesn't start or get louder there.")));
+  }
+  renderQuiet();
   // The model hears free text and values: offered where it has some (or is
   // chosen already), as they come and go.
   const modelBox = h("div");
@@ -1365,7 +1381,8 @@ async function pageCommand(id, prefill, query) {
           field("Icon", iconBox),
           h("div", { class: "grow" },
             locked(field("Description", description, "What it does, as a verb phrase: “turn on the lights”. A near miss is described with it (“It looks like you're trying to turn on the lights, but…”), and meaning and the model tell commands apart by it.")))),
-        field("Where", whereEditor(spec), "The whole home's is heard from every satellite, unless turned off in its area (on the area's Commands). An area's own is heard only from satellites there, and goes first there where both take the same sentence.")),
+        field("Where", whereEditor(spec), "The whole home's is heard from every satellite, unless turned off in its area (on the area's Commands). An area's own is heard only from satellites there, and goes first there where both take the same sentence."),
+        quietWrap),
       h("div", { class: "panel" },
         heading("h2", "Example sentences", "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."),
         following
@@ -1980,8 +1997,9 @@ function placesNav(places, sats, place, tab) {
     const s = sats.find((x) => x.key === key);
     return h("span", { class: `dot ${s && s.connected ? "ok" : ""}`, title: `${s ? s.name : key}: ${s && s.connected ? "connected" : "offline"}` });
   }));
-  const item = (id, name, iconName, keys) => h("a", { class: `place ${place === id ? "on" : ""}`, href: placeHref(id, id === place ? tab : areaTab(id, tab)),
-    "aria-current": place === id ? "page" : null }, icon(iconName), h("span", { class: "grow" }, name), dots(keys));
+  const item = (id, name, iconName, keys, quiet) => h("a", { class: `place ${place === id ? "on" : ""}`, href: placeHref(id, id === place ? tab : areaTab(id, tab)),
+    "aria-current": place === id ? "page" : null }, icon(iconName), h("span", { class: "grow" }, name),
+    quiet ? icon("mdi:minus-circle-outline", "quiet", "Do not disturb") : null, dots(keys));
   const byFloor = floorsOf(places);
   const select = h("select", { class: "place-select", "aria-label": "Area", onchange: (e) => { location.hash = placeHref(e.target.value, areaTab(e.target.value, tab)); } },
     h("option", { value: "home", selected: place === "home" }, "Whole Home"),
@@ -1991,7 +2009,7 @@ function placesNav(places, sats, place, tab) {
   const nav = h("nav", { class: "places", "aria-label": "Areas" },
     item("home", "Whole Home", "mdi:home", places.no_area),
     byFloor.map(([floor, areas]) => [floor ? h("div", { class: "floor-label" }, floor) : areas.length && byFloor.length > 1 ? h("div", { class: "floor-label" }, "Other areas") : null,
-      areas.map((a) => item(a.id, a.name, areaIcon(a), a.satellites))]),
+      areas.map((a) => item(a.id, a.name, areaIcon(a), a.satellites, a.do_not_disturb && a.do_not_disturb.on))]),
     h("button", { type: "button", class: "add-place", onclick: () => addAreaDialog(places) }, "Add area"));
   return [nav, select];
 }
@@ -2068,6 +2086,7 @@ async function pageHome(query) {
           heading("h1", area ? area.name : "Whole Home", area ? null : "Every satellite has what's here. An area adds its own, and can turn these off."),
           area && area.floor ? h("span", { class: "muted small" }, area.floor) : null,
           h("span", { class: "grow" }),
+          area && area.do_not_disturb ? quietToggle(area) : null,
           empty ? h("button", { type: "button", class: "link", onclick: remove }, "Remove") : null),
         h("div", { class: "tiles compact" }, here.length ? here.map((s) => satelliteTile(s, wake))
           : area ? h("div", { class: "tile muted" }, "No satellite here.")
@@ -2075,6 +2094,20 @@ async function pageHome(query) {
         h("div", { class: "place-tabs", role: "tablist" }, tabs.map(([id, text]) => h("a", {
           role: "tab", class: tab === id ? "on" : "", "aria-selected": String(tab === id), href: placeHref(place, id) }, text))),
         body)));
+}
+
+// An area's do not disturb: its switch in Home Assistant, which holds it.
+function quietToggle(area) {
+  const quiet = area.do_not_disturb;
+  return h("label", { class: "small" },
+    h("input", { type: "checkbox", checked: !!quiet.on, onchange: async (e) => {
+      try {
+        await api("PUT", `areas/${encodeURIComponent(area.id)}/do_not_disturb`, { on: e.target.checked });
+        await route();
+      } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+    } }),
+    "Do not disturb",
+    hint(`Announcements, calls and music from other areas don't reach the ${area.name}; what's said here still works. In Home Assistant it's ${quiet.entity_id}, for automations.`));
 }
 
 // The whole home's commands and skills, found by what they say, and the

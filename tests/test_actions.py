@@ -664,3 +664,56 @@ def test_without_a_name_the_devices_added_to_the_area():
     # None of the kind added there: said so, and no intent.
     outcome, named = turned_on({"light.kitchen_strip": Device(implicit=False)})
     assert (outcome.name, named) == ("no_devices", [])
+
+
+class StubQuiet:
+    """The integration, as far as do not disturb goes: these areas are on."""
+
+    def __init__(self, *areas):
+        self.areas = set(areas)
+
+    async def quiet_areas(self):
+        return set(self.areas)
+
+
+def test_a_command_kept_out_of_an_area_on_do_not_disturb():
+    """One that says so keeps out of an area on do not disturb, heard
+    elsewhere; in that area itself it runs. Others run there anyway."""
+    hass = StubHass()
+    story = {"action": [{"action": "script.goodnight_story"}], "response": "Once upon a time.", "do_not_disturb": True}
+    quiet = StubQuiet("bedroom", "kitchen")  # the satellite's own: never kept out
+    outcome = run(story, hass, {"area": ["bedroom"]}, integration=quiet)
+    assert (outcome.name, outcome.speech) == ("do_not_disturb", "Do not disturb is on in the Bedroom.")
+    assert run(story, hass, {}, integration=quiet).name == "done"
+    assert run({**story, "do_not_disturb": False}, hass, {"area": ["bedroom"]}, integration=quiet).name == "done"
+    assert run(story, hass, {"area": ["bedroom"]}, integration=StubQuiet()).name == "done"
+
+
+class StubSatellites:
+    """The other satellites, to announce on."""
+
+    def __init__(self, *areas):
+        self.all = [{"key": area, "name": area.title(), "area_id": area} for area in areas]
+        self.said: list[tuple[list[str], str]] = []
+
+    def others(self, source, areas):
+        return [s for s in self.all if areas is None or s["area_id"] in areas]
+
+    def announce(self, keys, text, source):
+        self.said.append((keys, text))
+
+
+def test_an_announcement_skips_an_area_on_do_not_disturb():
+    hass = StubHass()
+    command = parse_command("a", {"description": "announce", "examples": ["x"], "announce": "Dinner is ready"})
+    satellites = StubSatellites("office", "bedroom")
+
+    def announce(quiet, dry_run=False):
+        decision = Decision({"transcript": "x"}, command, command.behavior, "command", slots={})
+        return asyncio.run(actions.run(hass, decision, SATELLITE, None, dry_run, StubQuiet(*quiet), satellites=satellites))
+
+    outcome = announce(["bedroom"])
+    assert outcome.speech == "Announced it everywhere. Do not disturb is on in the Bedroom."
+    assert satellites.said == [(["office"], "Dinner is ready")]
+    outcome = announce(["bedroom", "office"], dry_run=True)
+    assert (outcome.name, outcome.speech) == ("do_not_disturb", "Do not disturb is on in the Office and in the Bedroom.")

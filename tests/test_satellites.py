@@ -86,6 +86,19 @@ async def _scenario(tmp_path) -> None:
         action = next(s for s in record.stages if s["stage"] == "action")
         assert (action["outcome"], action["speech"]) == ("no_satellites", "There's no other satellite in the Kitchen.")
 
+        # Do not disturb in the bedroom: nothing from the kitchen gets there,
+        # said; from the bedroom, its announcement still goes out.
+        hass.do_not_disturb.update(kitchen=False, bedroom=True)
+        record = await app.try_text("announce dinner is ready", KITCHEN, run_actions=True)
+        action = next(s for s in record.stages if s["stage"] == "action")
+        assert (action["outcome"], action["speech"]) == ("do_not_disturb", "Do not disturb is on in the Bedroom.")
+        record = await app.try_text("connect to the bedroom", KITCHEN, run_actions=True)
+        assert next(s for s in record.stages if s["stage"] == "action")["outcome"] == "do_not_disturb"
+        record = await app.try_text("announce breakfast is ready", BEDROOM)
+        action = next(s for s in record.stages if s["stage"] == "action")
+        assert action["outcome"] == "done" and action["sequence"] == [{"announce": "breakfast is ready", "satellites": [KITCHEN]}]
+        hass.do_not_disturb["bedroom"] = False
+
         # Old firmware: no intercom.
         app.sessions[BEDROOM].hello["intercom"] = False
         record = await app.try_text("connect to the bedroom", KITCHEN, run_actions=True)

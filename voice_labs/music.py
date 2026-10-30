@@ -78,6 +78,11 @@ OPERATIONS = (
 FIND = ("play", "add", "radio")
 """Operations that search Music Assistant for what to play."""
 
+LOUDER = ("play", "add", "radio", "resume", "next", "previous", "volume_up", "volume_set", "unmute", "move")
+"""Operations that start the music, change it or turn it up: kept out of an
+area on do not disturb (voice_labs/actions.py). Setting the volume is only
+when it sets it higher, or the player's isn't known."""
+
 _ON_PLAYING = ("done", "nothing_playing", "no_player")
 _ANY = ("done", "no_player")
 OUTCOMES = {
@@ -102,6 +107,8 @@ OUTCOMES = {
     "status": _ON_PLAYING,
     "move": ("done", "nothing_playing", "no_player", "already"),
 }
+# What starts the music or turns it up can be kept out of an area on do not disturb.
+OUTCOMES = {op: (*outcomes, "do_not_disturb") if op in LOUDER else outcomes for op, outcomes in OUTCOMES.items()}
 
 
 CONTROLS = ("pause", "resume", "stop", "next", "previous", "volume_up", "volume_down", "volume_set", "mute", "unmute", "status")
@@ -681,6 +688,8 @@ def examples() -> dict[str, dict[str, str]]:
     names = say.EXAMPLE_NAMES
     to = say.place([("area", names["room"])], to=True)
     out["move"].update(done=say.moved(None, names["other_player"], names["player"], to)["specific"], **say.MOVE_SAID)
+    for operation in LOUDER:
+        out[operation]["do_not_disturb"] = say.do_not_disturb(say.place([("area", names["room"])]))
     return out
 
 
