@@ -22,6 +22,14 @@
     there goes there); Whole Home's list every name heard everywhere, the
     devices in no area, the floors and the value lists.
 
+- **"Stop" ends a reply**, said alone while the satellite says it, as on the
+  stock firmware. Firmware that says so (HELLO `stop_word`) keeps the "stop"
+  model loaded, pushed with the wake words, and runs it only while a reply is
+  said or a timer rings; older firmware still has it pushed for each ring. A
+  "stop" heard just as what it stops ended is hung up on, not answered. The
+  firmware also starts a call from the center button (press to talk), shows
+  the mute switch on the ring, and keeps Sendspin's delay for a speaker on
+  the headphone jack.
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):

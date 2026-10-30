@@ -959,6 +959,63 @@ async def _cancelled(tmp_path):
         hass_server.close()
 
 
+def test_firmware_that_keeps_stop_loaded(tmp_path):
+    asyncio.run(_stop_kept(tmp_path))
+
+
+async def _stop_kept(tmp_path):
+    """Firmware that runs "stop" only while it arms it (HELLO ``stop_word``)
+    keeps it loaded: pushed with the wake words, not for each ring."""
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(
+        mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0, hello_extra={"stop_word": True}
+    )
+    satellite_server = await serve(satellite)
+    (tmp_path / "commands.yaml").write_text(COMMANDS)
+    (tmp_path / "settings.yaml").write_text("sounds: false\n")
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        await wait_for(lambda: satellite.models == ["okay_nabu", "stop"])
+        assert satellite.model_headers["stop"]["slot"] == 2
+        clears = satellite.clears
+
+        # A timer rings with what is loaded, and "stop" stops it.
+        timer_list = f"voice_timer_list.{MAC}_timers"
+        await hass._call_service({
+            "domain": "voice_timer_list", "service": "create_timer",
+            "target": {"entity_id": timer_list}, "service_data": {"duration": 30},
+        })
+        [timer_id] = hass.timers[timer_list]
+        await wait_for(lambda: app.integration.running(MAC))
+        played = satellite.played
+        await hass.finish_timer(timer_list, timer_id)
+        session = app.sessions[MAC]
+        await wait_for(lambda: session.ringing is not None and satellite.played > played + 32000)
+        assert await satellite.detect("Stop") == "timer_stopped"
+        await wait_for(lambda: any(e["type"] == "timer_stopped" for e in satellite.events))
+        await asyncio.sleep(0.5)
+        assert satellite.models == ["okay_nabu", "stop"] and satellite.clears == clears
+
+        # Heard just as what it stops ended: nothing to stop, and no call.
+        recent = len(app.calls.recent)
+        assert await satellite.detect("Stop") == "nothing_to_stop"
+        assert len(app.calls.recent) == recent
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+        hass_server.close()
+
+
 def test_home_assistant_stt_and_tts(tmp_path):
     asyncio.run(_voices(tmp_path))
 

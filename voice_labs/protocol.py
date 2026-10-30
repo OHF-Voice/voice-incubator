@@ -59,6 +59,10 @@ class Message(IntEnum):
     start a call. The device shows it (the VPE's ring blinks red). Firmware
     that can says ``"monitor": true`` in HELLO."""
     MODEL_START = 0x20
+    """A model's header; its blob follows (MODEL_DATA), then MODEL_END.
+    Firmware that runs "stop" only while it arms it (a reply, a ringing
+    timer), and ends a call on it, says ``"stop_word": true`` in HELLO: it
+    is pushed with the wake words and stays."""
     MODEL_DATA = 0x21
     MODEL_END = 0x22
     MODEL_CLEAR = 0x23

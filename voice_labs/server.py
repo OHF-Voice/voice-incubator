@@ -1289,6 +1289,15 @@ class VoiceLabsApp:
             self._spawn(self.wake.ensure(verified))
         await self._send(session, Message.MODEL_CLEAR)
         await self._push_models(session, models)
+        if (stop := self._kept_stop(session)) is not None:
+            await self._push_models(session, [stop], first_slot=len(session.wake_words) + 1)
+
+    def _kept_stop(self, session: Session) -> WakeModel | None:
+        """"stop", when the device keeps it loaded: firmware that runs it only
+        while it arms it -- a response, a ringing timer -- and ends the call
+        on it (HELLO ``stop_word``). Older firmware has it pushed for each
+        ring, since it would run it all the time."""
+        return self.wake_words.model(STOP) if session.hello.get("stop_word") else None
 
     def wake_words_changed(self, key: str | None = None) -> None:
         """A satellite's pick (or every satellite's), or a cutoff, changed:
@@ -1908,6 +1917,14 @@ class VoiceLabsApp:
                 session.call.verified = True
                 self._spawn(self._hang_up(session, "timer_stopped"))
                 return
+        if session.call.wake_word.strip().lower() == STOP_MODEL:
+            # "stop" heard just as what it stops ended (a response, a ring):
+            # nothing to stop, and not a wake word.
+            _LOGGER.info("[%s] Stop word with nothing to stop", session)
+            session.call.finished = True
+            session.call.verified = True
+            self._spawn(self._hang_up(session, "nothing_to_stop"))
+            return
         record = self.calls.begin("call", self.satellite(session.satellite).as_dict())
         session.call.record = record
         record.marks["detection"] = session.call.preroll_bytes / BYTE_RATE
@@ -3031,7 +3048,7 @@ class VoiceLabsApp:
             while session.call is not None and time.monotonic() < deadline:
                 await asyncio.sleep(0.2)
             stop = self.wake_words.model(STOP)
-            if stop is not None:
+            if stop is not None and self._kept_stop(session) is None:
                 await self._push_models(session, [stop], first_slot=len(session.wake_words) + 1)
             ringing = list(session.ringing_timers)
             names = [t.get("name") for t in ringing]
@@ -3069,7 +3086,10 @@ class VoiceLabsApp:
         if session.writer is None:
             return
         await self._event(session, "timer_stopped")
-        if self.wake_words.model(STOP) is not None:
+        if self._kept_stop(session) is not None:
+            # "stop" stays; wake words changed during the ring are pushed now.
+            self.wake_words_changed(session.satellite)
+        elif self.wake_words.model(STOP) is not None:
             await self._push_wake_models(session)
 
     # ------------------------------------------------------ other satellites
