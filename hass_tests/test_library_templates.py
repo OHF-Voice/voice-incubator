@@ -21,7 +21,10 @@ from homeassistant.helpers.script import Script
 from homeassistant.helpers.template import Template
 from homeassistant.setup import async_setup_component
 
-from tests.common import async_mock_service
+try:
+    from pytest_homeassistant.common import async_mock_service
+except ImportError:  # Home Assistant before its test helpers became a package
+    from tests.common import async_mock_service
 
 LIBRARY = Path(__file__).resolve().parent.parent / "voice_labs" / "languages" / "en" / "library"
 
@@ -38,6 +41,7 @@ def command(file: str, command_id: str, variant: str | None = None) -> dict[str,
 
 async def _home(hass: HomeAssistant) -> SimpleNamespace:
     EXPOSED.clear()
+    DEVICES.clear()
     upstairs = fr.async_get(hass).async_create("First Floor")
     areas = ar.async_get(hass)
     bedroom = areas.async_create("Bedroom", floor_id=upstairs.floor_id)
@@ -61,6 +65,7 @@ async def _home(hass: HomeAssistant) -> SimpleNamespace:
         hass.states.async_set(entry.entity_id, state, attributes)
         async_expose_entity(hass, "conversation", entry.entity_id, True)
         EXPOSED.add(entry.entity_id)
+        DEVICES[entry.entity_id] = area.id if area is not None else None
 
     add("cover.bedroom_blinds", bedroom, "open", device_class="blind", friendly_name="Bedroom Blinds")
     add("cover.office_blinds", office, "closed", device_class="blind", friendly_name="Office Blinds")
@@ -79,6 +84,9 @@ async def _home(hass: HomeAssistant) -> SimpleNamespace:
 
 EXPOSED: set[str] = set()
 """What _home exposed to Assist (the app reads it with voice_labs/exposed)."""
+DEVICES: dict[str, str | None] = {}
+"""What _home added on the Names page, by entity id: its area id (none: in
+no area), as voice_labs/actions.py's implicit_devices has them."""
 
 
 def _variables(slots: dict[str, Any], area: str | None = None, area_name: str | None = None) -> dict[str, Any]:
@@ -90,6 +98,8 @@ def _variables(slots: dict[str, Any], area: str | None = None, area_name: str | 
         "target": {},
         "command": {"id": "c", "description": "", "text": ""},
         "exposed": sorted(EXPOSED),
+        "names": {},
+        "devices": dict(DEVICES),
     }
 
 
@@ -222,8 +232,8 @@ async def test_are_any_lights_on(hass: HomeAssistant) -> None:
     assert _say(hass, spec, _variables({})) == (
         "Yes, Kitchen Ceiling, Kitchen Lamp and Bedroom Lamp are on."
     )
-    # What isn't exposed to Assist isn't counted; asked by name, it is.
-    EXPOSED.discard("light.kitchen_lamp")
+    # What isn't added to the area (Names) isn't counted; asked by name, it is.
+    DEVICES.pop("light.kitchen_lamp")
     assert _say(hass, spec, _variables({}, home.kitchen, "Kitchen")) == "Yes, Kitchen Ceiling is on in the Kitchen."
     device = command("lights", "any_lights_on", "device")
     assert _say(hass, device, _variables({"entity": ["light.kitchen_lamp"], "asked": "on"})) == "Yes, Kitchen Lamp is on."
@@ -271,3 +281,38 @@ async def test_is_it_locked(hass: HomeAssistant) -> None:
     assert _say(hass, spec, _variables({"asked": "unlocked"})) == (
         "Yes, Back Door is jammed and Side Door Lock is unlocked."
     )
+
+
+async def test_heat_up_and_down(hass: HomeAssistant) -> None:
+    """A step on the thermostat: two degrees in Fahrenheit, one in Celsius,
+    within its limits; both ends in heat and cool mode; off, said."""
+    await _home(hass)
+    calls = async_mock_service(hass, "climate", "set_temperature")
+    up, down = command("climate", "heat_up"), command("climate", "heat_down")
+
+    def thermostat(state: str, **attributes: Any) -> None:
+        hass.states.async_set("climate.ecobee", state, {"min_temp": 45, "max_temp": 92, **attributes})
+
+    async def turn(spec: dict[str, Any]) -> str:
+        values = _variables({**spec["slots"], "entity": ["climate.ecobee"]})
+        return _say(hass, spec, values, await _run(hass, spec, values))
+
+    thermostat("heat", temperature=68)
+    assert await turn(up) == "Turned the thermostat up to 70 degrees."
+    assert calls[-1].data["temperature"] == 70
+    thermostat("heat", temperature=91)
+    assert await turn(up) == "Turned the thermostat up to 92 degrees."
+    thermostat("heat", temperature=21.5, min_temp=7, max_temp=35)
+    assert await turn(down) == "Turned the thermostat down to 20.5 degrees."
+    assert calls[-1].data["temperature"] == 20.5
+
+    thermostat("heat_cool", target_temp_low=68, target_temp_high=74)
+    assert await turn(down) == "Turned the thermostat down to between 66 and 72 degrees."
+    assert (calls[-1].data["target_temp_low"], calls[-1].data["target_temp_high"]) == (66, 72)
+
+    count = len(calls)
+    thermostat("off")
+    assert await turn(up) == "The thermostat is off."
+    thermostat("fan_only")
+    assert await turn(up) == "The thermostat isn't keeping a temperature."
+    assert len(calls) == count

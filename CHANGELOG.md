@@ -50,6 +50,12 @@
   the volume** likewise hears it turned up or down to a number ("turn the TV
   up to 50", "turn down the volume to 20 percent"), and **Set your volume**
   "turn yourself down to 20".
+- **Turn up the heat and Turn down the heat** in the library (English): the
+  home's thermostat a degree Celsius warmer or cooler, two in Fahrenheit, both
+  ends in heat and cool mode ("turn up the heat", "turn the thermostat down",
+  "raise the temperature"), where "turn up the thermostat" turned up the
+  volume. **Set the thermostat** also hears the heat ("turn the heat up to
+  72").
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):

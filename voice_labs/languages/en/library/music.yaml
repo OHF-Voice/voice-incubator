@@ -248,7 +248,7 @@ commands:
     description: turn up the volume
     require: [[louder, volume up, turn it up, turn up, turn ... up, increase the volume, raise the volume]]
     optional: [[volume, sound, a bit, a little], [in, on], [the]]
-    exclude: [light, lights, brightness, heat, temperature]
+    exclude: [light, lights, brightness, heat, heating, temperature, thermostat]
     lists:
       kind: {list: media_kinds}
     music: volume_up
@@ -274,7 +274,7 @@ commands:
     description: turn down the volume
     require: [[quieter, softer, volume down, turn it down, turn down, turn ... down, decrease the volume, lower the volume]]
     optional: [[volume, sound, a bit, a little], [in, on], [the]]
-    exclude: [light, lights, brightness, heat, temperature]
+    exclude: [light, lights, brightness, heat, heating, temperature, thermostat]
     lists:
       kind: {list: media_kinds}
     music: volume_down
@@ -302,7 +302,7 @@ commands:
     # the volume to 20 percent"; never the lights' or the heat's.
     require: [[volume, turn up, turn ... up, turn down, turn ... down]]
     optional: [[set, change, make, turn up, turn down], [volume], [it], [to, at], [percent], [in, on], [the]]
-    exclude: [light, lights, brightness, heat, temperature, thermostat, degrees]
+    exclude: [light, lights, brightness, heat, heating, temperature, thermostat, degrees]
     number: percentage
     lists:
       kind: {list: media_kinds}

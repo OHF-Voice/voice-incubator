@@ -30,6 +30,55 @@ shared:
   needs: &needs
     - Set the home's thermostat in Settings, or give it one of its own
       (its implied target).
+  # Warmer or cooler by slots.step degrees Celsius -- 1.8 times as many,
+  # rounded, on a thermostat in Fahrenheit (its highest above 50) -- within
+  # its limits: the temperature it keeps, or in heat and cool mode both ends.
+  # Off, or keeping none, it says so.
+  temperature_step: &temperature_step
+    - variables:
+        thermostat: "{{ slots.entity[0] }}"
+        by: >-
+          {{ ((slots.step | float) * (1.8 if (state_attr(thermostat, 'max_temp') or 0) | float > 50 else 1)) | round(0) }}
+        lowest: "{{ state_attr(thermostat, 'min_temp') | float(-1000) }}"
+        highest: "{{ state_attr(thermostat, 'max_temp') | float(1000) }}"
+        kept: "{{ state_attr(thermostat, 'temperature') }}"
+        low: "{{ state_attr(thermostat, 'target_temp_low') }}"
+        high: "{{ state_attr(thermostat, 'target_temp_high') }}"
+        is_off: {outcome: "off"}
+        keeps_none: {outcome: keeps_none}
+    - if: "{{ is_state(thermostat, 'off') }}"
+      then:
+        - stop: The thermostat is off
+          response_variable: is_off
+    - if: "{{ kept is number }}"
+      then:
+        - variables:
+            changed: {to: "{{ [[kept + by, lowest] | max, highest] | min }}"}
+        - action: climate.set_temperature
+          target:
+            entity_id: "{{ thermostat }}"
+          data:
+            temperature: "{{ changed.to }}"
+        - stop: Changed the temperature
+          response_variable: changed
+    - if: "{{ low is number and high is number }}"
+      then:
+        - variables:
+            changed: {low: "{{ [low + by, lowest] | max }}", high: "{{ [high + by, highest] | min }}"}
+        - action: climate.set_temperature
+          target:
+            entity_id: "{{ thermostat }}"
+          data:
+            target_temp_low: "{{ changed.low }}"
+            target_temp_high: "{{ changed.high }}"
+        - stop: Changed the temperatures
+          response_variable: changed
+    - stop: The thermostat keeps no temperature
+      response_variable: keeps_none
+  # What a step says when it changed nothing.
+  temperature_said: &temperature_said
+    "off": The thermostat is off.
+    keeps_none: The thermostat isn't keeping a temperature.
 
 commands:
   set_temperature:
@@ -99,7 +148,8 @@ commands:
     title: Set the thermostat
     icon: mdi:thermometer
     description: set the thermostat to a temperature
-    require: [[thermostat]]
+    # Also the heat: "turn the heat up to 72", "set the heating to 20".
+    require: [[thermostat, heat, heating]]
     optional: [[set, put, turn], [the], [up, down], [to, at], [degrees]]
     # A question is not a setting: "what's the thermostat set to".
     exclude: [what, "what's", is]
@@ -118,6 +168,51 @@ commands:
       done:
         brief: Set the thermostat.
         specific: Set the thermostat to {{ slots.temperature }} degrees.
+    needs: *needs
+
+  heat_up:
+    title: Turn up the heat
+    icon: mdi:thermometer-chevron-up
+    description: turn up the heat
+    # "Turn up the heat", "turn the thermostat up", "raise the temperature";
+    # to a number, it's Set the thermostat.
+    require: [[turn up, turn ... up, raise, increase], [heat, heating, temperature, thermostat]]
+    optional: [[a bit, a little], [the]]
+    exclude: [what, "what's", is]
+    home: climate
+    slots: {step: 1}
+    action: *temperature_step
+    # Not seen at once: what it's set to now, said.
+    verbosity: specific
+    response:
+      <<: *temperature_said
+      done:
+        brief: Turned up the heat.
+        specific: >-
+          {%- macro deg(t) -%}{%- set n = t | default(0, true) | float -%}{{ n | int if n == n | int else n | round(1) }}{%- endmacro -%}
+          Turned the thermostat up to {{ (deg(result.to) if result.to is defined
+          else 'between ' ~ deg(result.low) ~ ' and ' ~ deg(result.high)) }} degrees.
+    needs: *needs
+
+  heat_down:
+    title: Turn down the heat
+    icon: mdi:thermometer-chevron-down
+    description: turn down the heat
+    require: [[turn down, turn ... down, lower, decrease], [heat, heating, temperature, thermostat]]
+    optional: [[a bit, a little], [the]]
+    exclude: [what, "what's", is]
+    home: climate
+    slots: {step: -1}
+    action: *temperature_step
+    verbosity: specific
+    response:
+      <<: *temperature_said
+      done:
+        brief: Turned down the heat.
+        specific: >-
+          {%- macro deg(t) -%}{%- set n = t | default(0, true) | float -%}{{ n | int if n == n | int else n | round(1) }}{%- endmacro -%}
+          Turned the thermostat down to {{ (deg(result.to) if result.to is defined
+          else 'between ' ~ deg(result.low) ~ ' and ' ~ deg(result.high)) }} degrees.
     needs: *needs
 
   thermostat_mode:
