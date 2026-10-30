@@ -11,6 +11,13 @@ them where they always were. Where they are already there (a working copy),
 nothing is downloaded. While it downloads, a page of its own answers on the
 web UI's port -- how far it got, and Home Assistant's health check.
 
+The image itself carries the rest (``IMAGE``, fetched as it is built): the
+speaker model, the microWakeWord models pushed to satellites, and the wake
+word verifier's Kaldi -- its model, and its tools for the image's
+architecture, which the resident decoder is compiled against -- about 160
+MB, from rhasspy/voice-labs-models and OpenVoiceOS/redimnet-b2-vox2-onnx.
+
+    python3 -m voice_labs.downloads fetch models          # in the image's build, or a working copy's
     python3 -m voice_labs.downloads link /data/models    # in the image's build
 """
 
@@ -21,6 +28,11 @@ import asyncio
 import hashlib
 import html
 import logging
+import platform
+import tarfile
+import tempfile
+import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,9 +42,12 @@ from aiohttp import web
 _LOGGER = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_REPO = "https://huggingface.co/rhasspy/voice-labs-models/resolve/08648b9dfb0014d9c73af8718e674d54deca3f1c"
+MODELS_REPO = "https://huggingface.co/rhasspy/voice-labs-models/resolve/de2ae0069e6e8f6883d057b300ee285e5e3be87f"
 EMBEDDING_REPO = (
     "https://huggingface.co/onnx-community/embeddinggemma-2-ONNX/resolve/daa72c51243991dfcaf9f9137d2c573d8f7790c0"
+)
+REDIMNET_REPO = (
+    "https://huggingface.co/OpenVoiceOS/redimnet-b2-vox2-onnx/resolve/5127cc45350579cafea037f82634c2be04ca712d"
 )
 RETRY_SECONDS = 30.0
 """How long after a failed download it tries again."""
@@ -48,6 +63,9 @@ class File:
     size: int
     algorithm: str = "sha256"
     """``digest``'s (hashlib's name): Piper's voices are listed with MD5."""
+    unpack: str | None = None
+    """An archive's (.tar.gz): what it unpacks to in its model's folder,
+    where it is unpacked and not kept."""
 
 
 @dataclass(frozen=True)
@@ -101,6 +119,84 @@ MODELS = (
              "cbc8ae6037812709c9c26f2a160f8dc48b0440bcb79c8141804259ae2d6adac3", 8341713),
     )),
 )
+
+
+WAKE = f"{MODELS_REPO}/micro-wake-word"
+KALDI = f"{MODELS_REPO}/kaldi"
+IMAGE = (
+    Model("speaker", (
+        File("redimnet_b2_vox2.onnx", f"{REDIMNET_REPO}/redimnet_b2_vox2.onnx",
+             "a7586b34c8db1bbf32c64efc2b269be54f66787e50320c4472614bbe95218a81", 22193734),
+    )),
+    Model("wake", tuple(File(name, f"{WAKE}/{name}", digest, size) for name, digest, size in (
+        ("okay_nabu.tflite", "d89128c4d16a72de429119fb2254ce46649553c2a24f5dd840175c80d7b9d094", 80824),
+        ("okay_nabu.json", "f8026e2ce93a0855ca23483036fd2d74ee924a2588d9ea6a6c6c7478fbf4be57", 416),
+        ("stop.tflite", "b5a18c4ad681a89950dfade31011e1631bdcb333e93c84519a1a63ff4f071146", 45744),
+        ("stop.json", "bd13aeb1b83852649dc4fb6135cb160ff68716d14612b06f6a405342c57447aa", 375),
+        ("vad.tflite", "7aa4db6d5fb7c5358609f6931e7847d303c16a43d178638bc14104f50d7eff5f", 34328),
+        ("vad.json", "bd8c9cd4350814f761e651685ae5196e2a56521aaf5670071ba742927de58ed7", 373),
+        ("hey_jarvis.tflite", "21a7976add39ee24ec96c63d96b7aaa18e24d1d9824b963e451da8feb4b78b77", 52272),
+        ("hey_jarvis.json", "b153867d818675d8abcc9dace474afe7f83551ae0d5a9b1d71a98681320185af", 388),
+        ("hey_mycroft.tflite", "c2a9b6ed51182db72e014781d5a4ece1929dc232a40b5b4be384f0295f0e1571", 57248),
+        ("hey_mycroft.json", "57b2b06fe5fdbbe834a242fabc7af31e4194a550fc382b2c88636a6d62d0d57e", 390),
+    ))),
+    Model("wake-kaldi-models", (
+        File("en_US-rhasspy.tar.gz", f"{KALDI}/en_US-rhasspy.tar.gz",
+             "3aeada11a4ba0d38653e933ce706089d3d83f14cf6f414adcdf6adcbf3f93ad3", 69505380, unpack="en_US-rhasspy"),
+    )),
+)
+"""What the image carries, fetched as it is built (``fetch``)."""
+KALDI_TOOLS = {
+    "amd64": File("tools-x86_64.tar.gz", f"{KALDI}/tools-x86_64.tar.gz",
+                  "feafaf8120106c84cd5e57c21616404c6ec0793a66246cb986a5ac7533aeaffd", 48301047, unpack="wake-kaldi-tools"),
+    "aarch64": File("tools-aarch64.tar.gz", f"{KALDI}/tools-aarch64.tar.gz",
+                    "e99c1656c67facc7cfc203acd222f010657ab4d2b3de9b1509f52a065c416ddc", 43438743, unpack="wake-kaldi-tools"),
+}
+"""Kaldi's and OpenFst's binaries, libraries, headers and scripts, for each
+architecture (Home Assistant's names): unpacked into models/."""
+ARCHES = {"x86_64": "amd64", "aarch64": "aarch64", "arm64": "aarch64"}
+"""This machine's architecture (``platform.machine``), as KALDI_TOOLS names it."""
+
+
+def fetch(models: Path, arch: str) -> None:
+    """What the image carries (IMAGE, and the Kaldi tools for ``arch``) into
+    ``models``, each checked against its SHA-256. What is there already is
+    left as it is."""
+    for model in (*IMAGE, Model("", (KALDI_TOOLS[arch],))):
+        folder = models / model.folder
+        for file in model.files:
+            target = folder / (file.unpack or file.name)
+            if target.exists():
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=folder) as work:
+                path = Path(work) / file.name
+                _fetch_file(file, path)
+                if file.unpack:
+                    with tarfile.open(path) as archive:
+                        archive.extractall(work, filter="tar")
+                    (Path(work) / file.unpack).replace(target)
+                else:
+                    path.replace(target)
+            print(f"{target} ({file.size / 1e6:.1f} MB)")
+
+
+def _fetch_file(file: File, path: Path, tries: int = 3) -> None:
+    """One file, whole and as published, trying a few times."""
+    for attempt in range(1, tries + 1):
+        digest = hashlib.new(file.algorithm)
+        try:
+            with urllib.request.urlopen(file.url, timeout=60) as response, path.open("wb") as out:
+                while chunk := response.read(CHUNK):
+                    out.write(chunk)
+                    digest.update(chunk)
+            if digest.hexdigest() != file.digest:
+                raise ValueError(f"{file.url}: not as published (its SHA-256 differs)")
+            return
+        except (OSError, ValueError) as err:
+            if attempt == tries:
+                raise SystemExit(f"Couldn't download {file.url}: {err}") from err
+            time.sleep(5 * attempt)
 
 
 def missing(models: Path) -> list[tuple[Path, File]]:
@@ -236,9 +332,17 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     linking = commands.add_parser("link", help="link the image's models/ folders to where the app downloads them")
     linking.add_argument("data", type=Path, help="where the app downloads them (the app: /data/models)")
+    fetching = commands.add_parser("fetch", help="fetch what the image carries: the speaker, wake word and Kaldi models")
+    fetching.add_argument("models", type=Path, help="the models folder (the image's, or a working copy's)")
+    fetching.add_argument("--arch", choices=sorted(KALDI_TOOLS), default=ARCHES.get(platform.machine()),
+                          help="the Kaldi tools' architecture (default: this machine's)")
     args = parser.parse_args()
     if args.command == "link":
         link(args.data)
+    elif args.command == "fetch":
+        if args.arch is None:
+            raise SystemExit(f"No Kaldi tools for {platform.machine()}: give --arch")
+        fetch(args.models, args.arch)
 
 
 if __name__ == "__main__":

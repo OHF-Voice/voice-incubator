@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# The Kaldi wake verifier's tools for aarch64 (an HA Green, a Pi), for
-# `script/stage_build --arch aarch64`: models/wake-kaldi-tools-aarch64, laid
-# out as models/wake-kaldi-tools is (kaldi/{bin,lib,utils,steps,include},
-# openfst/{bin,lib,include}).
+# The Kaldi wake verifier's tools for aarch64 (an HA Green, a Pi):
+# models/wake-kaldi-tools-aarch64, laid out as models/wake-kaldi-tools is
+# (kaldi/{bin,lib,utils,steps,include}, openfst/{bin,lib,include}). Packed as
+# a wake-kaldi-tools/ folder, it is kaldi/tools-aarch64.tar.gz in
+# rhasspy/voice-labs-models, which the image's build fetches
+# (voice_labs/downloads.py).
 #
 # From the Kaldi of 2021 that Rhasspy shipped, as kaldi-manylinux built it --
 # its aarch64 binaries (dist/kaldi-2021_arm64.tar.gz) and the sources they

@@ -65,6 +65,16 @@
   areas on do not disturb** on its page), and an announcement, call or music
   command gets through with `false`. With an older integration, nothing is
   kept out.
+- **The image is built from this folder alone.** wyoming-wake-kaldi (the
+  wake verifier, with its resident decoder's source), microWakeWord and
+  sentence-stream are vendored beside `voice_labs/`. The speaker model, the
+  microWakeWord models, and the verifier's Kaldi model and tools are fetched
+  as the image is built, from pinned revisions of
+  [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models)
+  and OpenVoiceOS/redimnet-b2-vox2-onnx, each checked by SHA-256; the decoder
+  is compiled there, on x86 as on aarch64. `script/stage_build` is gone; a
+  working copy fetches the same with `python -m voice_labs.downloads fetch
+  models`.
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):

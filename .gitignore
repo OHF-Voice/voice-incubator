@@ -5,6 +5,6 @@
 /calls/
 # Benchmark result dumps (several MB each); scripts/bench_corpus.py regenerates them.
 /tests/bench_*.jsonl
-# Staged for the image by script/stage_build.
-/local/
 /wake_words/
+# Left by script/stage_build, which is gone: safe to delete.
+/local/

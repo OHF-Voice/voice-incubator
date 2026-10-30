@@ -25,38 +25,33 @@ RUN \
     && pip3 install --no-cache-dir -r requirements.txt \
     && rm -rf /var/lib/apt/lists/*
 
-# Staged by script/stage_build: the Kaldi wake verifier and the English models
-# the app doesn't download.
-COPY local/wyoming-wake-kaldi /usr/src/wyoming-wake-kaldi
-RUN pip3 install --no-cache-dir /usr/src/wyoming-wake-kaldi
-# sentence-stream from source (staged), until the release has its fixes.
-COPY local/sentence-stream /usr/src/sentence-stream
-RUN pip3 install --no-cache-dir --no-deps /usr/src/sentence-stream
-# Training wake words in the app: TensorFlow, and microWakeWord (staged by
-# script/stage_build) without its audio stack.
+# Training wake words in the app: TensorFlow and what microWakeWord's training
+# needs. microWakeWord itself is vendored (microwakeword/).
 COPY requirements-training.txt ./
-COPY local/micro-wake-word /usr/src/micro-wake-word
-RUN pip3 install --no-cache-dir -r requirements-training.txt \
-    && pip3 install --no-cache-dir --no-deps /usr/src/micro-wake-word
-# Its layers/ and audio/ have no __init__.py, so pip (find_packages) leaves
-# them out: the whole package, over what it installed.
-RUN cp -r /usr/src/micro-wake-word/microwakeword/. \
-        "$(python3 -c 'import microwakeword, os; print(os.path.dirname(microwakeword.__file__))')" \
-    && python3 -c 'from microwakeword import mixednet, train, utils'
-COPY local/models ./models
-# The wake verifier's resident decoder, when it was staged as source (aarch64).
-RUN if [ ! -x models/wake-kaldi-decoderd/verify_decoderd ]; then \
-        apt-get update \
-        && apt-get install -y --no-install-recommends libopenblas-dev \
-        && bash models/wake-kaldi-decoderd/build.sh "$PWD/models/wake-kaldi-tools" \
-        && rm -rf models/wake-kaldi-decoderd/.fst_shadow_include \
-        && apt-get purge -y libopenblas-dev && apt-get autoremove -y \
-        && rm -rf /var/lib/apt/lists/*; \
-    fi
+RUN pip3 install --no-cache-dir -r requirements-training.txt
+
+# What the image carries besides its code (voice_labs/downloads.py, IMAGE):
+# the speaker, wake word and Kaldi models, and Kaldi's tools for this
+# architecture, each checked against its SHA-256.
+COPY voice_labs/__init__.py voice_labs/downloads.py ./voice_labs/
+RUN python3 -m voice_labs.downloads fetch models --arch "${BUILD_ARCH}"
+# The wake verifier's resident decoder (vendored with wyoming-wake-kaldi),
+# compiled against those tools.
+COPY wyoming_wake_kaldi/decoderd ./wyoming_wake_kaldi/decoderd
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libopenblas-dev \
+    && mkdir -p models/wake-kaldi-decoderd \
+    && bash wyoming_wake_kaldi/decoderd/build.sh "$PWD/models/wake-kaldi-tools" "$PWD/models/wake-kaldi-decoderd/verify_decoderd" \
+    && rm -rf models/wake-kaldi-decoderd/.fst_shadow_include \
+    && apt-get purge -y libopenblas-dev && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY setup.py wake.yaml ./
 COPY sounds ./sounds
 COPY adapt_ctc ./adapt_ctc
+COPY wyoming_wake_kaldi ./wyoming_wake_kaldi
+COPY sentence_stream ./sentence_stream
+COPY microwakeword ./microwakeword
 COPY voice_labs ./voice_labs
 # adapt-ctc's native Viterbi (several times faster than the numpy fallback).
 RUN python3 setup.py build_ext --inplace && rm -rf build

@@ -100,7 +100,7 @@ async def main() -> None:
     parser.add_argument(
         "--micro-wake-word",
         metavar="DIR",
-        help="microWakeWord's source, when the trainer's Python doesn't have it installed",
+        help="another microWakeWord's source to train with (default: the one vendored with the app)",
     )
     parser.add_argument("--wake-training-clips", type=int, metavar="N", help=argparse.SUPPRESS)
     parser.add_argument("--wake-training-steps", type=int, metavar="N", help=argparse.SUPPRESS)

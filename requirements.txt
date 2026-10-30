@@ -1,5 +1,5 @@
-# Runtime. wyoming-wake-kaldi is not on PyPI: script/stage_build copies it into
-# local/ for the image, and it is installed from there.
+# Runtime. wyoming-wake-kaldi, sentence-stream and microWakeWord are vendored
+# next to voice_labs (wyoming_wake_kaldi/, sentence_stream/, microwakeword/).
 aiohttp>=3.9
 icu-rbnf>=0.2.0
 numpy>=2,<3
@@ -11,10 +11,8 @@ pysilero-vad>=3,<4
 PyYAML>=6.0
 ruamel.yaml>=0.18
 scipy>=1.11
-# Sentences, and a conversation agent's markdown taken out, for Piper. 1.4.0
-# (the markdown fixes) is staged from source by script/stage_build until it
-# is released.
-sentence-stream>=1.3,<2
+# What the vendored sentence-stream needs (sentence_stream/VENDORED.md).
+regex>=2024.11.6
 sherpa-onnx>=1.12
 soundfile>=0.12
 soxr>=0.5

@@ -9,8 +9,9 @@ Raspberry Pi 5, and about 2 GB):
    the language's training voice, one with many speakers -- says the phrase
    ``POSITIVE_CLIPS`` ways, each given a room and noise, made into the
    features the satellite computes.
-2. **Model** (voice_labs/wake_trainer.py, a Python with TensorFlow and
-   microWakeWord): trained from scratch against the kit's negatives,
+2. **Model** (voice_labs/wake_trainer.py, a Python with TensorFlow, and
+   microWakeWord -- vendored next to voice_labs): trained from scratch
+   against the kit's negatives,
    temperature-scaled and exported as the quantized streaming model the
    satellite runs.
 
@@ -94,6 +95,8 @@ STAGES = {"positives": (0.0, 0.2), "preparing": (0.2, 0.22), "training": (0.22, 
 """Each stage's share of the whole, for the progress bar."""
 
 TRAINER_MODULES = ("tensorflow", "microwakeword", "mmap_ninja", "absl", "yaml")
+APP_ROOT = Path(__file__).resolve().parent.parent
+"""Where voice_labs and the vendored microwakeword are."""
 
 
 def _below_the_app() -> None:
@@ -321,8 +324,9 @@ class WakeTraining:
 
     def _env(self) -> dict[str, str]:
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "TF_NUM_INTRAOP_THREADS": str(THREADS)}
-        if self.micro_wake_word is not None:
-            env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(self.micro_wake_word), env.get("PYTHONPATH")]))
+        # microWakeWord: the one given, else the one vendored next to voice_labs.
+        paths = [str(self.micro_wake_word)] if self.micro_wake_word is not None else []
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [*paths, str(APP_ROOT), env.get("PYTHONPATH")]))
         return env
 
     async def trainer_missing(self) -> str | None:
@@ -528,7 +532,7 @@ class WakeTraining:
         """Run one step, its progress (JSON lines) into the job, the rest into the log."""
         _LOGGER.info("Wake word training: %s", " ".join(command[:3]))
         self._process = await asyncio.create_subprocess_exec(
-            *command, cwd=str(Path(__file__).resolve().parent.parent), env=self._env(),
+            *command, cwd=str(APP_ROOT), env=self._env(),
             stdout=asyncio.subprocess.PIPE, stderr=log_file, preexec_fn=_below_the_app,
             start_new_session=True,
         )

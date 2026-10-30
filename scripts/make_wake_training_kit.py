@@ -19,8 +19,8 @@ default, with the pool's two roots, is::
         --datasets /media/cache/mww-v30/negative_datasets
 
 or name each set (``--set name=dir:sampling_weight:penalty_weight``). Put the
-kit at models/wake-training (script/stage_build ships it in the image) or in
-the app's config directory as wake_training/.
+kit at models/wake-training (a working copy's) or in the app's config
+directory as wake_training/ (the image doesn't carry it).
 
 Needs mmap_ninja (and numpy, PyYAML).
 """

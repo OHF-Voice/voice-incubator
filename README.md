@@ -77,10 +77,22 @@ guide, [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs)'s README.
 .venv/bin/python -m voice_labs --save-dir /tmp/calls    # web UI on http://127.0.0.1:8099/
 ```
 
-Training wake words in the app needs `requirements-training.txt` too, and
-microWakeWord's training (`pip install --no-deps -e ~/opt/micro-wake-word`,
-its working tree), in the same Python -- 3.13 at the latest: TensorFlow 2.21
-has no wheels for 3.14 -- or in another named by `--wake-trainer-python`.
+A working copy needs the models the image carries (the speaker, wake word and
+Kaldi models, and Kaldi's tools; about 160 MB, checked by SHA-256) and the wake
+verifier's resident decoder built against them:
+
+```bash
+.venv/bin/python -m voice_labs.downloads fetch models
+bash wyoming_wake_kaldi/decoderd/build.sh "$PWD/models/wake-kaldi-tools" "$PWD/models/wake-kaldi-decoderd/verify_decoderd"
+```
+
+The rest it downloads the first time it starts. wyoming-wake-kaldi,
+microWakeWord and sentence-stream are vendored beside `voice_labs/`: nothing
+comes from another checkout.
+
+Training wake words in the app needs `requirements-training.txt` too, in the
+same Python -- 3.13 at the latest: TensorFlow 2.21 has no wheels for 3.14 --
+or in another named by `--wake-trainer-python`.
 
 Commands, satellites, settings and saved calls live in `var/` (`--data-dir`;
 `/data` as an app). The web UI listens on localhost unless `--http-host` says
@@ -258,6 +270,9 @@ and copies (`Satellite.first`).
 | `voice_labs/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
 | `voice_labs/endpoint.py` | endpointing: Silero VAD, microVAD or both, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
+| `wyoming_wake_kaldi/` | vendored from wyoming-wake-kaldi (commit 9fda1ff): the Kaldi wake verifier `voice_labs/wake.py` runs, and its resident decoder's source (`decoderd/`), which the image compiles; its own README |
+| `microwakeword/` | vendored microWakeWord, as the app trains wake words with it (`VENDORED.md` says from where and what changed) |
+| `sentence_stream/` | vendored sentence-stream 1.4.0 (its markdown fixes, not yet on PyPI) |
 | `voice_labs/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints; the CTC model and the transducer as one when they share an encoder (`adapt_ctc/hybrid.py`) |
 | `voice_labs/commands.py` | the command schema: combinations, presets, where it is, what happens |
 | `voice_labs/store.py` | `commands.json`, `satellites.json`, `settings.json`, `wake_words.json` |
@@ -289,9 +304,9 @@ and copies (`Satellite.first`).
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |
 | `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
 | `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
-| `config.yaml`, `Dockerfile`, `rootfs/`, `script/stage_build` | the Home Assistant app; `stage_build` copies the English models the app doesn't download, and wyoming-wake-kaldi, into `local/` for the image |
+| `config.yaml`, `Dockerfile`, `rootfs/` | the Home Assistant app: built from this folder alone, fetching what it carries besides its code (`voice_labs/downloads.py`) |
 | `voice_labs/piper_voices.py`, `voice_labs/piper_voices.json`, `scripts/piper_voices.py` | Piper's voices for the language (US and British English), from rhasspy/piper-voices at the revision the catalog was written from: each downloaded into `models/piper` the first time it is used, checked by MD5; the Settings page picks one, its speaker and Piper's inference settings (`settings.json` `piper`) |
-| `voice_labs/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile |
+| `voice_labs/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile. And what the image carries, fetched as it is built (`fetch`): the speaker model (OpenVoiceOS), the microWakeWord models, and the wake verifier's Kaldi model and tools for its architecture (rhasspy/voice-labs-models) |
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
@@ -2048,7 +2063,8 @@ CTC branch adds only a 1x1 convolution and a log-softmax to it, so
 `adapt_ctc/hybrid.py` keeps that head beside the transducer (`ctc_head.npz`,
 made by `python -m adapt_ctc.hybrid CTC_DIR TDT_DIR`, which checks the
 transducer's encoder then gives the CTC model's log-probabilities -- within
-3e-5 for English and all eight other languages -- and by `script/stage_build`).
+3e-5 for English and all eight other languages -- and published with the
+transducer in rhasspy/voice-labs-models).
 The engine then loads the encoder once, and decodes transcripts itself rather
 than with sherpa-onnx: the engine's peak, after a call's matching and its
 transcript, 692 -> 512 MB on x86; 42 ms for a 2.8 s call's transcript
@@ -2116,13 +2132,10 @@ positives.
 ## Running on a Pi 4 (aarch64)
 
 **The image.** For an aarch64 machine (an HA Green, a Pi), the Kaldi tools are
-the Kaldi of 2021 that Rhasspy shipped, as `kaldi-manylinux` built it, and the
-image's build compiles the resident decoder against its headers:
-
-```bash
-scripts/make_kaldi_tools_aarch64.sh      # models/wake-kaldi-tools-aarch64, from ~/opt/kaldi-manylinux
-script/stage_build --arch aarch64
-```
+the Kaldi of 2021 that Rhasspy shipped, as `kaldi-manylinux` built it
+(`kaldi/tools-aarch64.tar.gz` in rhasspy/voice-labs-models, made by
+`scripts/make_kaldi_tools_aarch64.sh`), and the image's build compiles the
+resident decoder against its headers, as it does on x86.
 
 Its verdicts are the x86 tools': 24 of the same 36 captured wake words
 accepted, on an HA Green as on x86.

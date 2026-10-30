@@ -2,13 +2,13 @@
 #
 # Only the wake words listed under `wake_words` are recognized, and only words
 # the model can actually pronounce may be used: a word must either be in the
-# model's lexicon (local/models/<model>/lexicon.db) or be given an explicit
+# model's lexicon (models/wake-kaldi-models/<model>/lexicon.db) or be given an explicit
 # pronunciation here. Nothing is ever guessed -- an unknown word is a startup
 # error naming the word.
 #
 # Pronunciations are written in the model's own phone set. For the bundled
 # en_US-rhasspy model that is IPA with stress marks; the full inventory is in
-# local/models/en_US-rhasspy/model/phones/nonsilence_phones.txt and example
+# models/wake-kaldi-models/en_US-rhasspy/model/phones/nonsilence_phones.txt and example
 # words are in phoneme_examples.txt. A phoneme outside that inventory is a
 # startup error.
 #
@@ -46,7 +46,7 @@ train_dir: var/wake-train
 max_window_seconds: 1.4
 
 # Keep one decoder process per graph resident between requests. Requires
-# decoderd/verify_decoderd (build it with `decoderd/build.sh local/tools`);
+# models/wake-kaldi-decoderd/verify_decoderd (wyoming_wake_kaldi/decoderd/build.sh);
 # without it the service falls back to one-shot subprocess decodes.
 resident_decoders: true
 
