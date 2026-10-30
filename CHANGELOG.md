@@ -28,8 +28,8 @@
   said or a timer rings; older firmware still has it pushed for each ring. A
   "stop" heard just as what it stops ended is hung up on, not answered. The
   firmware also starts a call from the center button (press to talk), shows
-  the mute switch on the ring, and keeps Sendspin's delay for a speaker on
-  the headphone jack.
+  the mute switch on the ring, keeps Sendspin's delay for a speaker on the
+  headphone jack, and plays the stock firmware's sounds for both.
 - **The firmware moved to
   [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware)**,
   which builds it and publishes its install page (`voice-pe-voice-labs`):
