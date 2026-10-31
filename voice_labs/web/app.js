@@ -724,12 +724,12 @@ function agentPanel() {
     } catch (err) { toast(err.message); }
   }
   return h("div", { class: "panel" },
-    heading("h2", "Conversation agent", ["What no command, skill or step under “When nothing matches” took goes to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. What it doesn't understand either is the Unknown command's. A dry run never asks it, since an agent can act in your home. An LLM agent hears what the speech model wrote, mishearings and all."]),
+    heading("h2", "Conversation agent", ["What no command, skill or step under “When nothing matches” took goes to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. What it doesn't understand either is the Unknown command's. An LLM's answer is said as it comes, a sentence at a time. A dry run never asks it, since an agent can act in your home. An LLM agent hears what the speech model wrote, mishearings and all."]),
     h("div", { class: "row" },
       h("div", { class: "field" }, agent, note),
-      field("Keep for", h("label", {}, keep, "minutes"), "After its last answer on a satellite, the next sentence there continues the conversation (“how tall is it?”), as on the Voice PE. 0: every sentence starts a new one."),
+      field("Keep for", h("label", {}, keep, "minutes"), "After its last answer in an area, the next sentence from a satellite there continues the conversation (“how tall is it?”); a satellite in no area has its own. 0: every sentence starts a new one."),
       h("button", { class: "primary", onclick: save }, "Save")),
-    kept.length ? h("p", { class: "small" }, "Kept: ", kept.map(([key, seconds]) => `${sats[key] || key || "typed with no satellite"} (${Math.round(seconds)} s more)`).join(", ")) : null);
+    kept.length ? h("p", { class: "small" }, "Kept: ", kept.map(([key, seconds]) => `${sats[key] || areaNameOf(key) || "typed with no satellite"} (${Math.round(seconds)} s more)`).join(", ")) : null);
 }
 
 // The Unknown command: what is said when nothing -- no command, skill, the

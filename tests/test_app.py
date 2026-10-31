@@ -15,6 +15,7 @@ import aiohttp
 import pytest
 
 from voice_labs import people as people_mod
+from voice_labs.agent import Streamed, conversation_key
 from voice_labs.instruments import Instruments
 from voice_labs.server import Options, VoiceLabsApp
 from voice_labs.store import styled
@@ -686,7 +687,8 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/settings", json={"piper": {}})).status == 200 and "piper" not in app.store.settings
 
             # A Home Assistant conversation agent gets what nothing here
-            # understood, in a conversation kept on each satellite.
+            # understood, in a conversation kept for each area -- an LLM's
+            # answer streamed as it comes.
             async def agent_said(text):
                 record = await app.try_text(text, MAC, run_actions=True)
                 return next(s for s in record.stages if s["stage"] == "speech")["text"], record
@@ -699,13 +701,16 @@ async def _scenario(tmp_path: Path) -> None:
             assert text == "conversation.chatty heard who wrote the odyssey" and record.outcome == "answered"
             asked = hass.conversations[-1]
             assert asked["agent_id"] == "conversation.chatty" and "conversation_id" not in asked
+            assert asked["type"] == "voice_labs/conversation/stream"
+            stage = next(s for s in record.stages if s["stage"] == "agent")
+            assert stage["streamed"] and stage["first_seconds"] is not None
             assert asked.get("device_id") == app.satellite(MAC).device_id
             # The next sentence follows on, in the same conversation ...
             await agent_said("and when was that")
             assert hass.conversations[-1]["conversation_id"] == "conversation-1"
             assert next(s for s in app.calls.recent[-1].stages if s["stage"] == "agent")["continued"]
             # ... until it has been quiet for longer than it is kept.
-            app.agent.conversations[MAC].at -= 301
+            app.agent.conversations[conversation_key(app.satellite(MAC))].at -= 301
             await agent_said("who wrote the iliad")
             assert "conversation_id" not in hass.conversations[-1]
             # Skills answer first; a question about now or here is the agent's.
@@ -715,9 +720,20 @@ async def _scenario(tmp_path: Path) -> None:
             asked = len(hass.conversations)
             assert (await agent_said("nonsense words"))[0] == "Sorry, I didn't understand that."
             assert len(hass.conversations) == asked + 1
+            # Home Assistant's own agent has nothing to stream; nor has an
+            # integration from before it streamed: asked at once.
+            assert (await http.put("/api/settings", json={"agent": "conversation.home_assistant"})).status == 200
+            assert (await agent_said("who wrote the odyssey"))[0] == "conversation.home_assistant heard who wrote the odyssey"
+            assert hass.conversations[-1]["type"] == "conversation/process"
+            assert (await http.put("/api/settings", json={"agent": "conversation.chatty"})).status == 200
+            hass.streams = False
+            assert (await agent_said("who wrote the odyssey"))[0] == "conversation.chatty heard who wrote the odyssey"
+            assert hass.conversations[-1]["type"] == "conversation/process"
+            hass.streams = True
+            asked = len(hass.conversations)
             # A dry run never asks it: it could act in the home.
             record = await app.try_text("who wrote the odyssey", MAC)
-            assert len(hass.conversations) == asked + 1
+            assert len(hass.conversations) == asked
             assert next(s for s in record.stages if s["stage"] == "agent")["asked"] is False
             assert (await http.put("/api/settings", json={"agent": None})).status == 200
             assert "agent" not in app.store.settings
@@ -1114,7 +1130,47 @@ async def _voices(tmp_path: Path) -> None:
         assert len(spoken) == asked and satellite.played > played
         failed = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech_failed")
         assert failed["on"] == own_player and "unavailable" in failed["error"]
+
+        # An LLM agent's answer as it comes, a sentence at a time: Piper's
+        # while the media player can't be reached ...
+        async def say_streamed(pieces: list[str]) -> list[dict]:
+            streamed = Streamed()
+
+            async def feed() -> None:
+                for piece in pieces:
+                    streamed.put(piece)
+                    await asyncio.sleep(0.05)
+                streamed.end()
+
+            feeding = asyncio.ensure_future(feed())
+            record = app.calls.begin("try", app.satellite(MAC).as_dict())
+            await app._say(app.sessions[MAC], streamed, record)  # pylint: disable=protected-access
+            await feeding
+            return record.stages
+
+        answer = ["Odysseus sailed ", "home. It took ", "ten years."]
+        played = satellite.played
+        stages = await say_streamed(answer)
+        speech = next(s for s in stages if s["stage"] == "speech")
+        assert speech["streamed"] and speech["pieces"] == 2 and speech["text"] == "Odysseus sailed home. It took ten years."
+        assert satellite.played > played and not hass.tts_streams
         del hass.states[own_player]
+
+        # ... and the TTS entity's, given each sentence as it comes.
+        def on_tts_stream(stream: dict) -> None:
+            if stream["message"]["media_player"] == own_player:
+                on_speak({"media_player_entity_id": own_player})
+                spoken.pop()
+
+        hass.on_tts_stream = on_tts_stream
+        stages = await say_streamed(answer)
+        [stream] = hass.tts_streams.values()
+        assert stream["pieces"] == ["Odysseus sailed home.", " It took ten years."] and stream["ended"]
+        assert stream["message"]["engine_id"] == "tts.fake_cloud" and stream["message"]["media_player"] == own_player
+        assert stream["message"]["options"] == {"voice": "JennyNeural"} and stream["message"]["language"] == "en-US"
+        speech = next(s for s in stages if s["stage"] == "speech")
+        assert speech["streamed"] and speech["text"] == "Odysseus sailed home. It took ten years."
+        assert speech["ended"] is not None and speech["ended"] >= speech["started"]
 
         # Free text comes from the STT entity (said by Piper, so there is audio
         # for it to hear).

@@ -293,7 +293,7 @@ and copies (`Satellite.first`).
 | `voice_labs/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_labs/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_labs/gliner.py`) -- each only for the commands chosen for it |
 | `voice_labs/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_labs/languages/<code>/skills/`, with `numbers` and `live`) |
-| `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per satellite |
+| `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
@@ -1646,11 +1646,19 @@ command fallback -- a question still gets an answer:
    or here, is gone: those go to the agent, or the Unknown command.
 2. **A Home Assistant conversation agent** (`voice_labs/agent.py`;
    `settings.json` `agent`, none unless chosen): everything else -- not only
-   questions -- through `conversation/process`, with the satellite's
-   `device_id` (Home Assistant 2026.10 and later; sent without it to an older
-   one) and its `conversation_id`, kept for `agent_keep_minutes` (5, the
-   Voice PE's `conversation_timeout`) after the agent's last answer on that
-   satellite. An answer that is Home
+   questions -- with the satellite's `device_id` and the `conversation_id` of
+   its area (`conversation_key`: every satellite there shares one; one in no
+   area has its own), kept for `agent_keep_minutes` (5, the Voice PE's
+   `conversation_timeout`) after the agent's last answer there. An LLM's
+   answer is streamed through the integration
+   (`voice_labs/conversation/stream`: the agent asked in a chat log opened
+   with a delta listener, as Assist's pipeline asks it, so the log keeps the
+   turn), and said a sentence at a time as it comes (`agent.Streamed`,
+   `tts.stream_sentences`): by Piper, or by a TTS entity through a TTS
+   stream played on the satellite (`voice_labs/tts/stream`, its text given a
+   sentence at a time). Home Assistant's own agent, and every agent with an
+   integration from before it streamed, through `conversation/process`
+   (`device_id` from Home Assistant 2026.10). An answer that is Home
    Assistant's `no_intent_match` counts as none. A dry run never asks it: an
    agent can act. This replaced a small question LLM (Granite 4.0 350M or
    Gemma 3 1B in llama.cpp, for what read as a question); the benchmark

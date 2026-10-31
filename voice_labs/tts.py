@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ import onnxruntime as ort
 import soundfile as sf
 import soxr
 from piper import PiperConfig, PiperVoice, SynthesisConfig
-from sentence_stream import stream_to_sentences
+from sentence_stream import async_stream_to_sentences, stream_to_sentences
 
 from adapt_ctc.runtime import release_memory, session_options
 
@@ -53,6 +53,15 @@ def sentences_of(text: str) -> list[str]:
     a list's items apart."""
     text = EMOJI.sub("", text)
     return [line.strip() for sentence in stream_to_sentences(text) for line in sentence.splitlines() if line.strip()]
+
+
+async def stream_sentences(chunks: AsyncIterable[str]) -> AsyncIterator[str]:
+    """``sentences_of`` for text that comes in pieces (an LLM agent's answer
+    as it is made): each sentence as soon as it is whole."""
+    async for sentence in async_stream_to_sentences(chunks):
+        for line in EMOJI.sub("", sentence).splitlines():
+            if line.strip():
+                yield line.strip()
 
 
 def load_voice(path: Path) -> PiperVoice:

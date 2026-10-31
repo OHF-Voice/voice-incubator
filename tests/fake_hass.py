@@ -139,6 +139,13 @@ class FakeHass:
         "<agent> heard <text>", understands nothing with "nonsense" in it,
         and keeps a conversation id given."""
         self._conversation_ids = itertools.count(1)
+        self.streams = True
+        """Whether the integration streams answers and speech (its newer version)."""
+        self.tts_streams: dict[str, dict[str, Any]] = {}
+        """voice_labs/tts/stream's, by stream: what was asked, its ``pieces``, ``ended``."""
+        self.on_tts_stream: Any = None
+        """Called with a TTS stream once its text has ended: a test makes the satellite announce."""
+        self._stream_ids = itertools.count(1)
         self.time_zone = "Europe/Berlin"
         self.local_calendars: list[str] = []
         """Local Calendars made (their names); each is ``calendar.<slug>``."""
@@ -311,17 +318,43 @@ class FakeHass:
             ]})
         elif kind == "conversation/process":
             self.conversations.append(message)
-            conversation_id = message.get("conversation_id") or f"conversation-{next(self._conversation_ids)}"
-            if "nonsense" in message["text"]:
-                speech, response_type, data = "Sorry, I couldn't understand that", "error", {"code": "no_intent_match"}
-            else:
-                speech, response_type, data = f"{message['agent_id']} heard {message['text']}", "query_answer", {"success": [], "failed": []}
-            await result({
-                "response": {"speech": {"plain": {"speech": speech, "extra_data": None}}, "card": {}, "language": "en",
-                             "response_type": response_type, "data": data},
-                "conversation_id": conversation_id,
-                "continue_conversation": False,
-            })
+            await result(self._agent_answer(message))
+        elif kind == "voice_labs/conversation/stream":
+            # The answer a word at a time, as an LLM's comes; one that
+            # understood nothing, only in its result.
+            if not (self.integration and self.streams):
+                await result(success=False, error="unknown_command: Unknown command.")
+                return
+            self.conversations.append(message)
+            await result()
+            answer = self._agent_answer(message)
+            events: list[dict[str, Any]] = []
+            if answer["response"]["response_type"] != "error":
+                words = answer["response"]["speech"]["plain"]["speech"].split(" ")
+                events = [{"type": "delta", "delta": {"role": "assistant"}}]
+                events += [{"type": "delta", "delta": {"content": w + (" " if i < len(words) - 1 else "")}} for i, w in enumerate(words)]
+            events.append({"type": "result", "result": answer})
+            for event in events:
+                await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
+        elif kind == "voice_labs/tts/stream":
+            if not (self.integration and self.streams):
+                await result(success=False, error="unknown_command: Unknown command.")
+                return
+            stream = f"stream-{next(self._stream_ids)}"
+            self.tts_streams[stream] = {"message": message, "pieces": [message.get("text", "")], "ended": False}
+            await result({"stream": stream, "streaming_input": True})
+        elif kind == "voice_labs/tts/stream/add":
+            stream = self.tts_streams.get(message["stream"])
+            if stream is None or stream["ended"]:
+                await result(success=False, error="not_found: No such stream")
+                return
+            if message.get("text"):
+                stream["pieces"].append(message["text"])
+            if message.get("end"):
+                stream["ended"] = True
+                if self.on_tts_stream is not None:
+                    self.on_tts_stream(stream)
+            await result()
         elif kind == "render_template":
             await result()
             try:
@@ -420,6 +453,21 @@ class FakeHass:
                 await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
             except websockets.ConnectionClosed:
                 self._timer_subscribers[entity_id].remove((socket, msg_id))
+
+    def _agent_answer(self, message: dict[str, Any]) -> dict[str, Any]:
+        """A conversation agent's: "<agent> heard <text>", nothing understood
+        with "nonsense" in it, a conversation id given kept."""
+        conversation_id = message.get("conversation_id") or f"conversation-{next(self._conversation_ids)}"
+        if "nonsense" in message["text"]:
+            speech, response_type, data = "Sorry, I couldn't understand that", "error", {"code": "no_intent_match"}
+        else:
+            speech, response_type, data = f"{message['agent_id']} heard {message['text']}", "query_answer", {"success": [], "failed": []}
+        return {
+            "response": {"speech": {"plain": {"speech": speech, "extra_data": None}}, "card": {}, "language": "en",
+                         "response_type": response_type, "data": data},
+            "conversation_id": conversation_id,
+            "continue_conversation": False,
+        }
 
     def known(self) -> list[str]:
         return [e for e, *_ in ENTITIES]

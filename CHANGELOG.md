@@ -65,6 +65,16 @@
   areas on do not disturb** on its page), and an announcement, call or music
   command gets through with `false`. With an older integration, nothing is
   kept out.
+- **An LLM's answer is said as it comes.** The integration streams a
+  conversation agent's answer to the app as the agent writes it
+  (`voice_labs/conversation/stream`, the agent asked in its chat log as
+  Assist asks it, so the log keeps the whole turn), and the app says it a
+  sentence at a time while the rest is still coming: Piper's, or a TTS
+  entity's through a TTS stream played on the satellite, given a sentence at
+  a time (`voice_labs/tts/stream`). "Stop" over it ends the agent's turn too.
+  Home Assistant's own agent, and every agent with an older integration, is
+  asked as before. The conversation is now the area's, shared by every
+  satellite there, not each satellite's.
 - **"Is today Halloween?"** The dates skill answers whether today or
   tomorrow is a holiday or a date ("is it Christmas tomorrow", "is today a
   holiday": "No, Christmas is in 55 days.", "No, Halloween was yesterday."),

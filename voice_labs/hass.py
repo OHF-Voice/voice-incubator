@@ -336,6 +336,9 @@ class HomeAssistant:
             self._pending.pop(msg_id, None)
 
     async def _subscribe(self, message: dict, handler: Callable[[dict], None]) -> int:
+        return (await self._subscribe_result(message, handler))[0]
+
+    async def _subscribe_result(self, message: dict, handler: Callable[[dict], None]) -> tuple[int, Any]:
         msg_id = next(self._ids)
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = future
@@ -344,11 +347,11 @@ class HomeAssistant:
         self._subscriptions[msg_id] = handler
         await self._socket.send(json.dumps({**message, "id": msg_id}))
         try:
-            await asyncio.wait_for(future, 30)
+            result = await asyncio.wait_for(future, 30)
         except BaseException:
             self._subscriptions.pop(msg_id, None)
             raise
-        return msg_id
+        return msg_id, result
 
     async def subscribe(self, message: dict, handler: Callable[[dict], None]) -> int:
         """Start a subscription; ``handler`` gets each event. Lasts until
@@ -357,7 +360,18 @@ class HomeAssistant:
             raise ConnectionError("Not connected to Home Assistant")
         return await self._subscribe(message, handler)
 
-    async def unsubscribe(self, msg_id: int) -> None:
+    async def subscribe_result(self, message: dict, handler: Callable[[dict], None]) -> tuple[int, Any]:
+        """``subscribe``, and what the subscription's result said."""
+        if self._socket is None and not await self.wait_connected(CONNECT_WAIT):
+            raise ConnectionError("Not connected to Home Assistant")
+        return await self._subscribe_result(message, handler)
+
+    async def unsubscribe(self, msg_id: int, tell: bool = True) -> None:
+        """End a subscription; not ``tell``ing Home Assistant when it ended it
+        itself (a stream that finished)."""
+        if not tell:
+            self._subscriptions.pop(msg_id, None)
+            return
         await self._unsubscribe(msg_id)
 
     async def _unsubscribe(self, msg_id: int) -> None:
