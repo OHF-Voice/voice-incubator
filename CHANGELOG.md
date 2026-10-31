@@ -65,6 +65,11 @@
   areas on do not disturb** on its page), and an announcement, call or music
   command gets through with `false`. With an older integration, nothing is
   kept out.
+- **"Is today Halloween?"** The dates skill answers whether today or
+  tomorrow is a holiday or a date ("is it Christmas tomorrow", "is today a
+  holiday": "No, Christmas is in 55 days.", "No, Halloween was yesterday."),
+  and a holiday that is today is "It's today." -- not "It's 0 days." Under a
+  week, "how many weeks until" says the days.
 - **The image is built from this folder alone.** wyoming-wake-kaldi (the
   wake verifier, with its resident decoder's source), microWakeWord and
   sentence-stream are vendored beside `voice_labs/`. The speaker model, the

@@ -188,6 +188,9 @@ SKILL = Skill(
     icon="mdi:calendar-month-outline",
     answer=answer,
     settings=Settings,
+    # "Is today Halloween" names today, as a live question does; it answers
+    # only what names a holiday or a date.
+    live_too=True,
 )
 
 

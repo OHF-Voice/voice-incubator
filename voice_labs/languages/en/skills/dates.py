@@ -1,7 +1,7 @@
 """How English reads a date ("December 25", "fourth Thursday of November", "2
 days before Easter"), asks about dates ("is 2024 a leap year", "what day is
-Christmas", "how many days until Halloween") and says them; and the
-holidays it knows (the US's; voice_labs/skills/dates.py)."""
+Christmas", "how many days until Halloween", "is today Halloween") and says
+them; and the holidays it knows (the US's; voice_labs/skills/dates.py)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from voice_labs.skills.dates import Holiday, Settings, When, easter, leap
 
 from .numbers import N, clean, parse_num
 
-EXAMPLES = ("is 2024 a leap year", "what day is Christmas", "how many days until Halloween")
+EXAMPLES = ("is 2024 a leap year", "what day is Christmas", "how many days until Halloween", "is today Halloween")
 
 MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
 MONTHS |= {m.lower(): i for i, m in enumerate(calendar.month_abbr) if m}
@@ -163,8 +163,52 @@ def _said(date: dt.date, today: dt.date, year: bool = False) -> str:
     return f"{said}, {date.year}" if year or date.year != today.year else said
 
 
+def _is_it(s, settings):
+    """"Is today Halloween", "is it Christmas tomorrow", "is Christmas
+    tomorrow", "is today October 31", "is today a holiday": yes, or when it
+    is instead. None when what is asked about is no holiday or date."""
+    m = (re.fullmatch(r"is (today|tomorrow) (.+)", s)
+         or re.fullmatch(r"(?:is it|will it be) (.+?) (today|tomorrow)", s)
+         or re.fullmatch(r"is (.+?) (today|tomorrow)", s)
+         or re.fullmatch(r"(?:is it|will it be) (.+)", s))
+    if not m:
+        return None
+    day_word, thing = (m.group(1), m.group(2)) if m.group(1) in ("today", "tomorrow") else (m.lastindex == 2 and m.group(2) or "today", m.group(1))
+    today = shared.today()
+    day = today + dt.timedelta(days=1 if day_word == "tomorrow" else 0)
+    if thing in ("a holiday", "a public holiday"):
+        holidays = [(h.next(today), h) for h in settings.holidays]
+        on_day = [h for d, h in holidays if d == day]
+        if on_day:
+            return f"Yes, {day_word} is {on_day[0].name}"
+        upcoming = sorted(((d, h) for d, h in holidays if d is not None and d > day), key=lambda x: x[0])
+        if not upcoming:
+            return "No"
+        date, holiday = upcoming[0]
+        return f"No, the next one is {holiday.name}, {_in(date, today)}"
+    holiday = settings.holiday(thing)
+    date = _day_of(thing, today, settings)
+    if date is None:
+        return None
+    name = holiday.name if holiday is not None else _said(date, today)
+    if date == day:
+        return f"Yes, {day_word} is {name}"
+    yesterday = today - dt.timedelta(days=1)
+    if day == today and _day_of(thing, yesterday, settings) == yesterday:
+        return f"No, {holiday.name if holiday is not None else _said(yesterday, today)} was yesterday"
+    return f"No, {name} is {_in(date, today)}"
+
+
+def _in(date: dt.date, today: dt.date) -> str:
+    """When ``date`` is from ``today``: "today", "tomorrow", "in 55 days"."""
+    days = (date - today).days
+    return "today" if days == 0 else "tomorrow" if days == 1 else f"in {days} days"
+
+
 def solve(q, settings):
     s = clean(q)
+    if (said := _is_it(s, settings)) is not None:
+        return said
     if m := re.fullmatch(rf"(?:is|was|will) {N} (?:be )?a leap year", s):
         year = parse_num(m.group(1))
         if year is not None and float(year).is_integer():
@@ -198,6 +242,8 @@ def solve(q, settings):
                 # "What day" may be either: the weekday and the date, next time.
                 date = found.on(found.year) if found.year is not None else holiday.next(today)
                 return f"{calendar.day_name[date.weekday()]}, {_said(date, today, year=found.year is not None)}" if date else None
+            if m.group(3) and holiday.next(today) == today:
+                return "It's today"
             if found.fixed:
                 return f"{calendar.month_name[found.fixed[0]]} {found.fixed[1]}"
             if found.year is not None:
@@ -210,7 +256,11 @@ def solve(q, settings):
         target = _day_of(m.group(2), today, settings)
         if target is not None:
             days = (target - today).days
-            return f"{days // 7} weeks" if m.group(1) == "weeks" else f"{days} day{'s' if days != 1 else ''}"
+            if days == 0:
+                return "It's today"
+            if m.group(1) == "weeks" and days >= 7:
+                return f"{days // 7} week{'s' if days >= 14 else ''}"
+            return f"{days} day{'s' if days != 1 else ''}"
     if m := re.fullmatch(r"(?:what|which) month (?:comes|is) (after|before) ([a-z]+)", s):
         mo = MONTHS.get(m.group(2))
         if mo:

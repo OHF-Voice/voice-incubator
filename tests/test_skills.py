@@ -205,6 +205,40 @@ def test_days_until(monkeypatch):
     assert skills.answer("how many days until october 16th").text == "It's 1 day."
     assert skills.answer("how many weeks until halloween").text == "It's 2 weeks."
     assert skills.answer("how many days until valentine's day").text == "It's 122 days."
+    # Under a week, in days; a week, one; on the day, today.
+    assert skills.answer("how many weeks until october 20").text == "It's 5 days."
+    assert skills.answer("how many weeks until october 24").text == "It's 1 week."
+    assert skills.answer("how many days until october 15").text == "It's today."
+
+
+def test_is_it_a_holiday(monkeypatch):
+    import datetime as dt
+
+    from voice_labs.skills import dates
+
+    class Today(dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 31)
+
+    monkeypatch.setattr(dates.dt, "date", Today)
+    assert answered("Is today Halloween?") == "Yes, today is Halloween."
+    assert answered("is it halloween") == "Yes, today is Halloween."
+    assert answered("how many days until halloween") == "It's today."
+    assert answered("when is halloween") == "It's today."
+    assert answered("is it halloween tomorrow") == "No, Halloween is today."
+    assert answered("Is it Christmas tomorrow?") == "No, Christmas is in 55 days."
+    assert answered("is today a holiday") == "Yes, today is Halloween."
+    assert answered("is tomorrow a holiday") == "No, the next one is Veterans Day, in 11 days."
+    assert answered("is today october 31") == "Yes, today is October 31."
+    # About now, but no holiday or date: not the skill's.
+    assert answered("is it raining today") is None
+    assert answered("will it be sunny tomorrow") is None
+    monkeypatch.setattr(Today, "today", classmethod(lambda cls: cls(2026, 12, 24)))
+    assert answered("is christmas tomorrow") == "Yes, tomorrow is Christmas."
+    assert answered("is it christmas eve today") == "Yes, today is Christmas Eve."
+    monkeypatch.setattr(Today, "today", classmethod(lambda cls: cls(2026, 11, 1)))
+    assert answered("is today halloween") == "No, Halloween was yesterday."
 
 
 def test_responses_as_set():
