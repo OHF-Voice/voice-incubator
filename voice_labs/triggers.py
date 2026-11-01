@@ -12,11 +12,15 @@ sets no response: that is the acknowledgement sound here (``done_said``).
 
 **Reading them** (``Reader``). ``conversation/sentences/list`` has the
 sentences of every trigger Home Assistant listens for -- none of an
-automation turned off. Each automation's own (``automation/config``) groups
-them, one command to an automation, called by its name; a sentence no
-automation has (a blueprint's, a template entity's) is one of its own.
-They are read again when automations are reloaded (saved in the editor) and
-when one is turned on or off.
+automation turned off. Each automation's own (``automation/config``; one
+from a blueprint as the blueprint makes it, ``blueprint/substitute``) groups
+them, one command to an automation, called by its name. One an automation
+has, listed again, is left out: Home Assistant's automation editor listens
+for a copy of each trigger it shows, while it is open (to show it firing),
+and so do two automations that share a sentence -- Home Assistant runs both
+on it. A sentence no automation has (a template entity's) is one of its
+own. They are read again when automations are reloaded (saved in the
+editor) and when one is turned on or off.
 
 **Hearing them** (``prepare``). A sentence is a hassil template, read as Home
 Assistant reads it. One that stands for at most ``MAX_SENTENCES`` sentences,
@@ -117,11 +121,12 @@ async def read(hass: HomeAssistant) -> tuple[list[Trigger], list[str]]:
     automations = [s for s in states if str(s.get("entity_id", "")).startswith("automation.")]
     if not listed:
         return [], [str(s["entity_id"]) for s in automations]
-    on = [s for s in automations if s.get("state") == "on"]
-    configs = await asyncio.gather(*(_config(hass, str(s["entity_id"])) for s in on))
+    configs = await asyncio.gather(*(_config(hass, str(s["entity_id"])) for s in automations))
     left = Counter(str(s) for s in listed)
     found: list[Trigger] = []
-    for state, config in zip(on, configs):
+    for state, config in zip(automations, configs):
+        if state.get("state") != "on":
+            continue
         theirs = []
         for sentence in sentences_in(config):
             if left[sentence] > 0:
@@ -139,16 +144,31 @@ async def read(hass: HomeAssistant) -> tuple[list[Trigger], list[str]]:
             entity_id,
             automation_id,
         ))
+    # An automation's, again (the editor's copy, or two sharing it), or
+    # one's that is off (its copy, the editor open on it): not one of its own.
+    had = {sentence for config in configs for sentence in sentences_in(config)}
     for sentence in dict.fromkeys(left.elements()):
-        found.append(Trigger(f"sentence:{sentence}", sentence, (sentence,)))
+        if sentence not in had:
+            found.append(Trigger(f"sentence:{sentence}", sentence, (sentence,)))
     return found, [str(s["entity_id"]) for s in automations]
 
 
 async def _config(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
+    """An automation's config; one from a blueprint, as the blueprint makes it."""
     try:
-        return (await hass.call({"type": "automation/config", "entity_id": entity_id}) or {}).get("config") or {}
+        config = (await hass.call({"type": "automation/config", "entity_id": entity_id}) or {}).get("config") or {}
     except HassError:
         return {}  # gone since, or not ours to read: its sentences stand alone
+    blueprint = config.get("use_blueprint")
+    if not isinstance(blueprint, dict) or not blueprint.get("path"):
+        return config
+    try:
+        result = await hass.call({
+            "type": "blueprint/substitute", "domain": "automation", "path": blueprint["path"], "input": blueprint.get("input") or {},
+        })
+    except HassError:
+        return config  # a blueprint gone, or an input missing: its sentences stand alone
+    return (result or {}).get("substituted_config") or config
 
 
 def sentences_in(config: dict[str, Any]) -> list[str]:

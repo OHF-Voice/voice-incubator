@@ -40,7 +40,8 @@ PLAY = trigger("automation:2", "Play an album", "play {album} by {artist}")
 
 
 class Hass:
-    """conversation/sentences/list, get_states and automation/config, as Home Assistant answers them."""
+    """conversation/sentences/list, get_states, automation/config and
+    blueprint/substitute, as Home Assistant answers them."""
 
     def __init__(self, listed, automations):
         self.listed = listed
@@ -60,29 +61,35 @@ class Hass:
             if config is None:
                 raise HassError("not_found: Entity not found")
             return {"config": config}
+        if kind == "blueprint/substitute":
+            assert message["domain"] == "automation" and message["path"] == "sleep.yaml"
+            return {"substituted_config": {"triggers": [{"trigger": "conversation", "command": [f"{message['input']['word']} time"]}]}}
         raise HassError(f"unknown_command: {kind}")
 
 
 def test_triggers_are_grouped_by_automation():
     hass = Hass(
-        ["good night", "bed time", "party time", "from a blueprint"],
+        # The editor open on Party and on Lights out lists theirs again; a
+        # template entity's is no automation's.
+        ["good night", "bed time", "party time", "party time", "lights out", "nap time", "from a template"],
         {
             "automation.good_night": {"state": "on", "name": "Good night", "id": "1", "config": {"triggers": [
                 {"trigger": "conversation", "command": ["good night", "bed time"]},
                 {"trigger": "state", "entity_id": "sun.sun"},
             ]}},
             "automation.party": {"state": "on", "name": "Party", "config": {"trigger": {"platform": "conversation", "command": "party time"}}},
-            "automation.off": {"state": "off", "name": "Off", "config": {"triggers": [{"trigger": "conversation", "command": "good night"}]}},
-            "automation.blueprint": {"state": "on", "name": "Blueprint", "id": "3", "config": {"use_blueprint": {}}},
+            "automation.off": {"state": "off", "name": "Off", "config": {"triggers": [{"trigger": "conversation", "command": "lights out"}]}},
+            "automation.nap": {"state": "on", "name": "Nap", "id": "3", "config": {"use_blueprint": {"path": "sleep.yaml", "input": {"word": "nap"}}}},
         },
     )
     found, automations = asyncio.run(triggers.read(hass))
     assert found == [
         trigger("automation:1", "Good night", "good night", "bed time", automation="automation.good_night", automation_id="1"),
         trigger("automation:automation.party", "Party", "party time", automation="automation.party"),
-        trigger("sentence:from a blueprint", "from a blueprint", "from a blueprint"),
+        trigger("automation:3", "Nap", "nap time", automation="automation.nap", automation_id="3"),
+        trigger("sentence:from a template", "from a template", "from a template"),
     ]
-    assert automations == ["automation.good_night", "automation.party", "automation.off", "automation.blueprint"]
+    assert automations == ["automation.good_night", "automation.party", "automation.off", "automation.nap"]
     assert asyncio.run(triggers.read(Hass([], hass.automations))) == ([], automations)
 
 

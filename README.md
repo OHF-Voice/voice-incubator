@@ -270,9 +270,13 @@ automation's page.
 
 - **Read.** `conversation/sentences/list` (admin) has the sentences Home
   Assistant listens for -- none of an automation turned off. Each automation
-  that's on is read (`automation/config`) to group them, one command to an
-  automation, titled by its name; a sentence no automation has (a
-  blueprint's, a template entity's) is one of its own. They are read again
+  is read (`automation/config`; one from a blueprint through
+  `blueprint/substitute`) to group them, one command to an automation that's
+  on, titled by its name. A sentence an automation has, listed again, is
+  left out: Home Assistant's automation editor listens for a copy of each
+  trigger it shows while it is open (to show it firing), the automation on
+  or off. A sentence no automation has (a template entity's) is one of its
+  own. They are read again
   on `automation_reloaded` (a save in the editor reloads) and when an
   automation turns on or off or goes away (`subscribe_entities` on every
   automation: deleting one fires no reload), a second after the last.
