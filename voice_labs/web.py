@@ -40,9 +40,11 @@ from .commands import (
     NUMBER_PRESETS,
     VERBOSITY,
     area_ids,
+    command_of,
     parse_command,
 )
 from .hass import VOICE_DOMAINS, HassError
+from .triggers import ID_PREFIX as TRIGGER_PREFIX
 from .skills import LEVELS, SKILLS, available, skill_place
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
@@ -146,6 +148,7 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.put("/api/areas/{id}", api.put_area),
             web.delete("/api/areas/{id}", api.delete_area),
             web.put("/api/areas/{id}/off", api.put_area_off),
+            web.put("/api/triggers/{id}", api.put_trigger),
             web.put("/api/areas/{id}/do_not_disturb", api.put_area_quiet),
             web.get("/api/satellites", api.satellites),
             web.put("/api/satellites/{key}", api.put_satellite),
@@ -374,9 +377,18 @@ class Api:
                     "area": spec.get("area") if isinstance(spec, dict) else None,
                     "off": [],
                 }
+        triggers, trigger_first = self._triggers_json(data)
+        for command_id, ids in trigger_first.items():
+            if command_id in details:
+                details[command_id]["trigger_first"] = ids
         return web.json_response(
             {
                 "commands": commands,
+                # Home Assistant's sentence triggers, by their command's id;
+                # and why none are heard, when none are.
+                "triggers": triggers,
+                "triggers_error": self.app.trigger_reader.error
+                or (self.app.engine.compiled.trigger_error if self.app.engine and self.app.engine.compiled else None),
                 # Those that follow the library: as saved (from, and their settings),
                 # and what the library says to set after adding them.
                 "references": references,
@@ -410,6 +422,60 @@ class Api:
                 "error": error,
             }
         )
+
+    def _triggers_json(self, data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[str]]]:
+        """Home Assistant's sentence triggers as the Home page lists them, by
+        their command's id: their sentences (``transcript``: those matched on
+        the transcript), automation, settings, and the commands of yours that
+        say a sentence of theirs (``clashes``: the trigger goes first). And
+        those commands' triggers, by command."""
+        compiled = self.app.engine.compiled if self.app.engine is not None else None
+        heard = {t.key: command_id for command_id, t in (compiled.triggers if compiled else {}).items()}
+        settings = data.get("triggers") or {}
+        out: dict[str, Any] = {}
+        first: dict[str, list[str]] = {}
+        for trigger in self.app.store.triggers:
+            command_id = heard.get(trigger.key, trigger.command_id)
+            clashes = [
+                command_of(twin) for twin in (compiled.twins.get(command_id, ()) if compiled else ())
+                if command_of(twin) not in (compiled.triggers if compiled else {})
+            ]
+            for other in dict.fromkeys(clashes):
+                first.setdefault(other, []).append(command_id)
+            own = settings.get(trigger.key) or {}
+            out[command_id] = {
+                "key": trigger.key,
+                "title": trigger.title,
+                "sentences": list(trigger.sentences),
+                "transcript": list(trigger.transcript),
+                "problems": list(trigger.problems),
+                "automation": trigger.automation,
+                "automation_id": trigger.automation_id,
+                "heard": trigger.key in heard,
+                "disabled": bool(own.get("disabled")),
+                "off": list(own.get("off") or []),
+                "clashes": list(dict.fromkeys(clashes)),
+            }
+        return out, first
+
+    def _trigger_key(self, command_id: str) -> str:
+        """The key of the trigger whose command this is."""
+        compiled = self.app.engine.compiled if self.app.engine is not None else None
+        trigger = (compiled.triggers if compiled else {}).get(command_id)
+        if trigger is None:
+            trigger = next((t for t in self.app.store.triggers if t.command_id == command_id), None)
+        if trigger is None:
+            raise FileNotFoundError(f"No sentence trigger {command_id}")
+        return trigger.key
+
+    async def put_trigger(self, request: web.Request) -> web.Response:
+        """One of Home Assistant's sentence triggers turned off everywhere
+        (``disabled``: true), or back on."""
+        body = await request.json()
+        if not isinstance(body.get("disabled"), bool):
+            raise ConfigError("disabled: true or false")
+        key = self._trigger_key(request.match_info["id"])
+        return await self._saved(self.app.store.put_trigger(key, body["disabled"]))
 
     async def _saved(self, compiled) -> web.Response:
         await self.app.apply(compiled)
@@ -891,6 +957,9 @@ class Api:
         for skill_id in available():
             for area in skill_place(settings.get("skills"), skill_id)[1]:
                 off[area] = off.get(area, 0) + 1
+        for own_settings in (data.get("triggers") or {}).values():
+            for area in (own_settings or {}).get("off") or []:
+                off[str(area)] = off.get(str(area), 0) + 1
         listed = areas.listed(settings)
         ids = dict.fromkeys([*listed, *(a for a in satellites if a), *(a for a in devices if a), *own, *off])
         out = []
@@ -970,6 +1039,8 @@ class Api:
         if not isinstance(body.get("off"), bool):
             raise ConfigError("off: true or false")
         commands = [str(c) for c in body.get("commands") or []]
+        trigger_ids = [c for c in commands if c.startswith(TRIGGER_PREFIX) and c not in (self.app.store.document().get("commands") or {})]
+        commands = [c for c in commands if c not in trigger_ids]
         wanted = [str(s) for s in body.get("skills") or []]
         unknown = sorted(set(wanted) - set(available()))
         if unknown:
@@ -981,8 +1052,9 @@ class Api:
                 kept = [a for a in off if a != area_id] + ([area_id] if body["off"] else [])
                 _skill_place(store.settings, skill_id, off=kept)
             store.save_settings()
-        if commands:
-            return await self._saved(store.put_off(area_id, commands, body["off"]))
+        if commands or trigger_ids:
+            keys = [self._trigger_key(c) for c in trigger_ids]
+            return await self._saved(store.put_off(area_id, commands, body["off"], keys))
         return web.json_response({"ok": True})
 
     # ----------------------------------------------------------- satellites

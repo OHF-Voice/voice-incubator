@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,10 +34,11 @@ from adapt_ctc.config import ConfigError, parse_config
 
 from . import languages
 from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_unknown, shared_examples
+from .triggers import compile_triggers, settings_of
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "version"}
+STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "triggers", "version"}
 VERSION = 3
 """What a commands file is: 3, a device has names in its area and in the
 whole house (``house``), and says whether it is part of its area
@@ -142,6 +144,14 @@ class Compiled:
     devices: dict[str, Device] = field(default_factory=dict)
     """The devices added on the Names page, by entity id: all voice may act
     on, and how (``Device``)."""
+    triggers: dict[str, Any] = field(default_factory=dict)
+    """Home Assistant's sentence triggers heard (triggers.Trigger), by their
+    command's id: ``commands`` has them too, first."""
+    heard_triggers: Any = None
+    """The triggers matched on the transcript (triggers.match)."""
+    trigger_error: str | None = None
+    """Why the triggers aren't heard: adapt-ctc couldn't take them with the
+    commands."""
 
 
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
@@ -398,8 +408,10 @@ def command_language(spec: Any, default: str) -> str:
     return str(own or default)
 
 
-def compile_store(data: dict[str, Any]) -> Compiled:
-    """Validate a whole store. Raises ConfigError naming what is wrong."""
+def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compiled:
+    """Validate a whole store, with Home Assistant's sentence ``triggers``
+    (triggers.prepare) ahead of its commands. Raises ConfigError naming what
+    is wrong -- but for the triggers: without them, then."""
     if not isinstance(data, dict):
         raise ConfigError("commands file: expected a mapping")
     unknown = set(data) - STORE_KEYS
@@ -433,13 +445,29 @@ def compile_store(data: dict[str, Any]) -> Compiled:
     data = {**data, "names": said, "lists": {**languages.current().lists, **own_lists}, "commands": kept}
     commands = parse_commands(heard)
     unknown_response = parse_unknown(data.get("unknown"))
-    config = adapt_config(data, commands)
-    if config is not None:
-        parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
+    found = compile_triggers(triggers, settings_of(data.get("triggers")), {*commands, *map(str, every)})
+    config, trigger_error = None, None
+    if found.commands:
+        # Theirs first: a sentence both say is the trigger's.
+        everything = {**found.commands, **commands}
+        try:
+            config = adapt_config(data, everything)
+            if config is not None:
+                parse_config(config)
+            commands = everything
+        except ConfigError as err:
+            trigger_error = str(err)
+            found = compile_triggers((), {}, ())
+    if not found.commands:
+        config = adapt_config(data, commands)
+        if config is not None:
+            parse_config(config)  # adapt-ctc's own checks: keywords, names, numbers
+    if trigger_error is not None:
+        _LOGGER.warning("Home Assistant's sentence triggers aren't heard: %s", trigger_error)
     devices = {str(item_id): device_of(entry, here, language) for item_id, entry in (names.get("entities") or {}).items()}
     return Compiled(
         data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names,
-        hidden_lists, devices,
+        hidden_lists, devices, found.triggers, found.heard, trigger_error,
     )
 
 
@@ -453,6 +481,9 @@ class Store:
     where the Wake words page changed them."""
     people: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Each person's own things, by name (voice_labs/people.py)."""
+    triggers: list[Any] = field(default_factory=list)
+    """Home Assistant's sentence triggers, prepared (voice_labs/triggers.py):
+    heard with the commands, first."""
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
@@ -535,7 +566,7 @@ class Store:
 
     def load(self) -> Compiled:
         """The commands, validated. Raises ConfigError."""
-        return compile_store(self.document())
+        return compile_store(self.document(), self.triggers)
 
     def update(self, edit) -> Compiled:
         """Apply ``edit(document)`` to a copy of the commands, validate the
@@ -546,7 +577,7 @@ class Store:
             if document.get(key) is None:
                 document[key] = {}
         edit(document)
-        compiled = compile_store(plain(document))
+        compiled = compile_store(plain(document), self.triggers)
         self._write(document)
         return compiled
 
@@ -624,11 +655,16 @@ class Store:
 
         return self.update(edit)
 
-    def put_off(self, area: str, command_ids: list[str], off: bool) -> Compiled:
+    def put_off(self, area: str, command_ids: list[str], off: bool, trigger_keys: list[str] = ()) -> Compiled:
         """Turn the whole home's commands off in ``area``, or back on: their
-        ``off`` lists."""
+        ``off`` lists. And Home Assistant's sentence triggers, by key."""
 
         def edit(document: dict[str, Any]) -> None:
+            for key in trigger_keys:
+                own = _trigger_settings(document, key)
+                kept = [str(a) for a in own.get("off") or [] if str(a) != area]
+                own["off"] = kept + ([area] if off else [])
+                _tidy_trigger(document, key)
             commands = document["commands"]
             for command_id in command_ids:
                 command = commands.get(command_id)
@@ -643,6 +679,16 @@ class Store:
                     command["off"] = kept
                 else:
                     command.pop("off", None)
+
+        return self.update(edit)
+
+    def put_trigger(self, key: str, disabled: bool) -> Compiled:
+        """Turn one of Home Assistant's sentence triggers off everywhere, or
+        back on."""
+
+        def edit(document: dict[str, Any]) -> None:
+            _trigger_settings(document, key)["disabled"] = disabled
+            _tidy_trigger(document, key)
 
         return self.update(edit)
 
@@ -770,6 +816,28 @@ class Store:
 
     def satellite(self, key: str) -> dict[str, Any]:
         return self.satellites.get(key) or {}
+
+
+def _trigger_settings(document: dict[str, Any], key: str) -> dict[str, Any]:
+    triggers = document.get("triggers")
+    if not isinstance(triggers, dict):
+        triggers = document["triggers"] = {}
+    own = triggers.get(key)
+    if not isinstance(own, dict):
+        own = triggers[key] = {}
+    return own
+
+
+def _tidy_trigger(document: dict[str, Any], key: str) -> None:
+    """A trigger as it is unless told otherwise -- on everywhere -- keeps no settings."""
+    triggers = document["triggers"]
+    own = {k: v for k, v in triggers[key].items() if v}
+    if own:
+        triggers[key] = own
+    else:
+        del triggers[key]
+    if not triggers:
+        del document["triggers"]
 
 
 def _inserted(items: dict[str, Any], index: int, key: str, value: Any) -> dict[str, Any]:

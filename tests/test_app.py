@@ -730,6 +730,38 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await agent_said("who wrote the odyssey"))[0] == "conversation.chatty heard who wrote the odyssey"
             assert hass.conversations[-1]["type"] == "conversation/process"
             hass.streams = True
+
+            # Home Assistant's sentence triggers: heard before the commands
+            # and the agent, run by its own agent with the satellite's device.
+            hass.automations = {
+                "automation.good_night": {"state": "on", "name": "Good night", "id": "1", "config": {"triggers": [
+                    {"trigger": "conversation", "command": ["good night", "it's bed time"]}]}},
+                "automation.clock": {"state": "on", "name": "Clock", "id": "2", "config": {"triggers": [
+                    {"trigger": "conversation", "command": ["what time is it"]}]}},
+            }
+            hass.trigger_responses = {"good night": "Sleep tight.", "it's bed time": "", "what time is it": "Bedtime."}
+            await app.trigger_reader.refresh()
+            assert [t.title for t in app.store.triggers] == ["Good night", "Clock"]
+            text, record = await agent_said("good night")
+            assert (text, record.outcome) == ("Sleep tight.", "done")
+            asked = hass.conversations[-1]
+            assert asked["agent_id"] == "conversation.home_assistant" and asked["text"] == "good night"
+            assert asked.get("device_id") == app.satellite(MAC).device_id
+            # Its automation set no response: the acknowledgement sound.
+            assert (await agent_said("it's bed time"))[0] == ""
+            # A command saying the same sentence: the trigger goes first.
+            assert (await agent_said("what time is it"))[0] == "Bedtime."
+            listed = await (await http.get("/api/store")).json()
+            assert listed["triggers"]["trigger_2"]["clashes"] == ["what_time"]
+            assert listed["details"]["what_time"]["trigger_first"] == ["trigger_2"]
+            # Turned off here, the command's again; turned off in Home Assistant, gone.
+            assert (await http.put("/api/triggers/trigger_2", json={"disabled": True})).status == 200
+            assert (await agent_said("what time is it"))[0] == "It's time."
+            assert app.store.document()["triggers"] == {"automation:2": {"disabled": True}}
+            await hass.turn_automation("automation.good_night", "off")
+            await wait_for(lambda: [t.title for t in app.engine.compiled.triggers.values()] == ["Clock"])
+            assert (await agent_said("good night"))[0] == "conversation.chatty heard good night"
+
             asked = len(hass.conversations)
             # A dry run never asks it: it could act in the home.
             record = await app.try_text("who wrote the odyssey", MAC)

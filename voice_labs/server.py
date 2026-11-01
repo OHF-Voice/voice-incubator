@@ -41,7 +41,7 @@ from .fallback import (
     needs_model,
 )
 from .engine import Decision, Engine, Satellite, model_note
-from . import context, follow_up
+from . import context, follow_up, triggers
 from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
@@ -643,6 +643,8 @@ class VoiceLabsApp:
         """What nothing here understood goes to, when one is chosen."""
         self.context = context.Context(KEEP_SECONDS)
         """What each area last spoke of, for "it" (voice_labs/context.py)."""
+        self.trigger_reader = triggers.Reader(self.hass, self._triggers_changed)
+        """Home Assistant's sentence triggers, kept current (voice_labs/triggers.py)."""
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
         self._timer_rebuild: asyncio.Task | None = None
@@ -759,6 +761,13 @@ class VoiceLabsApp:
             return None
         await self.apply(compiled)
         return compiled
+
+    async def _triggers_changed(self, found: list[triggers.Trigger]) -> None:
+        """Home Assistant's sentence triggers changed: heard from now on (from
+        the start, before the commands are first loaded)."""
+        self.store.triggers = found
+        if self.engine is not None:
+            await self.reload_commands()
 
     async def apply(self, compiled: Compiled) -> None:
         """Recognize these commands from now on. Raises ConfigError when
@@ -2789,7 +2798,7 @@ class VoiceLabsApp:
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
             home=satellite.settings.get("home"), satellites=self, names=self.said_names(satellite.area_id),
-            devices=self.voice_devices(), confirmed=confirmed,
+            devices=self.voice_devices(), confirmed=confirmed, agent=self.agent,
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))

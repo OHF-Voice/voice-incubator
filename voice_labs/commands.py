@@ -380,6 +380,10 @@ class Behavior:
     intercom: str | None = None
     """``connect``: the app joins this satellite and the one in the area said."""
 
+    trigger: str | None = None
+    """A Home Assistant sentence trigger's key (voice_labs/triggers.py): what
+    was said goes to Home Assistant's own agent, which runs its automation."""
+
     response: str | dict[str, Any] | None = None
     """A template, or one for each outcome (see ``response_for``); done's may
     be one for each level of verbosity (SPOKEN)."""
@@ -519,6 +523,8 @@ class Behavior:
             return "announce"
         if self.intercom:
             return "intercom"
+        if self.trigger:
+            return "trigger"
         # Only a response, or nothing at all: "never mind".
         return "respond" if self.texts("done") else "nothing"
 
@@ -541,8 +547,8 @@ class Behavior:
         if self.scene:
             scene = "{{ slots.entity }}" if self.scene == HEARD else self.scene
             return [{"action": "scene.turn_on", "target": {"entity_id": scene}}]
-        if self.timer or self.music or self.intent or self.announce or self.intercom:
-            return []  # the app does these itself (voice_labs/timers.py, music.py, actions.py)
+        if self.timer or self.music or self.intent or self.announce or self.intercom or self.trigger:
+            return []  # the app does these itself (voice_labs/timers.py, music.py, actions.py, triggers.py)
         return copy.deepcopy(self.action or [])
 
 
@@ -1141,34 +1147,68 @@ def shared_examples(commands: dict[str, Command]) -> tuple[dict[str, dict[str, A
     sentences: adapt-ctc gives a sentence one intent, and the engine runs the
     twin where the first is not available, or where the twin is the
     satellite's own. An intent left with nothing to
-    listen for is only a twin."""
+    listen for is only a twin.
+
+    Home Assistant's sentence triggers come first (voice_labs/triggers.py),
+    and their sentences are theirs alone: a template only some of whose
+    sentences a trigger has keeps the rest, written out."""
     intents: dict[str, dict[str, Any]] = {}
     twins: dict[str, list[str]] = {}
     owner: dict[str, str] = {}
+    triggered: set[str] = set()
+    language = languages.current().code
+
+    def twin(of: str, name: str) -> None:
+        if name not in twins.setdefault(of, []):
+            twins[of].append(name)
+
     for command in commands.values():
         if command.disabled:
             continue
         for name, spec in command.intents.items():
+            if command.behavior.trigger:
+                triggered.add(name)
             kept = []
             for text in spec.get("examples") or []:
                 # A template is every sentence it stands for: one whose every
                 # sentence another has is a twin's; one only some of whose
-                # sentences another has is an error (adapt-ctc says which).
-                keys = [sentence_key(s, languages.current().code) for s in example_sentences(str(text))]
+                # sentences another has is an error (adapt-ctc says which) --
+                # but for a trigger's.
+                sentences = example_sentences(str(text))
+                keys = [sentence_key(s, language) for s in sentences]
                 taken = [owner[k] for k in keys if owner.get(k, name) != name]
                 if keys and len(taken) == len(keys):
-                    if name not in twins.setdefault(taken[0], []):
-                        twins[taken[0]].append(name)
+                    for other in dict.fromkeys(taken):
+                        twin(other, name)
+                    continue
+                if any(other in triggered for other in taken):
+                    for other in dict.fromkeys(o for o in taken if o in triggered):
+                        twin(other, name)
+                    for sentence, key in zip(sentences, keys):
+                        if owner.get(key) not in triggered:
+                            owner.setdefault(key, name)
+                            kept.append(sentence)
                     continue
                 for key in keys:
                     owner.setdefault(key, name)
                 kept.append(text)
-            if len(kept) < len(spec.get("examples") or []):
+            if kept != list(spec.get("examples") or []):
                 spec = {**spec, "examples": kept} if kept else {k: v for k, v in spec.items() if k != "examples"}
                 if not kept and not any(spec.get(k) for k in ("require", "names", "number", "lists", "wildcard")):
                     continue
             intents[name] = spec
     return intents, {name: tuple(others) for name, others in twins.items()}
+
+
+def says(command: Command, sentence: str) -> bool:
+    """Whether one of the command's example sentences is ``sentence``."""
+    key = sentence_key(sentence, languages.current().code)
+    return any(
+        sentence_key(s, languages.current().code) == key
+        for spec in command.intents.values()
+        for text in spec.get("examples") or []
+        for s in example_sentences(str(text))
+    )
 
 
 def example_sentences(template: str) -> list[str]:

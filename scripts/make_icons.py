@@ -69,6 +69,8 @@ DEFAULTS = [
     "mdi:message-reply-text-outline",
     # "It": what was last spoken of.
     "mdi:link-variant",
+    # Home Assistant's sentence triggers.
+    "mdi:home-assistant",
 ]
 # A satellite's icon: where it is, or what it is.
 SATELLITE_PICKER = [

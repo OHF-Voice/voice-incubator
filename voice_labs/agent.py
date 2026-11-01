@@ -300,6 +300,16 @@ class Agent:
         finally:
             await self.hass.unsubscribe(msg_id, tell=not done.done())
 
+    async def run_trigger(self, text: str, device_id: str | None, language: str | None) -> Any:
+        """A sentence trigger's sentence, to Home Assistant's own agent: it
+        runs the automation and answers with its response
+        (voice_labs/triggers.py). conversation/process's result; no
+        conversation is kept."""
+        message = {"type": "conversation/process", "text": text, "agent_id": HOME_ASSISTANT_AGENT}
+        if language:
+            message["language"] = language
+        return await self._process(message, device_id)
+
     async def _process(self, message: dict[str, Any], device_id: str | None) -> Any:
         """Send it with the satellite's device, which Home Assistant before
         2026.10 refuses: then without."""

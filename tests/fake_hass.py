@@ -150,6 +150,14 @@ class FakeHass:
         self.on_tts_stream: Any = None
         """Called with a TTS stream once its text has ended: a test makes the satellite announce."""
         self._stream_ids = itertools.count(1)
+        self.automations: dict[str, dict[str, Any]] = {}
+        """Automation entities: ``state``, ``name``, ``id`` and ``config``
+        (automation/config's); their conversation triggers' sentences are
+        heard while they are on (conversation/sentences/list)."""
+        self.trigger_responses: dict[str, str] = {}
+        """What the default agent answers to a trigger's sentence; "" none
+        set by its automation: Home Assistant's "Done"."""
+        self._automation_watchers: list[tuple[Any, int]] = []
         self.time_zone = "Europe/Berlin"
         self.local_calendars: list[str] = []
         """Local Calendars made (their names); each is ``calendar.<slug>``."""
@@ -314,7 +322,29 @@ class FakeHass:
                     {"entity_id": e, "state": self.states[e][0], "attributes": self.states[e][1]}
                     for e in MUSIC_PLAYERS
                 ]
+                + [
+                    {"entity_id": e, "state": a["state"], "attributes": {"friendly_name": a["name"], "id": a["id"]}}
+                    for e, a in self.automations.items()
+                ]
             )
+        elif kind == "conversation/sentences/list":
+            await result({"trigger_sentences": [
+                sentence for a in self.automations.values() if a["state"] == "on"
+                for item in a["config"].get("triggers") or [] if item.get("trigger") == "conversation"
+                for sentence in item["command"]
+            ]})
+        elif kind == "automation/config":
+            automation = self.automations.get(message["entity_id"])
+            if automation is None:
+                await result(success=False, error="not_found: Entity not found")
+            else:
+                await result({"config": automation["config"]})
+        elif kind == "subscribe_entities":
+            await result()
+            await socket.send(json.dumps({"id": msg_id, "type": "event", "event": {"a": {
+                e: {"s": self.automations[e]["state"], "a": {}} for e in message.get("entity_ids") or [] if e in self.automations
+            }}}))
+            self._automation_watchers.append((socket, msg_id))
         elif kind == "conversation/agent/list":
             await result({"agents": [
                 {"id": "conversation.home_assistant", "name": "Home Assistant", "supported_languages": ["en"]},
@@ -463,7 +493,11 @@ class FakeHass:
         with "nonsense" in it, a conversation id given kept."""
         conversation_id = message.get("conversation_id") or f"conversation-{next(self._conversation_ids)}"
         asks = self.asks_back and "nonsense" not in message["text"]
-        if "nonsense" in message["text"]:
+        triggered = self.trigger_responses.get(message["text"]) if message["agent_id"] == "conversation.home_assistant" else None
+        if triggered is not None:
+            speech, response_type, data = triggered or "Done", "action_done", {"targets": [], "success": [], "failed": []}
+            asks = False
+        elif "nonsense" in message["text"]:
             speech, response_type, data = "Sorry, I couldn't understand that", "error", {"code": "no_intent_match"}
         else:
             speech, response_type, data = f"{message['agent_id']} heard {message['text']}", "query_answer", {"success": [], "failed": []}
@@ -477,6 +511,15 @@ class FakeHass:
             "conversation_id": conversation_id,
             "continue_conversation": asks and self.asks_back != "emoji",
         }
+
+    async def turn_automation(self, entity_id: str, state: str) -> None:
+        """An automation turned on or off: those watching it are told."""
+        self.automations[entity_id]["state"] = state
+        for socket, msg_id in list(self._automation_watchers):
+            try:
+                await socket.send(json.dumps({"id": msg_id, "type": "event", "event": {"c": {entity_id: {"+": {"s": state}}}}}))
+            except websockets.ConnectionClosed:
+                self._automation_watchers.remove((socket, msg_id))
 
     def known(self) -> list[str]:
         return [e for e, *_ in ENTITIES]

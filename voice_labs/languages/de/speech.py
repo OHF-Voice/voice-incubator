@@ -249,6 +249,12 @@ def hint(description: str, why: str) -> str:
     return f"Es sieht so aus, als wolltest du {description}, {why}."
 
 
+def saying(sentence: str) -> str:
+    """A Home Assistant sentence trigger, as hints describe it: saying its
+    sentence ("„gute Nacht“ sagen")."""
+    return f"„{sentence}“ sagen"
+
+
 PARTLY = "aber ich habe nicht alles verstanden"
 
 

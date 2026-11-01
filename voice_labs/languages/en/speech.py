@@ -217,6 +217,12 @@ def hint(description: str, why: str) -> str:
     return f"It looks like you're trying to {description}, {why}."
 
 
+def saying(sentence: str) -> str:
+    """A Home Assistant sentence trigger, as hints describe it: saying its
+    sentence ("say “good night”")."""
+    return f"say “{sentence}”"
+
+
 def not_available(place: str) -> str:
     """A command heard that isn't heard here: another area's own, or the
     whole home's turned off in this one (``place``: "in the Kitchen"; "" for

@@ -119,6 +119,18 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **Home Assistant's sentence triggers are heard.** An automation that
+  starts on a sentence is a command of the whole home's, listed on the Home
+  page under **Home Assistant** -- by the automation's name, opening it in
+  Home Assistant's editor -- and kept current as automations are saved,
+  turned on or off, or deleted. Its sentences are listened for like
+  example sentences (with free text, `{album}`, matched on the transcript as
+  Home Assistant matches them), and run by Home Assistant's own agent with
+  the satellite's device, whatever agent answers questions: its response is
+  said, and "Done" is the acknowledgement sound. A trigger goes first, as in
+  Home Assistant: a command saying the same sentence runs only where the
+  trigger is turned off (each has a switch, and an area turns it off like
+  the whole home's commands); its row says "goes first". Needs `hassil`.
 - **"Is today Halloween?"** The dates skill answers whether today or
   tomorrow is a holiday or a date ("is it Christmas tomorrow", "is today a
   holiday": "No, Christmas is in 55 days.", "No, Halloween was yesterday."),

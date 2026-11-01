@@ -143,9 +143,9 @@ identification `--speaker-threshold`, `--speaker-channel`,
 
 ## Commands
 
-The app no longer reads Home Assistant's sentence triggers. Its commands are
-its own, in `commands.json`, which only the web UI edits, field by field (no
-YAML): it is read once and written whole on every save. Round-trip YAML, which kept a hand edit's comments, took 386
+Its commands are its own, in `commands.json`, which only the web UI edits,
+field by field (no YAML); Home Assistant's sentence triggers are heard ahead
+of them (below). The commands file is read once and written whole on every save. Round-trip YAML, which kept a hand edit's comments, took 386
 ms to read the commands and 218 ms to write them on an HA Green; JSON takes
 under a millisecond. A data directory from before is copied over once: each
 `.yaml` file to its `.json`, the YAML left as it was and not read again. A
@@ -257,6 +257,52 @@ both match at the same cost, and `Engine._take` takes the one picked for the
 satellite first; so do meaning and the model step among a command's versions
 and copies (`Satellite.first`).
 
+### Home Assistant's sentence triggers
+
+An automation that starts on a sentence (a conversation trigger) is heard
+here as a command of the whole home's, and run by Home Assistant
+(`voice_labs/triggers.py`). The commands were triggers once, the app's whole
+grammar; now they are its own, and a trigger is one more command, listed on
+the Home page under **Home Assistant**, with a switch to turn it off and
+turned off in an area like any of the whole home's (`commands.json`
+`triggers`, by key). It is edited in Home Assistant: its row opens the
+automation's page.
+
+- **Read.** `conversation/sentences/list` (admin) has the sentences Home
+  Assistant listens for -- none of an automation turned off. Each automation
+  that's on is read (`automation/config`) to group them, one command to an
+  automation, titled by its name; a sentence no automation has (a
+  blueprint's, a template entity's) is one of its own. They are read again
+  on `automation_reloaded` (a save in the editor reloads) and when an
+  automation turns on or off or goes away (`subscribe_entities` on every
+  automation: deleting one fires no reload), a second after the last.
+- **Heard.** Each sentence is a hassil template, read with hassil as Home
+  Assistant reads it. One that stands for at most 512 sentences, none with
+  free text, is example sentences, searched for in the CTC evidence like the
+  commands' own. One with free text (`play {album} by {artist}`), or too
+  many sentences, or one adapt-ctc can't spell, is matched on the
+  transcript with hassil: the CTC head's before anything else is matched
+  (re-read from the TDT head's, which spells the free text), the TDT head's
+  when nothing matched.
+- **First.** Home Assistant runs a trigger before its intents, and here a
+  trigger's sentence is the trigger's: a command saying it too is its twin
+  (`commands.shared_examples` writes a template out and keeps the rest),
+  run only where the trigger is turned off -- an area's own copy included.
+  The trigger's row says "goes first", and the command's page says which
+  trigger. Meaning and the model step never run one.
+- **Run.** The sentence -- the example heard, or the transcript a free-text
+  one matched -- goes to Home Assistant's own agent (`conversation/process`,
+  `conversation.home_assistant`, with the satellite's `device_id`, so
+  `trigger.device_id` is the satellite on 2026.10 and later), whatever agent
+  is chosen for questions: it runs the automation and answers with its
+  `set_conversation_response`. Its "Done" (none set; read from Home
+  Assistant's translations) is the acknowledgement sound. A response is said
+  at the command's level of verbosity (`specific`), so a beep keeps it quiet.
+  An answer that is an error is `failed`, said as Home Assistant says it.
+- **Not heard**: a sentence hassil can't read, or triggers adapt-ctc can't
+  take with the commands -- then the commands are built without them, and
+  the Home page says why.
+
 ## Layout
 
 | path | |
@@ -296,6 +342,7 @@ and copies (`Satellite.first`).
 | `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
 | `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`) -- and how the answer is read |
 | `voice_labs/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
+| `voice_labs/triggers.py` | Home Assistant's sentence triggers: read and grouped by automation, kept current, heard as examples or on the transcript (hassil), ahead of the commands, and run by its own agent |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |

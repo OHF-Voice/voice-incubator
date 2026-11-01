@@ -11,7 +11,9 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
 2. **Example sentences first.** A command's examples are searched for in the
    CTC evidence on every call, and one said word for word wins over keyword
    matches. Then keyword intents; then, when nothing matched, the TDT
-   transcript against the examples, word for word.
+   transcript against the examples, word for word. Home Assistant's sentence
+   triggers come before them all (voice_labs/triggers.py): theirs are
+   examples too, and one with free text is matched on the transcript first.
 3. **A doubtful match is heard again.** One that costs as much as a word it
    left unexplained ("we resume the chicken pder" as resuming the music,
    "chicken" left over) runs only when the TDT or STT transcript agrees: the
@@ -57,8 +59,8 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
 
-from . import languages, skills
-from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots
+from . import languages, skills, triggers
+from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots, says
 from .fallback import kin, label_of
 from .store import Compiled, Device, phrase_key
 from .voices import TypedText, VoiceChoice
@@ -186,7 +188,8 @@ class Decision:
 
     matched_by: str = "ctc"
     """What found the command: the CTC matcher on the audio (``ctc``), the
-    same matcher on the TDT or STT transcript (``transcript``), or the
+    same matcher on the TDT or STT transcript (``transcript``), hassil on a
+    transcript (``trigger``: Home Assistant's trigger with free text), or the
     fallback (``meaning``, ``gliner``)."""
     transcript_pass: dict[str, Any] | None = None
     """Nothing matched in the audio, or what did was doubtful: what the
@@ -611,7 +614,14 @@ class Engine:
         recognition = recognizer.match_examples(recognition, command_audio, transcriber)
         decision = Decision(recognition={}, text_source=getattr(transcriber, "source", "TDT"))
 
-        self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
+        # Home Assistant's triggers with free text, before anything else, as
+        # it has them: on the CTC head's transcript (or what was typed).
+        if compiled.heard_triggers is not None:
+            said = transcriber.transcribe(command_audio) if typed else recognition.transcript
+            if self._said_trigger(decision, [said or ""], compiled, satellite) and not typed and transcriber is not None:
+                self._spell_trigger(decision, recognition, compiled, command_audio, transcriber)
+        if decision.command is None:
+            self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
         if decision.command is not None and not typed and transcriber is not None and decision.intent is not None:
             if decision.intent.cost >= recognizer.config.settings.unexplained_important_cost:
                 self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber, "cost")
@@ -627,6 +637,8 @@ class Engine:
             # may have heard plainly what the CTC evidence only half did.
             if recognition.tdt_transcript and getattr(transcriber, "source", "TDT") != "typed":
                 self._match_transcript(decision, recognition.tdt_transcript, compiled, recognizer, satellite)
+            if decision.command is None and decision.refused is None and compiled.heard_triggers is not None and not typed:
+                self._said_trigger(decision, [recognition.tdt_transcript or ""], compiled, satellite)
         if decision.command is None and decision.refused is None:
             # Each transcript, TDT's first: one may hear "fifty degrees F in
             # Celsius" where the other heard "FN Celsius".
@@ -699,6 +711,44 @@ class Engine:
         if refused is not None:
             decision.command, decision.behavior, decision.refused = None, None, refused
 
+    @staticmethod
+    def _said_trigger(decision: Decision, texts: list[str], compiled: Compiled, satellite: Satellite) -> bool:
+        """The first of Home Assistant's triggers with free text that one of
+        ``texts`` is, as it matches them (triggers.match), heard here: its
+        command, and the slots it took with the ``sentence``."""
+        for text in texts:
+            for command_id, slots in triggers.match(compiled.heard_triggers, text):
+                command = compiled.commands.get(command_id)
+                if command is None or command.disabled:
+                    continue
+                behavior = satellite.available(command)
+                if behavior is None:
+                    decision.skipped.append({"command": command.id, "why": satellite.why_unavailable(command)})
+                    continue
+                decision.command, decision.behavior = command, behavior
+                decision.slots = {**slots, triggers.SENTENCE: text}
+                decision.matched_by = "trigger"
+                return True
+        return False
+
+    @staticmethod
+    def _spell_trigger(
+        decision: Decision, recognition: Recognition, compiled: Compiled, command_audio: np.ndarray, transcriber: Any
+    ) -> None:
+        """A trigger found on the CTC head's transcript is sent as the TDT
+        head heard it, when that is the same trigger: it spells free text
+        far better."""
+        if recognition.tdt_transcript is None:
+            started = time.perf_counter()
+            recognition.tdt_transcript = transcriber.transcribe(command_audio)
+            _took(recognition.timings, _timing(transcriber), started)
+        text = recognition.tdt_transcript or ""
+        assert decision.command is not None
+        for command_id, slots in triggers.match(compiled.heard_triggers, text):
+            if command_id == decision.command.id:
+                decision.slots = {**slots, triggers.SENTENCE: text}
+                return
+
     def _take(
         self,
         decision: Decision,
@@ -725,9 +775,10 @@ class Engine:
             if result.example and not satellite.picked(command):
                 # A copy of it says the same sentence: one picked for this
                 # satellite, or one it may run where it may not run this one.
+                # A trigger's goes first wherever it is heard.
                 twins = [compiled.commands.get(command_of(t)) for t in compiled.twins.get(result.intent, ())]
-                twin = next(iter(satellite.first([t for t in twins if t is not None])), None)
-                if twin is not None and (behavior is None or satellite.picked(twin)):
+                twin = next(iter(satellite.first([t for t in twins if t is not None and says(t, result.example)])), None)
+                if twin is not None and (behavior is None or (satellite.picked(twin) and not command.behavior.trigger)):
                     why = f"its copy {twin.id}, this area's own," if satellite.picked(twin) else f"its copy {twin.id}, which runs here,"
                     result.notes.append(f"{command.id}: {why} says the same sentence")
                     command, behavior = twin, satellite.available(twin)
@@ -741,6 +792,9 @@ class Engine:
             # Fixed slots are the command's target; a name that was heard
             # is more specific.
             decision.slots = {**decision.behavior.slots, **heard}
+            if command.behavior.trigger:
+                # What Home Assistant hears: the sentence, as the trigger has it.
+                decision.slots[triggers.SENTENCE] = result.example or recognition.tdt_transcript or recognition.transcript or ""
             refused = self.fit_devices(decision, compiled, satellite)
             if refused is not None:
                 decision.command, decision.behavior, decision.refused = None, None, refused

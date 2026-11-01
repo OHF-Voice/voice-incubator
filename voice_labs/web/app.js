@@ -36,7 +36,7 @@ function h(tag, attrs, ...children) {
 
 // Icons: a command's own (icon: mdi:…), else one for what it does. ICONS is
 // the subset of Material Design Icons in icons.js (scripts/make_icons.py).
-const KIND_ICONS = { respond: "mdi:message-text-outline", action: "mdi:flash-outline", script: "mdi:script-text-outline", scene: "mdi:palette", timer: "mdi:timer-outline", music: "mdi:music", announce: "mdi:bullhorn", intercom: "mdi:phone-in-talk", nothing: "mdi:close-circle-outline" };
+const KIND_ICONS = { respond: "mdi:message-text-outline", action: "mdi:flash-outline", script: "mdi:script-text-outline", scene: "mdi:palette", timer: "mdi:timer-outline", music: "mdi:music", announce: "mdi:bullhorn", intercom: "mdi:phone-in-talk", trigger: "mdi:home-assistant", nothing: "mdi:close-circle-outline" };
 
 // Whether a response says something when done: a plain one, or done's.
 const respondsWhenDone = (response) => Boolean(typeof response === "string" ? response
@@ -788,6 +788,7 @@ async function pageCommand(id, prefill, query) {
   const areas = await areaLabels();
   const params = new URLSearchParams(query || "");
   const isNew = !id;
+  if (!isNew && (state.store.triggers || {})[id]) { fill($main, triggerPage(state.store, id)); return; }
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
   if (isNew && params.get("area")) spec.area = params.get("area");
@@ -1479,7 +1480,10 @@ async function pageCommand(id, prefill, query) {
   // taking control.
   function renderHead() {
     const needs = following ? asList((state.store.needs || {})[id]) : asList(spec.needs);
+    const first = isNew ? [] : asList(((state.store.details || {})[id] || {}).trigger_first)
+      .map((t) => `“${((state.store.triggers || {})[t] || {}).title || t}”`);
     fill(head,
+      first.length ? h("div", { class: "notice info" }, `Home Assistant's ${andList(first)} says some of these sentences too, and goes first.`) : null,
       following ? h("div", { class: "notice info row" },
         h("span", { class: "grow" }, "Follows the library.",
           hint("The library's changes reach this command. Where it runs, how much it says, the steps when nothing matches, example sentences of your own and its implied target are yours to set. To change anything else, take control of it: it becomes yours, and the library's changes no longer reach it.")),
@@ -1858,6 +1862,7 @@ function whereEditor(spec) {
 // One command, as listed on the Home page; `from`: the area it is listed
 // in, which its page goes back to. `extra`: after its badges.
 function commandItem(store, id, from, extra) {
+  if ((store.triggers || {})[id]) return triggerItem(store, id, from, extra);
   const spec = store.commands[id] || {};
   const detail = store.details[id] || {};
   const href = `#/command/${id}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
@@ -1870,6 +1875,48 @@ function commandItem(store, id, from, extra) {
     asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
     detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
     extra || null);
+}
+
+// One of Home Assistant's sentence triggers, as listed with the commands:
+// edited in Home Assistant, on its automation's page. On the whole home's
+// list (no `from`), its switch: heard, or turned off everywhere.
+function triggerItem(store, id, from, extra) {
+  const t = store.triggers[id];
+  const edit = t.automation_id ? `/config/automation/edit/${encodeURIComponent(t.automation_id)}` : null;
+  const clashes = (t.clashes || []).map((c) => { const spec = store.commands[c] || {}; return spec.title || spec.description || c; });
+  const unheard = (t.problems || []).length ? t.problems.join(" ") : !t.heard && !t.disabled ? (store.triggers_error || "Nothing in it can be listened for.") : null;
+  const toggle = from ? null : h("input", { type: "checkbox", class: "switch", checked: !t.disabled, "aria-label": `${t.title}, everywhere`,
+    onclick: (e) => e.stopPropagation(), onchange: async (e) => {
+      try {
+        await api("PUT", `triggers/${encodeURIComponent(id)}`, { disabled: !e.target.checked });
+        t.disabled = !e.target.checked;
+        refreshStatus();
+        route();
+      } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+    } });
+  return h("div", { class: `item${edit ? " clickable" : ""}`, title: edit ? "Edit its automation in Home Assistant" : t.title,
+    onclick: edit ? () => window.open(edit, "_top") : null },
+    icon("mdi:home-assistant", "big"),
+    h("div", { class: "grow" },
+      h("div", { class: "title" }, t.title),
+      h("div", { class: "muted small" }, t.sentences.map((sentence) => `“${sentence}”`).join(" · "))),
+    from ? null : offBadge(t.off, t.disabled),
+    clashes.length ? h("span", { class: "badge warn", title: `${andList(clashes)} says it too. The trigger goes first.` }, "goes first") : null,
+    unheard ? h("span", { class: "badge bad", title: unheard }, "not heard") : h("span", { class: "badge accent" }, "trigger"),
+    extra || toggle);
+}
+
+// A sentence trigger's page (a session links to it): its row, and its
+// automation in Home Assistant, where it's edited.
+function triggerPage(store, id) {
+  const t = store.triggers[id];
+  return [
+    h("div", { class: "row" },
+      h("a", { href: "#/home" }, "← Whole Home"),
+      h("h1", { class: "grow", style: "margin:0" }, t.title),
+      t.automation_id ? h("button", { class: "primary", onclick: () => window.open(`/config/automation/edit/${encodeURIComponent(t.automation_id)}`, "_top") }, "Edit in Home Assistant") : null),
+    h("div", { class: "panel" }, h("div", { class: "list" }, triggerItem(store, id))),
+  ];
 }
 
 function skillItem(skill, from, extra) {
@@ -1901,6 +1948,10 @@ function commandGroups(store, skillData, area, words = []) {
   }
   const groups = [];
   if ((bySection[""] || []).length) groups.push(["Custom", "mdi:pencil-outline", bySection[""], [], ""]);
+  // Home Assistant's sentence triggers: the whole home's, yours too.
+  const triggers = area ? [] : Object.keys(store.triggers || {}).filter((id) => !words.length
+    || ((t) => said(t.title, ...t.sentences, "Home Assistant"))(store.triggers[id]));
+  if (triggers.length) groups.push(["Home Assistant", "mdi:home-assistant", triggers, [], null]);
   for (const s of store.sections || []) {
     if ((bySection[s.file] || []).length) groups.push([s.title, s.icon || "mdi:folder-outline", bySection[s.file], [], s.file]);
   }
@@ -1944,10 +1995,13 @@ function inheritedPanel(store, skillData, area) {
   const opened = new Set();
   const offHere = (off) => (off || []).includes(area.id);
   const setOff = (off, value) => (value ? [...new Set([...(off || []), area.id])] : (off || []).filter((a) => a !== area.id));
+  // A command's spec and details; a trigger is both.
+  const specOf = (id) => (store.triggers || {})[id] || store.commands[id] || {};
+  const detailOf = (id) => (store.triggers || {})[id] || store.details[id] || {};
   async function turn(ids, skills, off) {
     try {
       await api("PUT", `areas/${encodeURIComponent(area.id)}/off`, { commands: ids, skills: skills.map((sk) => sk.id), off });
-      for (const id of ids) store.details[id].off = setOff(store.details[id].off, off);
+      for (const id of ids) detailOf(id).off = setOff(detailOf(id).off, off);
       for (const skill of skills) skill.off = setOff(skill.off, off);
       refreshStatus();
     } catch (err) { toast(err.message); }
@@ -1961,10 +2015,10 @@ function inheritedPanel(store, skillData, area) {
     fill(panel, groups.map(([title, iconName, ids, skills, file]) => {
       const key = file ?? title;
       // Turned off everywhere: off here too, whatever the area says.
-      const ids_ = ids.filter((id) => !(store.commands[id] || {}).disabled);
+      const ids_ = ids.filter((id) => !specOf(id).disabled);
       const skills_ = skills.filter((sk) => !sk.disabled);
       const count = ids.length + skills.length;
-      const off = ids_.filter((id) => offHere(store.details[id].off)).length + skills_.filter((sk) => offHere(sk.off)).length;
+      const off = ids_.filter((id) => offHere(detailOf(id).off)).length + skills_.filter((sk) => offHere(sk.off)).length;
       const usable = ids_.length + skills_.length;
       const everyOff = count - usable;
       const group = h("details", { class: "inherited" },
@@ -1977,8 +2031,8 @@ function inheritedPanel(store, skillData, area) {
             { indeterminate: off > 0 && off < usable, disabled: !usable })),
         h("div", { class: "list" },
           ids.map((id) => {
-            const spec = store.commands[id] || {};
-            const isOff = spec.disabled || offHere(store.details[id].off);
+            const spec = specOf(id);
+            const isOff = spec.disabled || offHere(detailOf(id).off);
             const row = commandItem(store, id, area.id, [
               spec.disabled ? h("span", { class: "badge", title: "Turned off on its page" }, "off everywhere")
                 : isOff ? h("span", { class: "badge" }, "off here") : null,
@@ -2171,8 +2225,9 @@ function wholeCommands(store, skillData, library, q) {
   return [
     hiddenNotice(store.hidden, "command", "commands",
       "A command is in the language it was made in. It comes back when the app's Language option is that language again."),
+    store.triggers_error ? h("div", { class: "notice warn" }, `Home Assistant's sentence triggers aren't heard: ${store.triggers_error}`) : null,
     h("div", { class: "row commands-bar" },
-      heading("h2", "Commands and skills", "On every satellite, unless turned off in its area. Where an area's own takes the same sentence, its own goes first there.", { class: "grow", style: "margin:0" }),
+      heading("h2", "Commands and skills", "On every satellite, unless turned off in its area. Where an area's own takes the same sentence, its own goes first there. Home Assistant's sentence triggers go first everywhere.", { class: "grow", style: "margin:0" }),
       search,
       h("button", { class: "primary", onclick: () => newCommandDialog(null) }, "Add")),
     sections,
@@ -4085,7 +4140,8 @@ function renderRecognition(rec) {
     rec.matched_by === "transcript" && !rec.doubt ? h("div", { class: "notice info" }, `Found by keywords in the ${rec.text_source && rec.text_source !== "TDT" ? `transcript from ${rec.text_source}` : "TDT transcript"}: the audio's own evidence wasn't enough.`) : null,
     !rec.command && rec.transcript_pass && !rec.doubt ? h("div", { class: "small muted" }, `Keywords on the transcript (“${rec.transcript_pass.text}”): `,
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
-    rec.matched_by && rec.matched_by !== "ctc" && rec.matched_by !== "transcript" ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
+    rec.matched_by === "trigger" ? h("div", { class: "notice info" }, "Home Assistant's sentence trigger, matched on the transcript as Home Assistant matches it.") : null,
+    rec.matched_by && !["ctc", "transcript", "trigger"].includes(rec.matched_by) ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning && rec.fallback.meaning.skipped ? h("div", { class: "small" }, `By meaning: skipped (${rec.fallback.meaning.skipped})`) : null,
       rec.fallback.meaning && !rec.fallback.meaning.skipped ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
@@ -4125,7 +4181,7 @@ const STEP_ICONS = {
   follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline", context: "mdi:link-variant",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
-const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
+const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
 
 // How long something took: "85 ms", "1.24 s"; "" when it isn't known.
 function took(seconds) {
@@ -4195,7 +4251,8 @@ function stepGlance(stage) {
       return { title: "Recognition", status: "warn", line: `no command${recognitionTime(d)}` };
     case "action": {
       const calls = (d.sequence || []).map((x) => x.action || x.service).filter(Boolean);
-      const what = d.music ? `music: ${d.music.operation}` : d.timer ? "timer" : calls.length ? calls.join(", ") : "a response only";
+      const what = d.trigger != null ? `Home Assistant's trigger: “${d.trigger}”` : d.music ? `music: ${d.music.operation}` : d.timer ? "timer"
+        : calls.length ? calls.join(", ") : "a response only";
       const how = d.error ? "failed" : d.outcome && d.outcome !== "done" ? d.outcome.replace(/_/g, " ") : null;
       return { title: d.dry_run ? "Action (dry run)" : "Action", status: d.error || d.outcome === "failed" ? "bad" : how ? "warn" : d.dry_run ? "" : "ok", line: [how, what].filter(Boolean).join(" · ") + inTime(d.seconds) };
     }

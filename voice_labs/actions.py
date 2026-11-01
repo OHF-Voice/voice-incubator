@@ -58,7 +58,10 @@ the area said once this call ends: the app does both (``satellites``). A music c
 is carried out on a Music Assistant player (voice_labs/music.py); its response
 also sees ``player`` (the one it acted on), ``players``, when it searched
 ``media`` (what it found), and when it moved the music ``source`` (the player
-it came from).
+it came from). One of Home Assistant's sentence triggers (voice_labs/triggers.py)
+is run by Home Assistant's own agent, sent what was said (``slots.sentence``;
+free text in the slots its sentence names): what it answers is the speech,
+but for its "Done", which is the acknowledgement sound.
 
 How it went is the outcome: ``done``, ``failed`` (Home Assistant refused), a
 timer operation's own (``no_timers``, ``not_found`` ...), or the ``outcome`` a
@@ -103,7 +106,7 @@ from typing import Any
 
 from adapt_ctc.text import spoken_words
 
-from . import alarms, capabilities, languages, timers
+from . import alarms, capabilities, languages, timers, triggers
 from .areas import capped
 from . import music as music_ops
 from . import people as people_ops
@@ -164,9 +167,13 @@ class Outcome:
     """Its question (the command's ``confirm``) was answered yes: it acts
     without asking again."""
 
+    trigger: str | None = None
+    """For a sentence trigger: the sentence sent to Home Assistant's agent."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "outcome": self.name,
+            **({"trigger": self.trigger} if self.trigger is not None else {}),
             "verbosity": self.verbosity,
             "timer": self.timer,
             "music": self.music,
@@ -370,6 +377,7 @@ async def run(
     names: dict[str, dict[str, str]] | None = None,
     devices: dict[str, Any] | None = None,
     confirmed: bool = False,
+    agent: Any = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
@@ -384,7 +392,8 @@ async def run(
     acts on without a name, Assist's exposure aside (voice_catalog).
     ``confirmed``: its question (``confirm``) was answered yes; else a
     command that asks first turns out ``confirm``, the question said and
-    nothing done."""
+    nothing done. ``agent``: the conversation agents' (agent.Agent), which
+    sends a sentence trigger's sentence to Home Assistant."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     if devices is not None:
@@ -487,6 +496,8 @@ async def run(
 
     if behavior.intent:
         return await _run_intent(hass, behavior, values, satellite, outcome, checked.entities)
+    if behavior.trigger:
+        return await _run_trigger(hass, behavior, values, outcome, agent)
 
     if outcome.sequence and not dry_run:
         started = time.perf_counter()
@@ -978,6 +989,38 @@ async def _run_intent(
         return await _say(hass, behavior, values, outcome, "done", speech, found)
     _LOGGER.error("Intent %s failed: %s", call.name, outcome.error)
     return await _say(hass, behavior, values, outcome, "failed", say.FAILED, {**found, "error": outcome.error})
+
+
+async def _run_trigger(hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], outcome: Outcome, agent: Any) -> Outcome:
+    """Home Assistant's own agent hears the sentence trigger's sentence and
+    runs its automation (voice_labs/triggers.py). What it answers is said,
+    but for its "Done" -- the automation set no response -- which is the
+    acknowledgement sound."""
+    text = outcome.trigger = str(values["slots"].get(triggers.SENTENCE) or values["command"]["text"])
+    if outcome.dry_run:
+        return await _say(hass, behavior, values, outcome, "done", "")
+    language = languages.current().code
+    started = time.perf_counter()
+    try:
+        if agent is None:
+            raise HassError("no conversation agent to send it to")
+        outcome.response = await agent.run_trigger(text, values["satellite"].get("device_id"), language)
+        done = await triggers.done_said(hass, language)
+    except (HassError, ConnectionError, OSError, TimeoutError) as err:
+        outcome.error = str(err)
+        _LOGGER.error("Sentence trigger %r failed: %s", text, err)
+        return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": outcome.error})
+    finally:
+        outcome.timings["execute"] = time.perf_counter() - started
+    response = (outcome.response or {}).get("response") or {}
+    speech = str(((response.get("speech") or {}).get("plain") or {}).get("speech") or "").strip()
+    if response.get("response_type") == "error":
+        # Home Assistant heard no trigger in it after all (one turned off since).
+        outcome.error = str((response.get("data") or {}).get("code") or "error")
+        return await _say(hass, behavior, values, outcome, "failed", speech or languages.speech().FAILED, {"error": outcome.error})
+    if speech == done:
+        speech = ""
+    return await _say(hass, behavior, values, outcome, "done", speech, {"speech": speech})
 
 
 async def _run_timer(
