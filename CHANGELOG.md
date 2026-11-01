@@ -119,6 +119,11 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **The Home Assistant connection no longer drops on every start.** A timer
+  list reporting its timers before the models had loaded raised in the
+  connection's reader, which closed it (back 5 seconds later). The timers
+  now wait for the models, and a listener's mistake is logged rather than
+  closing the connection; a connection lost says what lost it.
 - **Home Assistant's sentence triggers are heard.** An automation that
   starts on a sentence is a command of the whole home's, listed on the Home
   page under **Home Assistant** -- by the automation's name, opening it in

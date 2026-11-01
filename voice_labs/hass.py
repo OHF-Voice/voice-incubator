@@ -309,7 +309,10 @@ class HomeAssistant:
         if message.get("type") == "event":
             handler = self._subscriptions.get(msg_id)
             if handler is not None:
-                handler(message.get("event", {}))
+                try:
+                    handler(message.get("event", {}))
+                except Exception:  # noqa: BLE001 - one listener's mistake mustn't drop the connection
+                    _LOGGER.exception("Home Assistant event handler failed")
             return
         future = self._pending.pop(msg_id, None)
         if future is None or future.done():

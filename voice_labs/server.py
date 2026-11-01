@@ -709,6 +709,7 @@ class VoiceLabsApp:
             self.store.data_dir / "embeddings.npz",  # kept for the next start
         )
         self.engine.entity_area = self.entity_area
+        self.engine.dynamic["running_timers"] = self.integration.running_names()  # heard of while it loaded
         self.configure_skills()
         await self.reload_commands()
         self._spawn(self.configure_fallback())
@@ -3347,7 +3348,8 @@ class VoiceLabsApp:
         and recognize their names from now on."""
         for session in list(self.sessions.values()):
             self._spawn(self._send_timer_progress(session))
-        assert self.engine is not None
+        if self.engine is None:
+            return  # Home Assistant answers before the models are loaded: the engine starts with them
         names = self.integration.running_names()
         if names == self.engine.dynamic.get("running_timers"):
             return
