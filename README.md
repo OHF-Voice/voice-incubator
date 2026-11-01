@@ -294,6 +294,8 @@ and copies (`Satellite.first`).
 | `voice_labs/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_labs/gliner.py`) -- each only for the commands chosen for it |
 | `voice_labs/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_labs/languages/<code>/skills/`, with `numbers` and `live`) |
 | `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
+| `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`) -- and how the answer is read |
+| `voice_labs/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
@@ -1660,7 +1662,9 @@ command fallback -- a question still gets an answer:
    integration from before it streamed, through `conversation/process`
    (`device_id` from Home Assistant 2026.10). An answer that is Home
    Assistant's `no_intent_match` counts as none. A dry run never asks it: an
-   agent can act. This replaced a small question LLM (Granite 4.0 350M or
+   agent can act. When it asks something back (`continue_conversation`),
+   the satellite listens for the answer without the wake word, and the
+   answer goes to it as said (`voice_labs/follow_up.py`). This replaced a small question LLM (Granite 4.0 350M or
    Gemma 3 1B in llama.cpp, for what read as a question); the benchmark
    numbers below are from then.
 

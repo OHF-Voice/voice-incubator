@@ -77,6 +77,14 @@ NO_SAID = (
 """Yes and no said whole, without words that only doubt it ("but", "not"):
 what an answer with neither, or both, is told apart by, by meaning."""
 
+# --------------------------------------------------------------- pronouns
+# Said in place of what was last spoken of (voice_labs/context.py).
+
+PRONOUNS = {"lo", "la", "li", "le", "quello", "quella"}
+"""Each, said where a device's name would be ("spegni quello"), stands for the
+devices last spoken of: the sentence is heard again with their names in its
+place. Lowercase; a word of its own (one joined to its verb isn't)."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "le sette e mezza di mattina"

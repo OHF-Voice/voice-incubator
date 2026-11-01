@@ -93,6 +93,16 @@
   and no), and by meaning only when they leave it open. **Cancel every
   timer** asks with two or more running ("Cancel all 3 timers?"). Firmware
   that can't hear the answer isn't asked.
+- **"It" is what was last spoken of.** Each area remembers the devices its
+  last command acted on or asked about by name, for as long as its
+  conversation is kept (five minutes). A sentence with "it", "them" or
+  "that" in it is heard again with their names in its place -- "is the
+  front door locked?" ... "lock it" -- and taken when that is a command
+  acting on them, in place of what it matched itself ("turn it up" after the
+  desk lamp is the lamp's brightness, not the music's volume). Anything else
+  ("what time is it") is as it was heard; with nothing here to refer to, it
+  goes on as before -- to the conversation agent, which keeps its own
+  conversation. Sessions show what it was heard as.
 - **"Is today Halloween?"** The dates skill answers whether today or
   tomorrow is a holiday or a date ("is it Christmas tomorrow", "is today a
   holiday": "No, Christmas is in 55 days.", "No, Halloween was yesterday."),

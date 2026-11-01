@@ -959,7 +959,26 @@ async def _follow_ups(tmp_path):
     )
     satellite_server = await serve(satellite)
     hass.device_areas[f"device-{MAC}"] = "kitchen"
-    (tmp_path / "commands.yaml").write_text(COMMANDS + """\
+    named = COMMANDS.replace("names:\n", "names:\n  entities:\n    lock.front_door: {name: Front Door}\n", 1)
+    (tmp_path / "commands.yaml").write_text(named + """\
+  lock:
+    description: lock a door
+    require: [[lock]]
+    exclude: [unlock, is]
+    optional: [[the]]
+    names:
+      entity: {count: 1, domains: [lock]}
+    combinations: [[entity]]
+    intent: HassTurnOn
+    response: Locked.
+  is_locked:
+    description: say whether a door is locked
+    require: [[is], [locked]]
+    optional: [[the]]
+    names:
+      entity: {count: 1, domains: [lock]}
+    combinations: [[entity]]
+    response: It's locked.
   cancel_all_timers:
     description: cancel all the timers
     require: [[cancel, stop, delete], [all], [timers, timer]]
@@ -1074,6 +1093,20 @@ async def _follow_ups(tmp_path):
         assert await satellite.answer(await said("What time is it?")) == "done"
         answer = app.calls.recent[-1]
         assert stage(answer, "answer")["other"] and stage(answer, "speech")["text"] == "It's time." and len(cancelled()) == 2
+
+        # "It": what the area last spoke of, by name. Heard again with its
+        # name in its place, taken when that is a command acting on it.
+        app.context.forget()
+        assert stage(await app.try_text("lock it", MAC, run_actions=True), "context") is None  # nothing spoken of
+        await app.try_text("is the front door locked", MAC, run_actions=True)
+        assert app.context.referred(conversation_key(app.satellite(MAC))) == ["lock.front_door"]
+        locked = await app.try_text("lock it", MAC, run_actions=True)
+        found = stage(locked, "context")
+        assert found["command"] == "lock" and found["heard"] == ["lock Front Door"]
+        assert hass.intents[-1]["intent"] == "HassTurnOn" and stage(locked, "speech")["text"] == "Locked."
+        # Not about it: as heard.
+        timed = await app.try_text("what time is it", MAC, run_actions=True)
+        assert stage(timed, "context")["command"] is None and stage(timed, "speech")["text"] == "It's time."
 
         # Firmware that can't open its microphone again isn't asked to -- nor
         # asked a question first.

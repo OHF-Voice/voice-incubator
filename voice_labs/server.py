@@ -41,7 +41,7 @@ from .fallback import (
     needs_model,
 )
 from .engine import Decision, Engine, Satellite, model_note
-from . import follow_up
+from . import context, follow_up
 from .follow_up import FOLLOW_UP, NO_SPEECH_SECONDS, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
@@ -641,6 +641,8 @@ class VoiceLabsApp:
         self.music = Music(self.hass)
         self.agent = Agent(self.hass)
         """What nothing here understood goes to, when one is chosen."""
+        self.context = context.Context(KEEP_SECONDS)
+        """What each area last spoke of, for "it" (voice_labs/context.py)."""
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
         self._timer_rebuild: asyncio.Task | None = None
@@ -952,6 +954,7 @@ class VoiceLabsApp:
     def configure_agent(self) -> None:
         wanted = self.agent_settings()
         self.agent.configure(wanted["agent"], wanted["keep_minutes"] * 60)
+        self.context.keep_seconds = wanted["keep_minutes"] * 60  # as long as its conversation
 
     def agent_status(self) -> dict[str, Any]:
         return {**self.agent_settings(), "conversations": self.agent.status()}
@@ -2627,6 +2630,7 @@ class VoiceLabsApp:
                 asked, decision, satellite, dry_run, record, cue=lambda sound: self._cue(session, sound)
             )
         else:
+            decision = await self._referring(decision, satellite, record)
             # Firmware that can't hear an answer isn't asked a question first.
             speech, outcome, summary = await self._carry_out(
                 decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
@@ -2792,6 +2796,9 @@ class VoiceLabsApp:
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
+        if not dry_run and not outcome.error:
+            # What it acted on or asked about, by name: "it", next.
+            self.context.remember(conversation_key(satellite), list(decision.slots.get("entity") or []))
         state = "error" if outcome.error else "dry run" if dry_run else "asked" if outcome.name == "confirm" else "done"
         return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
 
@@ -2857,6 +2864,34 @@ class VoiceLabsApp:
             asking.add_done_callback(lambda task: self._agent_answered(decision, record, task, streamed))
             return streamed
         return self._agent_answered(decision, record, asking)
+
+    async def _referring(self, decision: Decision, satellite: Satellite, record: CallRecord | None) -> Decision:
+        """The sentence heard again with what its area last spoke of in its
+        pronoun's place (voice_labs/context.py): taken when that reading is a
+        command acting on it, else the sentence as it was heard."""
+        referred = self.context.referred(conversation_key(satellite))
+        if not referred or self.engine is None:
+            return decision
+        if context.substitute(decision.transcript, ["x"]) is None:
+            return decision  # no pronoun
+        said_as = self.said_names(satellite.area_id).get("entities") or {}
+        engine = self.engine
+        async with self._model_lock:
+            found = await asyncio.to_thread(
+                context.hear_again, decision.transcript, referred, said_as,
+                lambda text: engine.recognize_text(text, satellite),
+            )
+        if record is not None:
+            record.stage(
+                "context", referred=referred, heard=found[1] if found else [],
+                command=found[0].command.id if found else None,
+            )
+        if found is None:
+            return decision
+        again, heard = found
+        _LOGGER.info("Heard %r as %r: %s on %s", decision.transcript, heard[0], again.command.id, again.slots["entity"])
+        again.recognition["referred"] = {"heard": decision.transcript, "as": heard}
+        return again
 
     async def _confirmed(
         self,
@@ -3143,6 +3178,7 @@ class VoiceLabsApp:
                 decision = await asyncio.to_thread(self.engine.recognize_text, text, satellite)
         record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         who = self.speaking()
+        decision = await self._referring(decision, satellite, record)
         speech, outcome, summary = await self._carry_out(decision, self.voice_for(satellite, who), who.as_dict(), not run_actions, record)
         if isinstance(speech, Streamed):
             speech = await speech.text()

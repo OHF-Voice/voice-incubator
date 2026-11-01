@@ -4122,7 +4122,7 @@ const STEP_ICONS = {
   recognition: "mdi:ear-hearing", action: "mdi:flash-outline", skill_response: "mdi:comment-question-outline", agent: "mdi:robot-outline",
   unknown: "mdi:help-circle-outline", speech: "mdi:volume-high", speech_failed: "mdi:volume-off", timer_ringing: "mdi:bell-ring-outline",
   timer_stopped: "mdi:timer-off-outline", error: "mdi:alert-circle-outline", timeout: "mdi:alert-circle-outline",
-  follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline",
+  follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline", context: "mdi:link-variant",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
 const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
@@ -4161,6 +4161,8 @@ const SPEAKER_BY = { wake_word: "their wake word", only_person: "the only person
 function stepGlance(stage) {
   const d = stage;
   switch (stage.stage) {
+    case "context":
+      return { title: "What it means", status: d.command ? "ok" : "", line: d.command ? `heard as ${(d.heard || []).map(quoted).join(", ")}: ${d.command}` : "not about what was last spoken of" };
     case "follow_up":
       return { title: "Follow-up", status: "", line: `answering ${quoted(d.question || "")}` };
     case "answer":

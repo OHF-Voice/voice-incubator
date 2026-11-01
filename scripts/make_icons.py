@@ -67,6 +67,8 @@ DEFAULTS = [
     # A follow-up: the question it answers, and the answer.
     "mdi:message-reply-outline",
     "mdi:message-reply-text-outline",
+    # "It": what was last spoken of.
+    "mdi:link-variant",
 ]
 # A satellite's icon: where it is, or what it is.
 SATELLITE_PICKER = [

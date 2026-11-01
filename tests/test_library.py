@@ -367,6 +367,34 @@ def test_each_version_takes_its_own_sentences(routing):
     assert heard == ROUTES
 
 
+@pytest.mark.parametrize(
+    ("text", "referred", "command"),
+    [
+        ("lock it", ["lock.front_door"], "lock"),
+        ("unlock it", ["lock.front_door"], "unlock"),
+        ("is it locked", ["lock.front_door"], "is_locked"),
+        ("turn it off", ["light.desk_lamp"], "turn_off_device"),
+        # The lamp's brightness, not the music's volume.
+        ("turn it up", ["light.desk_lamp"], "brighter_device"),
+        ("turn them on", ["light.desk_lamp", "lock.front_door"], "turn_on_device"),
+        # What it can't be about stays as heard.
+        ("lock it", ["light.desk_lamp"], None),
+        ("what time is it", ["lock.front_door"], None),
+    ],
+)
+def test_it_is_what_was_spoken_of(routing, text, referred, command):
+    """A pronoun heard again as the names of what was last spoken of
+    (voice_labs/context.py): taken only as a command acting on them."""
+    from voice_labs.context import hear_again  # pylint: disable=import-outside-toplevel
+
+    engine, office = routing
+    names = {"lock.front_door": "front door", "light.desk_lamp": "desk lamp"}
+    found = hear_again(text, referred, names, lambda heard: engine.recognize_text(heard, office))
+    assert (found[0].command.id if found else None) == command
+    if found:
+        assert found[0].slots["entity"][0] == referred[0] and set(found[0].slots["entity"]) <= set(referred)
+
+
 ROUTES_FILE = Path(__file__).with_name("routes.yaml")
 """Where each of a few hundred sentences went, as text (``routing``)."""
 
