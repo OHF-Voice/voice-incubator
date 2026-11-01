@@ -82,11 +82,17 @@
   with `listen`, and starts a call with the wake word `follow_up` and no
   pre-roll, its ring spinning slowly, unless muted. What is said goes to the
   agent as said, in the same conversation, for as long as it asks; "cancel",
-  "never mind" or "no thanks" alone ends it, and nothing said for 5 seconds
-  ends it quietly, kept nowhere. Sessions show a follow-up and its answer.
+  "never mind" or "no thanks" alone ends it, and nothing said within the
+  satellite's no-speech time (End of speech: 8 seconds unless changed) ends
+  it quietly, kept nowhere. Sessions show a follow-up and its answer.
   An answer counts as a question with only an emoji, markdown or a quote
   after its question mark ("What do you love? 🌟"), which Home Assistant's
   `continue_conversation` doesn't look past.
+- **With Both VADs, a pause after the wake word no longer ends the call.**
+  The wake word was given to microVAD as well as Silero, and microVAD carried
+  it on for over a second: a pause after "Okay Nabu" -- or the quiet before
+  answering a follow-up -- was speech that had ended, and the call ended
+  with nothing said (a follow-up after 1.25 s). Only Silero hears it now.
 - **A timer says its length when it starts**, even at brief ("The 15 minute
   timer started."): it is what says the timer was heard right.
 - **A command can ask first.** Any command may ask yes or no before it acts

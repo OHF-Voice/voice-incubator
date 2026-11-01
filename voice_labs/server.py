@@ -42,7 +42,7 @@ from .fallback import (
 )
 from .engine import Decision, Engine, Satellite, model_note
 from . import context, follow_up
-from .follow_up import FOLLOW_UP, NO_SPEECH_SECONDS, FollowUp
+from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
@@ -2018,15 +2018,12 @@ class VoiceLabsApp:
 
     async def _listen(self, session: Session, call: Call) -> None:
         """A follow-up is all answer: endpointed from its start, on what the
-        call before it heard of the speaker, and ended sooner when nothing
-        is said."""
+        call before it heard of the speaker."""
         asked = call.follow_up
         assert asked is not None
         call.split_bytes = call.preroll_bytes
         await self._start_stt(session, call)
-        settings = self.end_of_speech(session.satellite)
-        settings = replace(settings, no_speech_seconds=min(settings.no_speech_seconds, NO_SPEECH_SECONDS))
-        call.endpointer = Endpointer(settings, gain=asked.gain, warm=asked.warm)
+        call.endpointer = Endpointer(self.end_of_speech(session.satellite), gain=asked.gain, warm=asked.warm)
         call.endpointer.watch(False)  # an answer is short, and whoever was answered gives it
         call.command += bytes(call.audio[call.split_bytes :])
         await self._event(session, "listening", stage="listening")

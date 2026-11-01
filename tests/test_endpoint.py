@@ -218,16 +218,22 @@ def test_silero_hears_the_wake_word_first():
 
 @pytest.mark.skipif(not CALL.exists(), reason="no recorded call")
 @pytest.mark.parametrize("pause", [0.0, 1.5])
-def test_a_warm_start_waits_for_the_command(pause):
+@pytest.mark.parametrize("vad", ["silero", "both"])
+def test_a_warm_start_waits_for_the_command(pause, vad):
     # Straight after the wake word or after a pause, the command ends where it
-    # did from a cold start: what the wake word left in Silero doesn't start it.
+    # did from a cold start: what the wake word left in Silero doesn't start
+    # it -- nor, with both, in microVAD, which isn't given it.
+    if vad == "both":
+        pytest.importorskip("pymicro_vad")
     pcm = read(CALL)
     room = pcm[: int(0.6 * 32000)] * 4
     audio = room[: int(pause * 32000)] + pcm[int(1.6 * 32000) :] + room
     wake = pcm[int(0.4 * 32000) : int(1.6 * 32000)]
-    endpointer = Endpointer(EndOfSpeech(vad="silero", silence_seconds=0.5), warm=wake)
+    endpointer = Endpointer(EndOfSpeech(vad=vad, silence_seconds=0.5), warm=wake)
     ended = next(((i + 1024) / 32000 for i in range(0, len(audio), 1024) if endpointer.process(audio[i : i + 1024])), None)
-    assert ended is not None and 2.8 <= 1.6 + ended - pause <= 3.1, ended
+    # (microVAD hears a little of the room after it as speech: later, with both.)
+    latest = 3.1 if vad == "silero" else 3.6
+    assert ended is not None and 2.8 <= 1.6 + ended - pause <= latest, ended
 
 
 def run_watched(probabilities, score, watch=True, **settings):

@@ -9,8 +9,9 @@ with ``listen``, to firmware that can (HELLO ``listen``): the satellite starts
 a call of its own with the wake word FOLLOW_UP and no pre-roll -- unless it
 is muted -- and its ring spins slowly. That call is the answer: no wake word
 to check, no other satellite to arbitrate with, and the speaker is whoever
-was answered. Nothing said within NO_SPEECH_SECONDS ends it quietly, and it
-is kept nowhere. A satellite told to listen whose call hasn't started
+was answered. Nothing said within the satellite's no-speech time (its End of
+speech, eight seconds unless changed) ends it quietly, and it is kept
+nowhere. A satellite told to listen whose call hasn't started
 WAIT_SECONDS later (muted) is asked nothing more; a wake word meanwhile
 starts over.
 
@@ -50,10 +51,6 @@ from . import languages
 
 FOLLOW_UP = "follow_up"
 """The wake word of a call the satellite started for an answer."""
-
-NO_SPEECH_SECONDS = 5.0
-"""Nothing said this long after the microphone opened: no answer. (The
-command's own ``no_speech_seconds`` when that is shorter.)"""
 
 WAIT_SECONDS = 5.0
 """How long after the hang-up the satellite's call may start."""

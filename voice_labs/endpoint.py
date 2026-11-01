@@ -344,12 +344,20 @@ class Endpointer:
 
     def _warm(self, pcm: bytes) -> None:
         """Silero's state from ``pcm`` (the audio before the split); what it says
-        of it, and of the first SETTLE_SECONDS after, counts for nothing."""
+        of it, and of the first SETTLE_SECONDS after, counts for nothing.
+        With both, only Silero hears it: microVAD carried the wake word on for
+        over a second, so a pause after it -- or the quiet before the answer to
+        a follow-up -- was speech that ended, and the call ended with nothing
+        said. microVAD starts as it does alone, its own window filling first."""
         size = self._detector.chunk_bytes
         pcm = pcm[len(pcm) % size :]
+        both = self._detector if isinstance(self._detector, BothDetector) else None
         for start in range(0, len(pcm), size):
             chunk = pcm[start : start + size]
-            self._detector(_amplify(chunk, self.gain) if self._raise else chunk)
+            if both is not None:
+                both.silero(_amplify(chunk, both.gain) if both.gain != 1.0 else chunk)
+            else:
+                self._detector(_amplify(chunk, self.gain) if self._raise else chunk)
         self._settle = round(SETTLE_SECONDS / self._chunk_seconds)
 
     def watch(self, on: bool = True) -> None:
