@@ -11,6 +11,11 @@ when first wanted:
 - ``listening``: the reply asked something, and the microphone opens for the
   answer -- the octave above, twice, quickly.
 
+And a timer's or an alarm's ``ring`` (``RING``, not one of the call's
+sounds): the stock firmware's timer sound's perfect fifth -- the pitch, and
+the fifth above a quarter of a second on, both let ring -- as loud as that
+sound is.
+
 The SoundFont is MuseScore General's (Debian's
 musescore-general-soundfont-small; MIT): its melodic presets are the
 instruments, by name. Its samples are loaded only as a preset needs them --
@@ -64,6 +69,13 @@ LOUDNESS = -19.0
 """Where it sounds, in dB of full scale: as loud as the acknowledgement was."""
 PEAK = 0.7
 
+RING = "ring"
+"""A timer's or an alarm's ring: played with SOUNDS, louder."""
+RING_LOUDNESS, RING_PEAK = -15.0, 0.95
+"""As loud as the stock firmware's timer sound (timer_finished.flac, by LOUDNESS's measure)."""
+RING_FLOOR = -45.0
+"""Where the ring has died away, in dB below its peak: let ring, as that sound is."""
+
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
@@ -92,6 +104,7 @@ def notes(root: int) -> dict[str, list[tuple[float, int, float, int]]]:
         "not_understood": [(0.0, root - 2, 0.15, 100), (0.16, root - 5, 0.26, 95)],
         "asking": [(0.0, root, 0.09, 100), (0.085, root + 4, 0.09, 102), (0.17, root + 7, 0.22, 108)],
         "listening": [(0.0, root + 12, 0.07, 96), (0.11, root + 12, 0.2, 108)],
+        RING: [(0.0, root, 1.9, 105), (0.24, root + 7, 1.66, 105)],
     }
 
 
@@ -154,21 +167,32 @@ class Instruments:
         return PITCHES.get(ALIASES.get(instrument or INSTRUMENT, instrument or INSTRUMENT), PITCH)
 
     def render(self, instrument: str, key: int) -> dict[str, np.ndarray]:
-        """SOUNDS on ``instrument`` (resolved) from ``key``, leveled."""
+        """SOUNDS and RING on ``instrument`` (resolved) from ``key``, leveled."""
         preset = self.presets[instrument]
         assert self.soundfont is not None
         with self._lock, _Synth(self.soundfont) as synth:
             synth.select(preset.bank, preset.program)
-            return {name: _leveled(synth.play(played)) for name, played in notes(key).items()}
+            return {
+                name: _ring_leveled(synth.play(played, tail=1.5, floor=RING_FLOOR)) if name == RING else _leveled(synth.play(played))
+                for name, played in notes(key).items()
+            }
 
 
-def _leveled(x: np.ndarray) -> np.ndarray:
-    """At LOUDNESS where it sounds, its peak at most PEAK."""
+def _ring_leveled(x: np.ndarray) -> np.ndarray:
+    """At RING_LOUDNESS as the stock sound was measured -- loud already: what
+    sounds, measured again once louder, is more of it."""
+    for _ in range(3):
+        x = _leveled(x, RING_LOUDNESS, RING_PEAK)
+    return x
+
+
+def _leveled(x: np.ndarray, loudness: float = LOUDNESS, peak: float = PEAK) -> np.ndarray:
+    """At ``loudness`` where it sounds, its peak at most ``peak``."""
     sounding = x[np.abs(x) > 0.003]
     if not len(sounding):
         return x
-    loudness = 20 * np.log10(np.sqrt(np.mean(sounding**2)))
-    return x * min(10 ** ((LOUDNESS - loudness) / 20), PEAK / np.abs(x).max())
+    now = 20 * np.log10(np.sqrt(np.mean(sounding**2)))
+    return x * min(10 ** ((loudness - now) / 20), peak / np.abs(x).max())
 
 
 _LIBRARY: ctypes.CDLL | None = None
@@ -253,8 +277,9 @@ class _Synth:
         if self.fs.fluid_synth_program_select(self.synth, 0, self.font, bank, program) != 0:
             raise OSError(f"no preset {bank}:{program}")
 
-    def play(self, played: list[tuple[float, int, float, int]], tail: float = 0.8) -> np.ndarray:
-        """``played`` (``notes``'), up to where it has died away."""
+    def play(self, played: list[tuple[float, int, float, int]], tail: float = 0.8, floor: float | None = None) -> np.ndarray:
+        """``played`` (``notes``'), up to where it has died away: below
+        ``floor`` dB under its peak, else nearly silent."""
         fs, synth = self.fs, self.synth
         fs.fluid_synth_all_sounds_off(synth, 0)
         self._samples(0.05)
@@ -270,7 +295,7 @@ class _Synth:
         out.append(self._samples(tail))
         x = np.concatenate(out)
         # Up to where it has died away, faded at the very end.
-        heard = np.nonzero(np.abs(x) > 0.002)[0]
+        heard = np.nonzero(np.abs(x) > (0.002 if floor is None else np.abs(x).max() * 10 ** (floor / 20)))[0]
         if not len(heard):
             return np.zeros(0)
         x = x[: heard[-1] + int(0.02 * RATE)]

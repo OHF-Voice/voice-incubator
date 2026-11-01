@@ -20,7 +20,7 @@ from sentence_stream import async_stream_to_sentences, stream_to_sentences
 
 from adapt_ctc.runtime import release_memory, session_options
 
-from .instruments import Instruments, key_of
+from .instruments import RING, Instruments, key_of
 from .piper_voices import synthesis
 from .protocol import SAMPLE_RATE
 
@@ -73,10 +73,13 @@ def load_voice(path: Path) -> PiperVoice:
 
 
 ALARM_PAUSE = 0.5
+"""Silence between repeats of the timer alarm, as the stock VPE firmware has."""
+RING_EVERY = 3.25
+"""A ring's start to the next's, as the stock firmware's timer sound (2.7 s)
+and ALARM_PAUSE are: the instrument's ring (instruments.RING) is shorter."""
 OTHER_VOICES = 2
 """Voices kept loaded besides the one replies are said in: areas' own
 (voice_labs/areas.py), the least lately used let go first."""
-"""Silence between repeats of the timer alarm, as the stock VPE firmware has."""
 
 KEPT_SOUNDS = 16
 """Instruments and pitches whose sounds (instruments.SOUNDS) are kept played,
@@ -108,7 +111,8 @@ class Speech:
         """The sounds played, by instrument and key: KEPT_SOUNDS of them."""
         self._playing: dict[tuple[str, int], asyncio.Future] = {}
         self.alarm = b""
-        """One repeat of the timer alarm, pause included."""
+        """One repeat of the stock firmware's timer sound, pause included:
+        the ring without the SoundFont (``ring``)."""
 
     async def start(self) -> None:
         await self.use(self.voice_path)
@@ -157,8 +161,18 @@ class Speech:
         """One of instruments.SOUNDS (``sounds``'); none without the SoundFont."""
         return (await self.sounds(instrument, pitch)).get(name, b"")
 
+    async def ring(self, instrument: str | None = None, pitch: str | None = None) -> bytes:
+        """One ring of a timer or an alarm, with the quiet after it, every
+        RING_EVERY: instruments.RING on the instrument (``sounds``'), else
+        the stock firmware's sound (``alarm``)."""
+        sound = (await self.sounds(instrument, pitch)).get(RING, b"")
+        if not sound:
+            return self.alarm
+        quiet = max(int(ALARM_PAUSE * SAMPLE_RATE), int(RING_EVERY * SAMPLE_RATE) - len(sound) // 2)
+        return sound + bytes(quiet * 2)
+
     async def sounds(self, instrument: str | None = None, pitch: str | None = None) -> dict[str, bytes]:
-        """instruments.SOUNDS on ``instrument`` (else the one chosen, else
+        """instruments.SOUNDS and RING on ``instrument`` (else the one chosen, else
         instruments.INSTRUMENT), from ``pitch`` (a note; else the one chosen,
         else the instrument's own) -- played the first time they are wanted,
         and kept. An instrument the SoundFont hasn't: the default."""

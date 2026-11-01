@@ -19,6 +19,7 @@ from voice_labs.agent import Streamed, conversation_key
 from voice_labs.instruments import Instruments
 from voice_labs.server import Options, VoiceLabsApp
 from voice_labs.store import styled
+from voice_labs.tts import RING_EVERY
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -931,6 +932,21 @@ async def _sounds(tmp_path):
         sent, reply = await call("call-19757.wav", "done")
         assert app.calls.recent[-1].outcome == "answered" and near(sent, len(heard), len(asking), reply)
         assert await put({"agent": None}) == 200
+        # A timer's ring: the pitch, then the fifth above, every RING_EVERY --
+        # first, then which timer it was, then again until stopped.
+        ring = await speech.ring()
+        assert len(ring) == int(RING_EVERY * 16000) * 2 and ring.startswith((await speech.sounds())["ring"])
+        start = len(satellite.heard)
+        app._timer_finished(MAC, {"id": "t1", "name": "pizza", "created_duration": 600})  # pylint: disable=protected-access
+        session = app.sessions[MAC]
+        await wait_for(lambda: len(satellite.heard) > start + 2 * len(ring) + 32000)
+        assert bytes(satellite.heard[start : start + len(ring)]) == ring
+        session.ringing.cancel()
+        await wait_for(lambda: session.ringing.done())
+        # Without the SoundFont, the stock firmware's sound.
+        presets, speech.instruments.presets = speech.instruments.presets, {}
+        assert await speech.ring() == speech.alarm and speech.alarm
+        speech.instruments.presets = presets
         # The SoundFont's instruments, by family, each from its own pitch: the
         # electric piano, the default, from G5; no drum kits.
         async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:

@@ -67,7 +67,7 @@ from .people import find as people_find
 from .piper_voices import SETTINGS as PIPER_SETTINGS
 from .piper_voices import catalog as piper_catalog
 from .piper_voices import voices as listed_voices
-from .instruments import HIGHEST, INSTRUMENT, LOWEST, SOUNDS, note_name
+from .instruments import HIGHEST, INSTRUMENT, LOWEST, RING, SOUNDS, note_name
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
 from .voices import language_code
@@ -669,7 +669,8 @@ class Api:
 
     async def try_sounds(self, request: web.Request) -> web.Response:
         """The call's sounds on ``instrument`` from ``pitch`` (the Settings
-        page's, before they are saved), one after another, as WAV."""
+        page's, before they are saved), one after another, then a timer's
+        ring, as WAV."""
         body = await _json_or_empty(request)
         app = self.app
         instrument = app.speech.instruments.resolve(body.get("instrument"))
@@ -683,7 +684,7 @@ class Api:
             wav.setnchannels(1)
             wav.setsampwidth(2)
             wav.setframerate(SAMPLE_RATE)
-            wav.writeframes(gap.join(made.get(name, b"") for name in SOUNDS))
+            wav.writeframes(gap.join(made.get(name, b"") for name in (*SOUNDS, RING)))
         return web.Response(body=out.getvalue(), content_type="audio/wav")
 
     async def delete_name(self, request: web.Request) -> web.Response:

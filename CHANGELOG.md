@@ -119,6 +119,13 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **A timer rings on the satellite's instrument**: the stock timer sound's
+  perfect fifth (the area's pitch, then the fifth above), every 3.25 seconds,
+  as loud as that sound. It rings once before saying which timer finished,
+  then on until stopped -- for up to 15 minutes (was 5), as the stock
+  firmware does. A calendar alarm rings the same way; a reminder rings once.
+  The Settings page's Try plays the ring after the sounds. Without the
+  SoundFont, the stock sound as before.
 - **The Home Assistant connection no longer drops on every start.** A timer
   list reporting its timers before the models had loaded raised in the
   connection's reader, which closed it (back 5 seconds later). The timers

@@ -576,8 +576,8 @@ function responsesPanel() {
       field("Say at most", atMost, "No command says more than this, whatever its own level; a question still answers. An area may have its own.")),
     h("div", { class: "row" },
       h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, another as the conversation agent is asked, and another when the microphone opens for an answer.")),
-      field("Instrument", instrument, "What the sounds, and the beep when a command is done, are played on."),
-      field("Pitch", h("div", { class: "row" }, pitch, tryButton(instrument, pitch)), "The note the sounds start from.")));
+      field("Instrument", instrument, "What the sounds, the beep when a command is done, and a timer's ring are played on."),
+      field("Pitch", h("div", { class: "row" }, pitch, tryButton(instrument, pitch)), "The note the sounds and the ring start from.")));
 }
 
 // The home's own things (a command's home), by the entity domain they are:

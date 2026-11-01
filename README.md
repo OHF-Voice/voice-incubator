@@ -1244,12 +1244,18 @@ each, and the rest say `timers.plan`'s own sentence.
 **Ringing.** The app follows each timer list (`voice_timer_list/item/subscribe`).
 When one finishes it pushes microWakeWord's `stop` model to the satellite (the
 device holds up to four; `scripts/check_mixednet.py` shows it decodes
-identically to the upstream harness over 1,162 steps), says which timer it was,
-and plays the stock VPE's `sounds/timer_finished.flac` (CC BY 4.0, see
-`sounds/LICENSE.md`) with half a second between repeats until a call starts --
-the "stop" model firing, or the wake word -- the center button is pressed (the
-firmware sends a `stop_timer` device event, and quiets the ring and any
-announcement itself), or five minutes pass. The firmware
+identically to the upstream harness over 1,162 steps), rings once, says which
+timer it was, and rings on until a call starts -- the "stop" model firing, or
+the wake word -- the center button is pressed (the firmware sends a
+`stop_timer` device event, and quiets the ring and any announcement itself),
+or 15 minutes pass, as on the stock firmware (`timer_ring_seconds`). A
+calendar alarm rings the same way, with its own sentence; a reminder rings
+once and is said. The ring (`instruments.RING`, `Speech.ring`) is the stock
+timer sound's perfect fifth -- the satellite's area's pitch, then the fifth
+above 0.24 s on, both let ring -- on its instrument, as loud as that sound
+(-15 dB by the sounds' measure) and every 3.25 s as it is with its half
+second of quiet. Without the SoundFont it is the stock VPE's
+`sounds/timer_finished.flac` (CC BY 4.0, see `sounds/LICENSE.md`). The firmware
 plays audio outside a call, and clears its playback buffer when a call starts.
 Outside a call the app streams at most `PLAY_LEAD` (0.3 s) ahead of the
 device: the device's buffer only pushes back once full, and with Sendspin's

@@ -346,8 +346,9 @@ class Options:
     """Which capture to identify from. AEC benchmarked at half the EER of AGC,
     provided the firmware streams it with gain (see voice-pe-alt-firmware's voice-labs.yaml)."""
     speaker_learn: bool = True
-    timer_ring_seconds: float = 300.0
-    """How long a finished timer rings if nobody stops it."""
+    timer_ring_seconds: float = 900.0
+    """How long a finished timer (or an alarm) rings if nobody stops it: 15
+    minutes, as on the stock firmware."""
 
 
 class Cues:
@@ -3413,8 +3414,10 @@ class VoiceLabsApp:
             self._timer_finished(key, dict(entry))
 
     async def _ring(self, session: Session) -> None:
-        """Say which timer finished, then sound the alarm until someone says
-        "stop" (or wakes the satellite), or it times out."""
+        """Ring, say which timer finished (an alarm's or a reminder's own
+        sentence), then ring on until someone says "stop" (or wakes the
+        satellite), or for ``timer_ring_seconds``; a reminder rings once. The
+        ring is on the area's instrument (Speech.ring)."""
         if session.intercom is not None:
             await self.end_intercom(session.intercom, "a timer")
         record = self.calls.begin("timer", self.satellite(session.satellite).as_dict())
@@ -3436,15 +3439,16 @@ class VoiceLabsApp:
             plain = [t for t in ringing if not t.get("announce")]
             said = [self.language.speech.timers_ringing(plain)] if plain else []
             said += [t["announce"] for t in ringing if t.get("announce")]
-            if all(t.get("once") for t in ringing):
-                await self._play(session, self.speech.alarm, paced=True)
+            here = self.satellite(session.satellite).settings
+            ring = await self.speech.ring(here["instrument"], here["pitch"])
+            await self._play(session, ring, paced=True)
             await self._say(session, " ".join(said), paced=True)
             while (
                 time.monotonic() < deadline
                 and session.writer is not None
                 and not all(t.get("once") for t in session.ringing_timers)
             ):
-                await self._play(session, self.speech.alarm, paced=True)
+                await self._play(session, ring, paced=True)
             if all(t.get("once") for t in session.ringing_timers):
                 stopped_by = "said"
         except asyncio.CancelledError:
