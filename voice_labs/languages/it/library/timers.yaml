@@ -70,6 +70,10 @@ commands:
     require: [[annulla, annullare, cancella, cancellare, ferma, togli, elimina], [tutti], [timer]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first.
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "Annullare tutti i {{ timers | count }} timer?"
 
   pause_timer:
     title: Pause a timer

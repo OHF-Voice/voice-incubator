@@ -160,6 +160,10 @@ class Outcome:
     """Said after what was done at any level (but silent): what of what was
     asked for it couldn't find."""
 
+    confirmed: bool = False
+    """Its question (the command's ``confirm``) was answered yes: it acts
+    without asking again."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "outcome": self.name,
@@ -365,6 +369,7 @@ async def run(
     satellites: Any = None,
     names: dict[str, dict[str, str]] | None = None,
     devices: dict[str, Any] | None = None,
+    confirmed: bool = False,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
@@ -376,7 +381,10 @@ async def run(
     ``others``, ``announce``, ``intercom_problem``, ``intercom``).
     ``names``: what things are called (said_names); ``devices``: the
     devices added on the Names page (store.Device, by entity id) -- all it
-    acts on without a name, Assist's exposure aside (voice_catalog)."""
+    acts on without a name, Assist's exposure aside (voice_catalog).
+    ``confirmed``: its question (``confirm``) was answered yes; else a
+    command that asks first turns out ``confirm``, the question said and
+    nothing done."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     if devices is not None:
@@ -423,6 +431,7 @@ async def run(
     if adding is not None:
         values.update(items=adding.items, back=adding.back, added=_joined(adding.items), put_back=_joined(adding.back))
     outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere, at_most=satellite.settings.get("at_most"))
+    outcome.confirmed = confirmed
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
     if unset:
@@ -452,10 +461,15 @@ async def run(
         if named or behavior.intent:
             outcome.skipped = unable
             outcome.skipped_said = _capital(languages.speech().cannot(unable, capability, value))
-    if behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar)):
-        return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
-    if behavior.timer:
+    on_calendar = behavior.timer in alarms.OPERATIONS and (behavior.timer != "alarm" or _calendar_ready(calendar))
+    if behavior.timer and not on_calendar:
+        # It asks first, if it does, once it knows which timers.
         return await _run_timer(hass, behavior, values, satellite, outcome, integration)
+    asked = await _asks_first(hass, behavior, values, outcome)
+    if asked is not None:
+        return asked
+    if on_calendar:
+        return await _run_calendar(hass, behavior, values, satellite, outcome, calendar)
     # Where do not disturb is on, but here: asked only by what keeps out of it
     # (music only to start, change or turn it up).
     quiet: set[str] = set()
@@ -994,6 +1008,10 @@ async def _run_timer(
     ]
     outcome.timer = plan.to_json()
     values = {**values, "timer": plan.timer, "timers": plan.timers}
+    if calls:
+        asked = await _asks_first(hass, behavior, values, outcome)
+        if asked is not None:
+            return asked
     if not outcome.dry_run:
         try:
             for service, data in calls:
@@ -1013,6 +1031,42 @@ async def _run_timer(
             return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     outcome.timings["timer"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, plan.outcome, plan.levels or plan.speech)
+
+
+async def _asks_first(hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], outcome: Outcome) -> Outcome | None:
+    """The command's yes-or-no question, when it asks one first (its
+    ``confirm``: always, or when its template renders true) and it wasn't
+    answered yes already: nothing done, and the question said -- its
+    ``confirm`` response, else its description, asked. A template that
+    can't be rendered asks, rather than acting unasked."""
+    if not behavior.confirm or outcome.confirmed:
+        return None
+    if isinstance(behavior.confirm, str):
+        try:
+            asks = _truthy(await hass.render_template(behavior.confirm, values))
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Could not render whether to ask first (%s): asking", err)
+            asks = True
+        if not asks:
+            return None
+    outcome.sequence = []  # nothing done
+    question = languages.speech().confirm_question(str(values["command"]["description"] or ""))
+    return await _say(hass, behavior, values, outcome, "confirm", question)
+
+
+def _truthy(rendered: Any) -> bool:
+    """A rendered template as a condition: true, yes, on, or a number but 0."""
+    if isinstance(rendered, bool):
+        return rendered
+    if isinstance(rendered, (int, float)):
+        return rendered != 0
+    text = str(rendered or "").strip().lower()
+    if text in ("true", "yes", "on"):
+        return True
+    try:
+        return float(text) != 0
+    except ValueError:
+        return False
 
 
 async def _run_announce(

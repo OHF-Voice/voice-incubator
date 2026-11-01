@@ -10,6 +10,7 @@ import pytest
 
 from adapt_ctc.config import ConfigError
 from voice_labs import languages
+from voice_labs.commands import parse_command
 from voice_labs.library import base, migrate, resolve, settings
 from voice_labs.store import VERSION, Store, compile_store
 
@@ -38,6 +39,21 @@ def test_the_librarys_version_with_its_settings():
     assert resolve("w", {"from": "basic/weather"})["library"] == "weather"
     assert resolve("l", {"from": "basic/turn_on_here"})["library"] == "lights"
     assert resolve("v", {"from": "music/own_volume_up"})["library"] == "satellites"
+
+
+def test_asking_first_its_own_way():
+    """The library's question, its condition its own -- or none, and then
+    the library's question goes too."""
+    theirs = base("timers/cancel_all_timers")
+    assert theirs["confirm"] and theirs["response"]["confirm"]
+    always = resolve("c", {"from": "timers/cancel_all_timers", "confirm": True})
+    assert always["confirm"] is True and always["response"] == theirs["response"]
+    for never in (False, None):
+        spec = resolve("c", {"from": "timers/cancel_all_timers", "confirm": never})
+        assert not spec.get("confirm") and "response" not in spec
+        parse_command("c", spec)
+    page = {"from": "timers/cancel_all_timers", "confirm": False, "verbosity": theirs["verbosity"], "slots": {}, "examples": []}
+    assert settings(page, theirs) == {"from": "timers/cancel_all_timers", "confirm": False}
 
 
 def test_saved_as_what_differs():

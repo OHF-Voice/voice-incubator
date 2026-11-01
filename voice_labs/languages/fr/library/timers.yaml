@@ -63,6 +63,10 @@ commands:
     require: [[annule, annuler, arrête, arrêter, supprime, supprimer, stoppe], [tous], [minuteurs, minuteur, minuteries, timers]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first.
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "Annuler les {{ timers | count }} minuteurs ?"
 
   pause_timer:
     title: Pause a timer

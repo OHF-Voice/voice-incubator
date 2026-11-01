@@ -87,6 +87,10 @@ commands:
     require: [[cancela, cancelar, para, parar, detén, borra, elimina, apaga], [todos], [temporizadores, temporizador]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first.
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "¿Cancelar los {{ timers | count }} temporizadores?"
 
   pause_timer:
     title: Pause a timer

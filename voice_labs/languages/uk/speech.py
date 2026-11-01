@@ -43,6 +43,14 @@ def already_on_list(items: list[str]) -> str:
 
 NOT_SET = "Це ще не налаштовано."
 WENT_WRONG = "Вибач, щось пішло не так."
+
+
+def confirm_question(description: str) -> str:
+    return f"{description[:1].upper()}{description[1:]}?"
+
+
+CONFIRM_NO = "Добре."
+CONFIRM_UNCLEAR = "Вибач, відповідь незрозуміла."
 NO_COMMANDS = "Голосових команд ще немає. Додай їх у застосунку Voice Labs."
 TIMERS_NEED_INTEGRATION = "Для таймерів потрібна інтеграція Voice Labs у Home Assistant."
 

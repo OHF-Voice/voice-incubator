@@ -2627,14 +2627,18 @@ class VoiceLabsApp:
                 asked, decision, satellite, dry_run, record, cue=lambda sound: self._cue(session, sound)
             )
         else:
+            # Firmware that can't hear an answer isn't asked a question first.
             speech, outcome, summary = await self._carry_out(
                 decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
-                cue=lambda sound: self._cue(session, sound),
+                cue=lambda sound: self._cue(session, sound), confirmed=not session.hello.get("listen"),
             )
         if outcome in ("not recognized", "error"):
             await self._cue(session, "not_understood")
         answered = outcome == "answered"
-        if answered:
+        if asked is not None:
+            _LOGGER.info("[%s] Answer to %r: %r (%s)", session, asked.question, decision.transcript, outcome)
+            await self._event(session, "recognized", text=decision.transcript, command="answer")
+        elif answered:
             _LOGGER.info("[%s] Answered %r", session, decision.transcript)
             await self._event(session, "recognized", text=decision.transcript, command="question")
         elif decision.command is None:
@@ -2651,7 +2655,7 @@ class VoiceLabsApp:
             await self._say(session, speech, record)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
-        again = self._asks_back(session, call, decision, who, dry_run)
+        again = self._asks_back(session, call, decision, who, dry_run, outcome, speech)
         if again is not None:
             # Its turn, heard after the question: the satellite's call for the
             # answer starts once this has played out.
@@ -2660,13 +2664,20 @@ class VoiceLabsApp:
         await self._hang_up(session, "done" if done else "not_recognized", listen=again)
 
     def _asks_back(
-        self, session: Session, call: Call, decision: Decision, who: people.Speaker, dry_run: bool
+        self, session: Session, call: Call, decision: Decision, who: people.Speaker, dry_run: bool, outcome: str,
+        speech: Any,
     ) -> FollowUp | None:
         """What the call's reply asked, to be answered with no wake word
-        (voice_labs/follow_up.py): the conversation agent's question -- on
-        firmware that can open its microphone again."""
-        reply = decision.asked
-        if reply is None or not reply.wants_answer or dry_run or not session.hello.get("listen"):
+        (voice_labs/follow_up.py): a command's question before it acts, or
+        the conversation agent's -- on firmware that can open its microphone
+        again."""
+        if dry_run or not session.hello.get("listen"):
+            return None
+        if outcome == "asked":
+            kind, question = "confirm", str(speech or "")
+        elif decision.asked is not None and decision.asked.wants_answer:
+            kind, question = "agent", decision.asked.text
+        else:
             return None
         if call.follow_up is not None:
             gain, warm = call.follow_up.gain, call.follow_up.warm
@@ -2674,7 +2685,9 @@ class VoiceLabsApp:
             gain = call.endpointer.gain if call.endpointer is not None else 1.0
             warm = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
         return FollowUp(
-            "agent", reply.text, call.record.id if call.record is not None else None, who, gain=gain, warm=warm
+            kind, question, call.record.id if call.record is not None else None, who, gain=gain, warm=warm,
+            decision=decision if kind == "confirm" else None,
+            wake_word=call.follow_up.wake_word if call.follow_up is not None else self._wake_json(call.wake_word),
         )
 
     async def _answer(
@@ -2686,11 +2699,15 @@ class VoiceLabsApp:
         record: CallRecord | None,
         cue: Callable[[str], Awaitable[None]],
     ) -> tuple[str | Streamed | None, str, str]:
-        """What an answer comes to (``_carry_out``'s, for a follow-up): said
-        to the conversation agent that asked, in its conversation -- unless
-        it only ends the conversation, and then nothing is said."""
+        """What an answer comes to (``_carry_out``'s, for a follow-up): a
+        command's question's, yes or no (``_confirmed``); else said to the
+        conversation agent that asked, in its conversation -- unless it only
+        ends the conversation, and then nothing is said."""
         words = decision.transcript
-        if follow_up.ends(words) or (decision.behavior is not None and decision.behavior.does == "nothing"):
+        ended = follow_up.ends(words) or (decision.behavior is not None and decision.behavior.does == "nothing")
+        if asked.kind == "confirm":
+            return await self._confirmed(asked, decision, words, ended, satellite, dry_run, record, cue)
+        if ended:
             if record is not None:
                 record.stage("answer", kind=asked.kind, heard=words, ended=True)
             return None, "ended", f"{words!r}: the conversation ended"
@@ -2714,12 +2731,16 @@ class VoiceLabsApp:
         record: CallRecord | None,
         wake_word: dict[str, Any] | None = None,
         cue: Callable[[bytes], Awaitable[None]] | None = None,
+        confirmed: bool = False,
     ) -> tuple[str | Streamed | None, str, str]:
         """Run (or show) the decided command. Returns what to say (None: a
         silent command, not even the acknowledgement sound; an LLM agent's
-        answer as it comes: Streamed), the outcome, and a one-line summary. ``wake_word``: what started the call
+        answer as it comes: Streamed), the outcome -- ``asked`` when the
+        command asks first (its ``confirm``), the question said and nothing
+        done -- and a one-line summary. ``wake_word``: what started the call
         (``_wake_json``), as commands see it; ``cue``: plays one of its
-        sounds (asking the conversation agent)."""
+        sounds (asking the conversation agent); ``confirmed``: its question
+        was answered yes (or can't be heard)."""
         if (
             decision.command is None
             and decision.answer is None
@@ -2767,11 +2788,11 @@ class VoiceLabsApp:
             self.hass, decision, satellite, speaker, dry_run, self.integration, self.music, self.beep_elsewhere(),
             calendar=self.alarms, wake_word=wake_word, people=self.store.people,
             home=satellite.settings.get("home"), satellites=self, names=self.said_names(satellite.area_id),
-            devices=self.voice_devices(),
+            devices=self.voice_devices(), confirmed=confirmed,
         )
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
-        state = "error" if outcome.error else ("dry run" if dry_run else "done")
+        state = "error" if outcome.error else "dry run" if dry_run else "asked" if outcome.name == "confirm" else "done"
         return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
 
     async def _skill_says(
@@ -2836,6 +2857,45 @@ class VoiceLabsApp:
             asking.add_done_callback(lambda task: self._agent_answered(decision, record, task, streamed))
             return streamed
         return self._agent_answered(decision, record, asking)
+
+    async def _confirmed(
+        self,
+        asked: FollowUp,
+        decision: Decision,
+        words: str,
+        ended: bool,
+        satellite: Satellite,
+        dry_run: bool,
+        record: CallRecord | None,
+        cue: Callable[[str], Awaitable[None]],
+    ) -> tuple[str | Streamed | None, str, str]:
+        """A command's question answered (its ``confirm``): yes runs it, as it
+        would have run; no -- or anything that ends the conversation -- does
+        nothing; the command said again is yes, another said instead runs
+        instead; anything else isn't caught, and does nothing either."""
+        pending = asked.decision
+        same = pending is not None and decision.command is not None and decision.command.id == pending.command.id
+        other = not ended and not same and decision.command is not None
+        said, by = ("no", "words") if ended else ("yes", "command") if same else (None, None)
+        if said is None and not other:
+            said, by = follow_up.yes_or_no(words), "words"
+            embedder = self.engine.embedder if self.engine is not None else None
+            if said is None and embedder is not None:
+                async with self._model_lock:
+                    said, by = await asyncio.to_thread(follow_up.by_meaning, embedder, words), "meaning"
+        if record is not None:
+            record.stage("answer", kind=asked.kind, heard=words, said=said, by=by if said else None, other=other)
+        if other:
+            # Another command said in place of an answer: that one, then.
+            assert decision.command is not None
+            return await self._carry_out(decision, satellite, asked.who.as_dict(), dry_run, record, asked.wake_word, cue=cue)
+        if said == "yes" and pending is not None:
+            return await self._carry_out(
+                pending, satellite, asked.who.as_dict(), dry_run, record, asked.wake_word, cue=cue, confirmed=True
+            )
+        if said == "no":
+            return self.language.speech.CONFIRM_NO, "declined", f"{words!r}: no to {asked.question!r}"
+        return self.language.speech.CONFIRM_UNCLEAR, "not recognized", f"{words!r}: neither yes nor no to {asked.question!r}"
 
     def _agent_answered(
         self, decision: Decision, record: CallRecord | None, task: asyncio.Task, streamed: Streamed | None = None

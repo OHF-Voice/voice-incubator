@@ -89,6 +89,10 @@ commands:
               [таймеры, таймер, таймера]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first (no count: its noun's form follows it).
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "Отменить все таймеры?"
 
   pause_timer:
     title: Pause a timer

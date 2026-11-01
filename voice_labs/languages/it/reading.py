@@ -44,8 +44,8 @@ from one on a to-do list (actions.same_item): "pomodori" is "pomodoro",
 three letters."""
 
 # ----------------------------------------------------------------- answers
-# What the app asked -- the conversation agent's question -- answered
-# (voice_labs/follow_up.py).
+# What the app asked -- the conversation agent's question, a command's
+# yes-or-no one -- answered (voice_labs/follow_up.py).
 
 ANSWER_ENDS = {
     "annulla", "lascia perdere", "lascia stare", "dimentica", "stop", "basta", "niente", "nulla",
@@ -53,6 +53,29 @@ ANSWER_ENDS = {
 }
 """An answer that is only one of these ends the conversation instead of
 going on with it: "Altro?" -- "no grazie". Lowercase, without punctuation."""
+
+ANSWER_YES = {
+    "sì", "si", "certo", "va bene", "ok", "okay", "fallo", "vai", "procedi", "certamente",
+    "assolutamente", "esatto", "giusto", "per favore", "sì grazie",
+}
+"""Yes to a command's question (``confirm``): an answer with one of these in
+it, and none of ANSWER_NO."""
+
+ANSWER_NO = {
+    "no", "non", "mai", "aspetta", "lasciali", "lascia stare", "tienili", "ma", "tranne",
+}
+"""No to it: an answer with one of these in it (or that only ends it), and
+none of ANSWER_YES -- with both, it isn't clear."""
+
+YES_SAID = (
+    "sì", "certo", "va bene", "fallo", "vai", "procedi", "certamente", "assolutamente", "esatto",
+    "giusto",
+)
+NO_SAID = (
+    "no", "mai", "non ora", "aspetta", "lasciali", "lascia stare", "tienili",
+)
+"""Yes and no said whole, without words that only doubt it ("but", "not"):
+what an answer with neither, or both, is told apart by, by meaning."""
 
 # ------------------------------------------------------------------- clock
 

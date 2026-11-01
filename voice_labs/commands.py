@@ -151,6 +151,19 @@ areas it acts in (actions.place)::
 
     goodnight_story:
       do_not_disturb: true
+
+``confirm`` asks first, yes or no, before it acts -- ``true``: always; a
+template: when it renders true, with the variables its response has (a
+timer command's ``timers`` too: those it would act on). The question is its
+``confirm`` response, else its description, asked ("Cancel all the
+timers?"). The satellite's microphone opens for the answer, with no wake
+word (voice_labs/follow_up.py): yes runs it, no says "Okay." and doesn't.
+Nothing is asked when it would do nothing::
+
+    cancel_all_timers:
+      confirm: "{{ timers | count > 1 }}"
+      response:
+        confirm: Cancel all {{ timers | count }} timers?
 """
 
 from __future__ import annotations
@@ -234,6 +247,7 @@ COMMAND_KEYS = {
     "adds_to_list",
     "fallback",
     "do_not_disturb",
+    "confirm",
     "combinations",
     *LISTEN_KEYS,
     *DO_KEYS,
@@ -397,6 +411,11 @@ class Behavior:
     """Whether it is kept out of an area on do not disturb, heard elsewhere
     (None: an announcement, the intercom and music are)."""
 
+    confirm: bool | str | None = None
+    """It asks first, yes or no (``True``), or does when this template
+    renders true: it can then turn out ``confirm``, the question said and
+    nothing done."""
+
     @property
     def respects_do_not_disturb(self) -> bool:
         if self.do_not_disturb is not None:
@@ -458,6 +477,7 @@ class Behavior:
             + (("not_on_list",) if self.on_list else ())
             + (("already_on_list",) if self.adds_to_list else ())
             + (("do_not_disturb",) if self.respects_do_not_disturb else ())
+            + (("confirm",) if self.confirm else ())
         ))
 
     def _outcomes(self) -> tuple[str, ...] | None:
@@ -886,6 +906,7 @@ def _behavior(spec: dict[str, Any], where: str) -> Behavior:
         on_list=on_list,
         adds_to_list=adds_to_list,
         do_not_disturb=_flag(spec.get("do_not_disturb"), f"{where}.do_not_disturb"),
+        confirm=_confirm(spec.get("confirm"), f"{where}.confirm"),
     )
 
 
@@ -893,6 +914,15 @@ def _flag(value: Any, where: str) -> bool | None:
     if value is not None and not isinstance(value, bool):
         raise ConfigError(f"{where}: true or false")
     return value
+
+
+def _confirm(value: Any, where: str) -> bool | str | None:
+    """``confirm``: true, or a template; false is none."""
+    if value is None or value is False:
+        return None
+    if value is True or (isinstance(value, str) and value.strip()):
+        return value
+    raise ConfigError(f"{where}: true, false, or a template that renders true when it should ask")
 
 
 def _adds_to_list(value: Any, where: str) -> AddsToList | None:

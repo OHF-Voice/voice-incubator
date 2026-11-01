@@ -92,6 +92,33 @@ def test_timer_responses_by_outcome():
     assert hass.events[0]["response"] == "Paused." and hass.events[0]["timer"]["name"] == "tea"
 
 
+def test_a_command_asks_first():
+    """``confirm``: the question said and nothing done, unless answered yes
+    (``confirmed``) -- or, a template, unless it renders false. Nothing is
+    asked when it would do nothing."""
+    hass = StubHass()
+    spec = {"timer": "cancel_all", "confirm": "{{ timers | count > 1 }}",
+            "response": {"confirm": "Cancel all {{ timers | count }} timers?"}}
+    both = StubTimers([{**TEA, "status": "active"}, {**TEA, "timer_id": "4", "name": "pizza"}])
+    command = parse_command("c", {"description": "cancel all the timers", "examples": ["cancel all the timers"], **spec})
+    decision = Decision({"transcript": "cancel all the timers"}, command, command.behavior, "command")
+    asked = asyncio.run(actions.run(hass, decision, SATELLITE, None, False, both))
+    assert (asked.name, asked.speech, asked.sequence) == ("confirm", "Cancel all 2 timers?", [])
+    assert hass.services == [] and hass.events[-1]["outcome"] == "confirm"
+    done = asyncio.run(actions.run(hass, decision, SATELLITE, None, False, both, confirmed=True))
+    assert done.name == "done" and [s for s, _ in hass.services] == ["cancel_timer", "cancel_timer"]
+    # One timer: not asked. None: nothing to ask about.
+    hass.services.clear()
+    one = run(spec, hass, integration=StubTimers([{**TEA, "status": "active"}]))
+    assert one.name == "done" and hass.services == [("cancel_timer", {"timer_id": "3"})]
+    assert run(spec, hass, integration=StubTimers([])).name == "no_timers"
+    # Always, with its description asked when it has no question of its own.
+    lights = run({"action": {"action": "light.turn_off"}, "confirm": True}, hass)
+    assert (lights.name, lights.speech) == ("confirm", "Do it?")
+    assert "confirm" in parse_command("c", {"description": "x", "examples": ["x"], "confirm": True}).behavior.outcomes()
+    assert parse_command("c", {"description": "x", "examples": ["x"], "confirm": False}).behavior.confirm is None
+
+
 def test_a_plain_response_is_only_for_done():
     hass = StubHass()
     outcome = run({"timer": "pause", "response": "Paused."}, hass, integration=StubTimers([]))

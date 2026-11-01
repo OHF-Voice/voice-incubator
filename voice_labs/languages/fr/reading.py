@@ -41,8 +41,8 @@ from one on a to-do list (actions.same_item): "pommes" is "pomme", "gâteaux"
 letters."""
 
 # ----------------------------------------------------------------- answers
-# What the app asked -- the conversation agent's question -- answered
-# (voice_labs/follow_up.py).
+# What the app asked -- the conversation agent's question, a command's
+# yes-or-no one -- answered (voice_labs/follow_up.py).
 
 ANSWER_ENDS = {
     "annule", "annuler", "laisse tomber", "oublie", "oublie ça", "stop", "arrête", "rien",
@@ -50,6 +50,29 @@ ANSWER_ENDS = {
 }
 """An answer that is only one of these ends the conversation instead of
 going on with it: "Autre chose ?" -- "non merci". Lowercase, without punctuation."""
+
+ANSWER_YES = {
+    "oui", "ouais", "bien sûr", "d'accord", "ok", "okay", "vas y", "allez", "fais le", "exactement",
+    "absolument", "certainement", "s'il te plaît", "oui merci",
+}
+"""Yes to a command's question (``confirm``): an answer with one of these in
+it, and none of ANSWER_NO."""
+
+ANSWER_NO = {
+    "non", "pas", "jamais", "surtout pas", "attends", "laisse", "garde les", "mais", "sauf",
+}
+"""No to it: an answer with one of these in it (or that only ends it), and
+none of ANSWER_YES -- with both, it isn't clear."""
+
+YES_SAID = (
+    "oui", "ouais", "bien sûr", "d'accord", "vas y", "fais le", "exactement", "absolument",
+    "certainement",
+)
+NO_SAID = (
+    "non", "surtout pas", "jamais", "pas maintenant", "attends", "laisse", "garde les",
+)
+"""Yes and no said whole, without words that only doubt it ("but", "not"):
+what an answer with neither, or both, is told apart by, by meaning."""
 
 # ------------------------------------------------------------------- clock
 

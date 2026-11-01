@@ -84,6 +84,15 @@
   agent as said, in the same conversation, for as long as it asks; "cancel",
   "never mind" or "no thanks" alone ends it, and nothing said for 5 seconds
   ends it quietly, kept nowhere. Sessions show a follow-up and its answer.
+- **A command can ask first.** Any command may ask yes or no before it acts
+  (`confirm`: always, or when a template renders true; **Asks first** on its
+  page, with the question), and the answer is heard the same way, without
+  the wake word. Yes does it; no says "Okay."; anything else is "Sorry, I
+  didn't catch that." and nothing is done; another command said instead
+  runs instead. The answer is read by its words first (each language's yes
+  and no), and by meaning only when they leave it open. **Cancel every
+  timer** asks with two or more running ("Cancel all 3 timers?"). Firmware
+  that can't hear the answer isn't asked.
 - **"Is today Halloween?"** The dates skill answers whether today or
   tomorrow is a holiday or a date ("is it Christmas tomorrow", "is today a
   holiday": "No, Christmas is in 55 days.", "No, Halloween was yesterday."),

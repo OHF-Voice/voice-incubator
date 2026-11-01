@@ -86,6 +86,10 @@ commands:
     require: [[anuluj, anulować, wyłącz, zatrzymaj, usuń, skasuj], [wszystkie, wszystkich], [minutniki, minutników, timery, timerów, minutnik]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first (no count: its noun's form follows it).
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "Anulować wszystkie minutniki?"
 
   pause_timer:
     title: Pause a timer

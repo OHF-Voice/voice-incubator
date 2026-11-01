@@ -42,8 +42,8 @@ from one on a to-do list (actions.same_item): "manzanas" is "manzana",
 three letters."""
 
 # ----------------------------------------------------------------- answers
-# What the app asked -- the conversation agent's question -- answered
-# (voice_labs/follow_up.py).
+# What the app asked -- the conversation agent's question, a command's
+# yes-or-no one -- answered (voice_labs/follow_up.py).
 
 ANSWER_ENDS = {
     "cancela", "cancelar", "olvídalo", "olvidalo", "déjalo", "dejalo", "para", "basta", "nada",
@@ -51,6 +51,30 @@ ANSWER_ENDS = {
 }
 """An answer that is only one of these ends the conversation instead of
 going on with it: "¿Algo más?" -- "no gracias". Lowercase, without punctuation."""
+
+ANSWER_YES = {
+    "sí", "si", "claro", "vale", "de acuerdo", "ok", "okay", "hazlo", "adelante", "por supuesto",
+    "seguro", "exacto", "correcto", "por favor", "dale",
+}
+"""Yes to a command's question (``confirm``): an answer with one of these in
+it, and none of ANSWER_NO."""
+
+ANSWER_NO = {
+    "no", "nunca", "para nada", "espera", "déjalos", "dejalos", "mantenlos", "pero", "excepto",
+    "menos",
+}
+"""No to it: an answer with one of these in it (or that only ends it), and
+none of ANSWER_YES -- with both, it isn't clear."""
+
+YES_SAID = (
+    "sí", "claro", "vale", "de acuerdo", "hazlo", "adelante", "por supuesto", "seguro", "exacto",
+    "correcto",
+)
+NO_SAID = (
+    "no", "nunca", "para nada", "ahora no", "espera", "déjalos", "mantenlos",
+)
+"""Yes and no said whole, without words that only doubt it ("but", "not"):
+what an answer with neither, or both, is told apart by, by meaning."""
 
 # ------------------------------------------------------------------- clock
 

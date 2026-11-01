@@ -814,7 +814,7 @@ async function pageCommand(id, prefill, query) {
     if (following) {
       // What it may set itself: the library's version is the rest.
       const out = { from: reference.from, examples: extras, slots: spec.slots || {} };
-      for (const key of ["area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
+      for (const key of ["area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
       if (reference.language) out.language = reference.language;
       return out;
     }
@@ -1041,7 +1041,7 @@ async function pageCommand(id, prefill, query) {
     function keepOutcomes(allowed) {
       if (!("response" in target)) return;
       const map = responses();
-      for (const key of Object.keys(map)) if (!allowed.includes(key)) delete map[key];
+      for (const key of Object.keys(map)) if (key !== "confirm" && !allowed.includes(key)) delete map[key];
       setResponses(map);
     }
     const outcomeInfo = () => (state.status && state.status.outcomes) || { timer: {} };
@@ -1353,6 +1353,42 @@ async function pageCommand(id, prefill, query) {
       hint("Heard in another area, it doesn't act in an area whose do not disturb is on; said there, it does. An announcement skips that area, and music doesn't start or get louder there.")));
   }
   renderQuiet();
+  // Asked first, yes or no, before it acts: always, or when a template
+  // renders true. Its question is its confirm response -- its own commands';
+  // one that follows the library asks the library's.
+  const confirmWrap = h("div");
+  // Ticked again, it asks when it did when the page opened (the library's
+  // condition), else always.
+  const confirmAtFirst = typeof spec.confirm === "string" ? spec.confirm : true;
+  function confirmQuestion(text) {
+    let map = typeof spec.response === "string" ? { done: spec.response } : { ...(spec.response || {}) };
+    if (text) map.confirm = text; else delete map.confirm;
+    const keys = Object.keys(map);
+    if (!keys.length) delete spec.response;
+    else spec.response = keys.length === 1 && keys[0] === "done" && typeof map.done === "string" ? map.done : map;
+  }
+  function renderConfirm() {
+    const on = spec.confirm === true || (typeof spec.confirm === "string" && spec.confirm !== "");
+    const asked = spec.response && typeof spec.response === "object" ? spec.response.confirm || "" : "";
+    const described = (spec.description || "").trim();
+    fill(confirmWrap, h("div", { class: "wake-list" }, h("label", {},
+      h("input", { type: "checkbox", checked: on, onchange: (e) => {
+        if (e.target.checked) spec.confirm = confirmAtFirst;
+        else if (following) spec.confirm = false;
+        else { delete spec.confirm; confirmQuestion(""); }
+        renderConfirm();
+      } }),
+      "Asks first",
+      hint("Before it acts, the satellite asks, yes or no, and listens for the answer without the wake word. Yes does it; no, or no clear answer, doesn't. Firmware that can't listen again isn't asked."))),
+    on ? h("div", { class: "grid2" },
+      field("Only when", h("input", { type: "text", value: typeof spec.confirm === "string" ? spec.confirm : "", placeholder: "{{ timers | count > 1 }}",
+        oninput: (e) => { spec.confirm = e.target.value.trim() ? e.target.value : true; } }),
+        "A template: it asks only when this renders true. Empty: always. A timer command also sees timers, the ones it would act on."),
+      following ? null : field("Question", h("input", { type: "text", value: asked, placeholder: described ? `${described[0].toUpperCase()}${described.slice(1)}?` : "Are you sure?",
+        oninput: (e) => confirmQuestion(e.target.value) }),
+        "Said before it acts, rendered with the same variables. Empty: its description, asked.")) : null);
+  }
+  renderConfirm();
   // The model hears free text and values: offered where it has some (or is
   // chosen already), as they come and go.
   const modelBox = h("div");
@@ -1366,7 +1402,7 @@ async function pageCommand(id, prefill, query) {
   renderModelBox();
 
   function renderForm() {
-    const description = h("input", { type: "text", value: spec.description || "", style: "width:100%", placeholder: "turn on the lights", oninput: (e) => { spec.description = e.target.value; } });
+    const description = h("input", { type: "text", value: spec.description || "", style: "width:100%", placeholder: "turn on the lights", oninput: (e) => { spec.description = e.target.value; if (spec.confirm) renderConfirm(); } });
     const iconBox = h("div");
     const drawIcon = (open) => {
       const current = h("button", { type: "button", class: "icon-button", title: "Change the icon", onclick: () => drawIcon(!open) }, icon(iconFor(spec), "big"));
@@ -1382,7 +1418,7 @@ async function pageCommand(id, prefill, query) {
           h("div", { class: "grow" },
             locked(field("Description", description, "What it does, as a verb phrase: “turn on the lights”. A near miss is described with it (“It looks like you're trying to turn on the lights, but…”), and meaning and the model tell commands apart by it.")))),
         field("Where", whereEditor(spec), "The whole home's is heard from every satellite, unless turned off in its area (on the area's Commands). An area's own is heard only from satellites there, and goes first there where both take the same sentence."),
-        quietWrap),
+        quietWrap, confirmWrap),
       h("div", { class: "panel" },
         heading("h2", "Example sentences", "Said word for word, an example always matches, ahead of keywords — when it's all that was said: “pause” isn't “pause the timer”. Write (a|b) for either and [a] for what may be left out, inside a word too: “(turn|switch) on the light[s]” is four sentences. No placeholders: slots come from keywords below."),
         following
@@ -3451,7 +3487,7 @@ async function pageWakeWords(query) {
 
 // ---------------------------------------------------------------- sessions
 
-const OUTCOME_CLASS = { answered: "ok", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
+const OUTCOME_CLASS = { answered: "ok", asked: "accent", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
 
 // What a session was: a call on a satellite, a test, a replay.
 function sessionKind(record, sats) {
@@ -4128,6 +4164,10 @@ function stepGlance(stage) {
     case "follow_up":
       return { title: "Follow-up", status: "", line: `answering ${quoted(d.question || "")}` };
     case "answer":
+      if (d.kind === "confirm") {
+        const how = d.other ? "another command instead" : d.said ? `${d.said}${d.by === "meaning" ? ", by meaning" : d.by === "command" ? ", the command again" : ""}` : "neither yes nor no";
+        return { title: "Answer", status: d.said || d.other ? "ok" : "warn", line: `${quoted(d.heard || "")}: ${how}` };
+      }
       return { title: "Answer", status: d.ended ? "" : "ok", line: d.ended ? `${quoted(d.heard || "")}: ended the conversation` : `${quoted(d.heard || "")}, to the conversation agent` };
     case "call_start":
       return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };

@@ -62,6 +62,10 @@ commands:
     require: [[abbrechen, brich ... ab, stoppe, stopp, stoppen, lösche, lösch, löschen, beende, beenden], [alle], [timer]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first.
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "Alle {{ timers | count }} Timer abbrechen?"
 
   pause_timer:
     title: Pause a timer

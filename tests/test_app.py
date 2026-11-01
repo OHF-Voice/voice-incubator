@@ -959,7 +959,15 @@ async def _follow_ups(tmp_path):
     )
     satellite_server = await serve(satellite)
     hass.device_areas[f"device-{MAC}"] = "kitchen"
-    (tmp_path / "commands.yaml").write_text(COMMANDS)
+    (tmp_path / "commands.yaml").write_text(COMMANDS + """\
+  cancel_all_timers:
+    description: cancel all the timers
+    require: [[cancel, stop, delete], [all], [timers, timer]]
+    timer: cancel_all
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: Cancel all {{ timers | count }} timers?
+""")
     http_port = free_port()
     app = VoiceLabsApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
@@ -970,8 +978,10 @@ async def _follow_ups(tmp_path):
     runner = asyncio.ensure_future(app.run_forever())
 
     async def said(text: str) -> bytes:
-        """``text`` as someone says it: a moment's quiet, then Piper."""
-        return bytes(int(0.3 * 32000)) + await app.speech.say(text)
+        """``text`` as someone says it: a moment's quiet, then Piper -- with
+        no noise, so it is said (and heard) the same every time."""
+        steady = {"noise_scale": 0.0, "noise_w_scale": 0.0}
+        return bytes(int(0.3 * 32000)) + await asyncio.to_thread(app.speech.synthesize, text, steady)
 
     def stage(record, name):
         return next((s for s in record.stages if s["stage"] == name), None)
@@ -1027,12 +1037,53 @@ async def _follow_ups(tmp_path):
         assert session.follow_up is None and not satellite.listens[-1]
         assert await satellite.answer(await said("Who wrote the Iliad?")) == "nothing_asked"
 
-        # Firmware that can't open its microphone again isn't asked to.
+        # A command that asks first: Cancel every timer, with two running.
+        timer_list = f"voice_timer_list.{MAC}_timers"
+        wake = read_call(CALLS / "call-15788.wav")[: int(1.5 * 32000)]  # "okay nabu", to the detection
+
+        async def two_timers():
+            for seconds in (300, 600):
+                await hass._call_service({"domain": "voice_timer_list", "service": "create_timer",
+                                          "target": {"entity_id": timer_list}, "service_data": {"duration": seconds}})
+            await wait_for(lambda: len(app.integration.running(MAC) or []) == 2)
+
+        def cancelled():
+            return [m for m in hass.services if m["service"] == "cancel_timer"]
+
+        await two_timers()
+        assert await satellite.call(wake + await said("Cancel all the timers.")) == "done"
+        question = app.calls.recent[-1]
+        assert question.outcome == "asked" and stage(question, "speech")["text"] == "Cancel all 2 timers?"
+        assert satellite.listens[-1] and session.follow_up.kind == "confirm" and not cancelled()
+        # Yes: done, as it would have been.
+        assert await satellite.answer(await said("Yes, please.")) == "done"
+        answer = app.calls.recent[-1]
+        assert stage(answer, "answer")["said"] == "yes" and answer.outcome == "done" and len(cancelled()) == 2
+        assert not satellite.listens[-1]
+        await wait_for(lambda: not app.integration.running(MAC))
+        # No: nothing done. Neither: nothing done, and not asked again.
+        await two_timers()
+        for reply, said_back, outcome in (("No.", "Okay.", "declined"), ("Banana.", "Sorry, I didn't catch that.", "not recognized")):
+            assert await satellite.call(wake + await said("Cancel all the timers.")) == "done" and satellite.listens[-1]
+            assert await satellite.answer(await said(reply)) == "done"
+            answer = app.calls.recent[-1]
+            assert (answer.outcome, stage(answer, "speech")["text"]) == (outcome, said_back)
+            assert len(cancelled()) == 2 and not satellite.listens[-1]
+        # Another command said instead: that one runs.
+        assert await satellite.call(wake + await said("Cancel all the timers.")) == "done"
+        assert await satellite.answer(await said("What time is it?")) == "done"
+        answer = app.calls.recent[-1]
+        assert stage(answer, "answer")["other"] and stage(answer, "speech")["text"] == "It's time." and len(cancelled()) == 2
+
+        # Firmware that can't open its microphone again isn't asked to -- nor
+        # asked a question first.
         hass.asks_back = True
         session.hello["listen"] = False
         assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
         assert not satellite.listens[-1] and session.follow_up is None
         assert not satellite.heard.endswith(listening)
+        assert await satellite.call(wake + await said("Cancel all the timers.")) == "done"
+        assert app.calls.recent[-1].outcome == "done" and len(cancelled()) == 4
     finally:
         runner.cancel()
         await app.stop()

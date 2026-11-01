@@ -45,8 +45,8 @@ from one on a to-do list (actions.same_item): "Birnen" is "Birne", "Brote"
 letters."""
 
 # ----------------------------------------------------------------- answers
-# What the app asked -- the conversation agent's question -- answered
-# (voice_labs/follow_up.py).
+# What the app asked -- the conversation agent's question, a command's
+# yes-or-no one -- answered (voice_labs/follow_up.py).
 
 ANSWER_ENDS = {
     "abbrechen", "abbruch", "vergiss es", "egal", "stopp", "stop", "nichts", "nein danke",
@@ -55,6 +55,31 @@ ANSWER_ENDS = {
 }
 """An answer that is only one of these ends the conversation instead of
 going on with it: "Sonst noch etwas?" -- "nein danke". Lowercase, without punctuation."""
+
+ANSWER_YES = {
+    "ja", "jawohl", "jo", "klar", "sicher", "okay", "ok", "genau", "richtig", "mach das", "mach es",
+    "mach schon", "los", "bitte", "auf jeden fall", "natürlich", "gerne", "ja bitte",
+}
+"""Yes to a command's question (``confirm``): an answer with one of these in
+it, and none of ANSWER_NO."""
+
+ANSWER_NO = {
+    "nein", "nee", "nö", "nicht", "nie", "lieber nicht", "auf keinen fall", "warte", "moment",
+    "lass sie", "lass es", "behalte sie", "aber", "außer",
+}
+"""No to it: an answer with one of these in it (or that only ends it), and
+none of ANSWER_YES -- with both, it isn't clear."""
+
+YES_SAID = (
+    "ja", "klar", "sicher", "okay", "genau", "richtig", "mach das", "mach es", "auf jeden fall",
+    "natürlich", "gerne", "ja bitte",
+)
+NO_SAID = (
+    "nein", "nee", "lieber nicht", "auf keinen fall", "nicht jetzt", "warte", "lass es",
+    "behalte sie",
+)
+"""Yes and no said whole, without words that only doubt it ("but", "not"):
+what an answer with neither, or both, is told apart by, by meaning."""
 
 # ------------------------------------------------------------------- clock
 

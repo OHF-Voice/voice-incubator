@@ -44,8 +44,8 @@ from one on a to-do list (actions.same_item): "appels" is "appel", "bananen"
 letters."""
 
 # ----------------------------------------------------------------- answers
-# What the app asked -- the conversation agent's question -- answered
-# (voice_labs/follow_up.py).
+# What the app asked -- the conversation agent's question, a command's
+# yes-or-no one -- answered (voice_labs/follow_up.py).
 
 ANSWER_ENDS = {
     "annuleer", "annuleren", "laat maar", "vergeet het", "stop", "niets", "nee dank je",
@@ -53,6 +53,30 @@ ANSWER_ENDS = {
 }
 """An answer that is only one of these ends the conversation instead of
 going on with it: "Verder nog iets?" -- "nee bedankt". Lowercase, without punctuation."""
+
+ANSWER_YES = {
+    "ja", "jazeker", "zeker", "oké", "ok", "prima", "goed", "doe maar", "doe het", "ga je gang",
+    "graag", "natuurlijk", "klopt", "ja graag",
+}
+"""Yes to a command's question (``confirm``): an answer with one of these in
+it, and none of ANSWER_NO."""
+
+ANSWER_NO = {
+    "nee", "neen", "niet", "nooit", "liever niet", "wacht", "laat maar staan", "laat ze", "houd ze",
+    "hou ze", "maar", "behalve",
+}
+"""No to it: an answer with one of these in it (or that only ends it), and
+none of ANSWER_YES -- with both, it isn't clear."""
+
+YES_SAID = (
+    "ja", "zeker", "oké", "prima", "doe maar", "doe het", "ga je gang", "graag", "natuurlijk",
+    "klopt",
+)
+NO_SAID = (
+    "nee", "liever niet", "nooit", "niet nu", "wacht", "laat maar staan", "laat ze", "hou ze",
+)
+"""Yes and no said whole, without words that only doubt it ("but", "not"):
+what an answer with neither, or both, is told apart by, by meaning."""
 
 # ------------------------------------------------------------------- clock
 

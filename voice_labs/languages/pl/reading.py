@@ -52,8 +52,8 @@ from one on a to-do list (actions.same_item): "banany" is "banan", "gruszki"
 ending by three letters."""
 
 # ----------------------------------------------------------------- answers
-# What the app asked -- the conversation agent's question -- answered
-# (voice_labs/follow_up.py).
+# What the app asked -- the conversation agent's question, a command's
+# yes-or-no one -- answered (voice_labs/follow_up.py).
 
 ANSWER_ENDS = {
     "anuluj", "nieważne", "niewazne", "zapomnij", "stop", "przestań", "nic", "nie dziękuję",
@@ -61,6 +61,28 @@ ANSWER_ENDS = {
 }
 """An answer that is only one of these ends the conversation instead of
 going on with it: "Coś jeszcze?" -- "nie dziękuję". Lowercase, without punctuation."""
+
+ANSWER_YES = {
+    "tak", "jasne", "pewnie", "okej", "ok", "dobrze", "zrób to", "śmiało", "oczywiście",
+    "zgadza się", "proszę", "tak proszę", "dawaj",
+}
+"""Yes to a command's question (``confirm``): an answer with one of these in
+it, and none of ANSWER_NO."""
+
+ANSWER_NO = {
+    "nie", "nigdy", "czekaj", "poczekaj", "zostaw", "zostaw je", "ale", "oprócz", "poza",
+}
+"""No to it: an answer with one of these in it (or that only ends it), and
+none of ANSWER_YES -- with both, it isn't clear."""
+
+YES_SAID = (
+    "tak", "jasne", "pewnie", "dobrze", "zrób to", "śmiało", "oczywiście", "zgadza się",
+)
+NO_SAID = (
+    "nie", "nigdy", "nie teraz", "czekaj", "poczekaj", "zostaw je",
+)
+"""Yes and no said whole, without words that only doubt it ("but", "not"):
+what an answer with neither, or both, is told apart by, by meaning."""
 
 # ------------------------------------------------------------------- clock
 

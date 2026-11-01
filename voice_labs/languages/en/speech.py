@@ -44,6 +44,18 @@ shopping list or to-do list) when neither it nor the home has one set."""
 WENT_WRONG = "Sorry, something went wrong."
 """The app failed while answering."""
 
+def confirm_question(description: str) -> str:
+    """A command's question before it acts (``confirm``) when it has none of
+    its own: its description, asked ("Cancel all the timers?")."""
+    return f"{description[:1].upper()}{description[1:]}?"
+
+
+CONFIRM_NO = "Okay."
+"""The question answered no: nothing is done."""
+
+CONFIRM_UNCLEAR = "Sorry, I didn't catch that."
+"""The question answered with neither yes nor no: nothing is done."""
+
 NO_COMMANDS = "No voice commands are set up yet. Add some in the Voice Labs app."
 
 TIMERS_NEED_INTEGRATION = "Timers need the Voice Labs integration in Home Assistant."

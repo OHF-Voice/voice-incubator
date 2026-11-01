@@ -32,6 +32,14 @@ def already_on_list(items: list[str]) -> str:
 
 NOT_SET = "Das ist noch nicht eingerichtet."
 WENT_WRONG = "Entschuldigung, da ist etwas schiefgelaufen."
+
+
+def confirm_question(description: str) -> str:
+    return f"{description[:1].upper()}{description[1:]}?"
+
+
+CONFIRM_NO = "Okay."
+CONFIRM_UNCLEAR = "Entschuldigung, die Antwort habe ich nicht verstanden."
 NO_COMMANDS = "Es sind noch keine Sprachbefehle eingerichtet. Füge welche in der Voice Labs App hinzu."
 TIMERS_NEED_INTEGRATION = "Für Timer braucht es die Voice Labs Integration in Home Assistant."
 

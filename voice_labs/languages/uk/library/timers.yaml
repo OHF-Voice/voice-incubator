@@ -92,6 +92,10 @@ commands:
     require: [[скасуй, скасуйте, вимкни, вимкніть, зупини, видали], [всі, усі], [таймери, таймер, тамери]]
     timer: cancel_all
     verbosity: specific
+    # More than one running: asked first (no count: its noun's form follows it).
+    confirm: "{{ timers | count > 1 }}"
+    response:
+      confirm: "Скасувати всі таймери?"
 
   pause_timer:
     title: Pause a timer

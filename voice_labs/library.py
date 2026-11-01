@@ -33,11 +33,11 @@ from .store import compile_store, plain
 
 REFERENCE = "from"
 """A command's key that names the library command it follows (``file/id``)."""
-SETTINGS = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "title", "icon", "slots", "examples", "language")
+SETTINGS = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon", "slots", "examples", "language")
 """What a command that follows the library may set itself. ``slots``: its
 implied target, in place of the library's; ``examples``: sentences added to
 the library's."""
-REPLACED = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "title", "icon", "slots")
+REPLACED = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon", "slots")
 """The settings that take the library's place (null: none of it)."""
 COPY_SUFFIX = r"(_\d+|_[a-z]{2}|_copy(_\d+)?)?"
 """What an added command's id may have after the library's: a number (one
@@ -266,6 +266,13 @@ def resolve(command_id: str, spec: dict[str, Any]) -> dict[str, Any]:
         out["examples"] = theirs + [str(e) for e in spec["examples"] if str(e) not in theirs]
     if spec.get("language"):
         out["language"] = spec["language"]
+    if not out.get("confirm") and isinstance(out.get("response"), dict) and "confirm" in out["response"]:
+        # Not asking first: the library's question goes too.
+        rest = {k: v for k, v in out["response"].items() if k != "confirm"}
+        if rest:
+            out["response"] = rest
+        else:
+            out.pop("response")
     return out
 
 
