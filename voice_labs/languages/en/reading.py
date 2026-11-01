@@ -61,6 +61,18 @@ from one on a to-do list (actions.same_item): "apples" is "apple", "berries"
 "berry". A word has one only when it is longer than the ending by three
 letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "cancel", "cancel that", "cancel it", "never mind", "nevermind", "forget it", "forget about it",
+    "stop", "nothing", "no thanks", "no thank you", "that's all", "that's it", "that's everything",
+    "nothing else", "i'm done", "i'm good", "we're done", "all done", "exit", "quit", "goodbye",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Anything else?" -- "no thanks". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "seven thirty in the morning"

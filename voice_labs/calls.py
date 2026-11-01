@@ -109,6 +109,8 @@ class CallRecord:
                     for k in ("wake_word", "name", "probability", "max_probability", "cutoff")
                     if k in stage
                 }
+            elif kind == "follow_up":
+                out["follow_up"] = True  # an answer: no wake word
             elif kind == "typed" and stage.get("text"):
                 out["heard"] = stage["text"]
             elif kind == "recognition":

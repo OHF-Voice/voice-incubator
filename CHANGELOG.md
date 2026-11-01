@@ -75,6 +75,15 @@
   Home Assistant's own agent, and every agent with an older integration, is
   asked as before. The conversation is now the area's, shared by every
   satellite there, not each satellite's.
+- **The agent's question is answered without the wake word.** When the
+  conversation agent asks something back (`continue_conversation`), a new
+  sound -- the octave above, twice -- follows its answer, and the satellite's
+  microphone opens again: firmware that can (HELLO `listen`) is hung up on
+  with `listen`, and starts a call with the wake word `follow_up` and no
+  pre-roll, its ring spinning slowly, unless muted. What is said goes to the
+  agent as said, in the same conversation, for as long as it asks; "cancel",
+  "never mind" or "no thanks" alone ends it, and nothing said for 5 seconds
+  ends it quietly, kept nowhere. Sessions show a follow-up and its answer.
 - **"Is today Halloween?"** The dates skill answers whether today or
   tomorrow is a holiday or a date ("is it Christmas tomorrow", "is today a
   holiday": "No, Christmas is in 55 days.", "No, Halloween was yesterday."),

@@ -27,7 +27,9 @@ class Message(IntEnum):
     "aec_preroll_bytes", "probability", "max_probability", "cutoff"} -- the
     last three (0-255, as in WAKE_REPORT; firmware from before them leaves
     them out) are what it came in with: its sliding window's mean, which met
-    the cutoff, and the highest single inference in that window."""
+    the cutoff, and the highest single inference in that window. The wake
+    word "follow_up", with no pre-roll: the microphone opened for an answer
+    the app asked for (HANGUP ``listen``)."""
     AUDIO_IN = 0x03
     CALL_END = 0x04
     STATUS = 0x05
@@ -53,6 +55,10 @@ class Message(IntEnum):
     AUDIO_OUT_END = 0x11
     EVENT = 0x12
     HANGUP = 0x13
+    """{"reason": ..., "listen": true}: end the call -- and, ``listen``, start
+    the one that hears the answer to what its reply asked (wake word
+    "follow_up", no pre-roll), unless muted. Firmware that can says
+    ``"listen": true`` in HELLO."""
     MONITOR = 0x14
     """{"active": true | false}: stream the microphone outside calls, for
     someone listening live, with WAKE_REPORTs; meanwhile a wake word does not

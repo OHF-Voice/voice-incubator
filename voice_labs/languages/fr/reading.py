@@ -40,6 +40,17 @@ from one on a to-do list (actions.same_item): "pommes" is "pomme", "gâteaux"
 "gâteau". A word has one only when it is longer than the ending by three
 letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "annule", "annuler", "laisse tomber", "oublie", "oublie ça", "stop", "arrête", "rien",
+    "non merci", "c'est tout", "c'est bon", "rien d'autre", "fini", "au revoir",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Autre chose ?" -- "non merci". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "sept heures et demie du matin"

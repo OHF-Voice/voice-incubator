@@ -41,6 +41,17 @@ from one on a to-do list (actions.same_item): "manzanas" is "manzana",
 "limones" "limon". A word has one only when it is longer than the ending by
 three letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "cancela", "cancelar", "olvídalo", "olvidalo", "déjalo", "dejalo", "para", "basta", "nada",
+    "no gracias", "eso es todo", "nada más", "nada mas", "listo", "adiós", "adios",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "¿Algo más?" -- "no gracias". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "las siete y media de la mañana"

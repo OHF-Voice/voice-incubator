@@ -289,7 +289,8 @@ class Api:
                     "levels": list(VERBOSITY), "beep_elsewhere": app.beep_elsewhere(),
                     "at_most": app.store.settings.get("at_most"),
                 },
-                # The call's sounds: heard, not understood, asking the agent;
+                # The call's sounds: heard, not understood, asking the agent,
+                # listening for an answer;
                 # and what they and the acknowledgement are played on, from
                 # what note (null: the instrument's own), of which.
                 "sounds": app.sounds(),

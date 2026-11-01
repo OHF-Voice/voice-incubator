@@ -64,6 +64,9 @@ DEFAULTS = [
     "mdi:alert-circle",
     # An area on do not disturb.
     "mdi:minus-circle-outline",
+    # A follow-up: the question it answers, and the answer.
+    "mdi:message-reply-outline",
+    "mdi:message-reply-text-outline",
 ]
 # A satellite's icon: where it is, or what it is.
 SATELLITE_PICKER = [

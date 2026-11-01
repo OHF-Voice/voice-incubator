@@ -41,6 +41,8 @@ from .fallback import (
     needs_model,
 )
 from .engine import Decision, Engine, Satellite, model_note
+from . import follow_up
+from .follow_up import FOLLOW_UP, NO_SPEECH_SECONDS, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
@@ -455,6 +457,9 @@ class Call:
     speaker_end: float | None = None
     """Where the speaker's last word ended, in seconds from the split, when
     someone else's speech ended the command: what is recognized stops there."""
+    follow_up: FollowUp | None = None
+    """What it answers: a call the satellite started for an answer, with no
+    wake word (voice_labs/follow_up.py)."""
 
 
 @dataclass
@@ -519,6 +524,9 @@ class Session:
     """One announcement at a time."""
     announcing_now: asyncio.Task | None = None
     """The announcement being said: a call starting cuts it off."""
+    follow_up: FollowUp | None = None
+    """What it was told to listen for an answer to (HANGUP ``listen``),
+    until the call that hears it starts."""
 
     def __str__(self) -> str:
         return self.device_id
@@ -1914,6 +1922,10 @@ class VoiceLabsApp:
 
     def _on_call_start(self, session: Session, info: dict) -> None:
         heard = str(info.get("wake_word", ""))
+        if heard == FOLLOW_UP:
+            self._on_follow_up(session, info)
+            return
+        session.follow_up = None  # a wake word: whatever was asked, it starts over
         session.call = Call(
             preroll_bytes=int(info.get("preroll_bytes", 0)),
             # The id it was pushed with; older firmware or models report a name.
@@ -1977,6 +1989,47 @@ class VoiceLabsApp:
         )
         self._spawn(self._watchdog(session, session.call))
 
+    def _on_follow_up(self, session: Session, info: dict) -> None:
+        """The satellite opened its microphone again for the answer it was
+        told to listen for (voice_labs/follow_up.py): a call with no wake
+        word to check, all of it the answer."""
+        asked, session.follow_up = session.follow_up, None
+        call = session.call = Call(
+            preroll_bytes=int(info.get("preroll_bytes", 0)),
+            wake_word=FOLLOW_UP,
+            aec_preroll_bytes=int(info.get("aec_preroll_bytes", 0)),
+            follow_up=asked,
+            verified=True,
+        )
+        session.drained.clear()
+        if asked is None or asked.stale():
+            _LOGGER.info("[%s] Opened for an answer to nothing; ending", session)
+            call.finished = True
+            self._spawn(self._hang_up(session, "nothing_asked"))
+            return
+        record = call.record = self.calls.begin("call", self.satellite(session.satellite).as_dict())
+        record.stage("follow_up", **asked.to_json())
+        _LOGGER.info("[%s] Listening for an answer to %r", session, asked.question)
+        self._spawn(self._listen(session, call))
+        self._spawn(self._watchdog(session, call))
+
+    async def _listen(self, session: Session, call: Call) -> None:
+        """A follow-up is all answer: endpointed from its start, on what the
+        call before it heard of the speaker, and ended sooner when nothing
+        is said."""
+        asked = call.follow_up
+        assert asked is not None
+        call.split_bytes = call.preroll_bytes
+        await self._start_stt(session, call)
+        settings = self.end_of_speech(session.satellite)
+        settings = replace(settings, no_speech_seconds=min(settings.no_speech_seconds, NO_SPEECH_SECONDS))
+        call.endpointer = Endpointer(settings, gain=asked.gain, warm=asked.warm)
+        call.endpointer.watch(False)  # an answer is short, and whoever was answered gives it
+        call.command += bytes(call.audio[call.split_bytes :])
+        await self._event(session, "listening", stage="listening")
+        if call.endpointer.process(bytes(call.command)) and not call.finished:
+            self._command_ended(session, call)
+
     async def _watchdog(self, session: Session, call: Call) -> None:
         """End the call even if the VAD never fires or audio stops arriving."""
         longest = self.end_of_speech().max_seconds
@@ -1998,6 +2051,13 @@ class VoiceLabsApp:
         """The endpointer ended the command: answer it -- or, nothing said
         ``no_speech_seconds`` after the wake word, hang up."""
         call.finished = True
+        if call.endpointer is not None and call.endpointer.no_speech and call.follow_up is not None:
+            # Not answered: nothing to keep.
+            _LOGGER.info("[%s] No answer to %r", session, call.follow_up.question)
+            if call.record is not None:
+                self.calls.delete(call.record.id)
+            self._spawn(self._hang_up(session, "no_answer"))
+            return
         if call.endpointer is not None and call.endpointer.no_speech:
             seconds = call.endpointer.settings.no_speech_seconds
             _LOGGER.info("[%s] No speech %.1fs after the wake word; ending", session, seconds)
@@ -2479,11 +2539,12 @@ class VoiceLabsApp:
         # sends the processing event the moment it knows, so the ring takes the
         # speaker's color while the command is still being recognized. With
         # no voice enrolled, there is nothing to identify.
-        if self.identifies():
+        asked = call.follow_up
+        if self.identifies() and asked is None:
             speaker_task = asyncio.ensure_future(self._identify(session, call))
         else:
             speaker_task = None
-            who = self.speaking(None, call.wake_word)
+            who = asked.who if asked is not None else self.speaking(None, call.wake_word)
             if who.name is not None and record is not None:
                 record.stage("speaker", name=who.name, by=who.by)
             await self._event(session, "processing", **self._speaker_event(who))
@@ -2514,21 +2575,29 @@ class VoiceLabsApp:
             )
         async with self._model_lock:
             assert self.engine is not None
-            decision, split = await asyncio.to_thread(
-                self.engine.recognize_call,
-                _pcm_to_float(agc),
-                call.wake_start,
-                call.split_bytes / BYTE_RATE,
-                satellite,
-                transcriber,
-                self.wake_words.phrases(call.wake_word),
-            )
+            if asked is not None:
+                # No wake word in it: all of it is the answer.
+                split = None
+                decision = await asyncio.to_thread(
+                    self.engine.recognize_answer, _pcm_to_float(agc[call.split_bytes :]), satellite, transcriber
+                )
+            else:
+                decision, split = await asyncio.to_thread(
+                    self.engine.recognize_call,
+                    _pcm_to_float(agc),
+                    call.wake_start,
+                    call.split_bytes / BYTE_RATE,
+                    satellite,
+                    transcriber,
+                    self.wake_words.phrases(call.wake_word),
+                )
         if record is not None:
-            record.stage("split", **split.to_json(), seconds=_seconds(decision.timings.get("acoustic+placement")))
-            record.marks["cut"] = split.cut
-            if split.wake_end is not None:
-                record.marks["wake_start"] = split.wake_start
-                record.marks["wake_end"] = split.wake_end
+            if split is not None:
+                record.stage("split", **split.to_json(), seconds=_seconds(decision.timings.get("acoustic+placement")))
+                record.marks["cut"] = split.cut
+                if split.wake_end is not None:
+                    record.marks["wake_start"] = split.wake_start
+                    record.marks["wake_end"] = split.wake_end
             recognized = record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
             if call.stt is not None and not call.stt.asked:
                 # Not needed, and so not waited for: kept when it comes.
@@ -2536,7 +2605,7 @@ class VoiceLabsApp:
         ident = await speaker_task if speaker_task is not None else None
 
         self._after_identify(session, ident)
-        who = self.speaking(ident, call.wake_word)
+        who = asked.who if asked is not None else self.speaking(ident, call.wake_word)
         speaker = who.as_dict()
         satellite = self.voice_for(satellite, who)
         dry_run = bool(record is not None and record.debug_session and record.dry_run)
@@ -2553,10 +2622,15 @@ class VoiceLabsApp:
                 self.calls.finish(record, "timer stopped", "stopped the timer", self._call_audio(call))
             await self._hang_up(session, "timer_stopped")
             return
-        speech, outcome, summary = await self._carry_out(
-            decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
-            cue=lambda sound: self._cue(session, sound),
-        )
+        if asked is not None:
+            speech, outcome, summary = await self._answer(
+                asked, decision, satellite, dry_run, record, cue=lambda sound: self._cue(session, sound)
+            )
+        else:
+            speech, outcome, summary = await self._carry_out(
+                decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
+                cue=lambda sound: self._cue(session, sound),
+            )
         if outcome in ("not recognized", "error"):
             await self._cue(session, "not_understood")
         answered = outcome == "answered"
@@ -2577,7 +2651,59 @@ class VoiceLabsApp:
             await self._say(session, speech, record)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
-        await self._hang_up(session, "done" if decision.command or answered else "not_recognized")
+        again = self._asks_back(session, call, decision, who, dry_run)
+        if again is not None:
+            # Its turn, heard after the question: the satellite's call for the
+            # answer starts once this has played out.
+            await self._cue(session, "listening")
+        done = decision.command or answered or asked is not None
+        await self._hang_up(session, "done" if done else "not_recognized", listen=again)
+
+    def _asks_back(
+        self, session: Session, call: Call, decision: Decision, who: people.Speaker, dry_run: bool
+    ) -> FollowUp | None:
+        """What the call's reply asked, to be answered with no wake word
+        (voice_labs/follow_up.py): the conversation agent's question -- on
+        firmware that can open its microphone again."""
+        reply = decision.asked
+        if reply is None or not reply.wants_answer or dry_run or not session.hello.get("listen"):
+            return None
+        if call.follow_up is not None:
+            gain, warm = call.follow_up.gain, call.follow_up.warm
+        else:
+            gain = call.endpointer.gain if call.endpointer is not None else 1.0
+            warm = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
+        return FollowUp(
+            "agent", reply.text, call.record.id if call.record is not None else None, who, gain=gain, warm=warm
+        )
+
+    async def _answer(
+        self,
+        asked: FollowUp,
+        decision: Decision,
+        satellite: Satellite,
+        dry_run: bool,
+        record: CallRecord | None,
+        cue: Callable[[str], Awaitable[None]],
+    ) -> tuple[str | Streamed | None, str, str]:
+        """What an answer comes to (``_carry_out``'s, for a follow-up): said
+        to the conversation agent that asked, in its conversation -- unless
+        it only ends the conversation, and then nothing is said."""
+        words = decision.transcript
+        if follow_up.ends(words) or (decision.behavior is not None and decision.behavior.does == "nothing"):
+            if record is not None:
+                record.stage("answer", kind=asked.kind, heard=words, ended=True)
+            return None, "ended", f"{words!r}: the conversation ended"
+        if record is not None:
+            record.stage("answer", kind=asked.kind, heard=words)
+        if not self.agent.agent_id or not words.strip():
+            return self.language.speech.SORRY, "not recognized", f"{words!r}: no agent to answer"
+        if not dry_run:
+            await cue("asking")
+        said = await self._ask_agent(decision, satellite, dry_run, record)
+        if not said:
+            return self.language.speech.SORRY, "not recognized", f"{words!r}: {self.agent.agent_id} understood nothing"
+        return said, "answered", f"{words!r}: {self.agent.agent_id}'s answer"
 
     async def _carry_out(
         self,
@@ -2725,7 +2851,7 @@ class VoiceLabsApp:
             if not task.cancelled():
                 _LOGGER.error("Asking the agent failed: %s", task.exception())
             return None
-        reply = task.result()
+        reply = decision.asked = task.result()
         if record is not None:
             record.stage("agent", asked=True, asked_text=decision.transcript, **reply.to_json())
         _LOGGER.info(
@@ -3677,13 +3803,23 @@ class VoiceLabsApp:
         (voice_labs/areas.py)."""
         return areas.whole_sounds(self.store.settings)
 
-    async def _hang_up(self, session: Session, reason: str) -> None:
+    async def _hang_up(self, session: Session, reason: str, listen: FollowUp | None = None) -> None:
+        """End the call -- and, ``listen``, have the satellite start the one
+        that hears the answer to what was asked (voice_labs/follow_up.py)."""
         await self._quiet(session, close=True)  # played out, not cut
-        _LOGGER.info("[%s] Hanging up: %s", session, reason)
-        await self._send_json(session, Message.HANGUP, {"reason": reason})
-        _cancel_stt(session.call)
-        session.call = None
-        self._live_call_ended(session)
+        call, message = session.call, {"reason": reason}
+        _cancel_stt(call)
+        if session.call is call:
+            session.call = None
+            self._live_call_ended(session)
+        if listen is not None:
+            listen.told = time.monotonic()
+            session.follow_up = listen
+            message["listen"] = True
+            _LOGGER.info("[%s] Hanging up: %s; listening for an answer to %r", session, reason, listen.question)
+        else:
+            _LOGGER.info("[%s] Hanging up: %s", session, reason)
+        await self._send_json(session, Message.HANGUP, message)
 
     def _save(self, session: Session, call: Call, prefix: str = "") -> None:
         if self.options.save_dir is None:

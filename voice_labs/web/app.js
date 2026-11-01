@@ -575,7 +575,7 @@ function responsesPanel() {
       field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
       field("Say at most", atMost, "No command says more than this, whatever its own level; a question still answers. An area may have its own.")),
     h("div", { class: "row" },
-      h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, and another as the conversation agent is asked.")),
+      h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, another as the conversation agent is asked, and another when the microphone opens for an answer.")),
       field("Instrument", instrument, "What the sounds, and the beep when a command is done, are played on."),
       field("Pitch", h("div", { class: "row" }, pitch, tryButton(instrument, pitch)), "The note the sounds start from.")));
 }
@@ -3810,7 +3810,7 @@ async function pageSessions(query) {
       h("div", { class: "session-meta muted small" },
         h("span", {}, time(c.started)),
         h("span", { title: wakeTitle(c.wake) }, sessionKind(c, sats),
-          c.wake ? ` · ${c.wake.name || c.wake.wake_word}${c.wake.probability !== undefined ? ` ${prob(c.wake.probability)}` : ""}` : "")),
+          c.wake ? ` · ${c.wake.name || c.wake.wake_word}${c.wake.probability !== undefined ? ` ${prob(c.wake.probability)}` : ""}` : c.follow_up ? " · follow-up" : "")),
       c.kept ? icon("mdi:waveform", "", "Audio kept") : null,
       c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
       h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome)));
@@ -4086,6 +4086,7 @@ const STEP_ICONS = {
   recognition: "mdi:ear-hearing", action: "mdi:flash-outline", skill_response: "mdi:comment-question-outline", agent: "mdi:robot-outline",
   unknown: "mdi:help-circle-outline", speech: "mdi:volume-high", speech_failed: "mdi:volume-off", timer_ringing: "mdi:bell-ring-outline",
   timer_stopped: "mdi:timer-off-outline", error: "mdi:alert-circle-outline", timeout: "mdi:alert-circle-outline",
+  follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
 const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
@@ -4124,6 +4125,10 @@ const SPEAKER_BY = { wake_word: "their wake word", only_person: "the only person
 function stepGlance(stage) {
   const d = stage;
   switch (stage.stage) {
+    case "follow_up":
+      return { title: "Follow-up", status: "", line: `answering ${quoted(d.question || "")}` };
+    case "answer":
+      return { title: "Answer", status: d.ended ? "" : "ok", line: d.ended ? `${quoted(d.heard || "")}: ended the conversation` : `${quoted(d.heard || "")}, to the conversation agent` };
     case "call_start":
       return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };
     case "wake_kaldi":

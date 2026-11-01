@@ -44,6 +44,18 @@ from one on a to-do list (actions.same_item): "Birnen" is "Birne", "Brote"
 "Brot". A word has one only when it is longer than the ending by three
 letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "abbrechen", "abbruch", "vergiss es", "egal", "stopp", "stop", "nichts", "nein danke",
+    "das war's", "das wars", "das ist alles", "nichts weiter", "sonst nichts", "fertig", "ende",
+    "tschüss",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Sonst noch etwas?" -- "nein danke". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "halb acht morgens"

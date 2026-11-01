@@ -7,7 +7,9 @@ when first wanted:
   chord ``heard`` starts;
 - ``not_understood``: nothing understood it, or it went wrong -- down a minor
   third, lower and slower;
-- ``asking``: the conversation agent is asked -- up the major triad.
+- ``asking``: the conversation agent is asked -- up the major triad;
+- ``listening``: the reply asked something, and the microphone opens for the
+  answer -- the octave above, twice, quickly.
 
 The SoundFont is MuseScore General's (Debian's
 musescore-general-soundfont-small; MIT): its melodic presets are the
@@ -35,9 +37,10 @@ SOUNDFONT_DIRS = (Path("/usr/share/sounds/sf3"),)
 the app's models/soundfonts/."""
 
 RATE = 16000
-SOUNDS = ("heard", "acknowledge", "not_understood", "asking")
+SOUNDS = ("heard", "acknowledge", "not_understood", "asking", "listening")
 """The call's sounds: the command ended; done, with nothing to say; not
-understood, or it went wrong; the conversation agent is asked."""
+understood, or it went wrong; the conversation agent is asked; your turn to
+answer."""
 
 INSTRUMENT = "tine_electric_piano"
 """What the sounds are played on unless another is chosen."""
@@ -88,6 +91,7 @@ def notes(root: int) -> dict[str, list[tuple[float, int, float, int]]]:
         "acknowledge": [(0.0, root + 7, 0.09, 98), (0.09, root + 12, 0.2, 102)],
         "not_understood": [(0.0, root - 2, 0.15, 100), (0.16, root - 5, 0.26, 95)],
         "asking": [(0.0, root, 0.09, 100), (0.085, root + 4, 0.09, 102), (0.17, root + 7, 0.22, 108)],
+        "listening": [(0.0, root + 12, 0.07, 96), (0.11, root + 12, 0.2, 108)],
     }
 
 

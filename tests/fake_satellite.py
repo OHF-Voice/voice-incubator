@@ -72,7 +72,9 @@ class FakeSatellite:
     """What its microphones hear between calls (looped), streamed on both
     captures while monitored; else a quiet hum, on the first."""
     hello_extra: dict = field(default_factory=dict)
-    """More to say in HELLO (``intercom``)."""
+    """More to say in HELLO (``intercom``, ``listen``)."""
+    listens: list[bool] = field(default_factory=list)
+    """Every HANGUP's ``listen``: whether the app wanted an answer."""
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()
@@ -150,7 +152,9 @@ class FakeSatellite:
                 self._streaming.cancel()
                 self._streaming = None
         elif msg_type == Message.HANGUP:
-            reason = json.loads(payload).get("reason") if payload else ""
+            told = json.loads(payload) if payload else {}
+            reason = told.get("reason", "")
+            self.listens.append(bool(told.get("listen")))
             self.hangups.append(reason)
             _LOGGER.info("hang up: %s", reason)
             self._hangup.set()
@@ -200,6 +204,23 @@ class FakeSatellite:
         await self._writer.drain()
         self.hangups.append("cancelled")
         self._hangup.set()
+
+    async def answer(self, pcm: bytes, timeout: float = 30.0) -> str:
+        """The call firmware starts when the app hung up wanting an answer
+        (HANGUP ``listen``): no wake word, no pre-roll -- ``pcm`` is all
+        answer. Returns why the app hung up."""
+        await self.ready.wait()
+        assert self._writer is not None
+        self._hangup.clear()
+        info: dict[str, Any] = {"preroll_bytes": 0, "wake_word": "follow_up"}
+        if self.aec:
+            info.update(aec=True, aec_preroll_bytes=0)
+        self._writer.write(encode_json(Message.CALL_START, info))
+        self._in_call = True
+        try:
+            return await self._stream_call(pcm, timeout)
+        finally:
+            self._in_call = False
 
     async def detect(self, wake_word: str, timeout: float = 10.0) -> str:
         """A wake word model fired with nothing to say after it (\"stop\")."""

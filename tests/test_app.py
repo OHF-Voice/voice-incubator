@@ -947,6 +947,99 @@ async def _sounds(tmp_path):
         hass_server.close()
 
 
+def test_follow_up_turns(tmp_path):
+    asyncio.run(_follow_ups(tmp_path))
+
+
+async def _follow_ups(tmp_path):
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(
+        mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0, hello_extra={"listen": True}
+    )
+    satellite_server = await serve(satellite)
+    hass.device_areas[f"device-{MAC}"] = "kitchen"
+    (tmp_path / "commands.yaml").write_text(COMMANDS)
+    http_port = free_port()
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+
+    async def said(text: str) -> bytes:
+        """``text`` as someone says it: a moment's quiet, then Piper."""
+        return bytes(int(0.3 * 32000)) + await app.speech.say(text)
+
+    def stage(record, name):
+        return next((s for s in record.stages if s["stage"] == name), None)
+
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        session = app.sessions[MAC]
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            assert (await http.put("/api/settings", json={"agent": "conversation.chatty"})).status == 200
+        hass.asks_back = True
+        listening = await app.speech.sound("listening")
+        assert listening and listening != await app.speech.sound("acknowledge")
+
+        # The agent asks something back: its answer, then the listening
+        # sound, then the hang-up that has the satellite listen for the answer.
+        played = satellite.played
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert satellite.listens[-1] and satellite.heard.endswith(listening)
+        first = app.calls.recent[-1]
+        assert first.outcome == "answered" and stage(first, "speech")["text"].endswith("Anything else?")
+        assert session.follow_up is not None and session.follow_up.kind == "agent"
+        assert satellite.played - played > len(listening)
+        conversation_id = app.agent.conversations[conversation_key(app.satellite(MAC))].id
+
+        # The answer, with no wake word: to the agent as said, in the same
+        # conversation -- which asks again.
+        asked = len(hass.conversations)
+        assert await satellite.answer(await said("Who wrote the Iliad?")) == "done"
+        assert len(hass.conversations) == asked + 1
+        message = hass.conversations[-1]
+        assert "iliad" in message["text"].lower() and message["conversation_id"] == conversation_id
+        answer = app.calls.recent[-1]
+        assert stage(answer, "follow_up")["after"] == first.id and stage(answer, "answer")["kind"] == "agent"
+        assert not any(s["stage"] in ("call_start", "wake_kaldi", "split") for s in answer.stages)
+        assert answer.outcome == "answered" and satellite.listens[-1] and session.follow_up is not None
+
+        # "No thanks" ends it: the agent isn't asked, nothing more is listened for.
+        assert await satellite.answer(await said("No thanks.")) == "done"
+        assert len(hass.conversations) == asked + 1 and not satellite.listens[-1] and session.follow_up is None
+        ended = app.calls.recent[-1]
+        assert ended.outcome == "ended" and stage(ended, "answer")["ended"] and stage(ended, "speech")["silent"]
+
+        # Nothing said: no answer, and nothing kept of it.
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done" and satellite.listens[-1]
+        kept = len(app.calls.recent)
+        assert await satellite.answer(b"") == "no_answer"
+        assert len(app.calls.recent) == kept and not satellite.listens[-1]
+
+        # A wake word meanwhile starts over; a call for an answer to nothing ends.
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done" and session.follow_up is not None
+        hass.asks_back = False
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert session.follow_up is None and not satellite.listens[-1]
+        assert await satellite.answer(await said("Who wrote the Iliad?")) == "nothing_asked"
+
+        # Firmware that can't open its microphone again isn't asked to.
+        hass.asks_back = True
+        session.hello["listen"] = False
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert not satellite.listens[-1] and session.follow_up is None
+        assert not satellite.heard.endswith(listening)
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+        hass_server.close()
+
+
 LONG_REPLY = (
     "**Lights** are on. The first sentence is said while the next is made. Then a second one follows it. "
     "A third goes on a while longer, about the weather and the garden. A fourth says nothing much at all. "

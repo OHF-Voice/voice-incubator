@@ -55,6 +55,17 @@ from one on a to-do list (actions.same_item): "банани" is "банан", "�
 "груша", "яблука" "яблуко". A word has one only when it is longer than the
 ending by three letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "скасуй", "скасувати", "скасування", "неважливо", "забудь", "стоп", "досить", "нічого",
+    "ні дякую", "це все", "більше нічого", "бувай", "до побачення",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Щось іще?" -- "ні дякую". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "сьому тридцять ранку"

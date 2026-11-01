@@ -43,6 +43,17 @@ from one on a to-do list (actions.same_item): "appels" is "appel", "bananen"
 "banaan". A word has one only when it is longer than the ending by three
 letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "annuleer", "annuleren", "laat maar", "vergeet het", "stop", "niets", "nee dank je",
+    "nee bedankt", "dat was het", "dat is alles", "verder niets", "klaar", "doei",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Verder nog iets?" -- "nee bedankt". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "half acht 's ochtends"

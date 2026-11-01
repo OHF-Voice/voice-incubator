@@ -43,6 +43,17 @@ from one on a to-do list (actions.same_item): "pomodori" is "pomodoro",
 "mele" "mela". A word has one only when it is longer than the ending by
 three letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "annulla", "lascia perdere", "lascia stare", "dimentica", "stop", "basta", "niente", "nulla",
+    "no grazie", "è tutto", "nient'altro", "niente altro", "fine",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Altro?" -- "no grazie". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "le sette e mezza di mattina"

@@ -205,6 +205,10 @@ class Decision:
     answer: dict[str, Any] | None = None
     """No command: a question, answered by a skill (voice_labs/skills/)."""
 
+    asked: Any = None
+    """What the conversation agent made of it (agent.Reply), once it was
+    asked and has answered: whether it asked something back."""
+
     timings: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -543,6 +547,18 @@ class Engine:
         log_probs, frame_seconds = self.model.log_probs(audio)
         decision = self.decide(log_probs, frame_seconds, audio, satellite, transcriber)
         decision.timings = {"acoustic": time.perf_counter() - started, **decision.timings}
+        return decision
+
+    def recognize_answer(self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None) -> Decision:
+        """An answer to what the app asked (voice_labs/follow_up.py): as a
+        command, and always with its words -- the transcriber's, which
+        whoever asked reads -- even when the command needed none."""
+        decision = self.recognize_command(audio, satellite, transcriber)
+        reader = transcriber or self.transcriber
+        if decision.recognition.get("tdt_transcript") is None and reader is not None and len(audio):
+            started = time.perf_counter()
+            decision.recognition["tdt_transcript"] = reader.transcribe(audio)
+            decision.timings["answer_words"] = time.perf_counter() - started
         return decision
 
     def recognize_text(self, text: str, satellite: Satellite) -> Decision:

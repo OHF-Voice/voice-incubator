@@ -51,6 +51,17 @@ from one on a to-do list (actions.same_item): "banany" is "banan", "gruszki"
 "gruszka", "jabłka" "jabłko". A word has one only when it is longer than the
 ending by three letters."""
 
+# ----------------------------------------------------------------- answers
+# What the app asked -- the conversation agent's question -- answered
+# (voice_labs/follow_up.py).
+
+ANSWER_ENDS = {
+    "anuluj", "nieważne", "niewazne", "zapomnij", "stop", "przestań", "nic", "nie dziękuję",
+    "nie dzięki", "to wszystko", "nic więcej", "koniec", "do widzenia",
+}
+"""An answer that is only one of these ends the conversation instead of
+going on with it: "Coś jeszcze?" -- "nie dziękuję". Lowercase, without punctuation."""
+
 # ------------------------------------------------------------------- clock
 
 ALARM_EXAMPLE = "siódma trzydzieści rano"
