@@ -255,7 +255,9 @@ class HomeAssistant:
             except asyncio.CancelledError:
                 raise
             except Exception as err:  # noqa: BLE001 - the connection must never die
-                _LOGGER.warning("Home Assistant connection lost: %s", err)
+                # A closed socket is what it says; anything else, with where it came from.
+                expected = isinstance(err, (websockets.ConnectionClosed, OSError, HassError))
+                _LOGGER.warning("Home Assistant connection lost: %s: %s", type(err).__name__, err, exc_info=not expected)
             self.connected.clear()
             self._socket = None
             for future in self._pending.values():
