@@ -450,7 +450,7 @@ NO_TIMERS = "No hay ningún temporizador."
 
 def timer_started(timer: dict[str, Any], ends: tuple[int, int]) -> dict[str, str]:
     specific = f"{_capital(_named(timer)[0])} {_done('iniciado', timer)}."
-    return {"brief": "Temporizador iniciado.", "specific": specific, "verbose": f"{specific[:-1]}; sonará a {clock(*ends)}."}
+    return {"brief": specific, "specific": specific, "verbose": f"{specific[:-1]}; sonará a {clock(*ends)}."}
 
 
 def alarm_set(at: tuple[int, int], seconds: float) -> dict[str, str]:

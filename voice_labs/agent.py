@@ -23,12 +23,19 @@ from before it streamed.
 An answer that is Home Assistant's own "I didn't understand" (the default
 agent's ``no_intent_match``) counts as none: the live skill and the Unknown
 command come after it as they would without an agent.
+
+An answer that asks something back is answered without the wake word
+(voice_labs/follow_up.py): Home Assistant's ``continue_conversation`` -- its
+last character a question mark -- or one that ``asks``, a question mark last
+but for what isn't words after it: an LLM's "What do you love? 🌟", which
+Home Assistant doesn't look past.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -52,6 +59,17 @@ HOME_ASSISTANT_AGENT = "conversation.home_assistant"
 """Home Assistant's own agent: it answers at once, with nothing to stream."""
 
 STREAM = "voice_labs/conversation/stream"
+
+QUESTION_MARKS = ("?", ";", "？")
+"""What ends a question, as Home Assistant's continue_conversation has them
+(";" the Greek question mark)."""
+
+
+def asks(text: str) -> bool:
+    """Does ``text`` end by asking something: a question mark last, but for
+    an emoji, markdown, a closing quote or bracket after it?"""
+    words = re.sub(r"[^\w?;？]+$", "", text.strip())
+    return words.endswith(QUESTION_MARKS)
 
 
 def conversation_key(satellite: Any) -> str:
@@ -238,7 +256,7 @@ class Agent:
         speech = (response.get("speech") or {}).get("plain") or {}
         reply.text = str(speech.get("speech") or "").strip()
         reply.understood = not (reply.response_type == "error" and reply.code == NOT_UNDERSTOOD)
-        reply.wants_answer = bool((result or {}).get("continue_conversation"))
+        reply.wants_answer = bool((result or {}).get("continue_conversation")) or asks(reply.text)
         reply.conversation_id = (result or {}).get("conversation_id") or None
         if reply.conversation_id:
             self.conversations[key] = Conversation(reply.conversation_id, time.monotonic())

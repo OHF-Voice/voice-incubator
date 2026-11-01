@@ -386,7 +386,7 @@ NO_TIMERS = "Es läuft kein Timer."
 
 def timer_started(timer: dict[str, Any], ends: tuple[int, int]) -> dict[str, str]:
     specific = f"{_named(timer)} gestartet."
-    return {"brief": "Timer gestartet.", "specific": specific, "verbose": f"{specific[:-1]}, er endet um {clock(*ends)}."}
+    return {"brief": specific, "specific": specific, "verbose": f"{specific[:-1]}, er endet um {clock(*ends)}."}
 
 
 def alarm_set(at: tuple[int, int], seconds: float) -> dict[str, str]:

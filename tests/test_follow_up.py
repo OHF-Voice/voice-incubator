@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from voice_labs import follow_up, languages
+from voice_labs.agent import asks
 
 
 @pytest.fixture(autouse=True)
@@ -65,3 +66,16 @@ def test_every_language_can_be_answered(code):
     assert set(reading.YES_SAID) & reading.ANSWER_YES and set(reading.NO_SAID) & reading.ANSWER_NO
     for phrase in (*reading.ANSWER_ENDS, *reading.ANSWER_YES, *reading.ANSWER_NO):
         assert follow_up._words(phrase) == phrase, phrase  # pylint: disable=protected-access
+
+
+@pytest.mark.parametrize(
+    ("text", "asking"),
+    [
+        ("Anything else?", True), ("What are you passionate about? 🌟", True), ("Want me to? **", True),
+        ('Is it on?")', True), ("你好吗？", True),
+        ("Done. 😊", False), ("Why? Because.", False), ("Okay!", False), ("", False),
+    ],
+)
+def test_an_answer_that_asks(text, asking):
+    """A question mark last, but for what isn't words after it."""
+    assert asks(text) is asking

@@ -473,7 +473,7 @@ NO_TIMERS = "Nie ma żadnych minutników."
 
 def timer_started(timer: dict[str, Any], ends: tuple[int, int]) -> dict[str, str]:
     specific = f"Ustawiono {_timer(timer)}."
-    return {"brief": "Minutnik ustawiony.", "specific": specific,
+    return {"brief": specific, "specific": specific,
             "verbose": f"{specific[:-1]}, zadzwoni o {_clock(*ends, case='loc')}."}
 
 

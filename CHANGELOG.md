@@ -84,6 +84,11 @@
   agent as said, in the same conversation, for as long as it asks; "cancel",
   "never mind" or "no thanks" alone ends it, and nothing said for 5 seconds
   ends it quietly, kept nowhere. Sessions show a follow-up and its answer.
+  An answer counts as a question with only an emoji, markdown or a quote
+  after its question mark ("What do you love? 🌟"), which Home Assistant's
+  `continue_conversation` doesn't look past.
+- **A timer says its length when it starts**, even at brief ("The 15 minute
+  timer started."): it is what says the timer was heard right.
 - **A command can ask first.** Any command may ask yes or no before it acts
   (`confirm`: always, or when a template renders true; **Asks first** on its
   page, with the question), and the answer is heard the same way, without

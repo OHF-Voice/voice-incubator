@@ -285,7 +285,8 @@ def test_timers_say_as_much_as_their_level():
     start = {"timer": "start"}
     slots = {"duration": {"total_seconds": 300}}
     assert say(start, slots, integration=running).speech == "The 5 minute timer started."
-    assert say({**start, "verbosity": "brief"}, slots, integration=running).speech == "Timer started."
+    # Its length, even at brief: what says it was heard right.
+    assert say({**start, "verbosity": "brief"}, slots, integration=running).speech == "The 5 minute timer started."
     assert say({**start, "verbosity": "verbose"}, slots, integration=running).speech.startswith(
         "The 5 minute timer started, finishing at "
     )

@@ -141,9 +141,10 @@ class FakeHass:
         self._conversation_ids = itertools.count(1)
         self.streams = True
         """Whether the integration streams answers and speech (its newer version)."""
-        self.asks_back = False
+        self.asks_back: bool | str = False
         """Whether the conversation agent ends its answers with a question
-        (``continue_conversation``), as an LLM's may."""
+        (``continue_conversation``), as an LLM's may; ``"emoji"``: with an
+        emoji after it, and continue_conversation false."""
         self.tts_streams: dict[str, dict[str, Any]] = {}
         """voice_labs/tts/stream's, by stream: what was asked, its ``pieces``, ``ended``."""
         self.on_tts_stream: Any = None
@@ -467,12 +468,14 @@ class FakeHass:
         else:
             speech, response_type, data = f"{message['agent_id']} heard {message['text']}", "query_answer", {"success": [], "failed": []}
         if asks:
-            speech += ". Anything else?"
+            # An LLM's way: an emoji after its question, which Home Assistant's
+            # continue_conversation doesn't look past.
+            speech += " What do you love? 🌟" if self.asks_back == "emoji" else ". Anything else?"
         return {
             "response": {"speech": {"plain": {"speech": speech, "extra_data": None}}, "card": {}, "language": "en",
                          "response_type": response_type, "data": data},
             "conversation_id": conversation_id,
-            "continue_conversation": asks,
+            "continue_conversation": asks and self.asks_back != "emoji",
         }
 
     def known(self) -> list[str]:

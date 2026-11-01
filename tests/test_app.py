@@ -321,7 +321,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert app.satellite(MAC).settings["at_most"] == "brief"
             assert (await http.put("/api/settings", json={"at_most": None})).status == 200
             assert "at_most" not in app.store.settings
-            assert status["outcomes"]["timer_levels"]["start"]["brief"] == "Timer started."
+            assert status["outcomes"]["timer_levels"]["start"]["brief"] == "The pizza timer started."
             assert (await http.put("/api/settings", json={"beep_elsewhere": "loud"})).status == 400
             assert (await http.put("/api/settings", json={"beep_elsewhere": "brief"})).status == 200
             assert (await (await http.get("/api/status")).json())["verbosity"]["beep_elsewhere"] == "brief"
@@ -1107,6 +1107,14 @@ async def _follow_ups(tmp_path):
         # Not about it: as heard.
         timed = await app.try_text("what time is it", MAC, run_actions=True)
         assert stage(timed, "context")["command"] is None and stage(timed, "speech")["text"] == "It's time."
+
+        # An LLM's question with an emoji after it: Home Assistant doesn't say
+        # to go on (continue_conversation), the answer asks all the same.
+        hass.asks_back = "emoji"
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        emoji = next(s for s in app.calls.recent[-1].stages if s["stage"] == "agent")
+        assert emoji["text"].endswith("? 🌟") and emoji["wants_answer"] and satellite.listens[-1]
+        assert await satellite.answer(b"") == "no_answer"
 
         # Firmware that can't open its microphone again isn't asked to -- nor
         # asked a question first.

@@ -200,7 +200,7 @@ def test_timers_said():
     plain = {"name": None, "created_duration": 300, "remaining": 61, "status": "active"}
     tea = {"name": "чай", "created_duration": 240, "remaining": 90, "status": "paused"}
     assert say.timer_started(pizza, (19, 45)) == {
-        "brief": "Таймер запущен.", "specific": "Таймер «пицца» запущен.",
+        "brief": "Таймер «пицца» запущен.", "specific": "Таймер «пицца» запущен.",
         "verbose": "Таймер «пицца» запущен, сработает в 19:45."}
     assert say.timer_status([pizza, plain, tea]) == (
         "У таймера «пицца» осталось 6 минут и пятьдесят две секунды. "

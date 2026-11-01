@@ -331,7 +331,7 @@ NO_TIMERS = "Il n'y a aucun minuteur."
 
 def timer_started(timer: dict[str, Any], ends: tuple[int, int]) -> dict[str, str]:
     specific = f"{_capital(_named(timer))} lancé."
-    return {"brief": "Minuteur lancé.", "specific": specific, "verbose": f"{specific[:-1]}, il sonnera à {clock(*ends)}."}
+    return {"brief": specific, "specific": specific, "verbose": f"{specific[:-1]}, il sonnera à {clock(*ends)}."}
 
 
 def alarm_set(at: tuple[int, int], seconds: float) -> dict[str, str]:

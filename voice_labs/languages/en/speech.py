@@ -345,9 +345,10 @@ NO_TIMERS = "There are no timers."
 
 
 def timer_started(timer: dict[str, Any], ends: tuple[int, int]) -> dict[str, str]:
-    """A timer started; it ends at ``ends`` (hour, minute)."""
+    """A timer started; it ends at ``ends`` (hour, minute). Its length is said
+    even at brief: it is what says the timer was heard right."""
     specific = f"{_timer(timer, capital=True)} started."
-    return {"brief": "Timer started.", "specific": specific, "verbose": f"{specific[:-1]}, finishing at {clock(*ends)}."}
+    return {"brief": specific, "specific": specific, "verbose": f"{specific[:-1]}, finishing at {clock(*ends)}."}
 
 
 def alarm_set(at: tuple[int, int], seconds: float) -> dict[str, str]:
