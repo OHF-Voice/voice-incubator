@@ -284,11 +284,11 @@ def test_timers_say_as_much_as_their_level():
     running = StubTimers([])
     start = {"timer": "start"}
     slots = {"duration": {"total_seconds": 300}}
-    assert say(start, slots, integration=running).speech == "The 5 minute timer started."
+    assert say(start, slots, integration=running).speech == "Started a 5 minute timer."
     # Its length, even at brief: what says it was heard right.
-    assert say({**start, "verbosity": "brief"}, slots, integration=running).speech == "The 5 minute timer started."
+    assert say({**start, "verbosity": "brief"}, slots, integration=running).speech == "Started a 5 minute timer."
     assert say({**start, "verbosity": "verbose"}, slots, integration=running).speech.startswith(
-        "The 5 minute timer started, finishing at "
+        "Started a 5 minute timer, finishing at "
     )
     assert say({**start, "verbosity": "beep"}, slots, integration=running).speech == ""
     # A response of its own for one level; the built-in sentence for the rest.

@@ -291,8 +291,8 @@ def _from_now(start: datetime, now: datetime) -> str:
 
 
 def alarm_set(start: datetime, rrule: str | None, now: datetime) -> dict[str, str]:
-    specific = f"Alarm set for {said_when(start, rrule, now)}."
-    return {"brief": "Alarm set.", "specific": specific, "verbose": f"{specific[:-1]}, in {_from_now(start, now)}."}
+    specific = f"Set an alarm for {said_when(start, rrule, now)}."
+    return {"brief": "Set an alarm.", "specific": specific, "verbose": f"{specific[:-1]}, in {_from_now(start, now)}."}
 
 
 def reminder_set(what_said: str, start: datetime, rrule: str | None, now: datetime, relative: bool) -> dict[str, str]:
@@ -342,7 +342,7 @@ def alarm_cancelled(alarms: list[dict[str, Any]], now: datetime) -> dict[str, st
         specific = f"Cancelled the alarm at {said[0]}."
     else:
         specific = f"Cancelled {len(said)} alarms."
-    return {"brief": "Alarm cancelled." if len(said) == 1 else "Alarms cancelled.", "specific": specific,
+    return {"brief": "Cancelled the alarm." if len(said) == 1 else "Cancelled the alarms.", "specific": specific,
             "verbose": f"Cancelled the alarms at {join(said)}." if len(said) > 1 else specific}
 
 
@@ -360,7 +360,7 @@ def reminder_cancelled(reminders: list[dict[str, Any]], now: datetime) -> dict[s
         specific = f"Cancelled the reminder at {_listed(reminders, now)[0]}: {reminders[0]['text']}."
     else:
         specific = f"Cancelled {len(said)} reminders."
-    return {"brief": "Reminder cancelled." if len(said) == 1 else "Reminders cancelled.", "specific": specific,
+    return {"brief": "Cancelled the reminder." if len(said) == 1 else "Cancelled the reminders.", "specific": specific,
             "verbose": f"Cancelled the reminders: {join(said)}." if len(said) > 1 else specific}
 
 

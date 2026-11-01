@@ -321,7 +321,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert app.satellite(MAC).settings["at_most"] == "brief"
             assert (await http.put("/api/settings", json={"at_most": None})).status == 200
             assert "at_most" not in app.store.settings
-            assert status["outcomes"]["timer_levels"]["start"]["brief"] == "The pizza timer started."
+            assert status["outcomes"]["timer_levels"]["start"]["brief"] == "Started the pizza timer for 10 minutes."
             assert (await http.put("/api/settings", json={"beep_elsewhere": "loud"})).status == 400
             assert (await http.put("/api/settings", json={"beep_elsewhere": "brief"})).status == 200
             assert (await (await http.get("/api/status")).json())["verbosity"]["beep_elsewhere"] == "brief"
@@ -1538,7 +1538,7 @@ async def _calendar(tmp_path: Path) -> None:
         assert str(app.alarms.tz) == "Europe/Berlin"
 
         # An alarm: an event in Home Assistant's time zone, marked as this satellite's.
-        assert await said("set an alarm for 7 am tomorrow") == "Alarm set for 7:00 AM tomorrow."
+        assert await said("set an alarm for 7 am tomorrow") == "Set an alarm for 7:00 AM tomorrow."
         [event] = hass.calendar_events[calendar]
         assert event["summary"] == "Alarm" and f"[voice_labs:alarm:{MAC}]" in event["description"]
         start = datetime.fromisoformat(event["start"])

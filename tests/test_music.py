@@ -369,8 +369,8 @@ def test_what_music_says_by_level():
     assert music.control_said("pause", {}, [own]) == {
         "brief": "Paused.", "specific": "Paused So What by Miles Davis.", "verbose": "Paused So What by Miles Davis on Kitchen Speaker.",
     }
-    assert music.control_said("volume_up", {}, [own])["specific"] == "Volume at 60%."
-    assert music.control_said("next", {}, [own])["brief"] == "Next track."
+    assert music.control_said("volume_up", {}, [own])["specific"] == "Set the volume to 60%."
+    assert music.control_said("next", {}, [own])["brief"] == "Skipped to the next track."
     item = music.Item("Kind of Blue", "library://album/1", "album", "Miles Davis")
     said = music.found_said("play", item, [own])
     assert said["brief"] == "Playing music." and said["specific"] == "Playing Kind of Blue by Miles Davis."
@@ -427,7 +427,7 @@ def test_moving_the_music_through_home_assistant():
             outcome = await _run(hass, {"music": "volume_set"}, {"percentage": 20}, helper=helper)
             assert outcome.name == "done" and fake.services[-1]["target"] == {"entity_id": [KITCHEN]}
             assert fake.states[KITCHEN][1]["volume_level"] == 0.2
-            assert outcome.speech == "Volume at 20% on Kitchen Speaker."  # a beep, here
+            assert outcome.speech == "Set the volume to 20% on Kitchen Speaker."  # a beep, here
             # Back to the satellite's own player, by name: from the one playing anywhere.
             outcome = await _run(hass, {**move, "verbosity": "verbose"}, {"entity": [OWN]}, helper=helper)
             assert outcome.speech == "Moved Kind of Blue by Miles Davis from Kitchen Speaker to Fake VPE."

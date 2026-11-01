@@ -320,7 +320,7 @@ commands:
     response:
       <<: *brightness_said
       done:
-        brief: Brighter.
+        brief: Brightened.
         specific: >-
           Turned up {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }}.
@@ -354,7 +354,7 @@ commands:
     response:
       <<: *brightness_said
       done:
-        brief: Dimmer.
+        brief: Dimmed.
         specific: >-
           Turned down {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
           else 'the lights ' ~ place.said }}.

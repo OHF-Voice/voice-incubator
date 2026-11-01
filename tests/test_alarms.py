@@ -96,7 +96,7 @@ def _event(uid, hour, minute=0, days=1, kind="alarm", rrule=None, summary="Alarm
 
 def test_alarm():
     plan = alarms.plan("alarm", {"time": "7:30 tomorrow"}, NOW, [], [])
-    assert plan.outcome == "done" and plan.speech == "Alarm set for 7:30 AM tomorrow."
+    assert plan.outcome == "done" and plan.speech == "Set an alarm for 7:30 AM tomorrow."
     assert plan.create == {"kind": "alarm", "summary": "Alarm", "start": NOW.replace(hour=7, minute=30) + timedelta(days=1),
                            "rrule": None}
     assert alarms.plan("alarm", {}, NOW, [], []).outcome == "missing_time"

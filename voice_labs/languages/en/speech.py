@@ -347,14 +347,18 @@ NO_TIMERS = "There are no timers."
 def timer_started(timer: dict[str, Any], ends: tuple[int, int]) -> dict[str, str]:
     """A timer started; it ends at ``ends`` (hour, minute). Its length is said
     even at brief: it is what says the timer was heard right."""
-    specific = f"{_timer(timer, capital=True)} started."
+    length = float(timer.get("created_duration") or 0)
+    if timer.get("name"):
+        specific = f"Started the {timer['name']} timer for {duration(length)}."
+    else:
+        specific = f"Started a {duration(length, adjective=True)} timer."
     return {"brief": specific, "specific": specific, "verbose": f"{specific[:-1]}, finishing at {clock(*ends)}."}
 
 
 def alarm_set(at: tuple[int, int], seconds: float) -> dict[str, str]:
     """An alarm set for ``at`` (hour, minute), ``seconds`` from now."""
-    specific = f"Alarm set for {clock(*at)}."
-    return {"brief": "Alarm set.", "specific": specific, "verbose": f"{specific[:-1]}, {duration(seconds)} from now."}
+    specific = f"Set an alarm for {clock(*at)}."
+    return {"brief": "Set an alarm.", "specific": specific, "verbose": f"{specific[:-1]}, {duration(seconds)} from now."}
 
 
 def timers_cancelled(timers: list[dict[str, Any]]) -> dict[str, str]:
@@ -418,11 +422,11 @@ def timer_changed(operation: str, timer: dict[str, Any], seconds: float, left: f
 
 def timer_done(operation: str, timer: dict[str, Any]) -> dict[str, str]:
     """A timer cancelled, paused or resumed."""
-    done = {"cancel": "cancelled", "pause": "paused", "resume": "resumed"}[operation]
-    specific = f"{_timer(timer, capital=True)} {done}."
+    done = {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[operation]
+    specific = f"{done} {_timer(timer)}."
     left = _left(timer)
     verbose = f"{specific[:-1]}, with {left} left." if operation != "resume" else f"{specific[:-1]}; {left} left."
-    return {"brief": f"Timer {done}.", "specific": specific, "verbose": verbose}
+    return {"brief": f"{done} the timer.", "specific": specific, "verbose": verbose}
 
 
 def timers_ringing(timers: list[dict[str, Any]]) -> str:
@@ -486,18 +490,18 @@ _CONTROL_SAID = {
     "pause": "Paused.",
     "resume": "Resumed.",
     "stop": "Stopped.",
-    "next": "Next track.",
-    "previous": "Previous track.",
-    "volume_up": "Volume up.",
-    "volume_down": "Volume down.",
-    "volume_set": "Volume set.",
+    "next": "Skipped to the next track.",
+    "previous": "Went back a track.",
+    "volume_up": "Turned up the volume.",
+    "volume_down": "Turned down the volume.",
+    "volume_set": "Set the volume.",
     "mute": "Muted.",
     "unmute": "Unmuted.",
-    "shuffle_on": "Shuffle on.",
-    "shuffle_off": "Shuffle off.",
+    "shuffle_on": "Turned on shuffle.",
+    "shuffle_off": "Turned off shuffle.",
     "repeat_all": "Repeating everything.",
     "repeat_one": "Repeating this track.",
-    "repeat_off": "Repeat off.",
+    "repeat_off": "Turned off repeat.",
 }
 _FOUND_SAID = {"play": "Playing music.", "add": "Added it to the queue.", "radio": "Playing similar music."}
 
@@ -508,7 +512,7 @@ def control(operation: str, volume: float | None, what: str | None, players: lis
     brief = _CONTROL_SAID.get(operation, "Done.")
     specific = brief
     if volume is not None:
-        specific = f"Volume at {round(volume * 100)}%."
+        specific = f"Set the volume to {round(volume * 100)}%."
     elif operation in ("pause", "resume", "stop") and what:
         specific = f"{brief[:-1]} {what}."
     return {"brief": brief, "specific": specific, "verbose": _on_players(specific, players)}

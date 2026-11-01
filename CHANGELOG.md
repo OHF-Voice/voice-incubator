@@ -93,8 +93,13 @@
   it on for over a second: a pause after "Okay Nabu" -- or the quiet before
   answering a follow-up -- was speech that had ended, and the call ended
   with nothing said (a follow-up after 1.25 s). Only Silero hears it now.
-- **A timer says its length when it starts**, even at brief ("The 15 minute
-  timer started."): it is what says the timer was heard right.
+- **A timer says its length when it starts**, even at brief ("Started a 15
+  minute timer.", "Started the pizza timer for 15 minutes."): it is what says
+  the timer was heard right.
+- **English says the verb first**: "Cancelled the 10 minute timer.", "Set an
+  alarm for 7:30 AM.", "Paused the timer.", "Turned up the volume.",
+  "Skipped to the next track.", "Brightened." -- not "The 10 minute timer
+  cancelled.", "Alarm set.", "Volume up.", "Next track.", "Brighter."
 - **A command can ask first.** Any command may ask yes or no before it acts
   (`confirm`: always, or when a template renders true; **Asks first** on its
   page, with the question), and the answer is heard the same way, without

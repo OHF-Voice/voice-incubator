@@ -1302,8 +1302,8 @@ async def _run_music(
             if name == "done" and not speech:
                 speech = music_ops.control_said(operation, slots, chosen)
                 if not values["place"].get("here"):
-                    # Out of the satellite's area, it says where: "Volume at
-                    # 40% on Kitchen Speaker."
+                    # Out of the satellite's area, it says where: "Set the
+                    # volume to 40% on Kitchen Speaker."
                     speech = {**speech, "specific": speech["verbose"]}
             calls = [("media_player", service, data) for service, data in controls]
     except LookupError as err:

@@ -28,10 +28,10 @@ def test_start():
     assert (plan.service, plan.data, plan.speech) == (
         "create_timer",
         {"duration": 300, "name": "pizza"},
-        "The pizza timer started.",
+        "Started the pizza timer for 5 minutes.",
     )
     assert timers.plan("start", {}, []).speech == "How long should the timer be?"
-    assert timers.plan("start", {"duration": duration(90)}, []).speech == "The 1 minute 30 second timer started."
+    assert timers.plan("start", {"duration": duration(90)}, []).speech == "Started a 1 minute 30 second timer."
 
 
 @pytest.mark.parametrize(
@@ -50,7 +50,7 @@ def test_cancel_picks_the_timer(slots, timer_id):
 
 def test_one_running_timer_needs_no_name():
     plan = timers.plan("cancel", {}, RUNNING[1:2])
-    assert plan.data == {"timer_id": "2"} and plan.speech == "The 5 minute timer cancelled."
+    assert plan.data == {"timer_id": "2"} and plan.speech == "Cancelled the 5 minute timer."
 
 
 def test_several_running_timers_are_ambiguous():
@@ -233,9 +233,9 @@ def test_alarms_ring_at_the_next_time_it_comes_round():
     evening = datetime(2026, 10, 15, 22, 0)
     plan = timers.plan("alarm", {"time": "seven"}, [], evening)
     assert plan.outcome == "done" and plan.service == "create_timer"
-    assert plan.data == {"duration": 9 * 3600, "name": "alarm"} and plan.speech == "Alarm set for 7:00 AM."
+    assert plan.data == {"duration": 9 * 3600, "name": "alarm"} and plan.speech == "Set an alarm for 7:00 AM."
     assert timers.plan("alarm", {"time": "7 pm"}, [], evening).data["duration"] == 21 * 3600
-    assert timers.plan("alarm", {"time": "noon"}, [], evening).speech == "Alarm set for noon."
+    assert timers.plan("alarm", {"time": "noon"}, [], evening).speech == "Set an alarm for noon."
     morning = datetime(2026, 10, 15, 6, 0)
     assert timers.plan("alarm", {"time": "seven"}, [], morning).data["duration"] == 3600
     assert timers.plan("alarm", {"time": "6:30", "timer": "school"}, [], morning).data == {"duration": 1800, "name": "school"}
