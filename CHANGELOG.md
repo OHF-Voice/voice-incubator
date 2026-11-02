@@ -137,8 +137,9 @@
   off now. The refusal is said only when no match as good runs.
 - **Home Assistant Cloud is used when found.** The first time the app sees
   Home Assistant Cloud (someone signed in), its speech-to-text writes what
-  the built-in models would -- when its words are needed -- and its voice
-  says the replies, for every satellite, unless one was chosen already.
+  the built-in models would -- always running, so it hears every command as
+  it is said and its words are ready when needed -- and its voice says the
+  replies, for every satellite, unless one was chosen already.
   Once: choose another in Settings, the built-in models too, and it stays.
 - **Meaning and the model can run Home Assistant's sentence triggers**,
   chosen for them on **When nothing matches** (Settings) -- what was said

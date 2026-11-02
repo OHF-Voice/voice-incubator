@@ -226,8 +226,9 @@ def test_through_home_assistant():
 
 
 def test_home_assistant_cloud_is_taken_once():
-    """Found, Home Assistant Cloud's speech-to-text and voice are every
-    satellite's -- where nothing was chosen -- once: a choice afterwards stands."""
+    """Found, Home Assistant Cloud's speech-to-text (always running) and
+    voice are every satellite's -- where nothing was chosen -- once: a choice
+    afterwards stands."""
 
     async def scenario():
         fake, server = await fake_hass.serve()
@@ -244,15 +245,21 @@ def test_home_assistant_cloud_is_taken_once():
             fake.stt_engines.append({"engine_id": "stt.home_assistant_cloud", "supported_languages": ["en-US"]})
             fake.tts_engines.append({"engine_id": "tts.home_assistant_cloud", "supported_languages": ["en-US"]})
             await VoiceLabsApp._take_cloud(app)
-            assert app.store.settings == {"stt": "stt.home_assistant_cloud", "tts": "tts.home_assistant_cloud", CLOUD_TAKEN: True}
+            assert app.store.settings == {
+                "stt": "stt.home_assistant_cloud", "stt_always": True, "tts": "tts.home_assistant_cloud", CLOUD_TAKEN: True,
+            }
             # The built-in models chosen since: they stand.
-            del app.store.settings["stt"], app.store.settings["tts"]
+            del app.store.settings["stt"], app.store.settings["stt_always"], app.store.settings["tts"]
             await VoiceLabsApp._take_cloud(app)
             assert app.store.settings == {CLOUD_TAKEN: True}
             # A choice made before it was found stands too.
             app.store.settings = {"tts": "tts.fake_cloud"}
             await VoiceLabsApp._take_cloud(app)
-            assert app.store.settings == {"tts": "tts.fake_cloud", "stt": "stt.home_assistant_cloud", CLOUD_TAKEN: True}
+            assert app.store.settings == {"tts": "tts.fake_cloud", "stt": "stt.home_assistant_cloud", "stt_always": True, CLOUD_TAKEN: True}
+            # Speech-to-text chosen before: as it was, and when it runs too.
+            app.store.settings = {"stt": "stt.fake_whisper"}
+            await VoiceLabsApp._take_cloud(app)
+            assert app.store.settings == {"stt": "stt.fake_whisper", "tts": "tts.home_assistant_cloud", CLOUD_TAKEN: True}
         finally:
             await hass.stop()
             server.close()

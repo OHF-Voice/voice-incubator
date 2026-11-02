@@ -772,9 +772,10 @@ class VoiceLabsApp:
 
     async def _take_cloud(self) -> None:
         """Home Assistant Cloud, the first time Home Assistant has it: its
-        speech-to-text writes what the built-in models would (when needed),
-        and its voice says the replies -- each for every satellite, unless one
-        is chosen already. Once: what is chosen afterwards stands."""
+        speech-to-text hears every command as it is said (``stt_always``) and
+        writes what the built-in models would, and its voice says the replies
+        -- each for every satellite, unless one is chosen already. Once: what
+        is chosen afterwards stands."""
         settings = self.store.settings
         if settings.get(CLOUD_TAKEN):
             return
@@ -787,6 +788,8 @@ class VoiceLabsApp:
             return  # not signed in: looked for again on the next connection
         taken = {kind: entity for kind, entity in found.items() if not settings.get(kind)}
         settings.update(taken)
+        if "stt" in taken:
+            settings["stt_always"] = True
         settings[CLOUD_TAKEN] = True
         self.store.save_settings()
         if taken:
