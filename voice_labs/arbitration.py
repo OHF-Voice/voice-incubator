@@ -12,7 +12,11 @@ breaks a tie.
 
 The first call the verifier accepts decides, among the calls that have heard
 it by then; one that starts later answers nothing. Should the one chosen turn
-out not to be the wake word (the verifier refuses it), the next best answers.
+out not to be the wake word (the verifier refuses it), the next best answers
+-- unless the one that refused heard it clearly better (``STANDS``): then its
+refusal stands, and none does. A satellite farther off hears the command
+worse too: one in the next room took "turn off the basement light" for
+"turn off the light" after the one beside the talker refused the wake word.
 A satellite alone waits for no one.
 """
 
@@ -28,6 +32,11 @@ import numpy as np
 WINDOW = 1.0
 """How long after the first satellite's call another's for the same wake word
 is the same utterance, in seconds."""
+
+STANDS = 6.0
+"""How much more clearly (dB above the background) a satellite that refused
+the wake word must have heard it than the best of the rest for its refusal to
+stand for all of them."""
 
 DECIDED_WAIT = 1.0
 """How long a call accepted but not chosen waits for the chosen one's verdict
@@ -78,18 +87,31 @@ class Utterance:
     heard: dict[str, Heard] = field(default_factory=dict)
     winner: str | None = None
     changed: asyncio.Event = field(default_factory=asyncio.Event)
+    refused_by: str | None = None
+    """The satellite whose refusal stands for all: it heard the wake word
+    clearly better than the rest (``STANDS``)."""
 
     def best(self) -> str | None:
         """The one that heard it best, of those not refused, with how well
-        known; else the first heard."""
+        known; else the first heard. None when one that refused heard it
+        clearly better than it (``refused_by``)."""
         alive = [h for h in self.heard.values() if h.verdict is not False]
         measured = [h for h in alive if h.clarity is not None]
         if measured:
-            return max(measured, key=lambda h: (h.clarity, h.probability or 0.0)).key
+            best = max(measured, key=lambda h: (h.clarity, h.probability or 0.0))
+            refused = [h for h in self.heard.values() if h.verdict is False and h.clarity is not None]
+            clearest = max(refused, key=lambda h: h.clarity, default=None)
+            if clearest is not None and best.clarity is not None and clearest.clarity - best.clarity >= STANDS:
+                self.refused_by = clearest.key
+                return None
+            return best.key
         return alive[0].key if alive else None
 
     def to_json(self) -> dict[str, object]:
-        return {"wake_word": self.wake_word, "winner": self.winner, "heard": [h.to_json() for h in self.heard.values()]}
+        return {
+            "wake_word": self.wake_word, "winner": self.winner, "heard": [h.to_json() for h in self.heard.values()],
+            **({"refused_by": self.refused_by} if self.refused_by else {}),
+        }
 
 
 class Arbiter:

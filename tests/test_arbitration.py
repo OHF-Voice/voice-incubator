@@ -54,21 +54,50 @@ def test_one_that_starts_after_the_window_or_another_word_is_its_own():
     assert asyncio.run(arbiter.answers(later, "office", True)) is True
 
 
-def test_the_one_chosen_refused_the_next_best_answers():
+def verified(utterance, arbiter, near: str, far: str, far_accepts: bool = True, near_accepts: bool = False):
+    """The farther one accepts first and waits; the nearer one's verdict decides."""
+
+    async def run():
+        waiting = asyncio.ensure_future(arbiter.answers(utterance, far, far_accepts))
+        await asyncio.sleep(0.05)
+        assert not waiting.done()  # the nearer one was chosen, and is still being verified
+        nearer = await arbiter.answers(utterance, near, near_accepts)
+        return await waiting, nearer
+
+    return asyncio.run(run())
+
+
+def test_the_one_chosen_refused_the_next_best_answers_when_it_heard_it_nearly_as_well():
+    arbiter = Arbiter(clock=Clock())
+    utterance = arbiter.heard("kitchen", "okay_nabu")
+    arbiter.heard("office", "okay_nabu")
+    arbiter.measured(utterance, "kitchen", 16.0)
+    arbiter.measured(utterance, "office", 20.0)
+    assert verified(utterance, arbiter, "office", "kitchen") == (True, False)
+    assert utterance.refused_by is None
+
+
+def test_the_refusal_of_one_that_heard_it_clearly_better_stands():
+    """The one beside the talker said no: one in the next room, hearing it
+    12 dB worse, doesn't answer instead -- it would hear the command worse too."""
     arbiter = Arbiter(clock=Clock())
     utterance = arbiter.heard("kitchen", "okay_nabu")
     arbiter.heard("office", "okay_nabu")
     arbiter.measured(utterance, "kitchen", 8.0)
     arbiter.measured(utterance, "office", 20.0)
+    assert verified(utterance, arbiter, "office", "kitchen") == (False, False)
+    assert utterance.refused_by == "office" and utterance.to_json()["refused_by"] == "office"
+    # Refused first, before the other is verified: the same.
+    arbiter = Arbiter(clock=Clock())
+    utterance = arbiter.heard("office", "okay_nabu")
+    arbiter.heard("kitchen", "okay_nabu")
+    arbiter.measured(utterance, "kitchen", 8.0)
+    arbiter.measured(utterance, "office", 20.0)
 
-    async def verified():
-        kitchen = asyncio.ensure_future(arbiter.answers(utterance, "kitchen", True))
-        await asyncio.sleep(0.05)
-        assert not kitchen.done()  # the office was chosen, and is still being verified
-        office = await arbiter.answers(utterance, "office", False)
-        return await kitchen, office
+    async def refused_first():
+        return await arbiter.answers(utterance, "office", False), await arbiter.answers(utterance, "kitchen", True)
 
-    assert asyncio.run(verified()) == (True, False)
+    assert asyncio.run(refused_first()) == (False, False)
 
 
 def test_one_heard_after_the_choice_answers_nothing():

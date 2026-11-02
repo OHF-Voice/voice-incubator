@@ -119,6 +119,11 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **The nearest satellite's "no" stands.** When the satellite that heard the
+  wake word clearly best (6 dB or more above the next) refuses it, the
+  others don't answer in its place: one in the next room, hearing it worse,
+  took "turn off the basement light" for "turn off the light". Say it
+  again; the nearest answers. Sessions show who refused it.
 - **Two commands at once** (English): "turn on the lights and turn off the
   TV", "turn off the desk lamp and the floor lamp", "turn off the kitchen
   and bedroom lights", "turn on the TV and set its volume to 50%". Split at

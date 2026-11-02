@@ -2321,7 +2321,8 @@ class VoiceLabsApp:
         if not await self.arbiter.answers(call.utterance, session.satellite, True):
             return await self._answered_elsewhere(session, call)
         if call.utterance is not None and len(call.utterance.heard) > 1:
-            _LOGGER.info("[%s] Answering here: it heard the wake word best", session)
+            refused = any(h.verdict is False for h in call.utterance.heard.values())
+            _LOGGER.info("[%s] Answering here: %s", session, "the best of those that accepted it" if refused else "it heard the wake word best")
             if call.record is not None:
                 call.record.stage("wake_arbitration", **call.utterance.to_json())
         if verdict.overturned:
@@ -2451,6 +2452,17 @@ class VoiceLabsApp:
         """Hang up: another satellite heard this wake word better, and
         answers it (arbitration). The firmware flashes the ring dimly."""
         utterance = call.utterance
+        if utterance is not None and utterance.refused_by:
+            # The satellite beside the talker said it wasn't the wake word.
+            name = self.satellite(utterance.refused_by).name
+            _LOGGER.info("[%s] Not answered: %s heard the wake word clearly better, and refused it", session, name)
+            call.finished = True
+            if call.record is not None:
+                call.record.stage("wake_refused_elsewhere", by=utterance.refused_by, name=name, **utterance.to_json())
+                self.calls.finish(call.record, "wake rejected", f"refused by {name}, which heard it clearly better", self._call_audio(call))
+            await self._event(session, "wake_rejected", reason="refused_elsewhere")
+            await self._hang_up(session, "wake_rejected")
+            return
         winner = utterance.winner if utterance is not None else None
         name = self.satellite(winner).name if winner else "another satellite"
         _LOGGER.info("[%s] Answered by %s, which heard it better", session, name)
