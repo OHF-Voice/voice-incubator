@@ -425,21 +425,17 @@ class FakeHass:
                 return
             out = []
             for item in message["satellites"]:
-                satellite = self.satellites.setdefault(
-                    item["id"],
-                    {
-                        "id": item["id"],
-                        "device_id": f"device-{item['id']}",
-                        "timer_list": f"voice_timer_list.{item['id']}_timers",
-                    },
-                )
+                satellite = self.satellites.setdefault(item["id"], {"id": item["id"], "device_id": f"device-{item['id']}"})
                 satellite["name"] = item.get("name")
+                area = self.device_areas.get(satellite["device_id"])
+                # The area's list, every satellite there sharing it; in no area, its own.
+                satellite["timer_list"] = f"voice_timer_list.{area or item['id']}_timers"
                 self.timers.setdefault(satellite["timer_list"], {})
                 out.append(
                     {
                         **satellite,
                         "device_name": item.get("name"),
-                        "area_id": self.device_areas.get(satellite["device_id"]),
+                        "area_id": area,
                         "media_player": SENDSPIN_PLAYERS.get(item["id"]),
                     }
                 )

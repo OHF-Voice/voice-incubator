@@ -119,6 +119,13 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **Timers belong to the area.** Every satellite in an area shares the
+  area's timer list (the integration's `voice_timer_list.<area>_timers`):
+  a timer set on one shows on each in the same color, is asked about or
+  cancelled from any, and rings on all of them when it finishes -- "stop"
+  on one stops them all. A satellite in no area keeps its own list. Needs
+  the integration updated; automations on a satellite's own list follow the
+  area's now.
 - **Every running timer on the ring, each in its own color.** The whole ring
   is the longest timer's length, and each timer's color reaches as far as it
   has left, the soonest on top: where the colors change is when each

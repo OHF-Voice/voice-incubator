@@ -10,7 +10,8 @@ entity for its timers. The app:
   learns its device and timer list;
 * follows each timer list (``voice_timer_list/item/subscribe``): which timers are
   running, for matching timer commands and for recognizing their names, and
-  which finish, to ring the satellite;
+  which finish, to ring the satellites -- every satellite in an area shares
+  the area's list, one in no area has its own;
 * asks which areas are on do not disturb (``voice_labs/do_not_disturb``: a
   switch for each satellite's area) before it sends something there;
 * follows each area's night mode switch (the same command lists them; their
@@ -76,7 +77,7 @@ class Integration:
 
         self.links: dict[str, SatelliteLink] = {}
         self.timers: dict[str, dict[str, dict[str, Any]]] = {}
-        """Satellite key -> timer id -> timer, as voice_timer_list reports them."""
+        """Timer list -> timer id -> timer, as voice_timer_list reports them."""
 
         self._wanted: dict[str, str] = {}
         self._subscriptions: dict[str, int] = {}
@@ -163,7 +164,13 @@ class Integration:
             if item.get("area_id") is not None or link.device_id not in self.hass.catalog.device_areas:
                 self.hass.catalog.device_areas[link.device_id] = item.get("area_id")
             if link.timer_list and link.timer_list not in self._subscriptions:
-                await self._follow(key, link.timer_list)
+                await self._follow(link.timer_list)
+        # A list no satellite uses any more (one moved into an area, the last
+        # out of one): not followed; followed again should it come back.
+        used = {link.timer_list for link in self.links.values() if link.timer_list}
+        for timer_list in set(self._subscriptions) - used:
+            await self.hass.unsubscribe(self._subscriptions.pop(timer_list))
+            self.timers.pop(timer_list, None)
         # A satellite in a new area brings its switches.
         try:
             await self._follow_night()
@@ -172,9 +179,9 @@ class Integration:
 
     # --------------------------------------------------------------- timers
 
-    async def _follow(self, key: str, timer_list: str) -> None:
+    async def _follow(self, timer_list: str) -> None:
         def handler(event: dict[str, Any]) -> None:
-            timers = self.timers.setdefault(key, {})
+            timers = self.timers.setdefault(timer_list, {})
             if event.get("type") == "timers":
                 timers.clear()
                 timers.update({t["timer_id"]: t for t in event.get("timers", [])})
@@ -185,9 +192,11 @@ class Integration:
                 else:
                     timers[timer["timer_id"]] = timer
                 if event.get("event_type") == "finished":
-                    result = self.on_finished(key, timer)
-                    if asyncio.iscoroutine(result):
-                        asyncio.ensure_future(result)
+                    # Every satellite on the list rings: all of the area's.
+                    for key in self.sharing(timer_list):
+                        result = self.on_finished(key, timer)
+                        if asyncio.iscoroutine(result):
+                            asyncio.ensure_future(result)
             self.on_timers_changed()
 
         try:
@@ -197,9 +206,18 @@ class Integration:
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             _LOGGER.warning("Could not follow %s: %s", timer_list, err)
 
+    def sharing(self, timer_list: str) -> list[str]:
+        """The satellites (keys) whose timers are on ``timer_list``."""
+        return sorted(key for key, link in self.links.items() if link.timer_list == timer_list)
+
+    def timer_list(self, key: str) -> str | None:
+        link = self.links.get(key)
+        return link.timer_list if link is not None else None
+
     def running(self, key: str) -> list[dict[str, Any]]:
-        """This satellite's active and paused timers, oldest first."""
-        timers = [t for t in self.timers.get(key, {}).values() if t.get("status") in RUNNING]
+        """The active and paused timers on this satellite's list (its
+        area's), oldest first."""
+        timers = [t for t in self.timers.get(self.timer_list(key) or "", {}).values() if t.get("status") in RUNNING]
         return sorted(timers, key=lambda t: t.get("created_at") or "")
 
     def running_names(self) -> list[str]:
@@ -278,7 +296,8 @@ class Integration:
             self.on_night_changed()
 
     async def fresh_timers(self, key: str) -> list[dict[str, Any]]:
-        """The satellite's timers straight from Home Assistant."""
+        """The timers on the satellite's list (its area's) straight from Home
+        Assistant."""
         link = self.links.get(key)
         if link is None or not link.timer_list:
             return []
@@ -286,5 +305,5 @@ class Integration:
             {"type": "voice_timer_list/item/list", "entity_id": link.timer_list}
         )
         timers = result.get("timers", [])
-        self.timers[key] = {t["timer_id"]: t for t in timers}
+        self.timers[link.timer_list] = {t["timer_id"]: t for t in timers}
         return [t for t in timers if t.get("status") in RUNNING]

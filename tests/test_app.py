@@ -201,7 +201,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert status["integration"] == "ready"
             satellites = (await (await http.get("/api/satellites")).json())["satellites"]
             assert satellites[0]["area"] == "kitchen"  # the device's, not satellites.yaml's
-            assert satellites[0]["timer_list"] == f"voice_timer_list.{MAC}_timers"
+            assert satellites[0]["timer_list"] == "voice_timer_list.kitchen_timers"
             calls = (await (await http.get("/api/calls")).json())["calls"]
             assert len(calls) == 4 and calls[0]["outcome"] == "not recognized"
             kept = next(c for c in calls if c["kept"])
@@ -801,7 +801,7 @@ async def _scenario(tmp_path: Path) -> None:
 
         # A timer: started on the satellite's timer list, rung when it finishes,
         # stopped by "stop".
-        timer_list = f"voice_timer_list.{MAC}_timers"
+        timer_list = "voice_timer_list.kitchen_timers"
         assert await satellite.call(read_call(CALLS / "call-16880.wav")) == "done"
         create = next(m for m in hass.services if m["service"] == "create_timer")
         assert create["target"] == {"entity_id": timer_list}
@@ -1184,7 +1184,7 @@ async def _follow_ups(tmp_path):
         assert await satellite.answer(await said("Who wrote the Iliad?")) == "nothing_asked"
 
         # A command that asks first: Cancel every timer, with two running.
-        timer_list = f"voice_timer_list.{MAC}_timers"
+        timer_list = "voice_timer_list.kitchen_timers"
         wake = read_call(CALLS / "call-15788.wav")[: int(1.5 * 32000)]  # "okay nabu", to the detection
 
         async def two_timers():

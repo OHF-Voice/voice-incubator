@@ -653,7 +653,7 @@ class VoiceLabsApp:
         self.hass.on_catalog_change(self.voices.forget)
         self._timer_rebuild: asyncio.Task | None = None
         self.timer_colors: dict[str, dict[str, int]] = {}
-        """Each satellite's running timers' colors on its ring (timers.colors)."""
+        """Each timer list's running timers' colors on the rings (timers.colors)."""
         self.store_error: str | None = None
         self._tasks: set[asyncio.Task] = set()
         self._sessions: dict[str, asyncio.Task] = {}
@@ -3410,7 +3410,8 @@ class VoiceLabsApp:
         if session.writer is None or not session.satellite:
             return
         running = self.integration.running(session.satellite)
-        kept = timers.colors(running, self.timer_colors.setdefault(session.satellite, {}))
+        # By list: every satellite in an area shows its timers alike.
+        kept = timers.colors(running, self.timer_colors.setdefault(self.integration.timer_list(session.satellite) or session.satellite, {}))
         shown = timers.progress(running, kept)
         last = session.timer_progress
         # The device counts what it was sent down: compare where that is now.
@@ -3451,7 +3452,9 @@ class VoiceLabsApp:
         """Ring, say which timer finished (an alarm's or a reminder's own
         sentence), then ring on until someone says "stop" (or wakes the
         satellite), or for ``timer_ring_seconds``; a reminder rings once. The
-        ring is on the area's instrument (Speech.ring)."""
+        ring is on the area's instrument (Speech.ring). Every satellite on
+        the timer's list rings it -- the area's -- and stopped on one, it
+        stops on the others (``_stop_rings``)."""
         if session.intercom is not None:
             await self.end_intercom(session.intercom, "a timer")
         record = self.calls.begin("timer", self.satellite(session.satellite).as_dict())
@@ -3494,8 +3497,21 @@ class VoiceLabsApp:
             self.calls.finish(record, ending, ", ".join(
                 str(t.get("name") or self.language.speech.duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers
             ))
+            rung = {t["timer_id"] for t in session.ringing_timers if t.get("timer_id")}
             session.ringing_timers = []
+            if stopped_by not in ("timeout", "said", "elsewhere"):
+                self._stop_rings(session, rung)
             self._spawn(self._after_ring(session))
+
+    def _stop_rings(self, session: Session, rung: set[str]) -> None:
+        """A ring stopped on one satellite stops on the others ringing the
+        same timers: every one in its area, whose list it is."""
+        for other in list(self.sessions.values()):
+            if other is session or other.ringing is None or other.ringing.done():
+                continue
+            if rung & {t.get("timer_id") for t in other.ringing_timers}:
+                other.ring_stopped_by = "elsewhere"
+                other.ringing.cancel()
 
     async def _after_ring(self, session: Session) -> None:
         """Back to the wake word alone."""

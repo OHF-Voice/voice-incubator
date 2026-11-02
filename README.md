@@ -352,7 +352,7 @@ automation's page.
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's do not disturb and night mode switches |
+| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
 | [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) | the satellites' ESPHome firmware: `voice-labs.yaml`, the `components/voice_labs` component, and the install page's build |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |
@@ -1215,8 +1215,14 @@ nothing.
 
 ## Timers and the Voice Labs integration
 
-Timers live in Home Assistant, on a `voice_timer_list` entity per satellite,
-provided by the Voice Labs integration (OHF-Voice/voice-labs). That
+Timers live in Home Assistant, on a `voice_timer_list` entity for each area a
+satellite is in -- every satellite there shares it -- and one on each
+satellite in no area, provided by the Voice Labs integration
+(OHF-Voice/voice-labs). The app follows each list
+(`integration.Integration.timers`, by list): a timer on one shows on every
+satellite using it, in the same color (`timer_colors`, by list), commands on
+any act on it, and when it finishes each of them rings, a stop on one
+stopping the others (`_stop_rings`). That
 entity platform is the `timer_list` integration from the
 `claude/timer-list-entity-local-d25403` branch -- not yet merged -- with its
 domain renamed so the two cannot clash, and with `InMemoryTimerListEntity`
@@ -1234,7 +1240,7 @@ device's area, and keeps its own from then on. The app registers satellites
 its device.
 
 **Matching.** Timer commands carry an operation (`timer: cancel`); which timer
-is decided by the app against that satellite's running timers
+is decided by the app against the running timers on that satellite's list
 (`voice_timer_list/item/list`), from `timer_name` (a running timer's name, from
 the `running_timers` value list the engine rebuilds when the names change),
 free text matched loosely, the length it was set for, or being the only one.
