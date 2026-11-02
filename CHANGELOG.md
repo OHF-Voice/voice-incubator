@@ -155,6 +155,10 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
+- **The intercom connects where someone was.** Of several satellites in the
+  area named, "connect to the living room" takes the one that last answered
+  someone there, else the first by name as before -- and one busy or on
+  older firmware is passed over for the next, not said to be busy.
 - **The nearest satellite's "no" stands.** When the satellite that heard the
   wake word clearly best (6 dB or more above the next) refuses it, the
   others don't answer in its place: one in the next room, hearing it worse,

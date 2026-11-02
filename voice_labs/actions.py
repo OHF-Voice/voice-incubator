@@ -1154,9 +1154,11 @@ async def _run_intercom(
     hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], satellite: Satellite, outcome: Outcome, satellites: Any,
     names: dict[str, dict[str, str]] | None = None, quiet: set[str] | None = None,
 ) -> Outcome:
-    """Join this satellite and the one in the area said, once this call has
+    """Join this satellite and one in the area said, once this call has
     ended: each one's microphone on the other's speaker, until the button on
-    either is pressed. Not an area on do not disturb (``quiet``)."""
+    either is pressed. Of several, the one that last answered someone (where
+    they are, likely), else the first by name -- passing over one that is
+    busy or can't. Not an area on do not disturb (``quiet``)."""
     slots, say = values["slots"], languages.speech()
     areas = values["place"]["areas"] if slots.get("area") or slots.get("floor") else []
     where = str(values["place"].get("said") or "")
@@ -1165,12 +1167,15 @@ async def _run_intercom(
         if satellite.area_id and satellite.area_id in areas:
             return await _say(hass, behavior, values, outcome, "here", say.INTERCOM_HERE)
         return await _say(hass, behavior, values, outcome, "no_satellites", say.no_satellites(where))
-    target = targets[0]
+    # Sorted is stable: those never heard keep their order by name.
+    targets = sorted(targets, key=lambda t: (t.get("heard") is None, t.get("heard") or 0.0))
+    open_targets = [t for t in targets if t.get("area_id") not in (quiet or ())]
+    if not open_targets:
+        sentence = _do_not_disturb([t["area_id"] for t in targets], satellite, getattr(hass, "catalog", None), names)
+        return await _say(hass, behavior, values, outcome, "do_not_disturb", sentence, {"satellite": targets[0]})
+    problems = [(t, satellites.intercom_problem(satellite.key, t["key"])) for t in open_targets]
+    target, problem = next(((t, p) for t, p in problems if p is None), problems[0])
     found = {"satellite": target}
-    if target.get("area_id") in (quiet or ()):
-        sentence = _do_not_disturb([target["area_id"]], satellite, getattr(hass, "catalog", None), names)
-        return await _say(hass, behavior, values, outcome, "do_not_disturb", sentence, found)
-    problem = satellites.intercom_problem(satellite.key, target["key"])
     if problem == "needs_firmware":
         return await _say(hass, behavior, values, outcome, "needs_firmware", say.INTERCOM_FIRMWARE, found)
     if problem:

@@ -144,6 +144,9 @@ async def _scenario(tmp_path) -> None:
         heard = next(s for s in elsewhere.stages if s["stage"] == "answered_elsewhere")["heard"]
         clarity = {h["satellite"]: h["clarity"] for h in heard}
         assert clarity[KITCHEN] > clarity[BEDROOM]
+        # Only the one that answered heard someone: the intercom's choice.
+        assert app.sessions[KITCHEN].heard_at is not None and app.sessions[BEDROOM].heard_at is None
+        assert app.others(BEDROOM, ["kitchen"])[0]["heard"] is not None
     finally:
         runner.cancel()
         await app.stop()

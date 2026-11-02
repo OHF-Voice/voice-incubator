@@ -745,3 +745,43 @@ def test_an_announcement_skips_an_area_on_do_not_disturb():
     assert satellites.said == [(["office"], "Dinner is ready")]
     outcome = announce(["bedroom", "office"], dry_run=True)
     assert (outcome.name, outcome.speech) == ("do_not_disturb", "Do not disturb is on in the Office and in the Bedroom.")
+
+
+class StubIntercom(StubSatellites):
+    """The other satellites, to connect the intercom to: how long ago each
+    last answered someone, and what keeps one from it."""
+
+    def __init__(self, *satellites):
+        super().__init__()
+        self.all = [{"key": key, "name": key.title(), "area_id": area, "heard": heard} for key, area, heard in satellites]
+        self.problems: dict[str, str] = {}
+        self.connected: list[str] = []
+
+    def intercom_problem(self, source, target):
+        return self.problems.get(target)
+
+    def intercom(self, source, target):
+        self.connected.append(target)
+
+
+def test_the_intercom_connects_where_someone_was_last_heard():
+    """Of two in the area, the one that last answered someone; one that is
+    busy or can't is passed over; neither heard, the first by name."""
+    hass = StubHass()
+    command = parse_command("i", {"description": "connect", "examples": ["x"], "names": {"area": {"count": 1}}, "intercom": "connect"})
+    satellites = StubIntercom(("couch", "living_room", 300.0), ("desk", "living_room", 5.0))
+
+    def connect(*quiet):
+        decision = Decision({"transcript": "x"}, command, command.behavior, "command", slots={"area": ["living_room"]})
+        return asyncio.run(actions.run(hass, decision, SATELLITE, None, False, StubQuiet(*quiet), satellites=satellites))
+
+    assert connect().name == "done" and satellites.connected == ["desk"]
+    satellites.problems["desk"] = "busy"
+    assert connect().name == "done" and satellites.connected[-1] == "couch"
+    satellites.problems["couch"] = "needs_firmware"
+    assert connect().name == "busy"  # what keeps the one heard last
+    satellites.problems.clear()
+    for one in satellites.all:
+        one["heard"] = None
+    assert connect().name == "done" and satellites.connected[-1] == "couch"
+    assert (connect("living_room").name, len(satellites.connected)) == ("do_not_disturb", 3)

@@ -531,6 +531,9 @@ class Session:
     until the call that hears it starts."""
     night: bool | None = None
     """What it was last told of its area's night mode (the ``night`` event)."""
+    heard_at: float | None = None
+    """When it last answered someone (monotonic): a wake word it answered, or
+    the answer it listened for. Where someone was, for the intercom."""
 
     def __str__(self) -> str:
         return self.device_id
@@ -2055,6 +2058,7 @@ class VoiceLabsApp:
             call.finished = True
             self._spawn(self._hang_up(session, "nothing_asked"))
             return
+        session.heard_at = time.monotonic()
         record = call.record = self.calls.begin("call", self.satellite(session.satellite).as_dict())
         record.stage("follow_up", **asked.to_json())
         _LOGGER.info("[%s] Listening for an answer to %r", session, asked.question)
@@ -2346,6 +2350,7 @@ class VoiceLabsApp:
             return await self._wake_rejected(session, call, verdict)
         if not await self.arbiter.answers(call.utterance, session.satellite, True):
             return await self._answered_elsewhere(session, call)
+        session.heard_at = time.monotonic()
         if call.utterance is not None and len(call.utterance.heard) > 1:
             refused = any(h.verdict is False for h in call.utterance.heard.values())
             _LOGGER.info("[%s] Answering here: %s", session, "the best of those that accepted it" if refused else "it heard the wake word best")
@@ -3630,14 +3635,17 @@ class VoiceLabsApp:
 
     def others(self, source: str, areas: list[str] | None) -> list[dict[str, Any]]:
         """The connected satellites but ``source``, in ``areas`` (None: every
-        one), by name: ``key``, ``name``, ``area_id``."""
+        one), by name: ``key``, ``name``, ``area_id``, and ``heard`` -- how
+        many seconds ago it last answered someone (None: not since starting)."""
         out = []
+        now = time.monotonic()
         for key, session in list(self.sessions.items()):
             if key == source or session.writer is None:
                 continue
             satellite = self.satellite(key)
             if areas is None or satellite.area_id in areas:
-                out.append({"key": key, "name": satellite.name, "area_id": satellite.area_id})
+                heard = None if session.heard_at is None else round(now - session.heard_at, 1)
+                out.append({"key": key, "name": satellite.name, "area_id": satellite.area_id, "heard": heard})
         return sorted(out, key=lambda s: str(s["name"]).lower())
 
     def announce(self, keys: list[str], text: str, source: str) -> None:
