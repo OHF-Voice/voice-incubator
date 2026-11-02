@@ -119,8 +119,8 @@ ROUTES = [
     ("turn off the kitchen and bedroom lights", [("turn_off_place", ["kitchen"]), ("turn_off_place", ["bedroom"])]),
     # A second that names nothing acts on what the first named.
     ("turn on the kitchen lights and set the brightness to 50", [("turn_on_place", ["kitchen"]), ("set_brightness_place", ["kitchen"])]),
-    # One target, two commands: "its" is the server's (test_its_is_what_the_first_acted_on).
-    ("turn on the TV and set its volume to 50%", [("turn_on_device", ["media_player.tv"]), ("set_volume_here", None)]),
+    # One target, two commands: "its" is what the first named.
+    ("turn on the TV and set its volume to 50%", [("turn_on_device", ["media_player.tv"]), ("set_volume_device", ["media_player.tv"])]),
     # One command, whole: "and" is part of it -- a list item, a name.
     ("add apples and bananas to the shopping list", [("shopping_list_add", None)]),
     ("turn on the salt and pepper lamp", [("turn_on_device", ["light.salt_and_pepper"])]),
@@ -164,7 +164,7 @@ def test_the_transcript_splits_what_the_audio_misheard(engine):
         log_probs, engine.model.frame_seconds, np.zeros(16000, dtype=np.float32), office,
         Stt("To turn on a home assistant light and set its brightness to 10%?"),
     )
-    assert heard(decision) == [("turn_on_device", ["light.nanoleaf"]), ("set_brightness_here", None)]
+    assert heard(decision) == [("turn_on_device", ["light.nanoleaf"]), ("set_brightness_device", ["light.nanoleaf"])]
     assert decision.compound["from"] == "transcript"
 
 
@@ -176,13 +176,27 @@ def test_never_half(engine):
     assert decision.fallback is None  # meaning and the model would pick one
 
 
-def test_its_is_what_the_first_acted_on(engine):
-    from voice_labs.context import hear_again  # pylint: disable=import-outside-toplevel
+def test_its_is_what_the_first_named_whatever_commands_there_are():
+    """A home with only the by-name versions: "set its brightness to 10%"
+    is no command alone, but it is with the light the first part named."""
+    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_labs.library import load_library  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
 
-    engine, office = engine
-    second = engine.recognize_text("turn on the TV and set its volume to 50%", office).then
-    found = hear_again(second.transcript, ["media_player.tv"], {"media_player.tv": "TV"}, lambda t: engine.recognize_text(t, office))
-    assert found is not None and (found[0].command.id, found[0].slots) == ("set_volume_device", {"entity": ["media_player.tv"], "percentage": 50})
+    if not CTC.is_dir():
+        pytest.skip("no CTC model")
+    entries = [e for e in load_library() if e["id"] in ("turn_on_device", "set_brightness_device")]
+    engine = Engine(CTC, None, None, threads=2)
+    engine.build(compile_store({
+        "names": {"entities": {"light.nanoleaf": {"name": "Home Assistant Light"}}},
+        "lists": {name: values for e in entries for name, values in e["lists"].items()},
+        "commands": {e["id"]: e["spec"] for e in entries},
+    }))
+    office = Satellite("s", "Office", "office", "Office")
+    for text in ("To turn on the Home Assistant light and set its brightness to 10%.", "turn on the home assistant light and set the brightness to 10%"):
+        decision = engine.recognize_text(text, office)
+        assert heard(decision) == [("turn_on_device", ["light.nanoleaf"]), ("set_brightness_device", ["light.nanoleaf"])], text
+        assert decision.then.slots["percentage"] == 10
 
 
 @pytest.mark.parametrize(

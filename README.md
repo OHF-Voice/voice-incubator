@@ -277,10 +277,12 @@ CTC head heard as another. A clause that is no command alone borrows from
 the other, the shortest that is a command with nothing left over: the
 first, the second's last words ("turn off the kitchen | bedroom lights");
 the second, the first's first words ("turn off the lights | the TV"). A
-second that names nothing acts on what the first named when it can (heard
-again with it said: `compound.target`), and a second's pronoun is what the
-first acted on (`_referring`, with "its" and
-"their" among English's pronouns). The first is the decision, the second
+second that names nothing -- or is no command alone -- is about what the first
+named when it can be (`Engine._both`): its pronoun that device's name
+(`context.substitute`; "its" and "their" among English's pronouns), else the
+first's target said after it (`compound.target`), whatever versions of the
+command there are ("set its brightness" with only the by-name one). The
+server's `_referring` still reads a pronoun the engine left. The first is the decision, the second
 its `then`; `compound` says how it was split. Both or neither: a sentence
 left half matched has its command dropped (`compound.half`; the hint says
 "…but I didn't understand all of it") and goes on as unmatched -- to the

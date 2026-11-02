@@ -101,13 +101,18 @@ def borrowings(first: list[str], second: list[str], which: str) -> list[str]:
     return [" ".join(first[:n] + second) for n in range(1, len(first))]
 
 
+def device_names(entity_ids: list[str], names: dict[str, Any], devices: dict[str, Any]) -> list[str]:
+    """What each device is called: its first name on the Names page."""
+    said = [devices[e].phrases[0] if e in devices and devices[e].phrases else (names.get("entities", {}).get(e) or {}).get("name") for e in entity_ids]
+    return [s for s in said if s]
+
+
 def target(slots: dict[str, Any], names: dict[str, Any], devices: dict[str, Any]) -> str | None:
     """What a command named, as said again after another that named
     nothing: its devices ("the TV"), else its area ("in the Kitchen"), else
     its floor; None when it named none. English's words so far."""
     if slots.get("entity"):
-        said = [devices[e].phrases[0] if e in devices and devices[e].phrases else (names.get("entities", {}).get(e) or {}).get("name") for e in slots["entity"]]
-        return " and ".join(f"the {s}" for s in said if s) or None
+        return " and ".join(f"the {s}" for s in device_names(slots["entity"], names, devices)) or None
     for kind, before in (("area", "in the "), ("floor", "")):
         if slots.get(kind):
             said = [(names.get(f"{kind}s", {}).get(i) or {}).get("name") for i in slots[kind]]

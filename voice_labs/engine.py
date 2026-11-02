@@ -59,7 +59,7 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
 
-from . import compound, languages, skills, triggers
+from . import compound, context, languages, skills, triggers
 from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots, says
 from .fallback import kin, label_of
 from .store import Compiled, Device, phrase_key
@@ -788,35 +788,46 @@ class Engine:
             recognition.timings["compound"] = time.perf_counter() - started
 
     def _both(self, decision: Decision, clauses: list[Decision], texts: list[str], joiner: str, satellite: Satellite) -> bool:
-        """Two clauses as two commands -- one that is none borrowing from the
-        other, a second that names nothing taking what the first named --
-        into ``decision`` (``_compound``); whether they are."""
+        """Two clauses as two commands into ``decision`` (``_compound``);
+        whether they are. A first that is none borrows the second's last
+        words; a second that names nothing -- or is none -- is about what
+        the first named, when it can be (its pronoun that name, else the name
+        said after it: "... and set its brightness to 10", "... kitchen
+        lights and set the brightness to 50"); else, none, it borrows the
+        first's first words ("... and the TV")."""
         with self._lock:
             compiled = self.compiled
         assert compiled is not None
         said = [(c.transcript or t).split() for c, t in zip(clauses, texts)]
+
+        def clean(text: str) -> Decision | None:
+            found = self.recognize_text(text, satellite, clause=True)
+            ok = found.command is not None and found.intent is not None and not found.intent.unexplained
+            return found if ok else None
+
         borrowed = None
-        for index, which in ((0, "first"), (1, "second")):
-            if clauses[index].command is None:
-                borrowed = which
-                clauses[index] = next(
-                    (d for text in compound.borrowings(said[0], said[1], which)
-                     if (d := self.recognize_text(text, satellite, clause=True)).command is not None
-                     and d.intent is not None and not d.intent.unexplained),
-                    clauses[index],
-                )
-        first, second = clauses
+        if clauses[0].command is None:
+            borrowed = "first"
+            clauses[0] = next(filter(None, map(clean, compound.borrowings(said[0], said[1], "first"))), clauses[0])
+        first = clauses[0]
+        if first.command is not None and _named(first) and (clauses[1].command is None or not _named(clauses[1])):
+            names, devices = compiled.data.get("names") or {}, compiled.devices
+            text = " ".join(said[1])
+            readings = [
+                context.substitute(text, compound.device_names(first.slots.get("entity") or [], names, devices)),
+                f"{text} {compound.target(first.slots, names, devices)}",
+            ]
+            for reading in filter(None, readings):
+                again = clean(reading)
+                if again is not None and all(again.slots.get(s) == first.slots.get(s) for s in NAME_SLOTS if first.slots.get(s)):
+                    clauses[1] = again
+                    break
+        if clauses[1].command is None:
+            borrowed = "second"
+            clauses[1] = next(filter(None, map(clean, compound.borrowings(said[0], said[1], "second"))), clauses[1])
+        second = clauses[1]
         if first.command is None or second.command is None:
             return False
-        # A second that names nothing acts on what the first named, when it
-        # can ("... kitchen lights and set the brightness to 50").
-        target = compound.target(first.slots, compiled.data.get("names") or {}, compiled.devices) if _named(first) else None
-        if target and not _named(second):
-            again = self.recognize_text(f"{second.transcript} {target}", satellite, clause=True)
-            if again.command is not None and again.intent is not None and not again.intent.unexplained and all(
-                again.slots.get(slot) == first.slots.get(slot) for slot in NAME_SLOTS if first.slots.get(slot)
-            ):
-                second = again
         decision.command, decision.behavior, decision.intent = first.command, first.behavior, first.intent
         decision.slots, decision.matched_by, decision.text_from_tdt = first.slots, first.matched_by, first.text_from_tdt
         decision.then = second
