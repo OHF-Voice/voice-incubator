@@ -47,7 +47,7 @@ from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
-from .voices import BUILTIN, HassTranscriber, TypedText, Voices, choose
+from .voices import BUILTIN, CLOUD_TAKEN, HassTranscriber, TypedText, Voices, choose
 from .mixednet import WakeModel
 from .protocol import (
     BYTE_RATE,
@@ -651,6 +651,7 @@ class VoiceLabsApp:
         """Home Assistant's sentence triggers, kept current (voice_labs/triggers.py)."""
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
+        self.hass.on_connect(self._take_cloud)
         self._timer_rebuild: asyncio.Task | None = None
         self.timer_colors: dict[str, dict[str, int]] = {}
         """Each timer list's running timers' colors on the rings (timers.colors)."""
@@ -768,6 +769,28 @@ class VoiceLabsApp:
             return None
         await self.apply(compiled)
         return compiled
+
+    async def _take_cloud(self) -> None:
+        """Home Assistant Cloud, the first time Home Assistant has it: its
+        speech-to-text writes what the built-in models would (when needed),
+        and its voice says the replies -- each for every satellite, unless one
+        is chosen already. Once: what is chosen afterwards stands."""
+        settings = self.store.settings
+        if settings.get(CLOUD_TAKEN):
+            return
+        try:
+            found = await self.voices.cloud()
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Couldn't look for Home Assistant Cloud: %s", err)
+            return
+        if not found:
+            return  # not signed in: looked for again on the next connection
+        taken = {kind: entity for kind, entity in found.items() if not settings.get(kind)}
+        settings.update(taken)
+        settings[CLOUD_TAKEN] = True
+        self.store.save_settings()
+        if taken:
+            _LOGGER.info("Home Assistant Cloud found: %s for every satellite", " and ".join(taken.values()))
 
     async def _triggers_changed(self, found: list[triggers.Trigger]) -> None:
         """Home Assistant's sentence triggers changed: heard from now on (from

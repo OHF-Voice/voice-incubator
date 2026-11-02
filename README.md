@@ -1354,6 +1354,16 @@ models (TDT, Piper) or with Home Assistant's entities: `stt`, `tts`,
 `satellites.json` per satellite (`builtin` for the app's own model, no key for
 "as every satellite"), plus `speak_on`, a media player for its responses.
 
+**Home Assistant Cloud is taken when found.** On connecting, the app looks
+for Home Assistant Cloud's entities among the STT and TTS engines
+(`stt.home_assistant_cloud`, `tts.home_assistant_cloud`: there once someone
+is signed in; `Voices.cloud`), and the first time it finds them sets each as
+every satellite's `stt` and `tts` where neither is set
+(`VoiceLabsApp._take_cloud`) -- with its default voice and the entity's best
+match for the language. `settings.json` `cloud_taken` says it was: once, so
+a choice made afterwards, the built-in models included (no key, as before),
+stands. Not signed in, it is looked for again on the next connection.
+
 **STT replaces TDT, not the matcher.** The CTC matcher always decides. The
 engine asks a transcriber only for text: examples not found in the CTC
 evidence (`match_examples`, which takes a per-call transcriber now), free text

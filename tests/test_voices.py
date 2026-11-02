@@ -3,13 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from voice_labs.engine import free_text
 from voice_labs.hass import HassError, HomeAssistant
-from voice_labs.voices import HassTranscriber, StreamingTranscriber, VoiceChoice, Voices, _match, choose, language_code
+from voice_labs.server import VoiceLabsApp
+from voice_labs.voices import (
+    CLOUD_TAKEN,
+    HassTranscriber,
+    StreamingTranscriber,
+    VoiceChoice,
+    Voices,
+    _match,
+    choose,
+    language_code,
+)
 
 from . import fake_hass
 
@@ -209,6 +220,41 @@ def test_through_home_assistant():
         finally:
             await hass.stop()
             await rest.cleanup()
+            server.close()
+
+    asyncio.run(scenario())
+
+
+def test_home_assistant_cloud_is_taken_once():
+    """Found, Home Assistant Cloud's speech-to-text and voice are every
+    satellite's -- where nothing was chosen -- once: a choice afterwards stands."""
+
+    async def scenario():
+        fake, server = await fake_hass.serve()
+        port = server.sockets[0].getsockname()[1]
+        hass = HomeAssistant("http://127.0.0.1:1", fake_hass.TOKEN, f"ws://127.0.0.1:{port}/api/websocket")
+        await hass.start()
+        try:
+            assert await hass.wait_connected(5)
+            saved = []
+            app = SimpleNamespace(store=SimpleNamespace(settings={}, save_settings=lambda: saved.append(1)), voices=Voices(hass))
+            # Not signed in: nothing, and looked for again next time.
+            await VoiceLabsApp._take_cloud(app)
+            assert app.store.settings == {} and not saved
+            fake.stt_engines.append({"engine_id": "stt.home_assistant_cloud", "supported_languages": ["en-US"]})
+            fake.tts_engines.append({"engine_id": "tts.home_assistant_cloud", "supported_languages": ["en-US"]})
+            await VoiceLabsApp._take_cloud(app)
+            assert app.store.settings == {"stt": "stt.home_assistant_cloud", "tts": "tts.home_assistant_cloud", CLOUD_TAKEN: True}
+            # The built-in models chosen since: they stand.
+            del app.store.settings["stt"], app.store.settings["tts"]
+            await VoiceLabsApp._take_cloud(app)
+            assert app.store.settings == {CLOUD_TAKEN: True}
+            # A choice made before it was found stands too.
+            app.store.settings = {"tts": "tts.fake_cloud"}
+            await VoiceLabsApp._take_cloud(app)
+            assert app.store.settings == {"tts": "tts.fake_cloud", "stt": "stt.home_assistant_cloud", CLOUD_TAKEN: True}
+        finally:
+            await hass.stop()
             server.close()
 
     asyncio.run(scenario())

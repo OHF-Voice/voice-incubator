@@ -152,6 +152,9 @@ class FakeHass:
         self.on_tts_stream: Any = None
         """Called with a TTS stream once its text has ended: a test makes the satellite announce."""
         self._stream_ids = itertools.count(1)
+        self.stt_engines = list(STT_ENGINES)
+        self.tts_engines = list(TTS_ENGINES)
+        """stt/engine/list's and tts/engine/list's providers."""
         self.automations: dict[str, dict[str, Any]] = {}
         """Automation entities: ``state``, ``name``, ``id`` and ``config``
         (automation/config's); their conversation triggers' sentences are
@@ -461,9 +464,9 @@ class FakeHass:
         elif kind == "voice_timer_list/item/list":
             await result({"timers": list(self.timers.get(message["entity_id"], {}).values())})
         elif kind == "stt/engine/list":
-            await result({"providers": _for_language(STT_ENGINES, message.get("language"))})
+            await result({"providers": _for_language(self.stt_engines, message.get("language"))})
         elif kind == "tts/engine/list":
-            await result({"providers": _for_language(TTS_ENGINES, message.get("language"))})
+            await result({"providers": _for_language(self.tts_engines, message.get("language"))})
         elif kind == "tts/engine/voices":
             self.voice_requests.append(message)
             await result({"voices": TTS_VOICES.get(message["engine_id"], [])})

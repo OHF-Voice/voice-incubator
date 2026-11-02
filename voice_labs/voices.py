@@ -46,6 +46,12 @@ AUTO = "auto"
 STT_TIMEOUT = 15.0
 STREAM_TIMEOUT = 90.0
 """A streamed request: the longest command (60 s at most), then an answer."""
+CLOUD = {"stt": "stt.home_assistant_cloud", "tts": "tts.home_assistant_cloud"}
+"""Home Assistant Cloud's speech-to-text and text-to-speech entities."""
+CLOUD_TAKEN = "cloud_taken"
+"""settings.json: Home Assistant Cloud was found, and taken for every
+satellite where nothing was chosen -- once, so what is chosen afterwards,
+the built-in models too, stands."""
 STT_AUDIO = ("agc", "aec", "aec_boost")
 """What an STT entity hears: the satellite's AGC capture (what commands are
 recognized from), or its AEC capture (the satellite's own playback taken out)
@@ -360,6 +366,15 @@ class Voices:
             ]
             for entry in out[kind]:
                 self._supported[entry["entity_id"]] = list(entry["languages"])
+        return out
+
+    async def cloud(self) -> dict[str, str]:
+        """Home Assistant Cloud's STT and TTS entities, by kind, those Home
+        Assistant has (it has them once someone is signed in)."""
+        out: dict[str, str] = {}
+        for kind, listing in (("stt", self.hass.stt_engines), ("tts", self.hass.tts_engines)):
+            if any(p.get("engine_id") == CLOUD[kind] for p in await listing(None)):
+                out[kind] = CLOUD[kind]
         return out
 
     async def _supported_languages(self, entity_id: str, listing) -> list[str]:
