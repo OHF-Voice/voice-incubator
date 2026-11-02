@@ -86,6 +86,7 @@ def fixture_engine():
             "entities": {
                 "media_player.tv": {"name": "TV"}, "light.desk_lamp": {"name": "Desk Lamp"},
                 "light.salt_and_pepper": {"name": "Salt and Pepper Lamp"}, "scene.rock_and_roll": {"name": "Rock and Roll"},
+                "light.nanoleaf": {"name": "Home Assistant Light"},
                 "light.floor_lamp": {"name": "Floor Lamp"}, "lock.front_door": {"name": "Front Door"},
             },
             "areas": {"kitchen": {"name": "Kitchen"}, "bedroom": {"name": "Bedroom"}, "office": {"name": "Office"}},
@@ -134,6 +135,37 @@ ROUTES = [
 def test_typed(engine, text, commands):
     engine, office = engine
     assert heard(engine.recognize_text(text, office)) == commands
+
+
+class Stt:
+    """An STT entity's place: says what it is told to."""
+
+    source = "stt.home_assistant_cloud"
+
+    def __init__(self, text):
+        self.text = text
+
+    def transcribe(self, audio):
+        return self.text
+
+    def transcribe_words(self, audio):
+        return self.text, None
+
+
+def test_the_transcript_splits_what_the_audio_misheard(engine):
+    """The CTC head heard "light" as "like": the first clause, on its own
+    audio, names nothing -- but the transcript's words split as typed do."""
+    from adapt_ctc.text import spoken_words  # pylint: disable=import-outside-toplevel
+
+    engine, office = engine
+    misheard = "to turn on a home assistant like and set its brightness to ten percent"
+    log_probs, _ = engine.model.vocab.text_log_probs(spoken_words(misheard, "en")[0])
+    decision = engine.decide(
+        log_probs, engine.model.frame_seconds, np.zeros(16000, dtype=np.float32), office,
+        Stt("To turn on a home assistant light and set its brightness to 10%?"),
+    )
+    assert heard(decision) == [("turn_on_device", ["light.nanoleaf"]), ("set_brightness_here", None)]
+    assert decision.compound["from"] == "transcript"
 
 
 def test_never_half(engine):

@@ -61,7 +61,13 @@ def leaves_joined(decision: Any, words: list[str]) -> bool:
     intent = getattr(decision, "intent", None)
     if getattr(decision, "command", None) is not None:
         return intent is not None and any(w.text.lower().strip(".,") in joining for w in intent.unexplained)
-    return any(w.lower().strip(".,") in joining for w in words[1:-1])
+    return has_joiner(words)
+
+
+def has_joiner(words: list[str]) -> bool:
+    """Whether ``words`` have a joining word between others."""
+    joining = joining_words()
+    return any(w.lower().strip(".,!?") in joining for w in words[1:-1])
 
 
 def splits(words: list[str]) -> list[tuple[int, int]]:

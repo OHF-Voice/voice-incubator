@@ -268,7 +268,12 @@ split there, but not within an amount ("an hour and a half",
 (`Engine._compound`): each clause is matched on its own stretch of the CTC
 evidence (its frames; the TDT head transcribes it, where an STT entity
 hears the whole call), as a command alone would be (`decide(clause=True)`:
-no skill, fallback or hint). A clause that is no command alone borrows from
+no skill, fallback or hint). When the audio's clauses aren't both commands,
+the transcript's words split as typed (`compound["from"]`: the CTC head may
+miss the joining word, or mishear a name in a clause the transcript has
+right: "turn on the home assistant *like*"); and a match that leaves words
+over is split too when the transcript, made already, has a joining word the
+CTC head heard as another. A clause that is no command alone borrows from
 the other, the shortest that is a command with nothing left over: the
 first, the second's last words ("turn off the kitchen | bedroom lights");
 the second, the first's first words ("turn off the lights | the TV"). A

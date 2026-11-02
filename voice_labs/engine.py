@@ -663,11 +663,12 @@ class Engine:
         # Two commands said together: each on its own, or neither -- never
         # half of what was asked (voice_labs/compound.py).
         words = [w.text for w in recognition.spotting.words]
-        if (
-            decision.refused is None
-            and compound.leaves_joined(decision, words)
-            and self._joined_said(recognition, command_audio, transcriber, typed)
-        ):
+        joined = compound.leaves_joined(decision, words) and self._joined_said(recognition, command_audio, transcriber, typed)
+        if not joined and decision.intent is not None and decision.intent.unexplained and recognition.tdt_transcript:
+            # The CTC head heard the joining word as another ("... light *in*
+            # set its brightness"), which the transcript, made already, has.
+            joined = compound.has_joiner((recognition.tdt_transcript or "").split())
+        if decision.refused is None and joined:
             if clause or not self._compound(decision, recognition, log_probs, frame_seconds, command_audio, satellite, transcriber):
                 if decision.command is not None:
                     decision.compound = {"half": decision.command.id}
@@ -743,63 +744,86 @@ class Engine:
         """Two commands said together (voice_labs/compound.py), at the first
         joining word where both sides are commands: each heard on its own
         stretch of the audio (typed, its own words), one that is none
-        borrowing words from the other. Into ``decision``: the first, with the
-        second as its ``then``. Whether they were."""
+        borrowing words from the other. Else the transcript's words, as
+        typed: the CTC head may have missed the joining word, or misheard a
+        clause ("turn on the home assistant *like*") the transcript has
+        right. Into ``decision``: the first, with the second as its
+        ``then``. Whether they were."""
         typed = getattr(transcriber, "source", "TDT") == "typed"
-        with self._lock:
-            compiled = self.compiled
-        assert compiled is not None
         # A clause is its own stretch of audio: the TDT head transcribes it,
         # where an STT entity hears the whole call.
         heard_by = transcriber if typed or getattr(transcriber, "source", "TDT") == "TDT" else self.transcriber
         spotted = recognition.spotting.words
         words = [w.text for w in spotted]
         started = time.perf_counter()
-        for start, end in compound.splits(words):
-            texts = [" ".join(words[:start]), " ".join(words[end:])]
-            if typed:
+        try:
+            for start, end in compound.splits(words):
+                texts = [" ".join(words[:start]), " ".join(words[end:])]
+                if typed:
+                    clauses = [self.recognize_text(text, satellite, clause=True) for text in texts]
+                else:
+                    cut, resume = spotted[start].start, spotted[end - 1].end + 1
+                    samples = int(round(frame_seconds * SAMPLE_RATE))
+                    audio = [command_audio[: cut * samples], command_audio[resume * samples :]]
+                    if min(len(a) for a in audio) < SAMPLE_RATE // 10:
+                        continue  # no audio to hear one in (evidence made from text)
+                    clauses = [
+                        self.decide(log_probs[:cut], frame_seconds, audio[0], satellite, heard_by, clause=True),
+                        self.decide(log_probs[resume:], frame_seconds, audio[1], satellite, heard_by, clause=True),
+                    ]
+                if self._both(decision, clauses, texts, " ".join(words[start:end]), satellite):
+                    return True
+            if typed or not recognition.tdt_transcript:
+                return False
+            heard = recognition.tdt_transcript.split()
+            for start, end in compound.splits(heard):
+                texts = [" ".join(heard[:start]), " ".join(heard[end:])]
                 clauses = [self.recognize_text(text, satellite, clause=True) for text in texts]
-            else:
-                cut, resume = spotted[start].start, spotted[end - 1].end + 1
-                samples = int(round(frame_seconds * SAMPLE_RATE))
-                clauses = [
-                    self.decide(log_probs[:cut], frame_seconds, command_audio[: cut * samples], satellite, heard_by, clause=True),
-                    self.decide(log_probs[resume:], frame_seconds, command_audio[resume * samples :], satellite, heard_by, clause=True),
-                ]
-            said = [(c.transcript or t).split() for c, t in zip(clauses, texts)]
-            borrowed = None
-            for index, which in ((0, "first"), (1, "second")):
-                if clauses[index].command is None:
-                    borrowed = which
-                    clauses[index] = next(
-                        (d for text in compound.borrowings(said[0], said[1], which)
-                         if (d := self.recognize_text(text, satellite, clause=True)).command is not None
-                         and d.intent is not None and not d.intent.unexplained),
-                        clauses[index],
-                    )
-            first, second = clauses
-            if first.command is None or second.command is None:
-                continue
-            # A second that names nothing acts on what the first named, when
-            # it can ("... kitchen lights and set the brightness to 50").
-            said = compound.target(first.slots, compiled.data.get("names") or {}, compiled.devices) if _named(first) else None
-            if said and not _named(second):
-                again = self.recognize_text(f"{second.transcript} {said}", satellite, clause=True)
-                if again.command is not None and again.intent is not None and not again.intent.unexplained and all(
-                    again.slots.get(slot) == first.slots.get(slot) for slot in NAME_SLOTS if first.slots.get(slot)
-                ):
-                    second = again
-            decision.command, decision.behavior, decision.intent = first.command, first.behavior, first.intent
-            decision.slots, decision.matched_by, decision.text_from_tdt = first.slots, first.matched_by, first.text_from_tdt
-            decision.then = second
-            decision.compound = {
-                "joiner": " ".join(words[start:end]), "texts": [first.transcript, second.transcript],
-                "borrowed": borrowed, "first": first.recognition,
-            }
+                if self._both(decision, clauses, texts, " ".join(heard[start:end]), satellite):
+                    assert decision.compound is not None
+                    decision.compound["from"] = "transcript"
+                    return True
+            return False
+        finally:
             recognition.timings["compound"] = time.perf_counter() - started
-            return True
-        recognition.timings["compound"] = time.perf_counter() - started
-        return False
+
+    def _both(self, decision: Decision, clauses: list[Decision], texts: list[str], joiner: str, satellite: Satellite) -> bool:
+        """Two clauses as two commands -- one that is none borrowing from the
+        other, a second that names nothing taking what the first named --
+        into ``decision`` (``_compound``); whether they are."""
+        with self._lock:
+            compiled = self.compiled
+        assert compiled is not None
+        said = [(c.transcript or t).split() for c, t in zip(clauses, texts)]
+        borrowed = None
+        for index, which in ((0, "first"), (1, "second")):
+            if clauses[index].command is None:
+                borrowed = which
+                clauses[index] = next(
+                    (d for text in compound.borrowings(said[0], said[1], which)
+                     if (d := self.recognize_text(text, satellite, clause=True)).command is not None
+                     and d.intent is not None and not d.intent.unexplained),
+                    clauses[index],
+                )
+        first, second = clauses
+        if first.command is None or second.command is None:
+            return False
+        # A second that names nothing acts on what the first named, when it
+        # can ("... kitchen lights and set the brightness to 50").
+        target = compound.target(first.slots, compiled.data.get("names") or {}, compiled.devices) if _named(first) else None
+        if target and not _named(second):
+            again = self.recognize_text(f"{second.transcript} {target}", satellite, clause=True)
+            if again.command is not None and again.intent is not None and not again.intent.unexplained and all(
+                again.slots.get(slot) == first.slots.get(slot) for slot in NAME_SLOTS if first.slots.get(slot)
+            ):
+                second = again
+        decision.command, decision.behavior, decision.intent = first.command, first.behavior, first.intent
+        decision.slots, decision.matched_by, decision.text_from_tdt = first.slots, first.matched_by, first.text_from_tdt
+        decision.then = second
+        decision.compound = {
+            "joiner": joiner, "texts": [first.transcript, second.transcript], "borrowed": borrowed, "first": first.recognition,
+        }
+        return True
 
     def _fall_back(self, decision: Decision, recognition: Recognition, compiled: Compiled, satellite: Satellite) -> None:
         """Nothing matched: the closest command by meaning, then GLiNER."""
