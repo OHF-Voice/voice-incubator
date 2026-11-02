@@ -59,7 +59,7 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
 
-from . import languages, skills, triggers
+from . import compound, languages, skills, triggers
 from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots, says
 from .fallback import kin, label_of
 from .store import Compiled, Device, phrase_key
@@ -218,6 +218,15 @@ class Decision:
     outcome: str | None = None
     """How the command it ran turned out (actions.Outcome.name), once it ran."""
 
+    then: "Decision | None" = None
+    """The second of two commands said together (voice_labs/compound.py),
+    run after this one."""
+    compound: dict[str, Any] | None = None
+    """How the sentence was split in two (``joiner``, each clause's
+    ``texts``, which ``borrowed`` words, the ``first`` clause's own
+    recognition), or that it couldn't be (``split``: false; ``half``: the
+    command that would have done half of it)."""
+
     timings: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -236,6 +245,8 @@ class Decision:
             "transcript_pass": self.transcript_pass,
             "doubt": self.doubt,
             "answer": self.answer,
+            **({"compound": self.compound} if self.compound is not None else {}),
+            **({"then": self.then.to_json()} if self.then is not None else {}),
             "hint": self.hint,
             "message": self.message,
             "text_from_tdt": self.text_from_tdt,
@@ -570,10 +581,11 @@ class Engine:
             decision.timings["answer_words"] = time.perf_counter() - started
         return decision
 
-    def recognize_text(self, text: str, satellite: Satellite) -> Decision:
+    def recognize_text(self, text: str, satellite: Satellite, clause: bool = False) -> Decision:
         """Typed text, as if it had been said and heard word for word: the
         CTC matcher reads evidence made from its spoken words (no audio, no
-        speech recognition), and the text itself is the transcript."""
+        speech recognition), and the text itself is the transcript.
+        ``clause``: as ``decide``'s."""
         started = time.perf_counter()
         with self._lock:
             recognizer = self.recognizer
@@ -582,7 +594,7 @@ class Engine:
         log_probs, unspellable = self.model.vocab.text_log_probs(spellings[0] if spellings else [])
         built = time.perf_counter() - started
         decision = self.decide(
-            log_probs, self.model.frame_seconds, np.zeros(0, dtype=np.float32), satellite, TypedText(text)
+            log_probs, self.model.frame_seconds, np.zeros(0, dtype=np.float32), satellite, TypedText(text), clause
         )
         if decision.recognition.get("tdt_transcript") is None:
             decision.recognition["tdt_transcript"] = text  # known, needed or not
@@ -598,10 +610,13 @@ class Engine:
         command_audio: np.ndarray,
         satellite: Satellite,
         transcriber: Any = None,
+        clause: bool = False,
     ) -> Decision:
         """What the command comes to. The CTC matcher always runs; text --
         examples not found in the CTC evidence, free text, hints -- comes from
-        ``transcriber`` when given, else the TDT head, and only when needed."""
+        ``transcriber`` when given, else the TDT head, and only when needed.
+        ``clause``: one of two commands said together (voice_labs/compound.py):
+        a command or nothing -- no skill, fallback or hint."""
         transcriber = transcriber or self.transcriber
         with self._lock:
             compiled, recognizer = self.compiled, self.recognizer
@@ -645,6 +660,23 @@ class Engine:
                 self._match_transcript(decision, recognition.tdt_transcript, compiled, recognizer, satellite)
             if decision.command is None and decision.refused is None and compiled.heard_triggers is not None and not typed:
                 self._said_trigger(decision, [recognition.tdt_transcript or ""], compiled, satellite)
+        # Two commands said together: each on its own, or neither -- never
+        # half of what was asked (voice_labs/compound.py).
+        words = [w.text for w in recognition.spotting.words]
+        if (
+            decision.refused is None
+            and compound.leaves_joined(decision, words)
+            and self._joined_said(recognition, command_audio, transcriber, typed)
+        ):
+            if clause or not self._compound(decision, recognition, log_probs, frame_seconds, command_audio, satellite, transcriber):
+                if decision.command is not None:
+                    decision.compound = {"half": decision.command.id}
+                decision.command, decision.behavior, decision.intent, decision.slots = None, None, None, {}
+                decision.compound = {**(decision.compound or {}), "split": False}
+        if clause:
+            decision.recognition = to_json(recognition)
+            decision.timings = dict(recognition.timings)
+            return decision
         if decision.command is None and decision.refused is None:
             # Each transcript, TDT's first: one may hear "fifty degrees F in
             # Celsius" where the other heard "FN Celsius".
@@ -653,7 +685,8 @@ class Engine:
             if exact is not None:
                 # Spelling, dates, units, arithmetic: exact, and instant.
                 decision.answer = exact.to_json()
-            elif self.fallback is not None and compiled.commands:
+            elif self.fallback is not None and compiled.commands and decision.compound is None:
+                # (Not two commands: meaning and the model would pick one.)
                 self._fall_back(decision, recognition, compiled, satellite)
         if decision.refused is not None:
             decision.hint = decision.refused
@@ -667,6 +700,10 @@ class Engine:
                 command = compiled.commands[picked["command"]]
                 text = satellite.not_here() if satellite.available(command) is None else say.hint(command.description, say.PARTLY)
                 decision.hint = {"source": "gliner", "command": command.id, "text": text}
+            half = (decision.compound or {}).get("half")
+            if half in compiled.commands:
+                # Two commands said together, not both understood: neither ran.
+                decision.hint = {"source": "compound", "command": half, "text": say.hint(compiled.commands[half].description, say.PARTLY)}
             if not compiled.commands:
                 # Only the app's own commands are listened for.
                 decision.hint = {"source": None, "text": say.NO_COMMANDS}
@@ -678,6 +715,91 @@ class Engine:
         # in for an STT entity that failed or heard nothing.
         decision.text_source = getattr(transcriber, "source", decision.text_source)
         return decision
+
+    @staticmethod
+    def _joined_said(recognition: Recognition, command_audio: np.ndarray, transcriber: Any, typed: bool) -> bool:
+        """Whether the transcript has a joining word too: the CTC head's
+        "and" may be a word it misheard ("set *and* light to green", said
+        "set bed light")."""
+        if typed or transcriber is None:
+            return True
+        if recognition.tdt_transcript is None:
+            started = time.perf_counter()
+            recognition.tdt_transcript = transcriber.transcribe(command_audio)
+            _took(recognition.timings, _timing(transcriber), started)
+        joining = compound.joining_words()
+        return any(w.lower().strip(".,!?") in joining for w in (recognition.tdt_transcript or "").split())
+
+    def _compound(
+        self,
+        decision: Decision,
+        recognition: Recognition,
+        log_probs: np.ndarray,
+        frame_seconds: float,
+        command_audio: np.ndarray,
+        satellite: Satellite,
+        transcriber: Any,
+    ) -> bool:
+        """Two commands said together (voice_labs/compound.py), at the first
+        joining word where both sides are commands: each heard on its own
+        stretch of the audio (typed, its own words), one that is none
+        borrowing words from the other. Into ``decision``: the first, with the
+        second as its ``then``. Whether they were."""
+        typed = getattr(transcriber, "source", "TDT") == "typed"
+        with self._lock:
+            compiled = self.compiled
+        assert compiled is not None
+        # A clause is its own stretch of audio: the TDT head transcribes it,
+        # where an STT entity hears the whole call.
+        heard_by = transcriber if typed or getattr(transcriber, "source", "TDT") == "TDT" else self.transcriber
+        spotted = recognition.spotting.words
+        words = [w.text for w in spotted]
+        started = time.perf_counter()
+        for start, end in compound.splits(words):
+            texts = [" ".join(words[:start]), " ".join(words[end:])]
+            if typed:
+                clauses = [self.recognize_text(text, satellite, clause=True) for text in texts]
+            else:
+                cut, resume = spotted[start].start, spotted[end - 1].end + 1
+                samples = int(round(frame_seconds * SAMPLE_RATE))
+                clauses = [
+                    self.decide(log_probs[:cut], frame_seconds, command_audio[: cut * samples], satellite, heard_by, clause=True),
+                    self.decide(log_probs[resume:], frame_seconds, command_audio[resume * samples :], satellite, heard_by, clause=True),
+                ]
+            said = [(c.transcript or t).split() for c, t in zip(clauses, texts)]
+            borrowed = None
+            for index, which in ((0, "first"), (1, "second")):
+                if clauses[index].command is None:
+                    borrowed = which
+                    clauses[index] = next(
+                        (d for text in compound.borrowings(said[0], said[1], which)
+                         if (d := self.recognize_text(text, satellite, clause=True)).command is not None
+                         and d.intent is not None and not d.intent.unexplained),
+                        clauses[index],
+                    )
+            first, second = clauses
+            if first.command is None or second.command is None:
+                continue
+            # A second that names nothing acts on what the first named, when
+            # it can ("... kitchen lights and set the brightness to 50").
+            said = compound.target(first.slots, compiled.data.get("names") or {}, compiled.devices) if _named(first) else None
+            if said and not _named(second):
+                again = self.recognize_text(f"{second.transcript} {said}", satellite, clause=True)
+                if again.command is not None and again.intent is not None and not again.intent.unexplained and all(
+                    again.slots.get(slot) == first.slots.get(slot) for slot in NAME_SLOTS if first.slots.get(slot)
+                ):
+                    second = again
+            decision.command, decision.behavior, decision.intent = first.command, first.behavior, first.intent
+            decision.slots, decision.matched_by, decision.text_from_tdt = first.slots, first.matched_by, first.text_from_tdt
+            decision.then = second
+            decision.compound = {
+                "joiner": " ".join(words[start:end]), "texts": [first.transcript, second.transcript],
+                "borrowed": borrowed, "first": first.recognition,
+            }
+            recognition.timings["compound"] = time.perf_counter() - started
+            return True
+        recognition.timings["compound"] = time.perf_counter() - started
+        return False
 
     def _fall_back(self, decision: Decision, recognition: Recognition, compiled: Compiled, satellite: Satellite) -> None:
         """Nothing matched: the closest command by meaning, then GLiNER."""

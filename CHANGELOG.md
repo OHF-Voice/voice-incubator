@@ -119,6 +119,15 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **Two commands at once** (English): "turn on the lights and turn off the
+  TV", "turn off the desk lamp and the floor lamp", "turn off the kitchen
+  and bedroom lights", "turn on the TV and set its volume to 50%". Split at
+  "and", "then" or "and then" when the whole sentence isn't one command,
+  each part heard on its own audio, one that is no command alone borrowing
+  the other's words; "its" is what the first acted on. They run in order,
+  and are said as one sentence ("Turned off the lights and the TV."). Two at
+  most; both or neither -- before, "turn off the lights and the TV" turned
+  off the TV alone -- and one that asks first is asked on its own.
 - **Timers belong to the area.** Every satellite in an area shares the
   area's timer list (the integration's `voice_timer_list.<area>_timers`):
   a timer set on one shows on each in the same color, is asked about or

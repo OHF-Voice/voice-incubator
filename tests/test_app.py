@@ -1183,6 +1183,16 @@ async def _follow_ups(tmp_path):
         assert session.follow_up is None and not satellite.listens[-1]
         assert await satellite.answer(await said("Who wrote the Iliad?")) == "nothing_asked"
 
+        # Two commands said together: both, said as one sentence; with one
+        # that asks first, neither.
+        record = await app.try_text("turn on the lights and lock the front door", MAC, run_actions=True)
+        assert stage(record, "speech")["text"] == "Turned on the lights and locked."
+        assert [s["outcome"] for s in record.stages if s["stage"] == "action"] == ["done", "done"]
+        assert [stage(record, "recognition")["command"], stage(record, "recognition")["then"]["command"]] == ["lights_on", "lock"]
+        record = await app.try_text("turn on the lights and cancel all the timers", MAC, run_actions=True)
+        assert stage(record, "speech")["text"] == "Ask me to cancel all the timers on its own."
+        assert stage(record, "compound")["alone"] == "cancel_all_timers" and stage(record, "action") is None
+
         # A command that asks first: Cancel every timer, with two running.
         timer_list = "voice_timer_list.kitchen_timers"
         wake = read_call(CALLS / "call-15788.wav")[: int(1.5 * 32000)]  # "okay nabu", to the detection

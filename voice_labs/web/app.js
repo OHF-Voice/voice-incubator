@@ -4053,8 +4053,11 @@ function sessionResult(record) {
     return ["mdi:shield-off-outline", [`Wake word rejected${why ? `: ${why}` : ""}`]];
   }
   if (rec && rec.command) {
-    return ["mdi:flash-outline", [record.dry_run ? "Would run " : "Ran ", h("a", { href: `#/command/${rec.command}` }, rec.command),
-      rec.slots && Object.keys(rec.slots).length ? h("span", { class: "muted" }, ` (${slotsText(rec.slots)})`) : null]];
+    // Two commands said together: both, in order.
+    const ran = (r) => [h("a", { href: `#/command/${r.command}` }, r.command),
+      r.slots && Object.keys(r.slots).length ? h("span", { class: "muted" }, ` (${slotsText(r.slots)})`) : null];
+    return ["mdi:flash-outline", [record.dry_run ? "Would run " : "Ran ", ...ran(rec),
+      ...(rec.then && rec.then.command ? [" and ", ...ran(rec.then)] : [])]];
   }
   if (rec && rec.answer) return ["mdi:comment-question-outline", [`Answered by the ${rec.answer.skill || rec.answer.solver || rec.answer.kind} skill`]];
   if (agent) {
@@ -4261,7 +4264,7 @@ function stepGlance(stage) {
     case "replay_of":
       return { title: "Replay", status: "", line: `of ${d.call}` };
     case "recognition":
-      if (d.command) return { title: "Recognition", status: "ok", line: `${d.command} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() + recognitionTime(d) };
+      if (d.command) return { title: "Recognition", status: "ok", line: `${d.command}${d.then && d.then.command ? ` and ${d.then.command}` : ""} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() + recognitionTime(d) };
       if (d.answer) return { title: "Recognition", status: "ok", line: `a question for the ${d.answer.skill || d.answer.solver || d.answer.kind} skill${recognitionTime(d)}` };
       return { title: "Recognition", status: "warn", line: `no command${recognitionTime(d)}` };
     case "action": {

@@ -260,9 +260,9 @@ turn on the garage lights: {"command": "turn_on_here"}
 turn on the garbage lights: null
 turn on the heat: null
 turn on the kitchen lights: {"command": "turn_on_place", "slots": {"area": ["kitchen"]}}
-turn on the kitchen lights and set brightness to 50: {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 50}}
+turn on the kitchen lights and set brightness to 50: {"command": "turn_on_place", "slots": {"area": ["kitchen"]}, "then": {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 50}}}
 turn on the lights: {"command": "turn_on_here"}
-turn on the lights and set brightness to 50 percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
+turn on the lights and set brightness to 50 percent: {"command": "turn_on_here", "then": {"command": "set_brightness_here", "slots": {"percentage": 50}}}
 turn on the lights at 50 percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
 turn on the lights for 10 minutes: null
 turn on the lights in the den: null
@@ -275,7 +275,7 @@ turn on the lights to 50: {"command": "set_brightness_here", "slots": {"percenta
 turn on the lights to 50 percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
 turn on the lights to fifty percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
 turn on the oven: null
-turn on the the kitchen lights and set the brightness to 50: {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 50}}
+turn on the the kitchen lights and set the brightness to 50: {"command": "turn_on_place", "slots": {"area": ["kitchen"]}, "then": {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 50}}}
 turn on the tv: null
 turn the ac down to 68: null
 turn the air conditioning up to 72: null

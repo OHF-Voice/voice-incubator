@@ -98,6 +98,15 @@ class Pack:
         return importlib.import_module(f"{__name__}.{self.code}.calendar")
 
     @property
+    def compound(self) -> ModuleType | None:
+        """Its ``compound`` module -- the words that join two commands said
+        together, and what both say as one sentence (voice_labs/compound.py)
+        -- if it hears them; None if one sentence is one command."""
+        if not (self.directory / "compound.py").is_file():
+            return None
+        return importlib.import_module(f"{__name__}.{self.code}.compound")
+
+    @property
     def lists(self) -> dict[str, Any]:
         """The value lists every home has in it, by name (``lists.yaml``):
         colors, on_off, cover_classes ... One of a home's own by the same

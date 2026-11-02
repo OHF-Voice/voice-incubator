@@ -257,6 +257,33 @@ both match at the same cost, and `Engine._take` takes the one picked for the
 satellite first; so do meaning and the model step among a command's versions
 and copies (`Satellite.first`).
 
+### Two commands said together
+
+`voice_labs/compound.py`, in a language with a `compound` module (English).
+A sentence whose best match leaves a joining word unexplained -- or that
+matched nothing, with one between other words -- and whose transcript has
+the joining word too (the CTC head hears "bed" as "and": `_joined_said`), is
+split there, but not within an amount ("an hour and a half",
+`within_an_amount`)
+(`Engine._compound`): each clause is matched on its own stretch of the CTC
+evidence (its frames; the TDT head transcribes it, where an STT entity
+hears the whole call), as a command alone would be (`decide(clause=True)`:
+no skill, fallback or hint). A clause that is no command alone borrows from
+the other, the shortest that is a command with nothing left over: the
+first, the second's last words ("turn off the kitchen | bedroom lights");
+the second, the first's first words ("turn off the lights | the TV"). A
+second that names nothing acts on what the first named when it can (heard
+again with it said: `compound.target`), and a second's pronoun is what the
+first acted on (`_referring`, with "its" and
+"their" among English's pronouns). The first is the decision, the second
+its `then`; `compound` says how it was split. Both or neither: a sentence
+left half matched has its command dropped (`compound.half`; the hint says
+"…but I didn't understand all of it") and goes on as unmatched -- to the
+agent, never to meaning or GLiNER, which would pick one. `_carry_out_both`
+runs them in order (`_run_command` each) and says both as one sentence (the
+language's `both`), or neither when one asks first (`confirm`). Measured on
+typed sentences and Piper's (`tests/test_compound.py`).
+
 ### Home Assistant's sentence triggers
 
 An automation that starts on a sentence (a conversation trigger) is heard
@@ -346,6 +373,7 @@ automation's page.
 | `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
 | `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`) -- and how the answer is read |
 | `voice_labs/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
+| `voice_labs/compound.py` | two commands said together ("and", "then"; English's `languages/en/compound.py`): where to split, what a clause borrows, what both say as one |
 | `voice_labs/night.py` | night mode (each area's switch, followed by `integration.py`): a command that acts blinks how it went (the `result` event), an answer or a question is said quietly, none of the sounds, do not disturb too; the satellite is told (`night` event) |
 | `voice_labs/triggers.py` | Home Assistant's sentence triggers: read and grouped by automation, kept current, heard as examples or on the transcript (hassil), ahead of the commands, and run by its own agent |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |

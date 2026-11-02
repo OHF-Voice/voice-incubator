@@ -403,7 +403,12 @@ def _route(engine, office, text):
     decision = engine.recognize_text(text, office)
     if decision.command is None:
         return None
-    return {"command": decision.command.id, **({"slots": decision.slots} if decision.slots else {})}
+    route = {"command": decision.command.id, **({"slots": decision.slots} if decision.slots else {})}
+    if decision.then is not None:
+        # Two commands said together (voice_labs/compound.py): the second too.
+        then = decision.then
+        route["then"] = {"command": then.command.id, **({"slots": then.slots} if then.slots else {})}
+    return route
 
 
 def _write_routes(routes):

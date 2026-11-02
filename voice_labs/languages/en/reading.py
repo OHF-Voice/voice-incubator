@@ -102,10 +102,11 @@ what an answer with neither, or both, is told apart by, by meaning."""
 # --------------------------------------------------------------- pronouns
 # Said in place of what was last spoken of (voice_labs/context.py).
 
-PRONOUNS = {"it", "them", "that", "those", "they"}
-"""Each, said where a device's name would be ("lock it"), stands for the
-devices last spoken of: the sentence is heard again with their names in its
-place. Lowercase; a word of its own (one joined to its verb isn't)."""
+PRONOUNS = {"it", "them", "that", "those", "they", "its", "their"}
+"""Each, said where a device's name would be ("lock it", "set its volume"),
+stands for the devices last spoken of: the sentence is heard again with
+their names in its place. Lowercase; a word of its own (one joined to its
+verb isn't)."""
 
 # ------------------------------------------------------------------- clock
 

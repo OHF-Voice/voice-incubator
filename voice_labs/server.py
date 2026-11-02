@@ -41,7 +41,7 @@ from .fallback import (
     needs_model,
 )
 from .engine import Decision, Engine, Satellite, model_note
-from . import context, follow_up, triggers
+from . import compound, context, follow_up, triggers
 from . import night as night_mode
 from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
@@ -2769,7 +2769,10 @@ class VoiceLabsApp:
         done -- and a one-line summary. ``wake_word``: what started the call
         (``_wake_json``), as commands see it; ``cue``: plays one of its
         sounds (asking the conversation agent); ``confirmed``: its question
-        was answered yes (or can't be heard)."""
+        was answered yes (or can't be heard). Two commands said together
+        (``then``; voice_labs/compound.py): each, and what both say as one."""
+        if decision.command is not None and decision.then is not None:
+            return await self._carry_out_both(decision, satellite, speaker, dry_run, record, wake_word)
         if (
             decision.command is None
             and decision.answer is None
@@ -2805,6 +2808,53 @@ class VoiceLabsApp:
             tried = model_note(decision.fallback)
             summary = f"{decision.transcript!r}: {message}" + (f" ({tried})" if tried else "")
             return message, "not recognized", summary
+        return await self._run_command(decision, satellite, speaker, dry_run, record, wake_word, confirmed)
+
+    async def _carry_out_both(
+        self,
+        decision: Decision,
+        satellite: Satellite,
+        speaker: dict[str, Any],
+        dry_run: bool,
+        record: CallRecord | None,
+        wake_word: dict[str, Any] | None,
+    ) -> tuple[str | None, str, str]:
+        """Two commands said together, one after the other, and what both
+        say as one sentence -- but none, when one asks first (it is asked on
+        its own)."""
+        assert decision.command is not None and decision.then is not None and decision.then.command is not None
+        # The first as heard on its own (its own words), not the sentence.
+        first = replace(decision, then=None, recognition=(decision.compound or {}).get("first") or decision.recognition)
+        second = decision.then
+        commands = f"{first.command.id} and {second.command.id}"
+        asks = next((d for d in (first, second) if d.behavior is not None and d.behavior.confirm), None)
+        if asks is not None:
+            if record is not None:
+                record.stage("compound", alone=asks.command.id)
+            return compound.alone(asks.command.description), "not recognized", f"{commands}: {asks.command.id} asks first"
+        said: list[str | None] = []
+        states: list[str] = []
+        for part in (first, second):
+            speech, state, _ = await self._run_command(part, satellite, speaker, dry_run, record, wake_word, False)
+            said.append(speech)
+            states.append(state)
+        decision.outcome = next((d.outcome for d in (first, second) if d.outcome != "done"), "done")
+        state = "error" if "error" in states else "dry run" if dry_run else "done"
+        return compound.both(*said), state, f"{commands}: {decision.transcript!r}"
+
+    async def _run_command(
+        self,
+        decision: Decision,
+        satellite: Satellite,
+        speaker: dict[str, Any],
+        dry_run: bool,
+        record: CallRecord | None,
+        wake_word: dict[str, Any] | None,
+        confirmed: bool,
+    ) -> tuple[str | None, str, str]:
+        """``_carry_out``'s, for a command: run (or shown), remembered for
+        "it", and what it says."""
+        assert decision.command is not None
         _LOGGER.info(
             "Matched %s (%s) slots=%s%s",
             decision.command.id,
@@ -2891,11 +2941,23 @@ class VoiceLabsApp:
             return streamed
         return self._agent_answered(decision, record, asking)
 
-    async def _referring(self, decision: Decision, satellite: Satellite, record: CallRecord | None) -> Decision:
+    async def _referring(
+        self, decision: Decision, satellite: Satellite, record: CallRecord | None, referred: list[str] | None = None
+    ) -> Decision:
         """The sentence heard again with what its area last spoke of in its
         pronoun's place (voice_labs/context.py): taken when that reading is a
-        command acting on it, else the sentence as it was heard."""
-        referred = self.context.referred(conversation_key(satellite))
+        command acting on it, else the sentence as it was heard. Two commands
+        said together (voice_labs/compound.py): each clause, the second's
+        pronoun being what the first acted on, when it named something."""
+        if decision.then is not None and decision.compound is not None:
+            alone = replace(decision, then=None, recognition=decision.compound.get("first") or decision.recognition)
+            first = await self._referring(alone, satellite, record)
+            second = await self._referring(decision.then, satellite, record, list(first.slots.get("entity") or []) or None)
+            # Heard again, the first is its own; else the whole sentence's.
+            first = decision if first is alone else first
+            first.then, first.compound = second, decision.compound
+            return first
+        referred = referred or self.context.referred(conversation_key(satellite))
         if not referred or self.engine is None:
             return decision
         if context.substitute(decision.transcript, ["x"]) is None:
