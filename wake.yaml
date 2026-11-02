@@ -155,7 +155,6 @@ wake_words:
       naba: n ˈɑ b ə
       nabby: n ˈæ b i
       nabo: n ˈɑ b oʊ
-      nabou: n ə b ˈu
       nadu: n ə d ˌu
       nagu: n ɑ ɡ ˈu
       nahbu: n ˈɑ b u
@@ -189,10 +188,11 @@ wake_words:
     # rejections on one VPE channel were this entry, and dropping it is worth
     # 8 points of verification to her and nothing to anyone else.
     #
-    # "okay naboo" was removed: it is the wake word said "nuh-BOO", which
-    # nobody says by accident, so there was no false wake for it to stop. On
-    # the 1,019 aligned wake words of the corpus (tests/alignments) it was
-    # never the rival, and without it no verdict changes.
+    # "okay naboo" and "okay nabou" were removed: each is the wake word said
+    # "nuh-BOO", which nobody says by accident, so there was no false wake
+    # for them to stop. On the 1,019 aligned wake words of the corpus
+    # (tests/alignments) neither was ever the rival, and without either no
+    # verdict changes.
     #
     # "okay now" is a different matter and stays: it fires at 0.59 on the same
     # test, which is the one rival in this list that genuinely reaches the
@@ -210,7 +210,6 @@ wake_words:
       - okay nabby
       - okay nabil
       - okay nabo
-      - okay nabou
       - okay nadia
       - okay nadine
       - okay nadu

@@ -2183,10 +2183,10 @@ for the adult woman in the corpus — all 17 of her confusable rejections on one
 VPE channel were this one entry — and dropping it is worth 8 points of
 verification to her and nothing to anybody else.
 
-`okay naboo` went for another reason: it is the wake word said
-"nuh-BOO", so there was no false wake for it to stop. Re-verifying the 1,019
-aligned wake words of the corpus without it changed no verdict; it had never
-been the rival.
+`okay naboo` and `okay nabou` went for another reason: each is the wake word
+said "nuh-BOO", so there was no false wake for them to stop. Re-verifying the
+1,019 aligned wake words of the corpus without either changed no verdict;
+neither had ever been the rival.
 
 `okay now` is the opposite case and stays. It is the one rival that genuinely
 reaches the verifier, and it is also what the recognizer mistakes the wake word
