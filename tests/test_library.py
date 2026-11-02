@@ -215,6 +215,41 @@ def test_a_name_in_several_rooms():
     # Only part of its area: no name to hear.
     assert heard("turn on the night light", "office") != ["light.night"]
 
+
+def test_a_name_not_heard_here_is_another_commands_word():
+    """A device called "Light" in its area only: elsewhere, "turn off the
+    (utility room) light" is the lights' keyword, as good a match as that
+    name, and turns off the lights there. A refusal with no match as good
+    is still said."""
+    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
+
+    ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
+    if not ctc.is_dir():
+        pytest.skip("no CTC model")
+    entries = [e for e in load_library() if e["file"] == "lights"]
+    engine = Engine(ctc, None, None, threads=2)
+    engine.build(compile_store({
+        "names": {
+            "entities": {"light.exercise": {"name": "Light", "house": []}, "light.desk": {"name": "Desk Lamp"}},
+            "areas": {"office": "Office", "exercise_room": "Exercise Room", "utility_room": "Utility Room"},
+        },
+        "lists": {name: values for e in entries for name, values in e["lists"].items()},
+        "commands": {e["id"]: e["spec"] for e in entries},
+    }))
+    engine.entity_area = {"light.exercise": "exercise_room", "light.desk": "office"}.get
+
+    def heard(text, area):
+        decision = engine.recognize_text(text, Satellite("s", area.title(), area, area.title()))
+        return (decision.command.id, decision.slots.get("entity") or decision.slots.get("area")) if decision.command else decision.message
+
+    assert heard("turn off utility room light", "office") == ("turn_off_place", ["utility_room"])
+    assert heard("turn off the light in the utility room", "office") == ("turn_off_place", ["utility_room"])
+    assert heard("turn off the light", "office") == ("turn_off_here", None)
+    assert heard("turn off the light", "exercise_room") == ("turn_off_device", ["light.exercise"])
+    assert heard("turn off the exercise room light", "office") == ("turn_off_device", ["light.exercise"])
+    assert heard("turn on the desk lamp in the utility room", "office").endswith("but there's no Desk Lamp in the Utility Room.")
+
 def test_icons_are_material_design_names():
     base = {"description": "x", "examples": ["x"], "response": "ok"}
     assert parse_command("x", {**base, "icon": "mdi:lightbulb"})

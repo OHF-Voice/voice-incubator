@@ -924,13 +924,23 @@ class Engine:
     ) -> None:
         """The first of ``recognition``'s matches this satellite may run:
         its command, behavior and slots into ``decision`` (or a refusal).
-        Of matches that cost the same, the area's own goes first."""
+        Of matches that cost the same, the area's own goes first.
+
+        A device name not heard as said (``fit_devices``) gives way to a
+        match as good as it: in "turn off utility room light", with only the
+        Exercise Room's light called "Light", "light" is the lights' keyword,
+        not that name. The refusal is said when no match as good runs."""
 
         def mine_first(result) -> tuple[float, bool]:
             command = compiled.commands.get(command_of(result.intent))
             return (result.cost, not (command is not None and satellite.picked(command)))
 
+        recognizer = self.recognizer
+        margin = recognizer.config.settings.ambiguity_margin if recognizer is not None else 0.0
+        refusal: tuple[IntentResult, dict[str, Any], dict[str, Any]] | None = None
         for result in sorted(recognition.matches, key=mine_first):
+            if refusal is not None and result.cost - refusal[0].cost >= margin:
+                break
             command = compiled.commands.get(command_of(result.intent))
             if command is None:
                 continue
@@ -960,8 +970,11 @@ class Engine:
                 decision.slots[triggers.SENTENCE] = result.example or recognition.tdt_transcript or recognition.transcript or ""
             refused = self.fit_devices(decision, compiled, satellite)
             if refused is not None:
-                decision.command, decision.behavior, decision.refused = None, None, refused
-                return
+                refusal = refusal or (result, decision.slots, refused)
+                decision.command, decision.behavior, decision.intent, decision.slots = None, None, None, {}
+                continue
+            if refusal is not None:
+                result.notes.append(f"{refusal[0].intent}, as good, was refused: {refusal[2]['text']}")
             heard_intent = command.intents.get(result.intent) or command.intent
             if heard_intent.get("wildcard"):
                 self._reread_text(
@@ -969,6 +982,8 @@ class Engine:
                     heard_intent["wildcard"], transcriber,
                 )
             return
+        if refusal is not None:
+            decision.intent, decision.slots, decision.refused = refusal
 
     def _hear_again(
         self,
