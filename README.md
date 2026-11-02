@@ -1271,8 +1271,10 @@ music down and flashes the LED ring while one rings.
 **The LED ring.** Between calls the ring shows the time left on each of the
 satellite's active timers, layered: the whole ring is the longest one's
 length (`scale`), each timer's color reaches as far as it has left, the
-soonest on top, each an LED past the one before at least, and an end within
-an LED blends into what is under it. Each running timer keeps its color
+soonest on top, each an LED past the one before at least, each LED one
+timer's (an end within an LED takes it from the next half on; only the last
+fades out), at 50% brightness at least with two or more by day. Each running
+timer keeps its color
 (`timers.colors`: `COLORS` in order, the first free, round again once all are
 taken; the first is the LED Ring light's own); paused ones aren't shown; at
 night they are all amber. The app sends a `timer_progress` event when that

@@ -288,10 +288,13 @@ def _match(
 LAYERS = 6
 """The most timers the ring shows at once, soonest first: each gets an LED
 of its own at least."""
-COLORS = (-1, 0xFF7A00, 0xE000FF, 0x00E040, 0xFFD800, 0x5A3CFF)
+COLORS = (-1, 0xFFFF00, 0xFF00FF, 0x00FF00, 0x00FFFF, 0xFFFFFF)
 """Each running timer's color on the ring (0xRRGGBB), in order: -1 is the
-LED Ring light's own, so a timer alone looks as it always did. None is red:
-the ring's red is the mute switch and errors."""
+LED Ring light's own, so a timer alone looks as it always did. The others
+have each channel full or off: the ring's gamma (2.8) takes a channel
+between down to nearly nothing, so orange showed red, yellow orange and
+violet the blue of the LED Ring light. None is red (the mute switch and
+errors) or blue (beside the LED Ring light's)."""
 
 
 def colors(running: list[dict[str, Any]], kept: dict[str, int]) -> dict[str, int]:

@@ -124,9 +124,13 @@
   has left, the soonest on top: where the colors change is when each
   finishes. Colors come from a fixed list, the first free one (the first is
   the LED Ring light's own, so a timer alone looks as before), round again
-  once all are taken; each keeps its own while it runs. Every timer has an
-  LED at least; paused ones aren't shown; at night, all amber. Needs the
-  firmware updated; older firmware shows the soonest alone, as before.
+  once all are taken; each keeps its own while it runs. They are yellow,
+  magenta, green, cyan and white -- each channel full or off, as the ring's
+  gamma takes any between down to nearly nothing (orange showed red) -- each
+  LED is one timer's, and with two or more running the ring is at 50%
+  brightness at least by day. Every timer has an LED at least; paused ones
+  aren't shown; at night, all amber. Needs the firmware updated; older
+  firmware shows the soonest alone, as before.
 - **Night mode**, in each area: its switch from the integration
   (`switch.<area>_night_mode`, at the top of the area's page too). On, a
   command that acts says nothing -- the ring shows how it went, one slow
