@@ -274,6 +274,7 @@ class Recognizer:
         transcriber=None,
         embedder=None,
         one_phrase: bool = False,
+        meaning_texts: dict[str, list[str]] | None = None,
     ) -> None:
         if model is None and vocab is None:
             raise ValueError("Need an acoustic model or at least its vocabulary")
@@ -290,6 +291,10 @@ class Recognizer:
         self.embedder = embedder
         """Anything with ``embed(texts, document) -> unit vectors``: an
         ``Embedder``. Without one, examples must be said word for word."""
+        self.meaning_texts = dict(meaning_texts or {})
+        """Texts for meaning alone, by owner: what something the app runs
+        that listens for nothing here is about -- ranked and named by
+        ``rank_by_meaning`` and ``closest_by_meaning``, never matched."""
 
         self.examples: dict[str, tuple[str, str]] = {
             sentence_key(text, config.language): (intent.name, text)
@@ -358,7 +363,7 @@ class Recognizer:
             (intent.name, intent.description)
             for intent in self.config.intents.values()
             if intent.description
-        ]
+        ] + [(owner, text) for owner, texts in self.meaning_texts.items() for text in texts if text]
         self._distractors: list[str] = []
         self.embed_seconds = 0.0
         if self.embedder is None or not self._hint_owners:

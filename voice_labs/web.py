@@ -456,8 +456,11 @@ class Api:
                 "disabled": bool(own.get("disabled")),
                 "off": list(own.get("off") or []),
                 "fallback": list(own.get("fallback") or []),
-                # Meaning sends one of its own sentences: none with free text.
+                # Meaning sends one of its own sentences; the model, one of
+                # its templates said with the free text it heard.
                 "by_meaning": bool(trigger.examples),
+                "by_model": any(trigger.free),
+                "about": trigger.about,
                 "clashes": list(dict.fromkeys(clashes)),
             }
         return out, first
@@ -728,22 +731,26 @@ class Api:
     async def put_fallback(self, request: web.Request) -> web.Response:
         """Which commands each fallback step may run: ``{meaning: [ids],
         llm: [ids]}``, exactly; a step left out is left as it is. Home
-        Assistant's sentence triggers among them, by their command's id,
-        meaning only."""
+        Assistant's sentence triggers among them, by their command's id:
+        meaning for one with sentences of its own, the model for one with
+        free text."""
         body = await request.json()
         compiled = self.app.engine.compiled if self.app.engine is not None else None
-        theirs = {t.command_id: t.key for t in self.app.store.triggers}
-        theirs.update({command_id: t.key for command_id, t in (compiled.triggers if compiled else {}).items()})
+        theirs = {t.command_id: t for t in self.app.store.triggers}
+        theirs.update(compiled.triggers if compiled else {})
         steps, trigger_keys = {}, {}
         for step in FALLBACK_STEPS:
             if step in body:
                 if not isinstance(body[step], list):
                     raise ConfigError(f"{step}: expected a list of command ids")
                 ids = [str(c) for c in body[step]]
+                for command_id in ids:
+                    trigger = theirs.get(command_id)
+                    if trigger is not None and not (trigger.examples if step == "meaning" else any(trigger.free)):
+                        why = "has no sentence of its own to send" if step == "meaning" else "has no free text for the model to hear"
+                        raise ConfigError(f"{trigger.title} {why}")
                 steps[step] = [c for c in ids if c not in theirs]
-                trigger_keys[step] = [theirs[c] for c in ids if c in theirs]
-        if trigger_keys.get("llm"):
-            raise ConfigError("Home Assistant's sentence triggers can be run by meaning, not by the model")
+                trigger_keys[step] = [theirs[c].key for c in ids if c in theirs]
         return await self._saved(self.app.store.put_fallback(steps, trigger_keys))
 
     # --------------------------------------------------------------- skills

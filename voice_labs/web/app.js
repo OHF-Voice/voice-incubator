@@ -674,11 +674,14 @@ async function pageFallback() {
       h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
     return { cid, spec, meaning, llm, row };
   });
-  // Home Assistant's sentence triggers: meaning sends one of their own sentences.
+  // Home Assistant's sentence triggers: meaning sends one of their own
+  // sentences, the model one with the free text it heard.
   for (const [cid, trigger] of Object.entries(store.triggers || {})) {
-    const meaning = h("input", { type: "checkbox", checked: (trigger.fallback || []).includes("meaning"), disabled: !trigger.by_meaning,
+    const steps = trigger.fallback || [];
+    const meaning = h("input", { type: "checkbox", checked: steps.includes("meaning"), disabled: !trigger.by_meaning,
       title: trigger.by_meaning ? "Meaning sends Home Assistant the trigger's sentence closest to what was said" : "Free text: no sentence of its own to send" });
-    const llm = h("input", { type: "checkbox", disabled: true, title: "Run by Home Assistant: the model can't fill in its sentence" });
+    const llm = h("input", { type: "checkbox", checked: steps.includes("llm"), disabled: !trigger.by_model,
+      title: trigger.by_model ? `GLiNER knows it by “${trigger.about || trigger.title}” and hears its free text` : "No free text for the model to hear" });
     const spec = { title: trigger.title, description: `Home Assistant · “${(trigger.sentences || [])[0] || ""}”` };
     const row = h("div", { class: "item" }, icon("mdi:home-assistant", "big"),
       h("div", { class: "grow" }, h("div", { class: "title" }, trigger.title || cid), h("div", { class: "muted small" }, spec.description)),

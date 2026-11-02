@@ -135,13 +135,20 @@
   that light with the Utility Room said -- and refused, there being none
   there -- where it is as well the Utility Room's lights: those are turned
   off now. The refusal is said only when no match as good runs.
-- **Meaning can run Home Assistant's sentence triggers**, chosen for it on
-  **When nothing matches** (Settings): "time to hit the hay" for a "good
-  night" trigger. Home Assistant is sent the trigger's own sentence closest
-  to what was said -- what was said is no sentence of its, and would run
-  nothing there. One with free text (`play {album} by {artist}`) has none
-  to send, and can't be chosen. Sessions say which sentence meaning found
-  closest.
+- **Meaning and the model can run Home Assistant's sentence triggers**,
+  chosen for them on **When nothing matches** (Settings) -- what was said
+  is no sentence of the trigger's, and would run nothing in Home Assistant,
+  so it is sent one that is:
+  - **meaning**, for one with sentences of its own: "time to hit the hay"
+    for a "good night" trigger sends the sentence closest to what was said.
+    Sessions say which.
+  - **the model** (GLiNER), for one with free text: "put on Kind of Blue by
+    Miles Davis" for `play {album} by {artist}` hears each wildcard by its
+    name and sends "play Kind of Blue by Miles Davis" -- once Home Assistant
+    would hear it back as that trigger, the same words in each, else
+    nothing runs. It knows a trigger by its automation's description, else
+    its name, and is given it among the closest commands in meaning (its
+    templates, said with their wildcards' names).
 - **The nearest satellite's "no" stands.** When the satellite that heard the
   wake word clearly best (6 dB or more above the next) refuses it, the
   others don't answer in its place: one in the next room, hearing it worse,

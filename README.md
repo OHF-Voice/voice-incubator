@@ -328,13 +328,25 @@ automation's page.
   run only where the trigger is turned off -- an area's own copy included.
   The trigger's row says "goes first", and the command's page says which
   trigger.
-- **By meaning.** Chosen for it on **When nothing matches** (`commands.json`
-  `triggers.<key>.fallback: [meaning]`), meaning may run a trigger as it
-  runs a command that hears nothing: then Home Assistant is sent the
-  trigger's own sentence the sentence was closest to (the meaning trace's
-  `closest_to`), else its first (`triggers.sentence_for`) -- what was said
-  is no sentence of its. One with free text has none to send, and isn't
-  chosen; the model step never runs one.
+- **By meaning and by the model.** Chosen on **When nothing matches**
+  (`commands.json` `triggers.<key>.fallback: [meaning, llm]`), the fallback
+  may run a trigger, and Home Assistant is sent a sentence of the trigger's
+  (`triggers.sentence_for`) -- what was said is none of its:
+  - **meaning**, for one with examples, as for a command that hears
+    nothing: the example the sentence was closest to (the meaning trace's
+    `closest_to`), else its first;
+  - **the model**, for one with free text: each wildcard is a free-text
+    slot by its name (`Trigger.free`: the slots each template fills
+    together, optional parts in or out, are its combinations), and a
+    template is said with what GLiNER heard -- of each alternative, the way
+    that takes the most -- and sent only when hassil matches it back to the
+    trigger with the same words in each slot. Its label is the automation's
+    description, else its name (`Command.label`, `fallback.label_of`). A
+    trigger with free text only has no adapt-ctc intent, so the recognizer
+    is given its label and its templates said with their slots' names
+    ("play album by artist"; `triggers.meaning_texts`, adapt-ctc's
+    `meaning_texts`) for ranking by meaning: GLiNER is given the closest
+    commands in meaning.
 - **Run.** The sentence -- the example heard, or the transcript a free-text
   one matched -- goes to Home Assistant's own agent (`conversation/process`,
   `conversation.home_assistant`, with the satellite's `device_id`, so

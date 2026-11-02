@@ -65,7 +65,7 @@ from adapt_ctc.template import MAX_SENTENCES
 from adapt_ctc.text import sentence_key
 
 from . import languages
-from .commands import COMMAND_ID, Behavior, Command, area_ids, base_config
+from .commands import COMMAND_ID, FALLBACK_STEPS, Behavior, Command, area_ids, base_config
 from .hass import HassError, HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,6 +94,8 @@ class Trigger:
     """Its automation entity."""
     automation_id: str | None = None
     """Its automation's id: its page in Home Assistant's editor."""
+    about: str = ""
+    """Its automation's description, as Home Assistant has it."""
     examples: tuple[str, ...] = ()
     """The sentences it stands for, listened for in the CTC evidence."""
     transcript: tuple[str, ...] = ()
@@ -101,8 +103,19 @@ class Trigger:
     sentences, or ones adapt-ctc can't spell)."""
     description: str = ""
     """What it is, for hints: saying its first sentence."""
+    free: tuple[tuple[str, ...], ...] = ()
+    """The slots its free text fills together, one set for each way of
+    saying it (its transcript templates, optional parts in or out):
+    ``(("album", "artist"),)`` for ``play {album} by {artist}``; ``()`` for
+    one said with none."""
     problems: tuple[str, ...] = ()
     """Sentences that couldn't be read, and why: never heard."""
+
+    @property
+    def label(self) -> str:
+        """What the fallback's steps know it by: its automation's
+        description, else its name."""
+        return self.about or self.title
 
     @property
     def command_id(self) -> str:
@@ -143,6 +156,7 @@ async def read(hass: HomeAssistant) -> tuple[list[Trigger], list[str]]:
             tuple(dict.fromkeys(theirs)),
             entity_id,
             automation_id,
+            " ".join(str(config.get("description") or "").split()),
         ))
     # An automation's, again (the editor's copy, or two sharing it), or
     # one's that is off (its copy, the editor open on it): not one of its own.
@@ -168,7 +182,9 @@ async def _config(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
         })
     except HassError:
         return config  # a blueprint gone, or an input missing: its sentences stand alone
-    return (result or {}).get("substituted_config") or config
+    made = (result or {}).get("substituted_config") or config
+    # Its description is the automation's own, not the blueprint's.
+    return {**made, "description": config.get("description")} if config.get("description") else made
 
 
 def sentences_in(config: dict[str, Any]) -> list[str]:
@@ -200,6 +216,7 @@ def prepare(triggers: Iterable[Trigger], language: str | None = None) -> list[Tr
         transcript: list[str] = []
         problems: list[str] = []
         readable: list[str] = []
+        free: list[tuple[str, ...]] = []
         for template in trigger.sentences:
             try:
                 parsed = parse_sentence(template)
@@ -210,6 +227,8 @@ def prepare(triggers: Iterable[Trigger], language: str | None = None) -> list[Tr
             sentences = _sentences(parsed.expression)
             if sentences is None or not _speakable(sentences, language):
                 transcript.append(template)
+                if not _has_rule(parsed.expression):
+                    free += [s for s in _slot_sets(parsed.expression) if s not in free]
                 continue
             for sentence in sentences:
                 key = sentence_key(sentence, language)
@@ -218,9 +237,31 @@ def prepare(triggers: Iterable[Trigger], language: str | None = None) -> list[Tr
                     examples.append(sentence)
         description = languages.speech().saying(_first_form(readable[0])) if readable else trigger.title
         out.append(dataclasses.replace(
-            trigger, examples=tuple(examples), transcript=tuple(transcript), description=description, problems=tuple(problems)
+            trigger, examples=tuple(examples), transcript=tuple(transcript), description=description,
+            free=tuple(free), problems=tuple(problems),
         ))
     return out
+
+
+def _slot_sets(expression: Expression) -> list[tuple[str, ...]]:
+    """The slots a template's free text fills together, each way of saying
+    it: an alternative is one of its items, an optional part in or out."""
+    if isinstance(expression, ListReference):
+        return [(expression.slot_name,)]
+    if isinstance(expression, Alternative):
+        return list(dict.fromkeys(s for item in expression.items for s in _slot_sets(item)))
+    if isinstance(expression, Group):
+        sets: list[tuple[str, ...]] = [()]
+        for item in expression.items:
+            sets = list(dict.fromkeys(tuple(sorted({*a, *b})) for a in sets for b in _slot_sets(item)))
+        return sets
+    return [()]
+
+
+def _has_rule(expression: Expression) -> bool:
+    if isinstance(expression, RuleReference):
+        return True
+    return isinstance(expression, Group) and any(_has_rule(item) for item in expression.items)
 
 
 def _sentences(expression: Expression) -> list[str] | None:
@@ -296,7 +337,8 @@ class Compiled:
 
 def settings_of(saved: Any) -> dict[str, dict[str, Any]]:
     """``commands.json``'s ``triggers``: by key, ``disabled``, ``off`` and
-    ``fallback`` (``[meaning]``: meaning may run it). Raises ConfigError."""
+    ``fallback`` (``meaning``, ``llm``: the steps that may run it). Raises
+    ConfigError."""
     if saved is None:
         return {}
     if not isinstance(saved, dict):
@@ -310,8 +352,8 @@ def settings_of(saved: Any) -> dict[str, dict[str, Any]]:
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
         steps = value.get("fallback") or []
-        if not isinstance(steps, list) or set(map(str, steps)) - {"meaning"}:
-            raise ConfigError(f"{where}.fallback: [meaning] or nothing")
+        if not isinstance(steps, list) or set(map(str, steps)) - set(FALLBACK_STEPS):
+            raise ConfigError(f"{where}.fallback: a list of {', '.join(FALLBACK_STEPS)}")
         out[str(key)] = {
             "disabled": bool(value.get("disabled", False)), "off": area_ids(value.get("off"), f"{where}.off"),
             "fallback": [str(s) for s in steps],
@@ -345,9 +387,14 @@ def compile_triggers(triggers: Iterable[Trigger], settings: dict[str, dict[str, 
             disabled=bool(own.get("disabled")),
             title=trigger.title,
             off=tuple(own.get("off") or ()),
-            # Meaning sends one of its sentences (``sentence_for``): one
-            # with free text has none to send.
-            fallback=tuple(own.get("fallback") or ()) if trigger.examples else (),
+            # Meaning sends one of its sentences, and the model one of its
+            # templates said with what it heard (``sentence_for``).
+            fallback=tuple(
+                step for step in own.get("fallback") or ()
+                if (step == "meaning" and trigger.examples) or (step == "llm" and any(trigger.free))
+            ),
+            label=trigger.label,
+            combinations=tuple(dict.fromkeys(([()] if trigger.examples else []) + list(trigger.free))) or ((),),
             intents={command_id: intent} if trigger.examples else {},
         )
         by_id[command_id] = trigger
@@ -391,12 +438,94 @@ def match(heard: Intents | None, text: str) -> list[tuple[str, dict[str, Any]]]:
     return list(found.items())
 
 
-def sentence_for(command: Command, closest: str | None) -> str:
-    """What Home Assistant is sent for a trigger meaning ran: of its own
-    sentences, the one meaning found closest, else its first -- what was
-    said ("kill the party") is no sentence of its, and would run nothing."""
+def sentence_for(
+    command: Command,
+    trigger: Trigger | None,
+    slots: dict[str, Any],
+    closest: str | None = None,
+    heard: Intents | None = None,
+) -> str | None:
+    """What Home Assistant is sent for a trigger the fallback ran -- what was
+    said ("kill the party", "put on Kind of Blue by Miles Davis") is no
+    sentence of its, and would run nothing there. With free text heard
+    (``slots``), a template of its said with it, when Home Assistant matches
+    that back to this trigger, the same words in each slot (``heard``: as
+    ``match``); else, of its own sentences, the one meaning found closest,
+    else its first. None: nothing to send."""
+    free = {k: " ".join(str(v).split()) for k, v in slots.items() if k != SENTENCE and v not in (None, "")}
+    if free:
+        for template in trigger.transcript if trigger is not None else ():
+            said = _said_with(template, free)
+            if said is not None and heard is not None and any(
+                result.intent.name == command.id
+                and {k: _same(e.value) for k, e in result.entities.items()} == {k: _same(v) for k, v in free.items()}
+                for result in recognize_all(said, heard)
+            ):
+                return said
+        return None
     examples = [str(e) for e in command.intent.get("examples") or []]
-    return closest if closest in examples else (examples[0] if examples else "")
+    return closest if closest in examples else (examples[0] if examples else None)
+
+
+def _said_with(template: str, values: dict[str, str]) -> str | None:
+    """A template said with these slots' words, all of them: of each
+    alternative, the way that takes the most. None when it can't be."""
+    try:
+        said = _with(parse_sentence(template).expression, values)
+    except Exception:  # noqa: BLE001 - hassil raises a variety
+        return None
+    if said is None or said[1] != set(values):
+        return None
+    return " ".join(said[0].split())
+
+
+def _with(expression: Expression, values: dict[str, str]) -> tuple[str, set[str]] | None:
+    if isinstance(expression, TextChunk):
+        return expression.text, set()
+    if isinstance(expression, ListReference):
+        return (values[expression.slot_name], {expression.slot_name}) if expression.slot_name in values else None
+    if isinstance(expression, RuleReference):
+        return None
+    if isinstance(expression, Alternative):
+        ways = [w for w in (_with(item, values) for item in expression.items) if w is not None]
+        return max(ways, key=lambda w: len(w[1]), default=None)
+    if isinstance(expression, Group):
+        parts = [_with(item, values) for item in expression.items]
+        if any(p is None for p in parts):
+            return None
+        joiner = " " if isinstance(expression, Permutation) else ""
+        return joiner.join(p[0] for p in parts if p), set().union(*(p[1] for p in parts if p))
+    return "", set()
+
+
+def _same(text: Any) -> str:
+    return " ".join(str(text).split()).casefold().strip(" .,!?")
+
+
+def meaning_texts(found: dict[str, Trigger], commands: dict[str, Command], intents: Iterable[str]) -> dict[str, list[str]]:
+    """What meaning knows the triggers by that listen for nothing (all free
+    text: no adapt-ctc intent of their own, in ``intents``), by command id:
+    their label and their templates, each free text said by its slot's
+    name ("play album by artist"). So the model step is given them among
+    the closest commands."""
+    listening = set(intents)
+    out: dict[str, list[str]] = {}
+    for command_id, trigger in found.items():
+        command = commands.get(command_id)
+        if command is None or command.disabled or command_id in listening:
+            continue
+        out[command_id] = list(dict.fromkeys([trigger.label, *filter(None, map(_said_by_names, trigger.transcript))]))
+    return out
+
+
+def _said_by_names(template: str) -> str | None:
+    """A template with each free text said by its slot's name, the most of
+    them it takes together: "play album by artist"."""
+    try:
+        sets = _slot_sets(parse_sentence(template).expression)
+    except Exception:  # noqa: BLE001
+        return None
+    return _said_with(template, {s: s.replace("_", " ") for s in max(sets, key=len, default=())})
 
 
 # ------------------------------------------------------------------ running

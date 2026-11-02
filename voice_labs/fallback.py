@@ -117,6 +117,11 @@ class Arguments:
             slot = wildcard["slot"]
             parameters[slot] = Parameter(slot, "text")
 
+        # A sentence trigger's free text: each of its templates' slots.
+        trigger = (getattr(self.compiled, "triggers", None) or {}).get(command.id)
+        for slot in sorted({s for combination in getattr(trigger, "free", ()) for s in combination}):
+            parameters.setdefault(slot, Parameter(slot, "text"))
+
         return parameters, [slot for slot in parameters if slot in always]
 
     def _name_choices(self, kind: str, spec: dict[str, Any]) -> dict[str, str]:
@@ -543,8 +548,9 @@ def label_of(command: Command) -> str:
     Commands that describe themselves alike are one choice to them -- the
     versions of a library command (on this satellite, on a device by name, in
     an area or floor by name), a copy on a satellite -- and what is heard in
-    the sentence picks among them, as it picks a combination."""
-    return command.description or command.id
+    the sentence picks among them, as it picks a combination. A sentence
+    trigger is known by its automation's description, else its name."""
+    return command.label or command.description or command.id
 
 
 def kin(compiled: Any, command: Command) -> list[Command]:

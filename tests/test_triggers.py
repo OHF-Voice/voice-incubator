@@ -5,6 +5,8 @@ ahead of the app's own commands, and run by Home Assistant's own agent."""
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +17,7 @@ from adapt_ctc.config import ConfigError
 from adapt_ctc.text import spoken_words
 from voice_labs import actions, languages, triggers
 from voice_labs.engine import Engine, Satellite
+from voice_labs.fallback import label_of
 from voice_labs.hass import HassError
 from voice_labs.store import Store, compile_store
 
@@ -73,20 +76,21 @@ def test_triggers_are_grouped_by_automation():
         # template entity's is no automation's.
         ["good night", "bed time", "party time", "party time", "lights out", "nap time", "from a template"],
         {
-            "automation.good_night": {"state": "on", "name": "Good night", "id": "1", "config": {"triggers": [
+            "automation.good_night": {"state": "on", "name": "Good night", "id": "1", "config": {"description": "Turns off  the lights\nat bedtime", "triggers": [
                 {"trigger": "conversation", "command": ["good night", "bed time"]},
                 {"trigger": "state", "entity_id": "sun.sun"},
             ]}},
             "automation.party": {"state": "on", "name": "Party", "config": {"trigger": {"platform": "conversation", "command": "party time"}}},
             "automation.off": {"state": "off", "name": "Off", "config": {"triggers": [{"trigger": "conversation", "command": "lights out"}]}},
-            "automation.nap": {"state": "on", "name": "Nap", "id": "3", "config": {"use_blueprint": {"path": "sleep.yaml", "input": {"word": "nap"}}}},
+            "automation.nap": {"state": "on", "name": "Nap", "id": "3", "config": {"description": "A nap", "use_blueprint": {"path": "sleep.yaml", "input": {"word": "nap"}}}},
         },
     )
     found, automations = asyncio.run(triggers.read(hass))
     assert found == [
-        trigger("automation:1", "Good night", "good night", "bed time", automation="automation.good_night", automation_id="1"),
+        trigger("automation:1", "Good night", "good night", "bed time", automation="automation.good_night", automation_id="1",
+                about="Turns off the lights at bedtime"),
         trigger("automation:automation.party", "Party", "party time", automation="automation.party"),
-        trigger("automation:3", "Nap", "nap time", automation="automation.nap", automation_id="3"),
+        trigger("automation:3", "Nap", "nap time", automation="automation.nap", automation_id="3", about="A nap"),
         trigger("sentence:from a template", "from a template", "from a template"),
     ]
     assert automations == ["automation.good_night", "automation.party", "automation.off", "automation.nap"]
@@ -112,6 +116,9 @@ def test_sentences_are_examples_or_matched_on_the_transcript():
     assert good_night.transcript == () and good_night.description == "say “good night”"
     assert play.examples == () and play.transcript == ("play {album} by {artist}",)
     assert play.description == "say “play … by …”"
+    assert good_night.free == () and play.free == (("album", "artist"),)
+    [put_on] = triggers.prepare([trigger("sentence:p", "p", "put on [the album] {album} [by {artist}]")])
+    assert put_on.free == (("album", "artist"), ("album",))
     # Too many sentences for examples; one that can't be read.
     many = "(a|b|c|d|e|f|g|h) (a|b|c|d|e|f|g|h) (a|b|c|d|e|f|g|h) (one|two)"
     [odd] = triggers.prepare([trigger("sentence:x", "x", many, "(broken", "everyone (sleep;now)")])
@@ -168,18 +175,27 @@ def test_settings_turn_them_off():
         compile_store({**STORE, "triggers": {"automation:1": {"loud": True}}}, triggers.prepare([GOOD_NIGHT]))
 
 
-def test_meaning_may_run_them():
-    data = {**STORE, "triggers": {"automation:1": {"fallback": ["meaning"]}, "automation:2": {"fallback": ["meaning"]}}}
-    compiled = compile_store(data, triggers.prepare([GOOD_NIGHT, PLAY]))
-    assert compiled.commands["trigger_1"].fallback == ("meaning",)
-    # Free text: no sentence of its own to send.
-    assert compiled.commands["trigger_2"].fallback == ()
+def test_meaning_and_the_model_may_run_them():
+    data = {**STORE, "triggers": {"automation:1": {"fallback": ["meaning", "llm"]}, "automation:2": {"fallback": ["meaning", "llm"]}}}
+    compiled = compile_store(data, triggers.prepare([GOOD_NIGHT, dataclasses.replace(PLAY, about="Plays an album")]))
+    # Meaning for one with sentences of its own; the model for free text.
+    good_night, play = compiled.commands["trigger_1"], compiled.commands["trigger_2"]
+    assert good_night.fallback == ("meaning",) and play.fallback == ("llm",)
     with pytest.raises(ConfigError, match=r"triggers.automation:1.fallback"):
-        compile_store({**STORE, "triggers": {"automation:1": {"fallback": ["llm"]}}}, triggers.prepare([GOOD_NIGHT]))
-    # What Home Assistant is sent: its sentence meaning found closest, else its first.
-    command = compiled.commands["trigger_1"]
-    assert triggers.sentence_for(command, "it's bed time") == "it's bed time"
-    assert triggers.sentence_for(command, command.description) == "good night everyone"
+        compile_store({**STORE, "triggers": {"automation:1": {"fallback": ["loud"]}}}, triggers.prepare([GOOD_NIGHT]))
+    # Known to them by the automation's description, else its name.
+    assert label_of(play) == "Plays an album" and label_of(good_night) == "Good night"
+    assert good_night.combinations == ((),) and play.combinations == (("album", "artist"),)
+    # What Home Assistant is sent: its sentence meaning found closest, else its first ...
+    found = compiled.triggers
+    assert triggers.sentence_for(good_night, found["trigger_1"], {}, "it's bed time") == "it's bed time"
+    assert triggers.sentence_for(good_night, found["trigger_1"], {}, good_night.description) == "good night everyone"
+    # ... or its template said with what the model heard, as Home Assistant hears it back.
+    heard = {"album": "Kind of Blue", "artist": "Miles Davis"}
+    assert triggers.sentence_for(play, found["trigger_2"], heard, None, compiled.heard_triggers) == "play Kind of Blue by Miles Davis"
+    assert triggers.sentence_for(play, found["trigger_2"], {"album": "Kind of Blue"}, None, compiled.heard_triggers) is None
+    # Meaning knows it by its label and its templates, free text said by name.
+    assert triggers.meaning_texts(found, compiled.commands, compiled.config["intents"]) == {"trigger_2": ["Plays an album", "play album by artist"]}
 
 
 def test_the_store_keeps_their_choice_for_meaning(tmp_path):
@@ -192,6 +208,11 @@ def test_the_store_keeps_their_choice_for_meaning(tmp_path):
     # Exactly those: the rest are not.
     compiled = store.put_fallback({"meaning": []}, {"meaning": []})
     assert "triggers" not in store.document() and compiled.commands["trigger_1"].fallback == ()
+    # The model's apart from meaning's.
+    store.put_fallback({}, {"meaning": ["automation:1"]})
+    compiled = store.put_fallback({}, {"llm": ["automation:2"]})
+    assert store.document()["triggers"] == {"automation:1": {"fallback": ["meaning"]}, "automation:2": {"fallback": ["llm"]}}
+    assert compiled.commands["trigger_2"].fallback == ("llm",)
 
 
 def test_ids_clear_of_the_commands():
@@ -301,6 +322,67 @@ def test_meaning_sends_a_sentence_of_its_own():
     # Closest to its description: its first sentence.
     near["text"] = engine.compiled.commands["trigger_1"].description
     assert engine.recognize_text("time to hit the hay", KITCHEN).slots == {"sentence": "good night everyone"}
+
+
+class Words:
+    """An embedder's place: a sentence's words, as a unit vector."""
+
+    def embed(self, texts, document=False):
+        vectors = np.zeros((len(texts), 256), dtype=np.float32)
+        for row, text in enumerate(texts):
+            for word in str(text).lower().split():
+                vectors[row, zlib.crc32(word.encode()) % 256] += 1.0
+        return vectors / np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-6)
+
+
+class Gliner:
+    """GLiNER's place: sure of the labels it is told, and hears what it is told."""
+
+    model = name = "stub-gliner"
+    threshold = 0.3
+
+    def __init__(self, scores, entities):
+        self.scores, self.entities = scores, entities
+        self.ready, self.signature, self.labels = False, None, None
+
+    def load(self, signature=None):
+        self.ready, self.signature = True, signature
+
+    def pick(self, text, labels, entities):
+        self.labels = labels
+        probabilities = {label: self.scores.get(label, 0.01) for label in labels}
+        probabilities[labels[-1]] = 0.05
+        return {"classification": probabilities, "entities": self.entities}, 0.01
+
+    def hear(self, text, entities):
+        return {"entities": self.entities}, 0.01
+
+
+def test_the_model_runs_one_with_free_text():
+    """Chosen for the model, a trigger with free text is among the commands
+    it picks from (by meaning: its label and its templates), known by its
+    automation's description; what it hears fills a template of its, which
+    Home Assistant is sent -- when it hears that back as this trigger."""
+    from voice_labs.fallback import Fallback  # pylint: disable=import-outside-toplevel
+
+    if not CTC.is_dir():
+        pytest.skip("no CTC model")
+    engine = Engine(CTC, None, None, threads=2)
+    engine.embedder = Words()
+    data = {**STORE, "triggers": {"automation:2": {"fallback": ["llm"]}}}
+    engine.build(compile_store(data, triggers.prepare([GOOD_NIGHT, dataclasses.replace(PLAY, about="Plays an album")])))
+    heard = {"album": [["Kind of Blue", 0.9, 7, 19]], "artist": [["Miles Davis", 0.9, 23, 34]]}
+    gliner = Gliner({"Plays an album": 0.9}, heard)
+    engine.fallback = Fallback(model=gliner, top_k=8)
+    engine.fallback.prepare(engine, wait=True)
+    decision = engine.recognize_text("put on kind of blue by miles davis", KITCHEN)
+    assert "Plays an album" in gliner.labels
+    assert decision.command.id == "trigger_2" and decision.matched_by == "gliner"
+    assert decision.slots == {"album": "Kind of Blue", "artist": "Miles Davis", "sentence": "play Kind of Blue by Miles Davis"}
+    # Heard only in part: no template of its takes it, and nothing runs.
+    gliner.entities = {"album": heard["album"]}
+    decision = engine.recognize_text("put on kind of blue by miles davis", KITCHEN)
+    assert decision.command is None and decision.fallback["llm"]["problems"]
 
 
 # ------------------------------------------------------------------ running

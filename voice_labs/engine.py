@@ -456,6 +456,7 @@ class Engine:
                 self.model,
                 transcriber=self.transcriber,
                 embedder=self.embedder,
+                meaning_texts=triggers.meaning_texts(compiled.triggers or {}, compiled.commands, config["intents"]),
             )
         with self._lock:
             self.compiled = compiled
@@ -870,9 +871,19 @@ class Engine:
         decision.behavior = behavior
         decision.slots = {**decision.behavior.slots, **found.slots}
         if found.command.behavior.trigger:
-            # What Home Assistant hears: a sentence of the trigger's own.
-            closest = ((decision.fallback or {}).get("meaning") or {}).get("closest_to")
-            decision.slots[triggers.SENTENCE] = triggers.sentence_for(found.command, closest)
+            # What Home Assistant hears: a sentence of the trigger's own, or
+            # one of its templates said with what the model heard.
+            step = (decision.fallback or {}).get("meaning" if found.by == "meaning" else "llm")
+            sentence = triggers.sentence_for(
+                found.command, (compiled.triggers or {}).get(found.command.id), decision.slots,
+                ((decision.fallback or {}).get("meaning") or {}).get("closest_to"), compiled.heard_triggers,
+            )
+            if sentence is None:
+                if isinstance(step, dict):
+                    step["problems"] = ["Home Assistant wouldn't hear it in any of its sentences said with that"]
+                decision.command, decision.behavior, decision.slots = None, None, {}
+                return
+            decision.slots[triggers.SENTENCE] = sentence
         decision.matched_by = found.by or "gliner"
         refused = self.fit_devices(decision, compiled, satellite)
         if refused is not None:
