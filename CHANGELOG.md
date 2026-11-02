@@ -119,6 +119,12 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **An area added is named.** Added on the Home page, an area is called
+  what Home Assistant calls it -- its name and aliases, under **Called** --
+  unless it is named already or another area has that name.
+- **A device name that is a command word is flagged** on the Names page
+  ("command word"): a device called "Light" takes "turn off the light" for
+  itself alone, in its area or from every area.
 - **The nearest satellite's "no" stands.** When the satellite that heard the
   wake word clearly best (6 dB or more above the next) refuses it, the
   others don't answer in its place: one in the next room, hearing it worse,

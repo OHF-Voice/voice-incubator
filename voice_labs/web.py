@@ -552,14 +552,29 @@ class Api:
     def _devices_json(self, data: dict[str, Any], here: str, default: str) -> dict[str, dict[str, Any]]:
         devices = {str(i): device_of(e, here, default) for i, e in ((data.get("names") or {}).get("entities") or {}).items()}
         clashes = name_clashes(devices, lambda e: devices[e].area or self._ha_area(e))
+        words = self._command_words()
         return {
             item_id: {
                 "here": list(device.here), "house": list(device.house), "implicit": device.implicit,
                 "with_area": device.with_area, "area": device.area, "ha_area": self._ha_area(item_id),
                 "clashes": clashes.get(item_id, []),
+                # Names that are, whole, a word commands listen for: "Light"
+                # takes "turn off the light" for this one device.
+                "command_words": [n for n in dict.fromkeys([*device.here, *device.house]) if phrase_key(n) in words],
             }
             for item_id, device in devices.items()
         }
+
+    def _command_words(self) -> set[str]:
+        """Every keyword the commands listen for (phrase_key'd): their
+        required and optional words, each part of a split one."""
+        compiled = self.app.engine.compiled if self.app.engine is not None else None
+        words: set[str] = set()
+        for intent in ((compiled.config if compiled is not None else None) or {}).get("intents", {}).values():
+            for group in [*intent.get("require", []), *intent.get("optional", [])]:
+                for phrase in group if isinstance(group, list) else [group]:
+                    words.update(phrase_key(part) for part in str(phrase).split(" ... "))
+        return words
 
     def _area_label(self, area_id: str) -> str:
         """An area as the Names page calls it, else Home Assistant."""
@@ -1007,14 +1022,31 @@ class Api:
             raise ConfigError("an area's id")
         body = await _json_or_empty(request)
         settings = self.app.store.settings
+        added = area_id not in areas.listed(settings) and "settings" not in body
         own = areas.put(settings, area_id, body.get("settings") or {}, piper_catalog(), list(self.app.speech.instruments.presets))
         self.app.store.save_settings()
+        if added:
+            await self._name_area(area_id)
         if {"sounds", "instrument", "pitch"} & set(body.get("settings") or {}):
             self.app._spawn(self.app.play_sounds())  # pylint: disable=protected-access
         voice = piper_catalog().get(str(own.get("voice") or ""))
         if voice is not None:
             self.app.fetch_area_voice(voice)
         return web.json_response({"ok": True, "own": own})
+
+    async def _name_area(self, area_id: str) -> None:
+        """An area just added is called what Home Assistant calls it (its
+        name, and its aliases), unless it is named already -- or another has
+        that name: then it is named on its page."""
+        area = self.app.hass.catalog.areas.get(area_id)
+        names = (self.app.store.document().get("names") or {}).get("areas") or {}
+        if area is None or area_id in names:
+            return
+        aliases = [a for a in dict.fromkeys(area.aliases) if phrase_key(a) != phrase_key(area.name)]
+        try:
+            await self.app.apply(self.app.store.put_name("areas", area_id, {"name": area.name, "aliases": aliases}))
+        except ConfigError as err:
+            _LOGGER.info("The %s isn't named on adding it: %s", area.name, err)
 
     async def delete_area(self, request: web.Request) -> web.Response:
         """Off the Home page's list, with its own settings (one with a

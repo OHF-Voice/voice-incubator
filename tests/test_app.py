@@ -423,6 +423,11 @@ async def _scenario(tmp_path: Path) -> None:
             assert "bedroom" in {a["id"] for a in places["others"]} and places["floors"][0]["name"] == "Ground Floor"
             assert (await http.put("/api/areas/bedroom", json={})).status == 200
             assert "bedroom" in {a["id"] for a in (await (await http.get("/api/areas")).json())["areas"]}
+            # Added, an area is called what Home Assistant calls it (but one named already).
+            assert (await http.put("/api/areas/living_room", json={})).status == 200
+            assert app.store.document()["names"]["areas"]["living_room"] == {"name": "Living Room", "aliases": ["Den", "Lounge"]}
+            assert app.store.document()["names"]["areas"]["bedroom"] == {"name": "Bedroom"}
+            assert (await http.delete("/api/areas/living_room")).status == 200
             own = {"at_most": "beep", "climate": "climate.upstairs", "sounds": False, "silence_seconds": 1.2, "instrument": "koto",
                    "pitch": "c4"}
             assert (await http.put("/api/areas/kitchen", json={"settings": own})).status == 200
@@ -669,7 +674,11 @@ async def _scenario(tmp_path: Path) -> None:
             devices = (await (await http.get("/api/store")).json())["devices"]
             assert devices["light.bedroom_lamp"] == {
                 "here": ["Lamp"], "house": ["Bedroom Lamp"], "implicit": True, "with_area": False, "area": None,
-                "ha_area": "bedroom", "clashes": []}
+                "ha_area": "bedroom", "clashes": [], "command_words": []}
+            # A name that is a word commands listen for ("turn on the light") is flagged.
+            assert (await put("light.desk_lamp", {"name": "Desk Lamp", "house": ["Light"]})).status == 200
+            devices = (await (await http.get("/api/store")).json())["devices"]
+            assert devices["light.desk_lamp"]["command_words"] == ["Light"]
             for gone in ("light.desk_lamp", "light.bedroom_lamp"):
                 assert (await http.delete(f"/api/names/entities/{gone}")).status == 200
 
