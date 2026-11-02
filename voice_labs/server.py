@@ -652,6 +652,8 @@ class VoiceLabsApp:
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
         self._timer_rebuild: asyncio.Task | None = None
+        self.timer_colors: dict[str, dict[str, int]] = {}
+        """Each satellite's running timers' colors on its ring (timers.colors)."""
         self.store_error: str | None = None
         self._tasks: set[asyncio.Task] = set()
         self._sessions: dict[str, asyncio.Task] = {}
@@ -3402,21 +3404,18 @@ class VoiceLabsApp:
                 _LOGGER.error("Could not rebuild with the running timers: %s", err)
 
     async def _send_timer_progress(self, session: Session, force: bool = False) -> None:
-        """The timer that finishes soonest, for the satellite's LED ring; only
-        when that changed (the device counts down by itself)."""
+        """The running timers, for the satellite's LED ring (timers.progress),
+        each in its color; only when that changed (the device counts down by
+        itself)."""
         if session.writer is None or not session.satellite:
             return
-        shown = timers.progress(self.integration.running(session.satellite))
+        running = self.integration.running(session.satellite)
+        kept = timers.colors(running, self.timer_colors.setdefault(session.satellite, {}))
+        shown = timers.progress(running, kept)
         last = session.timer_progress
-        if last is not None and not force:
-            # The device counts what it was sent down: compare where that is now.
-            counted = float(last.get("remaining") or 0) - (time.monotonic() - session.timer_progress_at)
-            if (
-                last.get("shown") == shown.get("shown")
-                and last.get("total") == shown.get("total")
-                and abs(max(counted, 0.0) - float(shown.get("remaining") or 0)) < 1.0
-            ):
-                return
+        # The device counts what it was sent down: compare where that is now.
+        if last is not None and not force and timers.same_progress(last, shown, time.monotonic() - session.timer_progress_at):
+            return
         session.timer_progress = dict(shown)
         session.timer_progress_at = time.monotonic()
         await self._event(session, "timer_progress", **shown)

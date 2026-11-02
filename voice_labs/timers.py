@@ -285,12 +285,44 @@ def _match(
     return candidates, asked
 
 
-def progress(running: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
+LAYERS = 6
+"""The most timers the ring shows at once, soonest first: each gets an LED
+of its own at least."""
+COLORS = (-1, 0xFF7A00, 0xE000FF, 0x00E040, 0xFFD800, 0x5A3CFF)
+"""Each running timer's color on the ring (0xRRGGBB), in order: -1 is the
+LED Ring light's own, so a timer alone looks as it always did. None is red:
+the ring's red is the mute switch and errors."""
+
+
+def colors(running: list[dict[str, Any]], kept: dict[str, int]) -> dict[str, int]:
+    """Each running timer's color (its index in COLORS), by timer id: its own
+    while it runs, paused too; a new one takes the first that no other has,
+    and once every one is taken they go round again. ``kept`` (the
+    satellite's) is changed in place."""
+    ids = [str(t["timer_id"]) for t in running if t.get("timer_id")]
+    for gone in set(kept) - set(ids):
+        del kept[gone]
+    for timer_id in ids:
+        if timer_id not in kept:
+            taken = set(kept.values())
+            kept[timer_id] = next((c for c in range(len(COLORS)) if c not in taken), len(kept) % len(COLORS))
+    return kept
+
+
+def progress(
+    running: list[dict[str, Any]], kept: dict[str, int] | None = None, now: datetime | None = None
+) -> dict[str, Any]:
     """What the satellite's LED ring shows (the ``timer_progress`` event): the
     active timer that finishes soonest -- its time left of how long it runs --
-    or ``shown: 0``. Paused timers are not shown, as in the stock firmware."""
+    or ``shown: 0``. Paused timers are not shown, as in the stock firmware.
+
+    And every active timer, soonest first (``count``, at most LAYERS; each
+    ``left<i>`` and ``color<i>``, its color by ``kept``: ``colors``'), on
+    the scale of the longest one's length (``scale``): the ring is the time
+    to come, each timer's color as far as it runs, the sooner ones on top.
+    Firmware from before draws the soonest alone."""
     now = now or datetime.now(UTC)
-    best: tuple[float, dict[str, Any]] | None = None
+    active: list[tuple[float, float, dict[str, Any]]] = []
     for timer in running:
         if timer.get("status") != "active":
             continue
@@ -301,13 +333,31 @@ def progress(running: list[dict[str, Any]], now: datetime | None = None) -> dict
             except ValueError:
                 pass
         left = max(0.0, left)
-        if best is None or left < best[0]:
-            best = (left, timer)
-    if best is None:
+        total = float(timer.get("total_duration") or timer.get("created_duration") or left or 1)
+        active.append((left, max(total, left), timer))
+    if not active:
         return {"shown": 0}
-    left, timer = best
-    total = float(timer.get("total_duration") or timer.get("created_duration") or left or 1)
-    return {"shown": 1, "remaining": round(left, 2), "total": round(max(total, left), 2), "paused": 0}
+    active.sort(key=lambda item: item[0])
+    left, total, _ = active[0]
+    shown: dict[str, Any] = {"shown": 1, "remaining": round(left, 2), "total": round(total, 2), "paused": 0}
+    shown.update(count=min(len(active), LAYERS), scale=round(max(t for _, t, _ in active), 2))
+    for index, (left, _, timer) in enumerate(active[:LAYERS]):
+        shown[f"left{index}"] = round(left, 2)
+        shown[f"color{index}"] = COLORS[(kept or {}).get(str(timer.get("timer_id")), 0)]
+    return shown
+
+
+def same_progress(last: dict[str, Any], shown: dict[str, Any], elapsed: float) -> bool:
+    """Whether the ring shows ``shown`` already: ``last`` was sent
+    ``elapsed`` seconds ago, and the device has counted it down since."""
+    if {k: v for k, v in last.items() if not _counted(k)} != {k: v for k, v in shown.items() if not _counted(k)}:
+        return False
+    return all(abs(max(float(last[k]) - elapsed, 0.0) - float(shown[k])) < 1.0 for k in shown if _counted(k))
+
+
+def _counted(key: str) -> bool:
+    """A time left, which the device counts down by itself."""
+    return key == "remaining" or (key.startswith("left") and key[4:].isdigit())
 
 
 def stops_ringing(operation: str | None, slots: dict[str, Any]) -> bool:

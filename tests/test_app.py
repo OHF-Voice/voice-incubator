@@ -808,11 +808,13 @@ async def _scenario(tmp_path: Path) -> None:
         assert create["service_data"] == {"duration": 15}
         [timer_id] = hass.timers[timer_list]
         await wait_for(lambda: app.integration.running(MAC))
-        # The ring shows it counting down.
+        # The ring shows it counting down, alone, in the LED Ring light's color.
         await wait_for(lambda: any(
             e["type"] == "timer_progress" and e["data"].get("shown") == 1 and e["data"]["total"] == 15
             for e in satellite.events
         ))
+        shown = next(e["data"] for e in satellite.events if e["type"] == "timer_progress" and e["data"].get("shown") == 1)
+        assert (shown["count"], shown["scale"], shown["color0"]) == (1, 15.0, -1) and 0 < shown["left0"] <= 15
         played = satellite.played
         clears = satellite.clears  # once on connecting
         await hass.finish_timer(timer_list, timer_id)

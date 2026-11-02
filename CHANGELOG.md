@@ -119,6 +119,14 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **Every running timer on the ring, each in its own color.** The whole ring
+  is the longest timer's length, and each timer's color reaches as far as it
+  has left, the soonest on top: where the colors change is when each
+  finishes. Colors come from a fixed list, the first free one (the first is
+  the LED Ring light's own, so a timer alone looks as before), round again
+  once all are taken; each keeps its own while it runs. Every timer has an
+  LED at least; paused ones aren't shown; at night, all amber. Needs the
+  firmware updated; older firmware shows the soonest alone, as before.
 - **Night mode**, in each area: its switch from the integration
   (`switch.<area>_night_mode`, at the top of the area's page too). On, a
   command that acts says nothing -- the ring shows how it went, one slow

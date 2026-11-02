@@ -193,18 +193,46 @@ def test_dynamic_list_names_are_reserved():
         compile_store({"lists": {"running_timers": ["a"]}, "commands": copy.deepcopy(COMMANDS)})
 
 
-def test_the_ring_shows_the_timer_that_finishes_soonest():
+def test_the_ring_shows_every_timer_soonest_on_top():
     from datetime import UTC, datetime, timedelta
 
     now = datetime(2026, 10, 15, 20, 0, tzinfo=UTC)
-    soon = {"status": "active", "total_duration": 600, "finishes_at": (now + timedelta(seconds=90)).isoformat()}
-    later = {"status": "active", "total_duration": 300, "finishes_at": (now + timedelta(seconds=200)).isoformat()}
-    paused = {"status": "paused", "total_duration": 60, "remaining": 5}
-    assert timers.progress([later, soon, paused], now) == {"shown": 1, "remaining": 90.0, "total": 600.0, "paused": 0}
-    assert timers.progress([paused], now) == {"shown": 0}
-    assert timers.progress([], now) == {"shown": 0}
+    soon = {"timer_id": "a", "status": "active", "total_duration": 600, "finishes_at": (now + timedelta(seconds=90)).isoformat()}
+    later = {"timer_id": "b", "status": "active", "total_duration": 300, "finishes_at": (now + timedelta(seconds=200)).isoformat()}
+    paused = {"timer_id": "c", "status": "paused", "total_duration": 60, "remaining": 5}
+    kept: dict[str, int] = {}
+    assert timers.colors([soon, later, paused], kept) == {"a": 0, "b": 1, "c": 2}
+    # The soonest, for firmware from before; then each, soonest first, on the
+    # longest's scale. Paused: not shown (but it keeps its color).
+    assert timers.progress([later, soon, paused], kept, now) == {
+        "shown": 1, "remaining": 90.0, "total": 600.0, "paused": 0,
+        "count": 2, "scale": 600.0, "left0": 90.0, "color0": -1, "left1": 200.0, "color1": timers.COLORS[1],
+    }
+    assert timers.progress([paused], kept, now) == {"shown": 0}
+    assert timers.progress([], now=now) == {"shown": 0}
     # Without an end time (a fake), what was left when it was reported.
-    assert timers.progress([{"status": "active", "created_duration": 15, "remaining": 15}], now)["remaining"] == 15.0
+    assert timers.progress([{"status": "active", "created_duration": 15, "remaining": 15}], now=now)["remaining"] == 15.0
+
+
+def test_each_timer_keeps_its_color():
+    def timer(timer_id):
+        return {"timer_id": timer_id, "status": "active"}
+
+    kept: dict[str, int] = {}
+    timers.colors([timer("a"), timer("b")], kept)
+    # The first gone: the next new one takes its color, the free one first.
+    assert timers.colors([timer("b"), timer("c")], kept) == {"b": 1, "c": 0}
+    # Every color taken: round again.
+    many = [timer(str(i)) for i in range(len(timers.COLORS) + 2)]
+    assert [timers.colors(many, {})[str(i)] for i in range(len(many))] == [*range(len(timers.COLORS)), 0, 1]
+
+
+def test_the_ring_is_told_only_what_changed():
+    last = {"shown": 1, "remaining": 90.0, "total": 600.0, "paused": 0, "count": 1, "scale": 600.0, "left0": 90.0, "color0": -1}
+    assert timers.same_progress(last, {**last, "remaining": 80.2, "left0": 80.2}, 10.0)
+    assert not timers.same_progress(last, {**last, "remaining": 70.0, "left0": 70.0}, 10.0)  # changed by 10 s more
+    assert not timers.same_progress(last, {**last, "color0": timers.COLORS[1]}, 0.0)
+    assert not timers.same_progress(last, {"shown": 0}, 0.0)
 
 
 @pytest.mark.parametrize(

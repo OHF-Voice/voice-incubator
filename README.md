@@ -1268,12 +1268,21 @@ Afterwards the models are cleared and the wake word pushed again. The
 `timer_ringing` and `timer_stopped` events reach the device's YAML, which turns
 music down and flashes the LED ring while one rings.
 
-**The LED ring.** Between calls the ring shows the time left on the satellite's
-active timer that finishes soonest, as the stock firmware does: a share of the
-ring, fading out clockwise. The app sends a `timer_progress` event (`shown`,
-`remaining`, `total`, `paused`) when that changes -- a timer set, paused,
-lengthened, cancelled or finished, and on connecting -- and the device counts
-down by itself in between (`timers.progress`).
+**The LED ring.** Between calls the ring shows the time left on each of the
+satellite's active timers, layered: the whole ring is the longest one's
+length (`scale`), each timer's color reaches as far as it has left, the
+soonest on top, each an LED past the one before at least, and an end within
+an LED blends into what is under it. Each running timer keeps its color
+(`timers.colors`: `COLORS` in order, the first free, round again once all are
+taken; the first is the LED Ring light's own); paused ones aren't shown; at
+night they are all amber. The app sends a `timer_progress` event when that
+changes -- a timer set, paused, lengthened, cancelled or finished, and on
+connecting -- and the device counts down by itself in between
+(`timers.progress`, `timers.same_progress`): `count`, `scale`, and each
+timer's `left<i>` and `color<i>` (0xRRGGBB, -1 for the LED Ring light's),
+soonest first, at most six; and for firmware from before, `shown`,
+`remaining`, `total` and `paused` of the soonest, which it draws alone, as
+the stock firmware does.
 
 ## Home Assistant STT and TTS
 
