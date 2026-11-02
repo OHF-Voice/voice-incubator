@@ -869,6 +869,10 @@ class Engine:
         decision.command = found.command
         decision.behavior = behavior
         decision.slots = {**decision.behavior.slots, **found.slots}
+        if found.command.behavior.trigger:
+            # What Home Assistant hears: a sentence of the trigger's own.
+            closest = ((decision.fallback or {}).get("meaning") or {}).get("closest_to")
+            decision.slots[triggers.SENTENCE] = triggers.sentence_for(found.command, closest)
         decision.matched_by = found.by or "gliner"
         refused = self.fit_devices(decision, compiled, satellite)
         if refused is not None:

@@ -674,6 +674,17 @@ async function pageFallback() {
       h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
     return { cid, spec, meaning, llm, row };
   });
+  // Home Assistant's sentence triggers: meaning sends one of their own sentences.
+  for (const [cid, trigger] of Object.entries(store.triggers || {})) {
+    const meaning = h("input", { type: "checkbox", checked: (trigger.fallback || []).includes("meaning"), disabled: !trigger.by_meaning,
+      title: trigger.by_meaning ? "Meaning sends Home Assistant the trigger's sentence closest to what was said" : "Free text: no sentence of its own to send" });
+    const llm = h("input", { type: "checkbox", disabled: true, title: "Run by Home Assistant: the model can't fill in its sentence" });
+    const spec = { title: trigger.title, description: `Home Assistant · “${(trigger.sentences || [])[0] || ""}”` };
+    const row = h("div", { class: "item" }, icon("mdi:home-assistant", "big"),
+      h("div", { class: "grow" }, h("div", { class: "title" }, trigger.title || cid), h("div", { class: "muted small" }, spec.description)),
+      h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
+    rows.push({ cid, spec, meaning, llm, row });
+  }
   filter.addEventListener("input", () => {
     const text = filter.value.trim().toLowerCase();
     for (const r of rows) r.row.style.display = !text || r.cid.includes(text) || String((r.spec && (r.spec.title || r.spec.description)) || "").toLowerCase().includes(text) ? "" : "none";
@@ -4175,7 +4186,7 @@ function renderRecognition(rec) {
     rec.matched_by && !["ctc", "transcript", "trigger"].includes(rec.matched_by) ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning && rec.fallback.meaning.skipped ? h("div", { class: "small" }, `By meaning: skipped (${rec.fallback.meaning.skipped})`) : null,
-      rec.fallback.meaning && !rec.fallback.meaning.skipped ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
+      rec.fallback.meaning && !rec.fallback.meaning.skipped ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.closest_to ? `, closest to “${rec.fallback.meaning.closest_to}”` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
         rec.fallback.meaning.heard_by ? h("div", { class: "muted" }, `${rec.fallback.meaning.heard_by} heard `, h("code", {}, JSON.stringify(rec.fallback.meaning.arguments || {})),
           rec.fallback.meaning.combination ? ` — said with ${rec.fallback.meaning.combination.length ? rec.fallback.meaning.combination.join(" and ") : "nothing"}` : "",
           rec.fallback.meaning.problems ? ` — not run: ${rec.fallback.meaning.problems.join("; ")}` : "") : null,

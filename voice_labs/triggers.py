@@ -295,8 +295,8 @@ class Compiled:
 
 
 def settings_of(saved: Any) -> dict[str, dict[str, Any]]:
-    """``commands.json``'s ``triggers``: by key, ``disabled`` and ``off``.
-    Raises ConfigError."""
+    """``commands.json``'s ``triggers``: by key, ``disabled``, ``off`` and
+    ``fallback`` (``[meaning]``: meaning may run it). Raises ConfigError."""
     if saved is None:
         return {}
     if not isinstance(saved, dict):
@@ -305,11 +305,17 @@ def settings_of(saved: Any) -> dict[str, dict[str, Any]]:
     for key, value in saved.items():
         where = f"triggers.{key}"
         if not isinstance(value, dict):
-            raise ConfigError(f"{where}: expected a mapping (disabled, off)")
-        unknown = set(value) - {"disabled", "off"}
+            raise ConfigError(f"{where}: expected a mapping (disabled, off, fallback)")
+        unknown = set(value) - {"disabled", "off", "fallback"}
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
-        out[str(key)] = {"disabled": bool(value.get("disabled", False)), "off": area_ids(value.get("off"), f"{where}.off")}
+        steps = value.get("fallback") or []
+        if not isinstance(steps, list) or set(map(str, steps)) - {"meaning"}:
+            raise ConfigError(f"{where}.fallback: [meaning] or nothing")
+        out[str(key)] = {
+            "disabled": bool(value.get("disabled", False)), "off": area_ids(value.get("off"), f"{where}.off"),
+            "fallback": [str(s) for s in steps],
+        }
     return out
 
 
@@ -339,6 +345,9 @@ def compile_triggers(triggers: Iterable[Trigger], settings: dict[str, dict[str, 
             disabled=bool(own.get("disabled")),
             title=trigger.title,
             off=tuple(own.get("off") or ()),
+            # Meaning sends one of its sentences (``sentence_for``): one
+            # with free text has none to send.
+            fallback=tuple(own.get("fallback") or ()) if trigger.examples else (),
             intents={command_id: intent} if trigger.examples else {},
         )
         by_id[command_id] = trigger
@@ -380,6 +389,14 @@ def match(heard: Intents | None, text: str) -> list[tuple[str, dict[str, Any]]]:
     for result in recognize_all(text, heard):
         found.setdefault(result.intent.name, {name: entity.value for name, entity in result.entities.items()})
     return list(found.items())
+
+
+def sentence_for(command: Command, closest: str | None) -> str:
+    """What Home Assistant is sent for a trigger meaning ran: of its own
+    sentences, the one meaning found closest, else its first -- what was
+    said ("kill the party") is no sentence of its, and would run nothing."""
+    examples = [str(e) for e in command.intent.get("examples") or []]
+    return closest if closest in examples else (examples[0] if examples else "")
 
 
 # ------------------------------------------------------------------ running

@@ -168,6 +168,32 @@ def test_settings_turn_them_off():
         compile_store({**STORE, "triggers": {"automation:1": {"loud": True}}}, triggers.prepare([GOOD_NIGHT]))
 
 
+def test_meaning_may_run_them():
+    data = {**STORE, "triggers": {"automation:1": {"fallback": ["meaning"]}, "automation:2": {"fallback": ["meaning"]}}}
+    compiled = compile_store(data, triggers.prepare([GOOD_NIGHT, PLAY]))
+    assert compiled.commands["trigger_1"].fallback == ("meaning",)
+    # Free text: no sentence of its own to send.
+    assert compiled.commands["trigger_2"].fallback == ()
+    with pytest.raises(ConfigError, match=r"triggers.automation:1.fallback"):
+        compile_store({**STORE, "triggers": {"automation:1": {"fallback": ["llm"]}}}, triggers.prepare([GOOD_NIGHT]))
+    # What Home Assistant is sent: its sentence meaning found closest, else its first.
+    command = compiled.commands["trigger_1"]
+    assert triggers.sentence_for(command, "it's bed time") == "it's bed time"
+    assert triggers.sentence_for(command, command.description) == "good night everyone"
+
+
+def test_the_store_keeps_their_choice_for_meaning(tmp_path):
+    store = Store(tmp_path)
+    store.put_command("lights_off", STORE["commands"]["lights_off"])
+    store.triggers = triggers.prepare([GOOD_NIGHT, PLAY])
+    compiled = store.put_fallback({"meaning": ["lights_off"]}, {"meaning": ["automation:1"]})
+    assert compiled.commands["trigger_1"].fallback == ("meaning",) and compiled.commands["lights_off"].fallback == ("meaning",)
+    assert store.document()["triggers"] == {"automation:1": {"fallback": ["meaning"]}}
+    # Exactly those: the rest are not.
+    compiled = store.put_fallback({"meaning": []}, {"meaning": []})
+    assert "triggers" not in store.document() and compiled.commands["trigger_1"].fallback == ()
+
+
 def test_ids_clear_of_the_commands():
     compiled = compile_store({"commands": {"trigger_1": STORE["commands"]["lights_off"]}}, triggers.prepare([GOOD_NIGHT]))
     assert compiled.triggers["trigger_1_2"].key == "automation:1"
@@ -252,6 +278,29 @@ def test_free_text_is_spelled_by_the_tdt_head(engine):
     decision = decide(engine, "lay abby road my the beetles", OFFICE, Tdt("Play Abbey Road by The Beatles."))
     assert decision.command.id == "trigger_2" and decision.slots["sentence"] == "Play Abbey Road by The Beatles."
     assert engine.recognize_text("play Abbey Road by the Beatles", OFFICE).slots["album"] == "Abbey Road"
+
+
+def test_meaning_sends_a_sentence_of_its_own():
+    """Chosen for meaning, a trigger close to what was said is sent its own
+    sentence -- "kill the party" is none of its, and runs nothing there."""
+    from voice_labs.fallback import Fallback  # pylint: disable=import-outside-toplevel
+
+    if not CTC.is_dir():
+        pytest.skip("no CTC model")
+    engine = Engine(CTC, None, None, threads=2)
+    data = {**STORE, "triggers": {"automation:1": {"fallback": ["meaning"]}}}
+    engine.build(compile_store(data, triggers.prepare([GOOD_NIGHT])))
+    engine.fallback = Fallback(embedding_accept=True, model=None)
+    engine.fallback.prepare(engine, wait=True)
+    engine.embedder = object()  # what the meaning step needs; the stand-in below answers
+    near = {"intent": "trigger_1", "text": "it's bed time", "similarity": 0.9, "next": None, "next_similarity": 0.5}
+    engine.recognizer.closest_by_meaning = lambda texts, group=None: near
+    decision = engine.recognize_text("time to hit the hay", KITCHEN)
+    assert decision.command.id == "trigger_1" and decision.matched_by == "meaning"
+    assert decision.slots == {"sentence": "it's bed time"}
+    # Closest to its description: its first sentence.
+    near["text"] = engine.compiled.commands["trigger_1"].description
+    assert engine.recognize_text("time to hit the hay", KITCHEN).slots == {"sentence": "good night everyone"}
 
 
 # ------------------------------------------------------------------ running

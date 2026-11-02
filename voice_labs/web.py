@@ -455,6 +455,9 @@ class Api:
                 "heard": trigger.key in heard,
                 "disabled": bool(own.get("disabled")),
                 "off": list(own.get("off") or []),
+                "fallback": list(own.get("fallback") or []),
+                # Meaning sends one of its own sentences: none with free text.
+                "by_meaning": bool(trigger.examples),
                 "clashes": list(dict.fromkeys(clashes)),
             }
         return out, first
@@ -724,15 +727,24 @@ class Api:
 
     async def put_fallback(self, request: web.Request) -> web.Response:
         """Which commands each fallback step may run: ``{meaning: [ids],
-        llm: [ids]}``, exactly; a step left out is left as it is."""
+        llm: [ids]}``, exactly; a step left out is left as it is. Home
+        Assistant's sentence triggers among them, by their command's id,
+        meaning only."""
         body = await request.json()
-        steps = {}
+        compiled = self.app.engine.compiled if self.app.engine is not None else None
+        theirs = {t.command_id: t.key for t in self.app.store.triggers}
+        theirs.update({command_id: t.key for command_id, t in (compiled.triggers if compiled else {}).items()})
+        steps, trigger_keys = {}, {}
         for step in FALLBACK_STEPS:
             if step in body:
                 if not isinstance(body[step], list):
                     raise ConfigError(f"{step}: expected a list of command ids")
-                steps[step] = [str(c) for c in body[step]]
-        return await self._saved(self.app.store.put_fallback(steps))
+                ids = [str(c) for c in body[step]]
+                steps[step] = [c for c in ids if c not in theirs]
+                trigger_keys[step] = [theirs[c] for c in ids if c in theirs]
+        if trigger_keys.get("llm"):
+            raise ConfigError("Home Assistant's sentence triggers can be run by meaning, not by the model")
+        return await self._saved(self.app.store.put_fallback(steps, trigger_keys))
 
     # --------------------------------------------------------------- skills
 

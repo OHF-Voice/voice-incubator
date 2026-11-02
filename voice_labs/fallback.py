@@ -572,6 +572,8 @@ def by_meaning(closest: dict[str, Any] | None, command: Command | None) -> tuple
     similarity = float(closest.get("similarity") or 0.0)
     margin = similarity - float(closest.get("next_similarity") or 0.0)
     trace = {"command": command.id, "similarity": round(similarity, 4), "margin": round(margin, 4)}
+    if closest.get("text"):
+        trace["closest_to"] = str(closest["text"])  # its example or description
     if similarity < EMBED_ACCEPT:
         return False, {**trace, "why": "not close enough"}
     if margin < EMBED_MARGIN:

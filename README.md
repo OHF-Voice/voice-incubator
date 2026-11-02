@@ -327,7 +327,14 @@ automation's page.
   (`commands.shared_examples` writes a template out and keeps the rest),
   run only where the trigger is turned off -- an area's own copy included.
   The trigger's row says "goes first", and the command's page says which
-  trigger. Meaning and the model step never run one.
+  trigger.
+- **By meaning.** Chosen for it on **When nothing matches** (`commands.json`
+  `triggers.<key>.fallback: [meaning]`), meaning may run a trigger as it
+  runs a command that hears nothing: then Home Assistant is sent the
+  trigger's own sentence the sentence was closest to (the meaning trace's
+  `closest_to`), else its first (`triggers.sentence_for`) -- what was said
+  is no sentence of its. One with free text has none to send, and isn't
+  chosen; the model step never runs one.
 - **Run.** The sentence -- the example heard, or the transcript a free-text
   one matched -- goes to Home Assistant's own agent (`conversation/process`,
   `conversation.home_assistant`, with the satellite's `device_id`, so

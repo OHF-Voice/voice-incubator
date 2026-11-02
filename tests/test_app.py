@@ -774,6 +774,14 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/triggers/trigger_2", json={"disabled": True})).status == 200
             assert (await agent_said("what time is it"))[0] == "It's time."
             assert app.store.document()["triggers"] == {"automation:2": {"disabled": True}}
+            # Chosen for meaning, by their command's id; never for the model.
+            assert (await http.put("/api/fallback", json={"meaning": ["trigger_1"]})).status == 200
+            assert app.store.document()["triggers"] == {"automation:1": {"fallback": ["meaning"]}, "automation:2": {"disabled": True}}
+            listed = (await (await http.get("/api/store")).json())["triggers"]
+            assert listed["trigger_1"]["fallback"] == ["meaning"] and listed["trigger_1"]["by_meaning"]
+            assert (await http.put("/api/fallback", json={"llm": ["trigger_1"]})).status == 400
+            assert (await http.put("/api/fallback", json={"meaning": []})).status == 200
+            assert app.store.document()["triggers"] == {"automation:2": {"disabled": True}}
             await hass.turn_automation("automation.good_night", "off")
             await wait_for(lambda: [t.title for t in app.engine.compiled.triggers.values()] == ["Clock"])
             assert (await agent_said("good night"))[0] == "conversation.chatty heard good night"

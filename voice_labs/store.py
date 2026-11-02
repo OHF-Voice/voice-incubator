@@ -626,10 +626,17 @@ class Store:
 
         return self.update(edit)
 
-    def put_fallback(self, steps: dict[str, list[str]]) -> Compiled:
+    def put_fallback(self, steps: dict[str, list[str]], trigger_keys: dict[str, list[str]] | None = None) -> Compiled:
         """For each fallback step given (``meaning``, ``llm``), exactly which
-        commands it may run (their ``fallback`` key)."""
+        commands it may run (their ``fallback`` key); and which of Home
+        Assistant's sentence triggers meaning may run (``trigger_keys``, by
+        step: meaning's only)."""
         def edit(document: dict[str, Any]) -> None:
+            if trigger_keys is not None and "meaning" in trigger_keys:
+                chosen = set(trigger_keys["meaning"])
+                for key in {t.key for t in self.triggers} | set(document.get("triggers") or {}) | chosen:
+                    _trigger_settings(document, key)["fallback"] = ["meaning"] if key in chosen else []
+                    _tidy_trigger(document, key)
             commands = document["commands"]
             for members in steps.values():
                 unknown = sorted(set(members) - set(commands))

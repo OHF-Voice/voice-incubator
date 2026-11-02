@@ -122,9 +122,26 @@
 - **An area added is named.** Added on the Home page, an area is called
   what Home Assistant calls it -- its name and aliases, under **Called** --
   unless it is named already or another area has that name.
-- **A device name that is a command word is flagged** on the Names page
-  ("command word"): a device called "Light" takes "turn off the light" for
-  itself alone, in its area or from every area.
+- **A whole house name that is a command word is flagged** on the Names
+  page ("command word"): a device called "Light" from every area takes
+  "turn off the light" for itself alone. In its area only, it is much the
+  same as the lights there, and isn't flagged.
+- **Whole house names emptied stay empty.** Clearing "In the whole house"
+  on a device and saving left it with its area's names everywhere, as if
+  none had been given: it is heard only in its area now. Save such a device
+  again to keep it there.
+- **A name not heard as said gives way to a match as good.** "Turn off
+  utility room light", with the Exercise Room's light called "Light", was
+  that light with the Utility Room said -- and refused, there being none
+  there -- where it is as well the Utility Room's lights: those are turned
+  off now. The refusal is said only when no match as good runs.
+- **Meaning can run Home Assistant's sentence triggers**, chosen for it on
+  **When nothing matches** (Settings): "time to hit the hay" for a "good
+  night" trigger. Home Assistant is sent the trigger's own sentence closest
+  to what was said -- what was said is no sentence of its, and would run
+  nothing there. One with free text (`play {album} by {artist}`) has none
+  to send, and can't be chosen. Sessions say which sentence meaning found
+  closest.
 - **The nearest satellite's "no" stands.** When the satellite that heard the
   wake word clearly best (6 dB or more above the next) refuses it, the
   others don't answer in its place: one in the next room, hearing it worse,
