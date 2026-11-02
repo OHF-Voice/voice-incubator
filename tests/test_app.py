@@ -12,6 +12,7 @@ import socket
 from pathlib import Path
 
 import aiohttp
+import numpy as np
 import pytest
 
 from voice_labs import people as people_mod
@@ -988,6 +989,82 @@ async def _sounds(tmp_path):
         assert await put({"sounds": True}) == 200 and "sounds" not in app.store.settings and app.sounds()
         app.store.settings["thinking_sound"] = False
         assert not app.sounds()
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+        hass_server.close()
+
+
+def test_night_mode(tmp_path):
+    asyncio.run(_night(tmp_path))
+
+
+async def _night(tmp_path):
+    """At night (the area's switch), a command that acts blinks instead of
+    answering, an answer is said quietly, and none of the sounds play."""
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite_server = await serve(satellite)
+    hass.device_areas[f"device-{MAC}"] = "kitchen"
+    hass.night = {"kitchen": False}
+    (tmp_path / "commands.yaml").write_text(COMMANDS)
+    http_port = free_port()
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+
+    def told(kind: str) -> list[dict]:
+        return [e.get("data") for e in satellite.events if e.get("type") == kind]
+
+    async def call(name: str, ended: str) -> bytes:
+        """What the satellite played for it."""
+        start = len(satellite.heard)
+        assert await satellite.call(read_call(CALLS / name)) == ended
+        return bytes(satellite.heard[start:])
+
+    def loudness(pcm: bytes) -> float:
+        x = np.frombuffer(pcm, dtype="<i2").astype(np.float64) / 32768
+        return float(20 * np.log10(np.sqrt(np.mean(x[np.abs(x) > 0.003] ** 2))))
+
+    try:
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            await asyncio.wait_for(satellite.ready.wait(), 30)
+            await wait_for(lambda: told("night") == [{"on": False}])
+            assert (await http.put("/api/settings", json={"agent": "conversation.chatty"})).status == 200
+            day = await call("call-19757.wav", "done")
+            # Turned on in Home Assistant: the satellite is told, and the
+            # area is on do not disturb too.
+            await hass.turn_night("kitchen", True)
+            await wait_for(lambda: told("night")[-1] == {"on": True})
+            assert app.satellite(MAC).night and await app.integration.quiet_areas() == {"kitchen"}
+            areas = (await (await http.get("/api/areas")).json())["areas"]
+            assert next(a for a in areas if a["id"] == "kitchen")["night"] == {"entity_id": "switch.kitchen_night_mode", "on": True}
+            # An answer: quietly, and nothing else (no heard or asking sound).
+            night = await call("call-19757.wav", "done")
+            speech = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech")
+            assert abs(len(night) - round(speech["seconds"] * 32000)) <= 32
+            assert loudness(night) < loudness(day[-len(night):]) - 10
+            # A command that acts: nothing played, a blink that it was done.
+            assert await call("call-15788.wav", "done") == b""
+            assert told("result")[-1] == {"ok": True}
+            speech = next(s for s in app.calls.recent[-1].stages if s["stage"] == "speech")
+            assert speech["night"] and speech["unsaid"]
+            # Not understood: nothing played, a blink that it wasn't.
+            assert (await http.put("/api/settings", json={"agent": None})).status == 200
+            assert await call("call-19757.wav", "not_recognized") == b""
+            assert told("result")[-1] == {"ok": False}
+            # Off from the area's page: as before.
+            assert (await http.put("/api/areas/kitchen/night", json={"on": False})).status == 200
+            await wait_for(lambda: told("night")[-1] == {"on": False})
+            assert hass.night == {"kitchen": False} and not app.satellite(MAC).night
+            assert len(await call("call-15788.wav", "done")) > 0
+            assert (await http.put("/api/areas/office/night", json={"on": True})).status == 404
     finally:
         runner.cancel()
         await app.stop()

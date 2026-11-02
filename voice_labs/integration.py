@@ -12,7 +12,10 @@ entity for its timers. The app:
   running, for matching timer commands and for recognizing their names, and
   which finish, to ring the satellite;
 * asks which areas are on do not disturb (``voice_labs/do_not_disturb``: a
-  switch for each satellite's area) before it sends something there.
+  switch for each satellite's area) before it sends something there;
+* follows each area's night mode switch (the same command lists them; their
+  states with ``subscribe_entities``): ``night`` is the areas on, and
+  ``on_night_changed`` hears when that changes (voice_labs/night.py).
 
 All of it is renewed on every reconnection to Home Assistant.
 """
@@ -57,10 +60,17 @@ class Integration:
         hass: HomeAssistant,
         on_finished: Callable[[str, dict[str, Any]], Awaitable[None] | None],
         on_timers_changed: Callable[[], None],
+        on_night_changed: Callable[[], None] | None = None,
     ) -> None:
         self.hass = hass
         self.on_finished = on_finished
         self.on_timers_changed = on_timers_changed
+        self.on_night_changed = on_night_changed
+        self.night: set[str] = set()
+        """The areas whose night mode is on."""
+        self._night_switches: dict[str, str] = {}
+        """Night mode switch -> its area."""
+        self._night_watch: int | None = None
         self.status = "connecting"
         """``connecting``, ``ready``, or why not: shown in the UI."""
 
@@ -86,6 +96,7 @@ class Integration:
     async def _on_connect(self) -> None:
         # Subscriptions died with the old connection.
         self._subscriptions.clear()
+        self._night_switches, self._night_watch = {}, None
         await self.ensure()
         await self.sync()
 
@@ -153,6 +164,11 @@ class Integration:
                 self.hass.catalog.device_areas[link.device_id] = item.get("area_id")
             if link.timer_list and link.timer_list not in self._subscriptions:
                 await self._follow(key, link.timer_list)
+        # A satellite in a new area brings its switches.
+        try:
+            await self._follow_night()
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Could not follow night mode: %s", err)
 
     # --------------------------------------------------------------- timers
 
@@ -199,11 +215,12 @@ class Integration:
 
     # ------------------------------------------------------ do not disturb
 
-    async def do_not_disturb(self) -> dict[str, dict[str, Any]]:
-        """Each satellite's area's do not disturb switch, by area id: its
-        ``entity_id`` and whether it is ``on``. Asked each time, so an
-        automation's change counts at once; none when it can't be asked (an
-        integration from before it had them: said once)."""
+    async def do_not_disturb(self, kind: str = "areas") -> dict[str, dict[str, Any]]:
+        """Each satellite's area's do not disturb switch (``kind`` ``night``:
+        its night mode switch), by area id: its ``entity_id`` and whether it
+        is ``on``. Asked each time, so an automation's change counts at once;
+        none when it can't be asked (an integration from before it had them:
+        said once)."""
         if not self.ready:
             return {}
         try:
@@ -216,11 +233,49 @@ class Integration:
         except (ConnectionError, OSError, TimeoutError) as err:
             _LOGGER.warning("Could not ask which areas are on do not disturb: %s", err)
             return {}
-        return {str(k): v for k, v in (result.get("areas") or {}).items() if isinstance(v, dict)}
+        return {str(k): v for k, v in (result.get(kind) or {}).items() if isinstance(v, dict)}
 
     async def quiet_areas(self) -> set[str]:
-        """The areas whose do not disturb is on."""
-        return {area for area, switch in (await self.do_not_disturb()).items() if switch.get("on")}
+        """The areas whose do not disturb is on, or their night mode."""
+        return {area for area, switch in (await self.do_not_disturb()).items() if switch.get("on")} | self.night
+
+    # ---------------------------------------------------------- night mode
+
+    async def _follow_night(self) -> None:
+        """Follow the night mode switches there are now (an integration from
+        before them has none): ``night`` as they are, and as they change."""
+        switches = await self.do_not_disturb("night")
+        by_entity = {str(s["entity_id"]): area for area, s in switches.items() if s.get("entity_id")}
+        self._set_night({area for area, s in switches.items() if s.get("on")})
+        if by_entity == self._night_switches:
+            return
+        if self._night_watch is not None:
+            await self.hass.unsubscribe(self._night_watch)
+            self._night_watch = None
+        self._night_switches = by_entity
+        if not by_entity:
+            return
+        on = {entity: area in self.night for entity, area in by_entity.items()}
+
+        def changed(event: dict[str, Any]) -> None:
+            for entity, state in (event.get("a") or {}).items():
+                on[entity] = state.get("s") == "on"
+            for entity, diff in (event.get("c") or {}).items():
+                if "s" in (diff.get("+") or {}):
+                    on[entity] = diff["+"]["s"] == "on"
+            for entity in event.get("r") or []:
+                on.pop(entity, None)
+            self._set_night({by_entity[e] for e, is_on in on.items() if is_on and e in by_entity})
+
+        self._night_watch = await self.hass.subscribe({"type": "subscribe_entities", "entity_ids": sorted(by_entity)}, changed)
+
+    def _set_night(self, areas: set[str]) -> None:
+        if areas == self.night:
+            return
+        _LOGGER.info("Night mode: %s", ", ".join(sorted(areas)) or "none")
+        self.night = areas
+        if self.on_night_changed is not None:
+            self.on_night_changed()
 
     async def fresh_timers(self, key: str) -> list[dict[str, Any]]:
         """The satellite's timers straight from Home Assistant."""

@@ -2176,6 +2176,7 @@ async function pageHome(query) {
           heading("h1", area ? area.name : "Whole Home", area ? null : "Every satellite has what's here. An area adds its own, and can turn these off."),
           area && area.floor ? h("span", { class: "muted small" }, area.floor) : null,
           h("span", { class: "grow" }),
+          area && area.night ? nightToggle(area) : null,
           area && area.do_not_disturb ? quietToggle(area) : null,
           empty ? h("button", { type: "button", class: "link", onclick: remove }, "Remove") : null),
         h("div", { class: "tiles compact" }, here.length ? here.map((s) => satelliteTile(s, wake))
@@ -2198,6 +2199,20 @@ function quietToggle(area) {
     } }),
     "Do not disturb",
     hint(`Announcements, calls and music from other areas don't reach the ${area.name}; what's said here still works. In Home Assistant it's ${quiet.entity_id}, for automations.`));
+}
+
+// An area's night mode: its switch in Home Assistant, which holds it.
+function nightToggle(area) {
+  const night = area.night;
+  return h("label", { class: "small" },
+    h("input", { type: "checkbox", checked: !!night.on, onchange: async (e) => {
+      try {
+        await api("PUT", `areas/${encodeURIComponent(area.id)}/night`, { on: e.target.checked });
+        await route();
+      } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+    } }),
+    "Night mode",
+    hint(`Light and sound kept to a minimum in the ${area.name}: a command blinks dimly instead of answering, a question is answered quietly, and nothing comes in from other areas. Timers and alarms still ring. In Home Assistant it's ${night.entity_id}, for automations.`));
 }
 
 // The whole home's commands and skills, found by what they say, and the

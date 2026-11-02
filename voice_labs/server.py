@@ -42,6 +42,7 @@ from .fallback import (
 )
 from .engine import Decision, Engine, Satellite, model_note
 from . import context, follow_up, triggers
+from . import night as night_mode
 from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
@@ -528,6 +529,8 @@ class Session:
     follow_up: FollowUp | None = None
     """What it was told to listen for an answer to (HANGUP ``listen``),
     until the call that hears it starts."""
+    night: bool | None = None
+    """What it was last told of its area's night mode (the ``night`` event)."""
 
     def __str__(self) -> str:
         return self.device_id
@@ -634,7 +637,7 @@ class VoiceLabsApp:
         elif options.speaker_id:
             _LOGGER.warning("Speaker model %s not found; speaker ID disabled", speaker_model)
         self.calls = CallLog(self.store.calls_dir, self.store.settings)
-        self.integration = Integration(self.hass, self._timer_finished, self._timers_changed)
+        self.integration = Integration(self.hass, self._timer_finished, self._timers_changed, self._night_changed)
         self.alarms = (
             alarms.AlarmCalendar(self.hass, self._calendar_due) if languages.current().calendar is not None else None
         )
@@ -999,6 +1002,7 @@ class VoiceLabsApp:
             device_media_player=self.hass.catalog.device_media_player(key) if key else None,
             skills=self.satellite_skills(area),
             settings=areas.effective(self.store.settings, area),
+            night=area is not None and area in self.integration.night,
         )
 
     def place(self, area: str | None) -> Satellite:
@@ -1590,6 +1594,8 @@ class VoiceLabsApp:
             _LOGGER.info("[%s] Device: %s", session, info)
             self._spawn(self._push_wake_models(session))
             self._spawn(self._send_timer_progress(session, force=True))
+            session.night = None
+            self._spawn(self._send_night(session))
         elif msg_type == Message.MODEL_RESULT:
             if info.get("ok"):
                 _LOGGER.info(
@@ -2497,8 +2503,9 @@ class VoiceLabsApp:
         """Recognize the command and do it. Whatever goes wrong, the call is
         answered and hung up rather than left open on the satellite. The
         heard sound plays the moment the command ended."""
-        here = self.satellite(session.satellite).settings
-        if here["sounds"]:
+        satellite = self.satellite(session.satellite)
+        here = satellite.settings
+        if here["sounds"] and not satellite.night:
             call.cues = Cues(self, session, here["instrument"], here["pitch"])
             await call.cues.sound("heard")
         try:
@@ -2509,8 +2516,11 @@ class VoiceLabsApp:
                 call.record.stage("error", error=repr(err))
                 self.calls.finish(call.record, "error", repr(err), self._call_audio(call))
             with contextlib.suppress(Exception):
-                await self._cue(session, "not_understood")
-                await self._say(session, self.language.speech.WENT_WRONG)
+                if satellite.night:
+                    await self._event(session, "result", ok=False)
+                else:
+                    await self._cue(session, "not_understood")
+                    await self._say(session, self.language.speech.WENT_WRONG)
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
         finally:
@@ -2658,13 +2668,18 @@ class VoiceLabsApp:
             await self._event(session, "not_recognized", heard=decision.transcript)
         else:
             await self._event(session, "recognized", text=decision.transcript, command=decision.command.id)
-        if speech is None:
-            # Silent: not even the acknowledgement sound ("never mind").
+        if speech is None or (satellite.night and not night_mode.says(outcome, decision)):
+            # Silent: not even the acknowledgement sound ("never mind"). At
+            # night, a command that acts blinks how it went instead.
             if record is not None:
-                record.stage("speech", text="", silent=True)
+                record.stage("speech", text="", silent=True, **(
+                    {"night": True, "unsaid": speech if isinstance(speech, str) else ""} if satellite.night else {}
+                ))
+            if satellite.night:
+                await self._event(session, "result", ok=night_mode.went_well(outcome, decision))
         else:
             await self._event(session, "responding", text=speech if isinstance(speech, str) else "")
-            await self._say(session, speech, record)
+            await self._say(session, speech, record, quiet=satellite.night)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
         again = self._asks_back(session, call, decision, who, dry_run, outcome, speech)
@@ -2802,6 +2817,7 @@ class VoiceLabsApp:
             home=satellite.settings.get("home"), satellites=self, names=self.said_names(satellite.area_id),
             devices=self.voice_devices(), confirmed=confirmed, agent=self.agent,
         )
+        decision.outcome = outcome.name
         if record is not None:
             record.stage("action", **outcome.to_json(), seconds=_seconds(time.perf_counter() - started))
         if not dry_run and not outcome.error:
@@ -2965,11 +2981,13 @@ class VoiceLabsApp:
         return reply.text if reply.understood and reply.text else None
 
     async def _say(
-        self, session: Session, text: str | Streamed, record: CallRecord | None = None, paced: bool = False
+        self, session: Session, text: str | Streamed, record: CallRecord | None = None, paced: bool = False,
+        quiet: bool = False,
     ) -> None:
         """Say ``text`` on the satellite: with Home Assistant's TTS entity
         when it has one, else Piper, a sentence at a time. An LLM agent's
-        answer (Streamed) is said a sentence at a time as it comes, by either."""
+        answer (Streamed) is said a sentence at a time as it comes, by either.
+        ``quiet`` (at night): by Piper, quieter (voice_labs/night.py)."""
         satellite = self.satellite(session.satellite)
         voice = satellite.voice
         streamed = text if isinstance(text, Streamed) else None
@@ -2978,7 +2996,7 @@ class VoiceLabsApp:
         # What is said, without markup: a streamed answer's as it comes.
         said = list(pieces)
         try:
-            if (pieces or coming is not None) and voice.tts:
+            if (pieces or coming is not None) and voice.tts and not quiet:
                 target = voice.speak_on or satellite.device_media_player
                 if target is None:
                     _LOGGER.warning("[%s] No media player of its own in Home Assistant; speaking with Piper", session)
@@ -3019,6 +3037,8 @@ class VoiceLabsApp:
                     begun = time.perf_counter()
                     async with self._model_lock:
                         audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model)
+                    if quiet:
+                        audio = night_mode.quieter(audio)
                     timing["synthesis"] += time.perf_counter() - begun
                     if timing["first"] is None:
                         timing["first"] = time.perf_counter() - started
@@ -3343,6 +3363,21 @@ class VoiceLabsApp:
         return self.wake_words.errors.get(word) or "it wasn't found after saving"
 
     # ---------------------------------------------------------------- timers
+
+    def _night_changed(self) -> None:
+        """An area's night mode turned on or off: its satellites are told."""
+        for session in list(self.sessions.values()):
+            self._spawn(self._send_night(session))
+
+    async def _send_night(self, session: Session) -> None:
+        """Whether the satellite's area's night mode is on (voice_labs/night.py),
+        when that changed: its ring dim and warm, but for a ring."""
+        if session.writer is None or not session.satellite:
+            return
+        night = self.satellite(session.satellite).night
+        if night != session.night:
+            session.night = night
+            await self._event(session, "night", on=night)
 
     def _timers_changed(self) -> None:
         """Running timers changed somewhere: show them on the satellites' rings,

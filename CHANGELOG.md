@@ -119,6 +119,14 @@
   ("what time is it") is as it was heard; with nothing here to refer to, it
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
+- **Night mode**, in each area: its switch from the integration
+  (`switch.<area>_night_mode`, at the top of the area's page too). On, a
+  command that acts says nothing -- the ring shows how it went, one slow
+  green pulse or two red blinks -- an answer or a command's question is said
+  quietly (15 dB down, with Piper on the satellite), none of the sounds play,
+  and the area is on do not disturb. The ring is dim and amber, and dark
+  between calls. Timers and alarms ring as ever. Needs the integration and
+  the firmware updated; commands see `satellite.night`.
 - **A timer rings on the satellite's instrument**: the stock timer sound's
   perfect fifth (the area's pitch, then the fifth above), every 3.25 seconds,
   as loud as that sound. It rings once before saying which timer finished,

@@ -113,6 +113,8 @@ class FakeHass:
         self.device_areas: dict[str, str | None] = {}
         self.do_not_disturb: dict[str, bool] = {}
         """Each satellite's area's do not disturb switch: on or off, by area id."""
+        self.night: dict[str, bool] = {}
+        """And its night mode switch (``turn_night`` tells those watching)."""
         self.timers: dict[str, dict[str, dict[str, Any]]] = {}
         """timer list entity -> timer id -> timer."""
         self._timer_ids = itertools.count(1)
@@ -157,7 +159,8 @@ class FakeHass:
         self.trigger_responses: dict[str, str] = {}
         """What the default agent answers to a trigger's sentence; "" none
         set by its automation: Home Assistant's "Done"."""
-        self._automation_watchers: list[tuple[Any, int]] = []
+        self._automation_watchers: list[tuple[Any, int, frozenset[str]]] = []
+        """subscribe_entities's subscribers: socket, id, the entities watched."""
         self.time_zone = "Europe/Berlin"
         self.local_calendars: list[str] = []
         """Local Calendars made (their names); each is ``calendar.<slug>``."""
@@ -342,9 +345,9 @@ class FakeHass:
         elif kind == "subscribe_entities":
             await result()
             await socket.send(json.dumps({"id": msg_id, "type": "event", "event": {"a": {
-                e: {"s": self.automations[e]["state"], "a": {}} for e in message.get("entity_ids") or [] if e in self.automations
+                e: {"s": state, "a": {}} for e in message.get("entity_ids") or [] if (state := self._entity_state(e)) is not None
             }}}))
-            self._automation_watchers.append((socket, msg_id))
+            self._automation_watchers.append((socket, msg_id, frozenset(message.get("entity_ids") or [])))
         elif kind == "conversation/agent/list":
             await result({"agents": [
                 {"id": "conversation.home_assistant", "name": "Home Assistant", "supported_languages": ["en"]},
@@ -445,9 +448,12 @@ class FakeHass:
             if not self.integration:
                 await result(success=False, error="unknown command")
                 return
-            await result({"areas": {
-                area: {"entity_id": f"switch.{area}_do_not_disturb", "on": on} for area, on in sorted(self.do_not_disturb.items())
-            }})
+            await result({
+                "areas": {
+                    area: {"entity_id": f"switch.{area}_do_not_disturb", "on": on} for area, on in sorted(self.do_not_disturb.items())
+                },
+                "night": {area: {"entity_id": f"switch.{area}_night_mode", "on": on} for area, on in sorted(self.night.items())},
+            })
         elif kind == "config/device_registry/update":
             self.device_areas[message["device_id"]] = message.get("area_id")
             await result({})
@@ -512,14 +518,34 @@ class FakeHass:
             "continue_conversation": asks and self.asks_back != "emoji",
         }
 
+    def _entity_state(self, entity_id: str) -> str | None:
+        """An automation's state, or a night mode switch's."""
+        if entity_id in self.automations:
+            return str(self.automations[entity_id]["state"])
+        area = entity_id.removeprefix("switch.").removesuffix("_night_mode")
+        if entity_id.endswith("_night_mode") and area in self.night:
+            return "on" if self.night[area] else "off"
+        return None
+
+    async def turn_night(self, area: str, on: bool) -> None:
+        """An area's night mode turned on or off: those watching it are told."""
+        self.night[area] = on
+        await self._tell(f"switch.{area}_night_mode", "on" if on else "off")
+
     async def turn_automation(self, entity_id: str, state: str) -> None:
         """An automation turned on or off: those watching it are told."""
         self.automations[entity_id]["state"] = state
-        for socket, msg_id in list(self._automation_watchers):
+        await self._tell(entity_id, state)
+
+    async def _tell(self, entity_id: str, state: str) -> None:
+        for watcher in list(self._automation_watchers):
+            socket, msg_id, watched = watcher
+            if entity_id not in watched:
+                continue
             try:
                 await socket.send(json.dumps({"id": msg_id, "type": "event", "event": {"c": {entity_id: {"+": {"s": state}}}}}))
             except websockets.ConnectionClosed:
-                self._automation_watchers.remove((socket, msg_id))
+                self._automation_watchers.remove(watcher)
 
     def known(self) -> list[str]:
         return [e for e, *_ in ENTITIES]
@@ -614,6 +640,9 @@ class FakeHass:
                 area = entity_id.removeprefix("switch.").removesuffix("_do_not_disturb")
                 if area in self.do_not_disturb:
                     self.do_not_disturb[area] = message["service"] == "turn_on"
+                area = entity_id.removeprefix("switch.").removesuffix("_night_mode")
+                if entity_id.endswith("_night_mode") and area in self.night:
+                    await self.turn_night(area, message["service"] == "turn_on")
             return None
         if message["domain"] == "todo" and message["service"] == "get_items":
             entity_id = message["target"]["entity_id"]

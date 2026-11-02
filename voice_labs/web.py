@@ -150,6 +150,7 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.put("/api/areas/{id}/off", api.put_area_off),
             web.put("/api/triggers/{id}", api.put_trigger),
             web.put("/api/areas/{id}/do_not_disturb", api.put_area_quiet),
+            web.put("/api/areas/{id}/night", api.put_area_quiet),
             web.get("/api/satellites", api.satellites),
             web.put("/api/satellites/{key}", api.put_satellite),
             web.post("/api/satellites/{key}/debug", api.debug_session),
@@ -931,6 +932,7 @@ class Api:
         app = self.app
         catalog = app.hass.catalog
         quiet = await app.integration.do_not_disturb()
+        night = await app.integration.do_not_disturb("night")
         settings = app.store.settings
         data = app.store.document()
         here, default = languages.current().code, file_language(data)
@@ -982,6 +984,7 @@ class Api:
                     "listed": area_id in listed,
                     "own": areas.own(settings, area_id),
                     "do_not_disturb": quiet.get(area_id),
+                    "night": night.get(area_id),
                 }
             )
         floors = sorted(catalog.floors.values(), key=lambda f: (f.level is None, f.level or 0, f.name.lower()))
@@ -1021,14 +1024,16 @@ class Api:
         return web.json_response({"ok": True})
 
     async def put_area_quiet(self, request: web.Request) -> web.Response:
-        """An area's do not disturb on (``on``: true) or off: its switch in
-        Home Assistant, which holds it."""
+        """An area's do not disturb (its night mode: ``/night``) on (``on``:
+        true) or off: its switch in Home Assistant, which holds it."""
         body = await request.json()
         if not isinstance(body.get("on"), bool):
             raise ConfigError("on: true or false")
-        switch = (await self.app.integration.do_not_disturb()).get(request.match_info["id"])
+        night = request.path.endswith("/night")
+        switch = (await self.app.integration.do_not_disturb("night" if night else "areas")).get(request.match_info["id"])
         if not switch:
-            raise FileNotFoundError("No do not disturb there: it comes with a satellite in the area")
+            what = "night mode" if night else "do not disturb"
+            raise FileNotFoundError(f"No {what} there: it comes with a satellite in the area")
         await self.app.hass.call_service("switch", "turn_on" if body["on"] else "turn_off", {}, {"entity_id": switch["entity_id"]})
         return web.json_response({"ok": True})
 

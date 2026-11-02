@@ -346,12 +346,13 @@ automation's page.
 | `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
 | `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`) -- and how the answer is read |
 | `voice_labs/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
+| `voice_labs/night.py` | night mode (each area's switch, followed by `integration.py`): a command that acts blinks how it went (the `result` event), an answer or a question is said quietly, none of the sounds, do not disturb too; the satellite is told (`night` event) |
 | `voice_labs/triggers.py` | Home Assistant's sentence triggers: read and grouped by automation, kept current, heard as examples or on the transcript (hassil), ahead of the commands, and run by its own agent |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's do not disturb switch |
+| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's do not disturb and night mode switches |
 | [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) | the satellites' ESPHome firmware: `voice-labs.yaml`, the `components/voice_labs` component, and the install page's build |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |

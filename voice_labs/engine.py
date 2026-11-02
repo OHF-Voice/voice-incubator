@@ -114,6 +114,8 @@ class Satellite:
     """The skills that answer here (voice_labs/skills/); None: every one."""
     settings: dict[str, Any] = field(default_factory=dict)
     """Its area's settings over the whole home's (voice_labs/areas.py)."""
+    night: bool = False
+    """Its area's night mode is on (voice_labs/night.py)."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +130,7 @@ class Satellite:
             "media_player": self.media_player,
             "device_media_player": self.device_media_player,
             "skills": sorted(self.skills) if self.skills is not None else None,
+            "night": self.night,
         }
 
     def available(self, command: Command) -> Behavior | None:
@@ -211,6 +214,9 @@ class Decision:
     asked: Any = None
     """What the conversation agent made of it (agent.Reply), once it was
     asked and has answered: whether it asked something back."""
+
+    outcome: str | None = None
+    """How the command it ran turned out (actions.Outcome.name), once it ran."""
 
     timings: dict[str, float] = field(default_factory=dict)
 
