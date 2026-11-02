@@ -2895,8 +2895,8 @@ function devicesPanel(store, areas, only) {
   // A name another device has where it is heard.
   const clash = (clashes) => (clashes.length ? h("span", { class: "badge bad", style: "margin-left:6px",
     title: clashes.map((c) => `“${c.name}” is also ${c.with.join(", ")}'s`).join("\n") }, "shared") : null);
-  // A name that is a word commands listen for.
-  const word = (names, device, where) => commandWord(names.filter((n) => (device.command_words || []).some((w) => sameName(w, n))), where);
+  // A whole house name that is a word commands listen for.
+  const word = (device) => commandWord(device.house.filter((n) => (device.command_words || []).some((w) => sameName(w, n))), "from every area");
   const name = only ? areaName(only) : null;
   return h("div", { class: "panel" },
     only ? heading("h2", "Devices", `Voice acts only on the devices added: by their names in the ${name}, by their names in the whole house, or as part of the ${name} (“turn on the lights”). Home Assistant's exposure to Assist doesn't count.`)
@@ -2909,10 +2909,10 @@ function devicesPanel(store, areas, only) {
         return h("tr", {},
           h("td", {}, h("code", {}, itemId),
             device.area ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
-          h("td", { "data-label": only ? `In the ${name}` : "" }, only ? [listed(device.here), clash(clashes.filter((c) => c.area)), word(device.here, device, `in the ${name}`),
+          h("td", { "data-label": only ? `In the ${name}` : "" }, only ? [listed(device.here), clash(clashes.filter((c) => c.area)),
             device.here.length && !device.with_area ? h("span", { class: "badge", style: "margin-left:6px", title: "Not heard from other areas, even with its area said." }, "only there") : null]
             : null),
-          h("td", { "data-label": "Whole house" }, listed(device.house), clash(clashes.filter((c) => !c.area)), word(device.house, device, "from every area")),
+          h("td", { "data-label": "Whole house" }, listed(device.house), clash(clashes.filter((c) => !c.area)), word(device)),
           h("td", { "data-label": "Part of the area" }, only && areaWide(itemId) ? (device.implicit ? "Yes" : "No") : only ? h("span", { class: "muted" }, "—") : null),
           h("td", { style: "text-align:right; white-space:nowrap" },
             h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
@@ -2985,8 +2985,8 @@ function areaNamesPanel(store, area) {
   return panel;
 }
 
-// A device's names that are, whole, a word commands listen for ("Light"):
-// heard for it, "turn off the light" means it alone, `where` it is heard.
+// A device's whole house names that are, whole, a word commands listen for
+// ("Light"): "turn off the light" means it alone, `where` it is heard.
 function commandWord(names, where) {
   if (!names.length) return null;
   const said = names.map((n) => `“${n}”`).join(", ");

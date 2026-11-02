@@ -675,12 +675,17 @@ async def _scenario(tmp_path: Path) -> None:
             assert devices["light.bedroom_lamp"] == {
                 "here": ["Lamp"], "house": ["Bedroom Lamp"], "implicit": True, "with_area": False, "area": None,
                 "ha_area": "bedroom", "clashes": [], "command_words": []}
-            # A name that is a word commands listen for ("turn on the light") is flagged.
+            # A whole house name that is a word commands listen for ("turn on
+            # the light") is flagged; one in its area only isn't. (Emptied, as
+            # the form sends it, there are none: not its area's names.)
+            assert (await put("light.bedroom_lamp", {"name": "Light", "house": []})).status == 200
+            devices = (await (await http.get("/api/store")).json())["devices"]
+            assert devices["light.bedroom_lamp"]["house"] == [] and devices["light.bedroom_lamp"]["command_words"] == []
+            assert (await http.delete("/api/names/entities/light.bedroom_lamp")).status == 200
             assert (await put("light.desk_lamp", {"name": "Desk Lamp", "house": ["Light"]})).status == 200
             devices = (await (await http.get("/api/store")).json())["devices"]
             assert devices["light.desk_lamp"]["command_words"] == ["Light"]
-            for gone in ("light.desk_lamp", "light.bedroom_lamp"):
-                assert (await http.delete(f"/api/names/entities/{gone}")).status == 200
+            assert (await http.delete("/api/names/entities/light.desk_lamp")).status == 200
 
             # Piper's voice: one of the language's from its catalog, a speaker
             # it has, and its settings in their ranges -- the default left out;

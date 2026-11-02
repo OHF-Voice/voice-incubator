@@ -558,9 +558,10 @@ class Api:
                 "here": list(device.here), "house": list(device.house), "implicit": device.implicit,
                 "with_area": device.with_area, "area": device.area, "ha_area": self._ha_area(item_id),
                 "clashes": clashes.get(item_id, []),
-                # Names that are, whole, a word commands listen for: "Light"
-                # takes "turn off the light" for this one device.
-                "command_words": [n for n in dict.fromkeys([*device.here, *device.house]) if phrase_key(n) in words],
+                # Whole house names that are, whole, a word commands listen
+                # for: "Light" takes "turn off the light" for this one device
+                # everywhere. (In its area, the lights there are much the same.)
+                "command_words": [n for n in device.house if phrase_key(n) in words],
             }
             for item_id, device in devices.items()
         }
@@ -2088,11 +2089,12 @@ def _language(value: Any, option: str) -> str:
 def _clean(value: Any) -> Any:
     """Drop empty values the form sends for fields left blank -- but not a
     combination of nothing said (``combinations: [[], [area]]``), nor no
-    satellites (``satellites: []``: none of them)."""
+    satellites (``satellites: []``: none of them), nor a device's names in
+    the whole house emptied (``house: []``: none, not its area's names)."""
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            if key == "satellites" and isinstance(item, list):
+            if key in ("satellites", "house") and isinstance(item, list):
                 out[key] = item
                 continue
             if key == "combinations" and isinstance(item, list):
