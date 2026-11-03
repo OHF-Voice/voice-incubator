@@ -123,6 +123,25 @@ def test_a_doubtful_match_is_heard_again(engine):
         engine.build(compile_store(STORE))
 
 
+def test_free_text_is_no_doubt(engine):
+    """Free text costs a little a word, so that a name is worth taking over
+    it -- not because it was heard poorly: eight words of a reminder, as much
+    as an unexplained word, aren't doubtful in the audio, nor in the
+    transcript asked about something else."""
+    store = {"commands": {"remind_me": {
+        "description": "add a reminder", "require": [["remind me"]],
+        "wildcard": {"slot": "reminder", "after": ["remind me"], "to_end": True, "max_words": 16}, "response": "Okay."}}}
+    engine.build(compile_store(store))
+    try:
+        stt = CloudStt("To remind me to brush my teeth at 11:44.")
+        decision = decide(engine, "remind me to brush my teeth at eleven forty four", stt)
+        assert decision.command.id == "remind_me" and decision.doubt is None
+        assert decision.slots["reminder"].endswith("brush my teeth at 11:44")
+        assert decision.intent.cost >= 4
+    finally:
+        engine.build(compile_store(STORE))
+
+
 def test_a_question_a_command_half_explains_is_a_skills(engine):
     """"What day is Christmas" is the date's "what day", "is Christmas" left
     over, in the audio and the transcript alike: not the date, but the dates

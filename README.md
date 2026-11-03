@@ -1191,7 +1191,10 @@ for this app:
   transcript`; the call trace keeps what the pass found (`transcript_pass`).
 - **A doubtful match is heard again** (`Engine._hear_again`). A match that
   costs at least as much as one word it left unexplained
-  (`unexplained_important_cost`, 4) runs only when the same pass on the
+  (`unexplained_important_cost`, 4) -- its free text not counted, which costs
+  0.5 a word only so that a name is worth taking over it ("remind me to brush
+  my teeth at eleven forty four" is 4 of it, and could never run before) --
+  runs only when the same pass on the
   transcript finds the same command; one it finds instead runs in its place,
   and none means nothing runs (`doubt` in the trace: `agrees`, `replaced`,
   `refused`, `unconfirmed`). Of 31 recent sessions on a VPE, the three wrong

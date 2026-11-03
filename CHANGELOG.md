@@ -155,6 +155,12 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
+- **A long reminder runs.** "Remind me to brush my teeth at eleven forty
+  four" matched, but its eight words of free text cost as much as a word left
+  unexplained, so it was doubtful -- and as doubtful in the transcript that
+  should have confirmed it, so nothing ran. Free text no longer counts
+  toward doubt; it costs a little a word only so that a name is worth taking
+  over it.
 - **The command lists say less.** A command, listed or in the Add dialog, no
   longer has a summary of what it listens for ("turn on + a device"), and a
   library section on the Home page no longer lists the commands you haven't

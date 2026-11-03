@@ -16,8 +16,9 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    examples too, and one with free text is matched on the transcript first.
 3. **A doubtful match is heard again.** One that costs as much as a word it
    left unexplained ("we resume the chicken pder" as resuming the music,
-   "chicken" left over) runs only when the TDT or STT transcript agrees: the
-   same matcher on the transcript finds the same command. A command it finds
+   "chicken" left over), free text not counted, runs only when the TDT or STT
+   transcript agrees: the same matcher on the transcript finds the same
+   command. A command it finds
    instead runs in its place; finding none, nothing runs. And a name is
    stronger evidence than its absence: a match that named nothing, with a
    word left over, of a command with a version that takes a device, area or
@@ -645,7 +646,7 @@ class Engine:
         if decision.command is None:
             self._take(decision, recognition, compiled, satellite, command_audio, frame_seconds, transcriber)
         if decision.command is not None and not typed and transcriber is not None and decision.intent is not None:
-            if decision.intent.cost >= recognizer.config.settings.unexplained_important_cost:
+            if _doubt(decision.intent) >= recognizer.config.settings.unexplained_important_cost:
                 self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber, "cost")
             elif decision.intent.unexplained and self._may_name(decision, compiled, satellite):
                 self._hear_again(decision, recognition, compiled, recognizer, satellite, command_audio, transcriber, "unnamed")
@@ -1033,7 +1034,7 @@ class Engine:
         decision.transcript_pass = again.transcript_pass
         decision.doubt = {"why": why, **doubt}
         doubt = decision.doubt
-        if again.command is not None and again.intent is not None and again.intent.cost >= recognizer.config.settings.unexplained_important_cost:
+        if again.command is not None and again.intent is not None and _doubt(again.intent) >= recognizer.config.settings.unexplained_important_cost:
             # The transcript's match is as unsure: it says nothing ("what
             # day is Christmas" is the date's "what day", "is Christmas" left
             # over, in the transcript too -- and the dates skill's).
@@ -1444,6 +1445,14 @@ def model_note(fallback: dict[str, Any] | None) -> str | None:
         return f"{picked}, not run: {'; '.join(step['problems'])}"
     surer = f"; {', '.join(step['surer'])} likelier, not chosen for it" if step.get("surer") else ""
     return f"{by}: {step.get('said') or 'not a command'}{surer}"
+
+
+def _doubt(result: IntentResult) -> float:
+    """What a match costs but its free text, which costs a little a word only
+    so that a name is worth taking over it: the words it left unexplained, and
+    how poorly its own were heard. Eight words of a reminder are as much as an
+    unexplained word, and say nothing about whether it was heard right."""
+    return result.cost - sum(use.hit.penalty for use in result.spans if use.role == "wildcard")
 
 
 def _named(decision: Decision) -> bool:
