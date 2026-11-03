@@ -65,7 +65,7 @@ one call at a time:
    `musescore-general-soundfont-small`, else
    `models/soundfonts/MuseScore_General_Lite.sf3`) on settings.json
    `instrument` (a preset's name in underscores; none,
-   `tine_electric_piano`) from `pitch` (a note; none, the instrument's own),
+   `grand_piano`) from `pitch` (a note; none, the instrument's own),
    when first wanted, and kept.
 
 Commands, names, satellites and debugging are described for users in the

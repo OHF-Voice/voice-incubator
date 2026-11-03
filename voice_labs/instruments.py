@@ -47,14 +47,14 @@ SOUNDS = ("heard", "acknowledge", "not_understood", "asking", "listening")
 understood, or it went wrong; the conversation agent is asked; your turn to
 answer."""
 
-INSTRUMENT = "tine_electric_piano"
+INSTRUMENT = "grand_piano"
 """What the sounds are played on unless another is chosen."""
-ALIASES = {"electric_piano": INSTRUMENT}
+ALIASES = {"electric_piano": "tine_electric_piano"}
 """Instruments as settings named them before (sounds/<instrument>/)."""
 PITCH = 72
 """The key the sounds start from (C5), unless one is chosen or the
 instrument has its own in PITCHES."""
-PITCHES = {INSTRUMENT: 79}
+PITCHES = {"tine_electric_piano": 79}
 """Instruments' own pitches: the electric piano from G5."""
 LOWEST, HIGHEST = 36, 96
 """The pitches that may be chosen: C2 to C7."""

@@ -973,11 +973,12 @@ async def _sounds(tmp_path):
         assert await speech.ring() == speech.alarm and speech.alarm
         speech.instruments.presets = presets
         # The SoundFont's instruments, by family, each from its own pitch: the
-        # electric piano, the default, from G5; no drum kits.
+        # grand piano, the default, from C5, the electric piano from G5; no drum kits.
         async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
             status = await (await http.get("/api/status")).json()
         instruments = {i["id"]: i for i in status["instruments"]}
-        assert status["instrument"] == "tine_electric_piano" and status["pitch"] is None
+        assert status["instrument"] == "grand_piano" and status["pitch"] is None
+        assert instruments["grand_piano"] == {"id": "grand_piano", "name": "Grand Piano", "family": "Piano", "pitch": "C5"}
         assert instruments["tine_electric_piano"] == {"id": "tine_electric_piano", "name": "Tine Electric Piano", "family": "Piano", "pitch": "G5"}
         assert instruments["koto"] == {"id": "koto", "name": "Koto", "family": "Ethnic", "pitch": "C5"}
         assert len(instruments) > 150 and not any("Drum Kit" in i["name"] or i["name"].endswith("Expr.") for i in instruments.values())
@@ -1001,9 +1002,13 @@ async def _sounds(tmp_path):
                 tuba = await speech.sounds("tuba", "C3")
                 assert len(await response.read()) > sum(len(sound) for sound in tuba.values())
             assert (await http.post("/api/sounds/try", json={"instrument": "kazoo"})).status == 400
-        # The electric piano, as before ("electric_piano"), from its own pitch.
+        # The electric piano, as settings named it before ("electric_piano"), from its own pitch.
         assert await put({"instrument": "electric_piano", "pitch": None}) == 200
-        assert "instrument" not in app.store.settings and "pitch" not in app.store.settings
+        assert app.store.settings["instrument"] == "tine_electric_piano" and "pitch" not in app.store.settings
+        assert await speech.sound("heard") not in (koto, piano)
+        # The default again: the grand piano, not stored.
+        assert await put({"instrument": "grand_piano"}) == 200
+        assert "instrument" not in app.store.settings
         assert await speech.sound("heard") == piano
         # Turned off: the reply alone (and from before, thinking_sound: false meant so).
         assert await put({"sounds": False}) == 200

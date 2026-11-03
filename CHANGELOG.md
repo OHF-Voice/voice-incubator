@@ -155,6 +155,9 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
+- **The sounds are on a grand piano** unless you choose another instrument
+  (from C5). Before, they were on the Tine Electric Piano, which is still
+  there (from G5); a home that never chose one hears the piano now.
 - **A satellite disabled in Home Assistant is left to another app.** A
   satellite takes one app at a time, and the app reconnects to one it loses
   within seconds, so another app (on a PC, against a test Home Assistant)
