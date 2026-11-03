@@ -155,10 +155,10 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
-- **The command lists say less.** Each command is its title, without the
-  summary of what it listens for ("turn on + a device") under it, and a
-  library section no longer lists the commands you haven't added from it
-  (the library's dialog still says which are added).
+- **The command lists say less.** A command, listed or in the Add dialog, no
+  longer has a summary of what it listens for ("turn on + a device"), and a
+  library section on the Home page no longer lists the commands you haven't
+  added from it (the Add dialog still says which are added).
 - **The intercom connects where someone was.** Of several satellites in the
   area named, "connect to the living room" takes the one that last answered
   someone there, else the first by name as before -- and one busy or on

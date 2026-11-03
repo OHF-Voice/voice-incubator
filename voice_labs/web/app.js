@@ -387,55 +387,6 @@ function satelliteLabels() {
 
 // ---------------------------------------------------------------- commands
 
-// A kind of device as said: its domain, or what it is to people.
-const DOMAIN_KINDS = { climate: "thermostat", media_player: "player", input_boolean: "switch", binary_sensor: "sensor" };
-
-// A list value as said: its first phrase (in the app's language, when by
-// language), else the value.
-function valueSaid(value, phrases) {
-  if (Array.isArray(phrases) && phrases.length) return String(phrases[0]);
-  if (typeof phrases === "string" && phrases) return phrases;
-  if (phrases && typeof phrases === "object") {
-    const first = Object.values(phrases).find((p) => Array.isArray(p) ? p.length : p);
-    if (first) return String(Array.isArray(first) ? first[0] : first);
-  }
-  return value;
-}
-
-// What a command listens for, at a glance: its first example sentence, then
-// the first word of each required group and what its first way of saying it
-// hears -- a device (by its kind), an area or floor, a value, a number, free
-// text ("is + a lock + locked/unlocked").
-function listensText(spec) {
-  const parts = [];
-  if (spec.examples && spec.examples.length) parts.push(`“${spec.examples[0]}”${spec.examples.length > 1 ? ` +${spec.examples.length - 1}` : ""}`);
-  const heard = asList(spec.require).map((g) => asList(g)[0]);
-  const first = spec.combinations && spec.combinations.length ? asList(spec.combinations[0]) : null;
-  const takes = (slot) => !first || first.includes(slot);
-  const names = spec.names || {};
-  if (names.entity && takes("entity")) {
-    // One kind (a lock, or a lock's binary sensor): it; several: a device.
-    const domains = asList(names.entity.domains).filter((d) => d !== "binary_sensor" || names.entity.domains.length === 1);
-    heard.push(domains.length === 1 ? `a ${DOMAIN_KINDS[domains[0]] || domains[0].replace(/_/g, " ")}` : "a device");
-  }
-  if (names.area && takes("area")) heard.push("an area");
-  if (names.floor && takes("floor")) heard.push("a floor");
-  for (const [slot, list] of Object.entries(spec.lists || {})) {
-    if (!takes(slot)) continue;
-    const shared = list && list.list && state.store ? ((state.store.lists || {})[list.list] || (state.store.builtin_lists || {})[list.list]) : null;
-    const values = Object.entries((list && list.values) || shared || {}).map(([value, phrases]) => valueSaid(value, phrases));
-    heard.push(values.length ? `${values.slice(0, 2).join("/")}${values.length > 2 ? "/…" : ""}` : slot.replace(/_/g, " "));
-  }
-  if (spec.number) {
-    const number = typeof spec.number === "object" ? spec.number : { preset: spec.number };
-    const slot = number.slot || (number.preset === "duration" || number.units ? "duration" : number.preset || "number");
-    if (takes(slot)) heard.push(`a ${number.preset && number.preset !== "custom" ? number.preset : "number"}`);
-  }
-  if (spec.wildcard && takes(spec.wildcard.slot)) heard.push("…");
-  if (heard.length) parts.push(heard.join(" + "));
-  return parts.join(" · ");
-}
-
 // What happens when nothing matched: the closest command by meaning, and
 // GLiNER -- each only for the commands chosen for it.
 // How much a command says when it's done (commands.VERBOSITY).
@@ -1685,7 +1636,8 @@ async function newCommandDialog(area) {
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
       h("span", { class: "muted small" }, "Start from scratch.")));
   const matches = (entry, words) => {
-    const text = [entry.title, entry.description, entry.id, entry.group, entry.family_title, entry.family_description, listensText(entry.spec)].join(" ").toLowerCase();
+    const text = [entry.title, entry.description, entry.id, entry.group, entry.family_title, entry.family_description,
+      asList((entry.spec || {}).require).map((g) => asList(g).join(" ")).join(" ")].join(" ").toLowerCase();
     return words.every((w) => text.includes(w));
   };
   // One version: what it is, and Add (or Open, once added). Its family's
@@ -1700,7 +1652,7 @@ async function newCommandDialog(area) {
       icon(iconName, "big"),
       h("div", { class: "grow" },
         h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
-        h("div", { class: "muted small" }, [description, listensText(entry.spec)].filter(Boolean).join(" · ")),
+        description ? h("div", { class: "muted small" }, description) : null,
         entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
         entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
       added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
