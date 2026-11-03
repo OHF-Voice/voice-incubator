@@ -391,7 +391,7 @@ automation's page.
 | `voice_labs/library.py` | the command library; commands that follow it (references, settings, migration) |
 | `voice_labs/people.py` | people: who is speaking, and their own to-do list, calendar, playlist and voice ("my") |
 | `voice_labs/integration.py` | the Voice Labs integration from the app's side: set-up, satellites, following timers |
-| `voice_labs/alarms.py` | alarms and timed reminders on the "Voice Labs" Local Calendar in Home Assistant: made if missing, followed, rung on the satellite that set them (in a language with a `calendar.py`, English for now) |
+| `voice_labs/alarms.py` | alarms and timed reminders on the "Voice Labs" Local Calendar in Home Assistant: made if missing, followed, rung on every satellite in the area they were set in (in a language with a `calendar.py`, English for now) |
 | `voice_labs/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
 | `voice_labs/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_labs/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_labs/gliner.py`) -- each only for the commands chosen for it |

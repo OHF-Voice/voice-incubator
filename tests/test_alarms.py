@@ -176,10 +176,10 @@ def test_events_from_home_assistant():
     raw = {"uid": "u1", "summary": "Alarm", "start": "2026-10-22T07:00:00+02:00", "end": "2026-10-22T07:05:00+02:00",
            "description": "Set by voice on Kitchen. [voice_labs:alarm:aabbccddeeff]"}
     event = alarms.parse_event(raw, TZ)
-    assert event.kind == "alarm" and event.satellite == "aabbccddeeff" and event.start.hour == 7
+    assert event.kind == "alarm" and event.place == "aabbccddeeff" and event.start.hour == 7
     # Added in Home Assistant: a reminder for every satellite.
     added = alarms.parse_event({**raw, "description": None, "summary": "Water the plants"}, TZ)
-    assert added.kind == "reminder" and added.satellite is None
+    assert added.kind == "reminder" and added.place is None
     # All day: nothing to go off at.
     assert alarms.parse_event({**raw, "start": "2026-10-22", "end": "2026-10-23"}, TZ) is None
     # Over REST, times are objects.
@@ -188,9 +188,10 @@ def test_events_from_home_assistant():
     assert alarms.parse_event({**raw, "start": {"date": "2026-10-22"}, "end": {"date": "2026-10-23"}}, TZ) is None
 
 
-def test_upcoming_is_each_once_and_the_satellites_own():
+def test_upcoming_is_each_once_and_the_areas_own():
     cal = alarms.AlarmCalendar.__new__(alarms.AlarmCalendar)
     cal.tz = TZ
+    cal.owner = lambda place: place
     soon = datetime.now(TZ) + timedelta(hours=1)
     cal.events = [
         alarms.Event("a", soon, "Alarm", "alarm", "kitchen", rrule="FREQ=DAILY", recurrence_id="1"),
@@ -200,3 +201,9 @@ def test_upcoming_is_each_once_and_the_satellites_own():
     ]
     assert [e.uid for e in cal.upcoming("alarm", "kitchen")] == ["a"]
     assert [e.uid for e in cal.upcoming("alarm")] == ["a", "b"]
+    # One set before alarms were the area's, marked with its satellite: the
+    # satellite's area's now.
+    cal.events.append(alarms.Event("d", soon, "Alarm", "alarm", "aabbccddeeff"))
+    cal.owner = lambda place: {"aabbccddeeff": "kitchen"}.get(place, place)
+    assert [e.uid for e in cal.upcoming("alarm", "kitchen")] == ["a", "d"]
+    assert [e.uid for e in cal.upcoming("alarm", "bedroom")] == ["b"]

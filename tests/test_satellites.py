@@ -13,7 +13,7 @@ from voice_labs.server import Options, VoiceLabsApp
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
-from .test_app import CALLS, free_port, pytestmark, wait_for  # noqa: F401 - skipped without the models
+from .test_app import CALLS, _library_commands, free_port, pytestmark, wait_for  # noqa: F401 - skipped without the models
 
 KITCHEN, BEDROOM = "aabbccddeeff", "112233445566"
 
@@ -211,6 +211,74 @@ async def _shared_timers(tmp_path) -> None:
     finally:
         runner.cancel()
         await app.stop()
+        for server in servers:
+            server.close()
+        hass_server.close()
+
+
+def test_an_areas_satellites_share_its_alarms(tmp_path):
+    asyncio.run(_shared_alarms(tmp_path))
+
+
+async def _shared_alarms(tmp_path) -> None:
+    """An alarm set on one satellite in the Kitchen is the Kitchen's: the
+    other lists it, both ring when it starts, and "stop" on either stops
+    both. One marked with a satellite (set before alarms were the area's)
+    is that satellite's area's."""
+    from datetime import datetime, timedelta  # pylint: disable=import-outside-toplevel
+    from zoneinfo import ZoneInfo  # pylint: disable=import-outside-toplevel
+
+    hass, hass_server = await fake_hass.serve()
+    rest, rest_port = await fake_hass.serve_rest(hass)
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    counter = FakeSatellite(name="counter", mac=_mac(KITCHEN), speed=8.0)
+    table = FakeSatellite(name="table", mac=_mac(BEDROOM), speed=8.0)
+    servers = [await serve(counter), await serve(table)]
+    for key in (KITCHEN, BEDROOM):
+        hass.device_areas[f"device-{key}"] = "kitchen"
+    (tmp_path / "commands.yaml").write_text(_library_commands(("timers", "set_alarm"), ("timers", "alarm_status")))
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{rest_port}",
+        hass_websocket_url=f"ws://127.0.0.1:{hass_port}/api/websocket", hass_token=fake_hass.TOKEN, data_dir=tmp_path,
+        http_port=free_port(), speaker_profiles=tmp_path / "speakers.json", threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    calendar = "calendar.voice_labs"
+
+    async def said(text: str, key: str) -> str:
+        record = await app.try_text(text, key, run_actions=True)
+        return next(s for s in record.stages if s["stage"] == "speech")["text"]
+
+    try:
+        app._start_session(Device(BEDROOM, "127.0.0.1", servers[1].sockets[0].getsockname()[1], "test"))
+        await asyncio.wait_for(asyncio.gather(counter.ready.wait(), table.ready.wait()), 30)
+        await wait_for(lambda: app.alarms.ready and app.satellite(KITCHEN).area_id == app.satellite(BEDROOM).area_id == "kitchen")
+
+        # Set on the counter: the Kitchen's, said on the table too.
+        assert await said("set an alarm for 7 am tomorrow", KITCHEN) == "Set an alarm for 7:00 AM tomorrow."
+        [event] = hass.calendar_events[calendar]
+        assert "[voice_labs:alarm:kitchen]" in event["description"]
+        await wait_for(lambda: len(app.alarms.upcoming("alarm", "kitchen")) == 1)
+        assert await said("what alarms do i have", BEDROOM) == "You have an alarm at 7:00 AM tomorrow."
+
+        # One marked with the counter rings both; "stop" on one stops both.
+        soon = datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(seconds=1)
+        await hass.add_calendar_event(
+            calendar, summary="Alarm", start=soon.isoformat(), end=(soon + timedelta(minutes=5)).isoformat(),
+            description=f"Set by voice on Counter. [voice_labs:alarm:{KITCHEN}]",
+        )
+        sessions = [app.sessions[KITCHEN], app.sessions[BEDROOM]]
+        await wait_for(lambda: all(s.ringing is not None and not s.ringing.done() and "stop" in sat.models
+                                   for s, sat in zip(sessions, (counter, table))))
+        assert await table.detect("Stop") == "timer_stopped"
+        await wait_for(lambda: all(s.ringing.done() for s in sessions))
+        stopped = [next(st for st in r.stages if st["stage"] == "timer_stopped")["by"] for r in app.calls.recent if r.kind == "timer"]
+        assert sorted(stopped[-2:]) == ["elsewhere", "stop"]
+    finally:
+        runner.cancel()
+        await app.stop()
+        await rest.cleanup()
         for server in servers:
             server.close()
         hass_server.close()

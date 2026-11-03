@@ -642,7 +642,8 @@ class VoiceLabsApp:
         self.calls = CallLog(self.store.calls_dir, self.store.settings)
         self.integration = Integration(self.hass, self._timer_finished, self._timers_changed, self._night_changed)
         self.alarms = (
-            alarms.AlarmCalendar(self.hass, self._calendar_due) if languages.current().calendar is not None else None
+            alarms.AlarmCalendar(self.hass, self._calendar_due, self.alarm_place)
+            if languages.current().calendar is not None else None
         )
         """Alarms and reminders on a Local Calendar, in a language that reads them."""
         self.music = Music(self.hass)
@@ -3536,9 +3537,18 @@ class VoiceLabsApp:
         if session.ringing is None or session.ringing.done():
             session.ringing = asyncio.ensure_future(self._ring(session))
 
+    def alarm_place(self, place: str) -> str:
+        """Whose an alarm or a reminder is: a satellite's key is its area,
+        once it has one (set before alarms were the area's, or while it was
+        in none); an area is itself."""
+        if place in self.sessions or place in self.store.satellites:
+            return self.satellite(place).area_id or place
+        return place
+
     def _calendar_due(self, event: alarms.Event) -> None:
-        """An alarm or a reminder on the calendar starts: ring the satellite
-        that set it -- every one, for a reminder added in Home Assistant."""
+        """An alarm or a reminder on the calendar starts: ring every satellite
+        in its area, as a timer of the area's -- every one, for a reminder
+        added in Home Assistant."""
         say = alarms.words()
         if say is None:
             return
@@ -3548,8 +3558,14 @@ class VoiceLabsApp:
             "announce": say.alarm_due(event.summary, event.start) if alarm else say.reminder_due(event.summary),
             # A reminder is said once; an alarm rings until stopped.
             "once": not alarm,
+            # Stopped on one satellite, it stops on the others (_stop_rings).
+            "timer_id": f"calendar:{event.key[0]}:{event.key[1]}",
         }
-        keys = [event.satellite] if event.satellite else [k for k, s in self.sessions.items() if s.writer is not None]
+        connected = [k for k, s in self.sessions.items() if s.writer is not None]
+        place = self.alarm_place(event.place) if event.place else None
+        keys = [k for k in connected if place is None or self.alarm_place(k) == place]
+        if not keys:
+            _LOGGER.warning("%s is due, but no satellite of %s is connected", event.summary, place)
         for key in keys:
             self._timer_finished(key, dict(entry))
 

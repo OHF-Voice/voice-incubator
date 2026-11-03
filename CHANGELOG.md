@@ -155,6 +155,11 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
+- **Alarms and reminders belong to the area**, as its timers do: set on one
+  satellite, they ring on every satellite in the area -- "stop" on one stops
+  them all -- and any of them lists and cancels them. Before, only the
+  satellite that set one rang, and one turned off at the time lost it. Those
+  set before are their satellite's area's now.
 - **A long reminder runs.** "Remind me to brush my teeth at eleven forty
   four" matched, but its eight words of free text cost as much as a word left
   unexplained, so it was doubtful -- and as doubtful in the transcript that

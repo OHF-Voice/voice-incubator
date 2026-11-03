@@ -1202,7 +1202,7 @@ async def _run_calendar(
     outcome: Outcome,
     calendar: alarms.AlarmCalendar | None,
 ) -> Outcome:
-    """Plan an alarm or reminder operation against the satellite's alarms and
+    """Plan an alarm or reminder operation against its area's alarms and
     reminders to come, carry it out (unless a dry run), and say how it went."""
     say = alarms.words()
     ready = calendar is not None and calendar.ready
@@ -1219,9 +1219,11 @@ async def _run_calendar(
     slots = values["slots"]
     # A reminder without a time goes on the to-do list among the fixed slots.
     todo = next((e for e in slots.get("entity") or [] if str(e).startswith("todo.")), None)
+    # The area's, as its timers are; a satellite in no area, its own.
+    place = satellite.area_id or satellite.key
     plan = alarms.plan(
         str(behavior.timer), slots, calendar.now(),
-        calendar.upcoming("alarm", satellite.key), calendar.upcoming("reminder", satellite.key), todo=todo is not None,
+        calendar.upcoming("alarm", place), calendar.upcoming("reminder", place), todo=todo is not None,
     )
     if plan.create and not ready:
         return await unready()
@@ -1237,7 +1239,7 @@ async def _run_calendar(
         try:
             if plan.create:
                 await calendar.create(plan.create["kind"], plan.create["summary"], plan.create["start"],
-                                      plan.create["rrule"], satellite.key, satellite.name)
+                                      plan.create["rrule"], place, satellite.name)
             for event in plan.delete:
                 await calendar.delete(event)
             if plan.todo:

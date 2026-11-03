@@ -5,14 +5,16 @@ reminder with a time is an event on a calendar of the app's own -- Home
 Assistant's Local Calendar named "Voice Labs", which the app creates when it
 connects -- so it outlives a restart, may be for another day or repeat
 ("every weekday at 7"), and shows in Home Assistant's calendar, where it can
-be changed. Each event says which satellite set it, and of which kind
-(``[voice_labs:alarm:<satellite>]`` in its description).
+be changed. Each event says whose it is -- the area of the satellite that
+set it, or that satellite, when it is in no area -- and of which kind
+(``[voice_labs:alarm:<area>]`` in its description).
 
 The app follows the calendar's next days (``calendar/event/subscribe``: Home
 Assistant sends them again whenever they change; read over REST where they
 come without their uids, or can't be followed) and, when one starts, rings
-the satellite that set it: an alarm as a timer that finished, until "stop"; a
-reminder is said. An event without the mark -- one added in Home Assistant --
+every satellite in its area, as a timer of the area's does: an alarm until
+"stop" (said on one, it stops on all); a reminder is said. Any of them lists
+and cancels it. An event without the mark -- one added in Home Assistant --
 is a reminder said on every satellite. One missed by up to ``LATE`` (the app
 was not running) still goes off; older, it is let go.
 
@@ -60,8 +62,8 @@ language with a calendar module)."""
 MARK = re.compile(r"\[voice_labs:(alarm|reminder):([^\]\s]*)\]")
 
 
-def mark(kind: str, satellite: str | None) -> str:
-    return f"[voice_labs:{kind}:{satellite or ''}]"
+def mark(kind: str, place: str | None) -> str:
+    return f"[voice_labs:{kind}:{place or ''}]"
 
 
 def words() -> ModuleType | None:
@@ -77,7 +79,9 @@ class Event:
     start: datetime
     summary: str
     kind: str = "reminder"
-    satellite: str | None = None
+    place: str | None = None
+    """Whose it is: an area, or a satellite's key (one in no area, or set
+    before alarms were the area's); None: added in Home Assistant, everyone's."""
     rrule: str | None = None
     recurrence_id: str | None = None
     description: str = ""
@@ -90,7 +94,7 @@ class Event:
     def to_json(self) -> dict[str, Any]:
         return {
             "uid": self.uid, "start": self.start.isoformat(), "summary": self.summary, "kind": self.kind,
-            "satellite": self.satellite, "rrule": self.rrule,
+            "place": self.place, "rrule": self.rrule,
         }
 
 
@@ -114,7 +118,7 @@ def parse_event(raw: dict[str, Any], tz: ZoneInfo) -> Event | None:
         start=when,
         summary=str(raw.get("summary") or ""),
         kind=found.group(1) if found else "reminder",
-        satellite=(found.group(2) or None) if found else None,
+        place=(found.group(2) or None) if found else None,
         rrule=raw.get("rrule") or None,
         recurrence_id=raw.get("recurrence_id") or None,
         description=description,
@@ -123,11 +127,14 @@ def parse_event(raw: dict[str, Any], tz: ZoneInfo) -> Event | None:
 
 class AlarmCalendar:
     """The calendar, from the app's side: made if missing, followed, and
-    written to. ``on_due`` gets each event as it starts."""
+    written to. ``on_due`` gets each event as it starts; ``owner`` says whose
+    an event's place is now (a satellite's key: its area, once it has one)."""
 
-    def __init__(self, hass: HomeAssistant, on_due: Callable[[Event], None]) -> None:
+    def __init__(self, hass: HomeAssistant, on_due: Callable[[Event], None],
+                 owner: Callable[[str], str] | None = None) -> None:
         self.hass = hass
         self.on_due = on_due
+        self.owner: Callable[[str], str] = owner or (lambda place: place)
         self.entity_id: str | None = None
         self.status = "connecting"
         """``connecting``, ``ready``, or why not: shown in the UI."""
@@ -280,13 +287,14 @@ class AlarmCalendar:
     # --------------------------------------------------------------- write
 
     async def create(self, kind: str, summary: str, start: datetime, rrule: str | None,
-                     satellite: str, satellite_name: str) -> None:
-        """Add an alarm or a reminder, set on ``satellite``."""
+                     place: str, satellite_name: str) -> None:
+        """Add an alarm or a reminder of ``place``'s, set on the satellite
+        named ``satellite_name``."""
         event: dict[str, Any] = {
             "summary": summary,
             "dtstart": start.isoformat(),
             "dtend": (start + timedelta(minutes=5)).isoformat(),
-            "description": f"Set by voice on {satellite_name}. {mark(kind, satellite)}",
+            "description": f"Set by voice on {satellite_name}. {mark(kind, place)}",
         }
         if rrule:
             event["rrule"] = rrule
@@ -308,14 +316,14 @@ class AlarmCalendar:
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             _LOGGER.warning("Could not read the %s calendar: %s", CALENDAR_NAME, err)
 
-    def upcoming(self, kind: str, satellite: str | None = None) -> list[Event]:
+    def upcoming(self, kind: str, place: str | None = None) -> list[Event]:
         """The ones still to come, each once (a repeating one by its next
-        time), soonest first: a satellite's own, and those of none."""
+        time), soonest first: a place's own, and those of none."""
         now, seen, out = self.now(), set(), []
         for event in self.events:
             if event.kind != kind or event.start <= now or event.uid in seen:
                 continue
-            if satellite is not None and event.satellite not in (None, satellite):
+            if place is not None and event.place is not None and self.owner(event.place) != place:
                 continue
             seen.add(event.uid)
             out.append(event)
