@@ -1883,8 +1883,7 @@ function commandItem(store, id, from, extra) {
   return h("div", { class: "item clickable", title: `${id}: ${spec.description || ""}`, onclick: () => { location.hash = href; } },
     icon(iconFor(spec), "big"),
     h("div", { class: "grow" },
-      h("div", { class: "title" }, spec.title || spec.description || id),
-      h("div", { class: "muted small" }, listensText(spec) || spec.description || id)),
+      h("div", { class: "title" }, spec.title || spec.description || id)),
     from ? null : offBadge(detail.off, spec.disabled),
     asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
     detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
@@ -1954,7 +1953,8 @@ function commandGroups(store, skillData, area, words = []) {
   const said = (...texts) => { const text = texts.join(" ").toLowerCase(); return words.every((w) => text.includes(w)); };
   const sectionTitle = (id) => ((store.sections || []).find((s) => s.file === (store.details[id] || {}).library) || {}).title || "Custom";
   const ids = Object.keys(store.commands || {}).filter((id) => ((store.details[id] || {}).area || null) === (area || null)
-    && (!words.length || ((spec) => said(spec.title || "", spec.description || "", asList(spec.examples).join(" "), listensText(spec), sectionTitle(id)))(store.commands[id] || {})));
+    && (!words.length || ((spec) => said(spec.title || "", spec.description || "", asList(spec.examples).join(" "),
+      asList(spec.require).map((g) => asList(g).join(" ")).join(" "), sectionTitle(id)))(store.commands[id] || {})));
   const bySection = {};
   for (const id of ids) {
     const section = (store.details[id] || {}).library || "";
@@ -1975,30 +1975,13 @@ function commandGroups(store, skillData, area, words = []) {
 }
 
 // The whole home's commands and skills (`area` null), or an area's own, a
-// panel to each group. With the `library` (the whole home's), a section you
-// have commands from says which of its commands you have none of, to add.
-function placedSections(store, skillData, area, emptyText, library, words = []) {
-  const section = (title, iconName, items, after) => h("div", { class: "panel section" },
+// panel to each group.
+function placedSections(store, skillData, area, emptyText, words = []) {
+  const section = (title, iconName, items) => h("div", { class: "panel section" },
     h("h3", { class: "row" }, icon(iconName), title, h("span", { class: "badge" }, String(items.length))),
-    h("div", { class: "list" }, items), after || null);
-  const yours = Object.keys(store.commands || {});
-  const families = library && !area && !words.length ? libraryFamilies(library.entries || []) : [];
-  const notAdded = (file) => {
-    const missing = families.filter((f) => f.file === file && !f.versions.some((e) => libraryAdded(yours, e.id)));
-    if (!file || !missing.length) return null;
-    // One added: its page, as from the library. Several: here.
-    const add = async (entries) => {
-      try {
-        const result = await addFromLibrary(entries);
-        if (entries.length === 1) location.hash = `#/command/${result.id}`; else route();
-      } catch (err) { toast(err.message); }
-    };
-    return h("div", { class: "not-added small muted" }, "Not added: ",
-      missing.map((f, i) => [i ? ", " : "", h("button", { type: "button", class: "link", title: `Add ${f.title}`, onclick: () => add([defaultVersion(f)]) }, f.title)]),
-      missing.length > 1 ? [" · ", h("button", { type: "button", class: "link", onclick: () => add(missing.map(defaultVersion)) }, "add all")] : null);
-  };
-  const out = commandGroups(store, skillData, area, words).map(([title, iconName, ids, skills, file]) =>
-    section(title, iconName, [...ids.map((id) => commandItem(store, id)), ...skills.map((skill) => skillItem(skill))], notAdded(file)));
+    h("div", { class: "list" }, items));
+  const out = commandGroups(store, skillData, area, words).map(([title, iconName, ids, skills]) =>
+    section(title, iconName, [...ids.map((id) => commandItem(store, id)), ...skills.map((skill) => skillItem(skill))]));
   return out.length ? out : [h("div", { class: "panel muted small" }, emptyText)];
 }
 
@@ -2152,12 +2135,9 @@ function addAreaDialog(places) {
 // or settings), q (find a command). From before: satellite (its area).
 async function pageHome(query) {
   const params = new URLSearchParams(query || "");
-  // The library: for the whole home's commands, to say what isn't added.
-  const whole = !params.get("place") && !params.get("satellite") && (params.get("tab") || "commands") === "commands";
-  const [store, sats, skillData, wake, library, places] = await Promise.all([
+  const [store, sats, skillData, wake, places] = await Promise.all([
     loadStore(), loadSatellites(), api("GET", "skills"),
     api("GET", "wake_words").catch(() => ({ wake_words: [], preferred: null })),
-    whole ? api("GET", "library").catch(() => ({ entries: [] })) : null,
     loadAreas(),
   ]);
   const old = sats.find((s) => s.key === params.get("satellite"));
@@ -2167,7 +2147,7 @@ async function pageHome(query) {
   const tab = ["commands", "names", "settings"].includes(params.get("tab")) ? params.get("tab") : (area ? areaTab(area.id, "commands") : "commands");
   const here = sats.filter((s) => (area ? s.area === area.id : !s.area));
   const body = h("div");
-  if (tab === "commands") fill(body, area ? areaCommands(store, skillData, area, here) : wholeCommands(store, skillData, library, params.get("q") || ""));
+  if (tab === "commands") fill(body, area ? areaCommands(store, skillData, area, here) : wholeCommands(store, skillData, params.get("q") || ""));
   else if (tab === "names") fill(body, await namesTab(store, area));
   else fill(body, area ? areaSettingsPanel(area) : settingsPanels());
   // Nothing in it: it can come off the list.
@@ -2231,7 +2211,7 @@ function nightToggle(area) {
 
 // The whole home's commands and skills, found by what they say, and the
 // Unknown command.
-function wholeCommands(store, skillData, library, q) {
+function wholeCommands(store, skillData, q) {
   const unknown = (store.unknown || {}).response;
   const unknownItem = h("div", { class: "item clickable", onclick: () => { location.hash = "#/unknown"; } },
     icon("mdi:help-circle-outline", "big"),
@@ -2244,7 +2224,7 @@ function wholeCommands(store, skillData, library, q) {
   // What is shown, kept in the address for coming back from a command.
   function show() {
     const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    fill(sections, placedSections(store, skillData, null, words.length ? "Nothing matches." : "No commands yet: press Add.", library, words));
+    fill(sections, placedSections(store, skillData, null, words.length ? "Nothing matches." : "No commands yet: press Add.", words));
     const kept = new URLSearchParams();
     if (search.value.trim()) kept.set("q", search.value.trim());
     history.replaceState(null, "", kept.toString() ? `#/home?${kept}` : "#/home");
