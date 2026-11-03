@@ -76,6 +76,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .right { margin-left: auto; }
 .stack > * + * { margin-top: 8px; }
 .hidden { display: none !important; }
+.row[hidden], .field[hidden] { display: none; }
 
 .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.78rem; background: var(--chip); color: var(--muted); white-space: nowrap; }
 .badge.ok { background: var(--ok-soft); color: var(--ok); }

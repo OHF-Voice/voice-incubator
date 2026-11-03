@@ -2314,7 +2314,7 @@ async function pageSatellite(key, opened) {
       h("div", { class: "row" }, field("Player", player, "Where music asked for here plays. Its Sendspin player in Music Assistant unless you pick another."))),
     settingsGroup("input", "Input", [used.stt || "Parakeet TDT", used.stt_language, used.stt && used.stt_audio !== "agc" ? (used.stt_audio === "aec_boost" ? "AEC, boosted" : "AEC") : null, used.stt_always ? "always" : null, s.silence_seconds != null ? `ends after ${s.silence_seconds} s` : null].filter(Boolean).join(" · "), opened,
       h("div", { class: "row" }, field("Speech-to-text", stt, "Commands are matched on the audio first; the speech-to-text entity writes the words when they're needed: free text, example sentences, hints."), field("Language", sttLanguage),
-        field("Audio", sttAudio, STT_AUDIO_HINT), field("Runs", sttRuns, STT_RUNS_HINT)),
+        ...withSttEntity(stt, settings.stt, field("Audio", sttAudio, STT_AUDIO_HINT), field("Runs", sttRuns, STT_RUNS_HINT))),
       h("div", { class: "row" }, field("Silence that ends a command", h("label", { class: "row" }, silence, "seconds"),
         `How long a pause ends a command said here. Empty: ${s.silence_seconds_every} s, its area's or the whole home's (Settings, End of speech).`))),
     settingsGroup("output", "Output", [used.tts || "Piper", used.tts_language, used.tts_voice, used.speak_on ? `on ${used.speak_on}` : null].filter(Boolean).join(" · "), opened,
@@ -2691,7 +2691,8 @@ function fillSpeechPanel(panel, voices) {
       : null,
     state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
     h("div", { class: "row" },
-      field("Speech-to-text", globalStt), field("Language", globalSttLanguage), field("Audio", globalSttAudio, STT_AUDIO_HINT), field("Runs", globalSttRuns, STT_RUNS_HINT),
+      field("Speech-to-text", globalStt), field("Language", globalSttLanguage),
+      ...withSttEntity(globalStt, null, field("Audio", globalSttAudio, STT_AUDIO_HINT), field("Runs", globalSttRuns, STT_RUNS_HINT)),
       field("Text-to-speech", globalTts), field("Language", globalTtsLanguage), field("Voice", globalVoice),
       h("button", { class: "primary", onclick: async () => {
         try {
@@ -3122,6 +3123,19 @@ function sttRunsSelect(value, inherit) {
     h("option", { value: "true", selected: value === true }, name(true)));
 }
 const sttRunsValue = (select) => (select.value === "" ? null : select.value === "true");
+
+// Fields that mean something only with a speech-to-text entity (Audio,
+// Runs): hidden while the built-in model is picked, or for "Default" when
+// every satellite's is (`inheritEntity`).
+function withSttEntity(sttSelect, inheritEntity, ...fields) {
+  const show = () => {
+    const entity = sttSelect.value === "" ? inheritEntity : sttSelect.value;
+    for (const f of fields) f.hidden = !entity || entity === "builtin";
+  };
+  sttSelect.addEventListener("change", show);
+  show();
+  return fields;
+}
 
 function sttAudioSelect(value, inherit) {
   const name = { agc: "AGC", aec: "AEC (echo-cancelled)", aec_boost: "AEC, boosted" };

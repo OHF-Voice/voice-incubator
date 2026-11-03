@@ -159,6 +159,9 @@
   Conversation agent, **Its voice**): a built-in voice and speaker, or a
   text-to-speech entity and its voice, so its answers sound unlike the
   commands'. By default they're said as everything else is.
+- **Audio and Runs show only with a speech-to-text entity.** They were shown
+  with the built-in model too, which always hears AGC and was never sent
+  either: choosing AEC there changed nothing.
 - **Someone's own voice is used.** The voice set on a person's page was
   picked for their replies, then not used: the satellite's said them.
 - **The sounds are on a grand piano** unless you choose another instrument
