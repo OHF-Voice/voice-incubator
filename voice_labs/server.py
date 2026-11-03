@@ -81,6 +81,10 @@ _LOGGER = logging.getLogger(__name__)
 # reconnect backoff.
 STABLE_CONNECTION_SECONDS = 30.0
 
+HASS_FIRST_WAIT = 10.0
+"""How long discovery waits for Home Assistant to say which satellites are
+disabled; past it, every satellite is served until it says."""
+
 # Running timers' names are recognized from a list rebuilt when they change;
 # a burst of changes makes one rebuild.
 TIMER_LIST_DEBOUNCE = 0.3
@@ -655,6 +659,7 @@ class VoiceLabsApp:
         """Home Assistant's sentence triggers, kept current (voice_labs/triggers.py)."""
         self.voices = Voices(self.hass)
         self.hass.on_catalog_change(self.voices.forget)
+        self.hass.on_catalog_change(self._follow_disabled)
         self.hass.on_connect(self._take_cloud)
         self._timer_rebuild: asyncio.Task | None = None
         self.timer_colors: dict[str, dict[str, int]] = {}
@@ -674,6 +679,9 @@ class VoiceLabsApp:
         """Their takes, kept with their voices."""
         """Connected satellites, by satellite key."""
         self._discovery: Discovery | None = None
+        self._found: dict[str, Device] = {}
+        """The satellites discovery found, by key: each served unless its
+        device is disabled in Home Assistant."""
         self._web = None
         # Recognition, Piper and the wake verifier's retry share the CPU; two
         # satellites waking at once is rare, so one lock over them is enough.
@@ -1409,28 +1417,49 @@ class VoiceLabsApp:
     # ------------------------------------------------------------ discovery
 
     async def run_forever(self) -> None:
-        """Serve every satellite on the network, as they come and go."""
+        """Serve every satellite on the network, as they come and go -- but
+        those disabled in Home Assistant (their Voice Labs devices): a
+        satellite takes one app at a time, and that one is left to another."""
         if self.options.host:
             # Explicit host pins the app to one device: useful across subnets,
             # and for testing one satellite while others are on the network.
+            # It is served even when disabled in Home Assistant.
             await self._run_session(
                 Session(key="manual", host=self.options.host, port=self.options.port)
             )
             return
 
+        # Which are disabled is Home Assistant's to say: don't take one
+        # before it has (the models load first, so it seldom waits).
+        await self.hass.wait_connected(HASS_FIRST_WAIT)
         self._discovery = Discovery()
         await self._discovery.start()
         try:
             while True:
                 change, device = await self._discovery.events.get()
                 if change == "added":
-                    self._start_session(device)
+                    self._found[device.key] = device
+                    if device.key in self.hass.catalog.disabled_satellites:
+                        _LOGGER.info("Satellite appeared: %s; disabled in Home Assistant, so left alone", device)
+                    else:
+                        self._start_session(device)
                 else:
+                    self._found.pop(device.key, None)
                     self._stop_session(device)
         finally:
             await self._discovery.stop()
             for task in list(self._sessions.values()):
                 task.cancel()
+
+    def _follow_disabled(self) -> None:
+        """Let go of a satellite disabled in Home Assistant, for another app
+        to take; take one back when it's enabled."""
+        disabled = self.hass.catalog.disabled_satellites
+        for key, device in list(self._found.items()):
+            if key in disabled and key in self._sessions:
+                self._stop_session(device, "disabled in Home Assistant")
+            elif key not in disabled and key not in self._sessions:
+                self._start_session(device)
 
     def _start_session(self, device: Device) -> None:
         existing = self._sessions.pop(device.key, None)
@@ -1446,10 +1475,10 @@ class VoiceLabsApp:
             else None
         )
 
-    def _stop_session(self, device: Device) -> None:
+    def _stop_session(self, device: Device, why: str = "went away") -> None:
         task = self._sessions.pop(device.key, None)
         if task is not None:
-            _LOGGER.info("Satellite went away: %s", device)
+            _LOGGER.info("Satellite %s: %s", why, device)
             task.cancel()
 
     async def _run_session(self, session: Session) -> None:

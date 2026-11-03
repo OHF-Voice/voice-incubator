@@ -155,6 +155,14 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
+- **A satellite disabled in Home Assistant is left to another app.** A
+  satellite takes one app at a time, and the app reconnects to one it loses
+  within seconds, so another app (on a PC, against a test Home Assistant)
+  could never have it. Disable its Voice Labs device in Home Assistant and
+  the app lets go of it and leaves it alone; enable it (in Home Assistant,
+  or **Enable** on its page here) and the app takes it back. Its tile and
+  page say "disabled". `--host` still serves its device whatever Home
+  Assistant says.
 - **Alarms and reminders belong to the area**, as its timers do: set on one
   satellite, they ring on every satellite in the area -- "stop" on one stops
   them all -- and any of them lists and cancels them. Before, only the

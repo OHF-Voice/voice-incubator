@@ -1171,6 +1171,8 @@ class Api:
                     "floor_name": satellite.floor_name,
                     "esphome_name": stored.get("device_id") or (session.device_id if session else None),
                     "connected": bool(session and session.writer is not None),
+                    # Its device disabled in Home Assistant: left to another app.
+                    "disabled": key in app.hass.catalog.disabled_satellites,
                     "host": session.host if session else None,
                     "in_call": bool(session and session.call is not None),
                     # Its firmware can stream outside calls: it can be listened to live.
@@ -1184,6 +1186,9 @@ class Api:
     async def put_satellite(self, request: web.Request) -> web.Response:
         key = request.match_info["key"]
         body = await request.json()
+        if body.get("enabled") and (device_id := self.app.hass.catalog.disabled_satellites.get(key)):
+            # Its device enabled again: the registry's change brings it back here.
+            await self.app.hass.enable_device(device_id)
         entry = self.app.store.satellites.setdefault(key, {})
         if "name" in body:
             entry["name"] = str(body["name"] or "").strip() or key

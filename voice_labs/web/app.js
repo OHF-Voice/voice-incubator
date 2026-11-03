@@ -2010,9 +2010,10 @@ function inheritedPanel(store, skillData, area) {
 function satelliteTile(s, wake) {
   return h("a", { class: "tile", href: `#/satellite/${s.key}`, title: `Set up and test ${s.name}` },
     h("div", { class: "row" }, icon(satelliteIcon(s), "big"), h("span", { class: "grow" }),
-      h("span", { class: `dot ${s.connected ? (s.in_call ? "accent" : "ok") : ""}`, title: s.connected ? (s.in_call ? "in a call" : "connected") : "offline" })),
+      h("span", { class: `dot ${s.connected ? (s.in_call ? "accent" : "ok") : ""}`, title: s.connected ? (s.in_call ? "in a call" : "connected") : s.disabled ? "disabled in Home Assistant" : "offline" })),
     h("div", { class: "title" }, s.name),
     h("div", { class: "muted small" }, wakeWordNames(wake, s.wake_words_used)),
+    s.disabled && !s.connected ? h("span", { class: "badge", title: "Disabled in Home Assistant, so another app can use it." }, "disabled") : null,
     s.area ? null : h("span", { class: "badge warn", title: "It has only the whole home's commands and settings, and “the lights” are none. Give it an area on its page." }, "no area"),
     s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
     s.ringing ? h("span", { class: "badge warn" }, "timer ringing") : null);
@@ -2034,7 +2035,7 @@ function hiddenNotice(hidden, one, many, why) {
 function placesNav(places, sats, place, tab) {
   const dots = (keys) => h("span", { class: "dots" }, keys.map((key) => {
     const s = sats.find((x) => x.key === key);
-    return h("span", { class: `dot ${s && s.connected ? "ok" : ""}`, title: `${s ? s.name : key}: ${s && s.connected ? "connected" : "offline"}` });
+    return h("span", { class: `dot ${s && s.connected ? "ok" : ""}`, title: `${s ? s.name : key}: ${s && s.connected ? "connected" : s && s.disabled ? "disabled in Home Assistant" : "offline"}` });
   }));
   const item = (id, name, iconName, keys, quiet) => h("a", { class: `place ${place === id ? "on" : ""}`, href: placeHref(id, id === place ? tab : areaTab(id, tab)),
     "aria-current": place === id ? "page" : null }, icon(iconName), h("span", { class: "grow" }, name),
@@ -2290,6 +2291,15 @@ async function pageSatellite(key, opened) {
       toast("Saved"); pageSatellite(key, new Set(groups.filter((g) => g.open).map((g) => g.dataset.group)));
     } catch (err) { toast(err.message); }
   };
+  // Its device enabled again in Home Assistant: the app takes it back once the registry says so.
+  const enable = async () => {
+    try {
+      await api("PUT", `satellites/${s.key}`, { enabled: true });
+      toast("Enabled");
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (location.hash === `#/satellite/${key}`) pageSatellite(key);
+    } catch (err) { toast(err.message); }
+  };
 
   // Testing it: a sentence typed, as if said here.
   const input = h("input", { type: "text", class: "grow", placeholder: "turn on the lights" });
@@ -2310,9 +2320,12 @@ async function pageSatellite(key, opened) {
       h("a", { href: placeHref(s.area || "home") }, `← ${placeLabel(s.area || "home")}`),
       icon(satelliteIcon(s), "big"),
       h("h1", { class: "grow", style: "margin:0" }, s.name),
-      h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : "offline"),
+      h("span", { class: `badge ${s.connected ? "ok" : ""}` }, s.connected ? (s.in_call ? "in a call" : "connected") : s.disabled ? "disabled" : "offline"),
       s.debug ? h("span", { class: "badge warn" }, `debugging${s.debug.dry_run ? " · dry run" : ""}`) : null,
       h("a", { href: `#/sessions?satellite=${s.key}` }, "Its sessions")),
+    s.disabled && !s.connected ? h("div", { class: "notice info row" },
+      h("span", { class: "grow" }, "Disabled in Home Assistant, so another app can use it."),
+      h("button", { onclick: enable }, "Enable")) : null,
     s.ringing ? h("div", { class: "notice warn" }, "A timer is ringing.") : null,
     h("div", { class: "panel" },
       h("h2", {}, "Settings"),

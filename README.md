@@ -106,9 +106,12 @@ For work on the UI without a satellite or a real Home Assistant,
 (`tests/fake_satellite.py`) that places those recorded calls in a loop.
 
 With no `--host` it browses `_voice-labs._tcp` and serves **every** satellite it
-finds, connecting as they appear and dropping them as they go. `--host` pins it
-to one device instead, for a different subnet or to test one satellite while
-others are on the network.
+finds, connecting as they appear and dropping them as they go -- but one whose
+Voice Labs device is disabled in Home Assistant (`Catalog.disabled_satellites`,
+followed as the device registry changes), which it lets go of for another app
+to take. `--host` pins it to one device instead, for a different subnet or to
+test one satellite while others are on the network; that one is served even
+when disabled.
 
 One set of models serves all of them. That is the point: the models are the
 expensive part (~450 MB resident), so a second satellite costs a socket and a
@@ -133,7 +136,10 @@ The device accepts **one client at a time** and refuses the rest rather than
 replacing them, which stops two apps from kicking each other off in a reconnect
 loop. If a connection keeps dropping within 30 s, the app backs off
 exponentially and says so -- that is usually a second app holding the device,
-not the network.
+not the network. To hand a satellite to a second app, disable its Voice Labs
+device in the first app's Home Assistant, and run the second with `--host`
+(without it, it tries every satellite, and could take one from the first app
+whenever that satellite reboots).
 
 Useful flags: `--host`, `--hass-url`, `--hass-token-file`, `--data-dir`,
 `--http-host`, `--http-port`, `--silence`, `--max-command`, `--wake-model`,

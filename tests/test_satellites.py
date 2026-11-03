@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
+import aiohttp
 import numpy as np
 
 from voice_labs import tones
@@ -279,6 +280,55 @@ async def _shared_alarms(tmp_path) -> None:
         runner.cancel()
         await app.stop()
         await rest.cleanup()
+        for server in servers:
+            server.close()
+        hass_server.close()
+
+
+def test_a_satellite_disabled_in_home_assistant_is_left_alone(tmp_path):
+    asyncio.run(_disabled(tmp_path))
+
+
+async def _disabled(tmp_path) -> None:
+    """Its Voice Labs device disabled in Home Assistant, a satellite is let
+    go, for another app to take -- the other one stays; enabled again from
+    its page, it is taken back."""
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    kitchen = FakeSatellite(name="kitchen", mac=_mac(KITCHEN), speed=8.0)
+    bedroom = FakeSatellite(name="bedroom", mac=_mac(BEDROOM), speed=8.0)
+    servers = [await serve(kitchen), await serve(bedroom)]
+    http_port = free_port()
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        found = Device(BEDROOM, "127.0.0.1", servers[1].sockets[0].getsockname()[1], "test")
+        app._found[BEDROOM] = found  # as discovery finds it
+        app._start_session(found)
+        await asyncio.wait_for(asyncio.gather(kitchen.ready.wait(), bedroom.ready.wait()), 30)
+        await wait_for(lambda: BEDROOM in hass.satellites)
+
+        hass.set_disabled(f"device-{BEDROOM}", True)
+        await hass.registry_changed("device_registry_updated", {"action": "update", "device_id": f"device-{BEDROOM}"})
+        await wait_for(lambda: BEDROOM not in app.sessions and bedroom._writer is None)
+        assert app.sessions[KITCHEN].writer is not None
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            listed = {s["key"]: s for s in (await (await http.get("/api/satellites")).json())["satellites"]}
+            assert listed[BEDROOM]["disabled"] and not listed[BEDROOM]["connected"]
+            assert not listed[KITCHEN]["disabled"] and listed[KITCHEN]["connected"]
+
+            assert (await http.put(f"/api/satellites/{BEDROOM}", json={"enabled": True})).status == 200
+        assert f"device-{BEDROOM}" not in hass.disabled_devices
+        await wait_for(lambda: BEDROOM in app.sessions and app.sessions[BEDROOM].writer is not None)
+        assert BEDROOM not in app.hass.catalog.disabled_satellites
+    finally:
+        runner.cancel()
+        await app.stop()
         for server in servers:
             server.close()
         hass_server.close()

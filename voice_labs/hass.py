@@ -143,6 +143,9 @@ class Catalog:
     """Device id -> (manufacturer, model)."""
     device_macs: dict[str, list[str]] = field(default_factory=dict)
     """MAC (aa:bb:..) -> the devices with it (an ESPHome device, ...)."""
+    disabled_satellites: dict[str, str] = field(default_factory=dict)
+    """Satellite key -> its Voice Labs device, for each one whose device is
+    disabled: this app leaves it to another (server.VoiceLabsApp)."""
     exposed: set[str] | None = None
     """The entities exposed to Assist (every domain's); None: not known."""
     voiced: bool = False
@@ -474,6 +477,9 @@ class HomeAssistant:
         await self.call({"type": "config/device_registry/update", "device_id": device_id, "area_id": area_id})
         self.catalog.device_areas[device_id] = area_id
 
+    async def enable_device(self, device_id: str) -> None:
+        await self.call({"type": "config/device_registry/update", "device_id": device_id, "disabled_by": None})
+
     async def config_entries(self, domain: str) -> list[dict]:
         return await self.call({"type": "config_entries/get", "domain": domain}) or []
 
@@ -689,10 +695,16 @@ class HomeAssistant:
         catalog_device_areas = dict(device_area)
         device_models = {d["id"]: (d.get("manufacturer"), d.get("model")) for d in devices or []}
         device_macs: dict[str, list[str]] = {}
+        disabled_satellites: dict[str, str] = {}
         for device in devices or []:
             for kind, value in device.get("connections") or []:
                 if kind == "mac":
                     device_macs.setdefault(str(value).lower(), []).append(device["id"])
+            if device.get("disabled_by"):
+                # The Voice Labs integration's device: identified by the satellite's key.
+                for domain, identifier in device.get("identifiers") or []:
+                    if domain == "voice_labs":
+                        disabled_satellites[str(identifier)] = device["id"]
         friendly = {
             s["entity_id"]: s.get("attributes", {}).get("friendly_name") or s["entity_id"]
             for s in states or []
@@ -701,7 +713,10 @@ class HomeAssistant:
             s["entity_id"]: {k: v for k, v in (s.get("attributes") or {}).items() if k in ATTRIBUTES}
             for s in states or []
         }
-        catalog = Catalog(device_areas=catalog_device_areas, device_models=device_models, device_macs=device_macs)
+        catalog = Catalog(
+            device_areas=catalog_device_areas, device_models=device_models, device_macs=device_macs,
+            disabled_satellites=disabled_satellites,
+        )
         for floor in floors or []:
             catalog.floors[floor["floor_id"]] = Floor(
                 floor["floor_id"], floor["name"], list(floor.get("aliases") or []), floor.get("level")

@@ -111,6 +111,10 @@ class FakeHass:
         self.services: list[dict[str, Any]] = []
         self.satellites: dict[str, dict[str, Any]] = {}
         self.device_areas: dict[str, str | None] = {}
+        self.disabled_devices: set[str] = set()
+        """Devices disabled (by the user): a satellite's, left to another app."""
+        self._event_subscribers: dict[str, list] = {}
+        """subscribe_events's subscribers by event type: socket, id."""
         self.do_not_disturb: dict[str, bool] = {}
         """Each satellite's area's do not disturb switch: on or off, by area id."""
         self.night: dict[str, bool] = {}
@@ -221,8 +225,10 @@ class FakeHass:
 
         if kind in ("subscribe_events", "unsubscribe_events"):
             if kind == "unsubscribe_events":
-                for subscribers in self._calendar_subscribers.values():
+                for subscribers in [*self._calendar_subscribers.values(), *self._event_subscribers.values()]:
                     subscribers[:] = [s for s in subscribers if s[1] != message.get("subscription")]
+            elif message.get("event_type"):
+                self._event_subscribers.setdefault(message["event_type"], []).append((socket, msg_id))
             await result()
         elif kind == "voice_labs/intent/handle":
             if not (self.integration and self.intent_command):
@@ -281,6 +287,18 @@ class FakeHass:
                         "model": "esp32-s3-devkitc-1",
                         "connections": [["mac", ESPHOME_DEVICE["mac"]]],
                     }
+                ]
+                + [
+                    {
+                        "id": s["device_id"],
+                        "area_id": self.device_areas.get(s["device_id"]),
+                        "manufacturer": "Open Home Foundation",
+                        "model": "Voice Labs satellite",
+                        "connections": [],
+                        "identifiers": [["voice_labs", key]],
+                        "disabled_by": "user" if s["device_id"] in self.disabled_devices else None,
+                    }
+                    for key, s in self.satellites.items()
                 ]
             )
         elif kind == "config/entity_registry/list":
@@ -454,8 +472,13 @@ class FakeHass:
                 "night": {area: {"entity_id": f"switch.{area}_night_mode", "on": on} for area, on in sorted(self.night.items())},
             })
         elif kind == "config/device_registry/update":
-            self.device_areas[message["device_id"]] = message.get("area_id")
+            device_id = message["device_id"]
+            if "area_id" in message:
+                self.device_areas[device_id] = message["area_id"]
+            if "disabled_by" in message:
+                self.set_disabled(device_id, bool(message["disabled_by"]))
             await result({})
+            await self.registry_changed("device_registry_updated", {"action": "update", "device_id": device_id})
         elif kind == "voice_timer_list/item/subscribe":
             entity_id = message["entity_id"]
             self._timer_subscribers.setdefault(entity_id, []).append((socket, msg_id))
@@ -614,6 +637,20 @@ class FakeHass:
             {"uid": f"event-{next(self._event_ids)}", "recurrence_id": None, "rrule": None, "description": None, **event}
         )
         await self._push_calendar(entity_id)
+
+    def set_disabled(self, device_id: str, disabled: bool) -> None:
+        if disabled:
+            self.disabled_devices.add(device_id)
+        else:
+            self.disabled_devices.discard(device_id)
+
+    async def registry_changed(self, event_type: str, data: dict[str, Any]) -> None:
+        """Tell those subscribed that a registry changed, as Home Assistant does."""
+        for socket, msg_id in list(self._event_subscribers.get(event_type, [])):
+            try:
+                await socket.send(json.dumps({"id": msg_id, "type": "event", "event": {"event_type": event_type, "data": data}}))
+            except websockets.ConnectionClosed:
+                self._event_subscribers[event_type].remove((socket, msg_id))
 
     async def _push_calendar(self, entity_id: str) -> None:
         fields = None if self.calendar_push_uids else ("start", "end", "summary", "description", "location")
