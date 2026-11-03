@@ -24,7 +24,7 @@ from adapt_ctc.runtime import release_memory
 from . import actions, alarms, areas, downloads, languages, people, skills, timers, tones
 from .duplex import Duplex
 from .skills import skill_response
-from .agent import KEEP_SECONDS, Agent, Streamed, conversation_key
+from .agent import KEEP_SECONDS, Agent, Answered, Streamed, conversation_key
 from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import VERBOSITY
@@ -1003,7 +1003,7 @@ class VoiceLabsApp:
             minutes = float(settings.get("agent_keep_minutes", KEEP_SECONDS / 60))
         except (TypeError, ValueError):
             minutes = KEEP_SECONDS / 60
-        return {"agent": settings.get("agent") or None, "keep_minutes": minutes}
+        return {"agent": settings.get("agent") or None, "keep_minutes": minutes, "voice": settings.get("agent_voice") or {}}
 
     def configure_agent(self) -> None:
         wanted = self.agent_settings()
@@ -1150,6 +1150,24 @@ class VoiceLabsApp:
             tts_voice=who.own.get("tts_voice") if tts else None,
             speak_on=satellite.voice.speak_on if tts else None,
         )
+        return replace(satellite, voice=voice)
+
+    def agent_voice(self, satellite: Satellite) -> Satellite:
+        """The satellite as the conversation agent's answers are said: in its
+        own voice (settings.json ``agent_voice``) when it has one -- Piper's
+        (``tts: builtin``, its ``voice`` and ``speaker``; no voice: the
+        area's or the whole home's), or a TTS entity's, on the satellite's
+        player for it."""
+        own = self.store.settings.get("agent_voice") or {}
+        if not own.get("tts"):
+            return satellite
+        if own["tts"] == BUILTIN:
+            settings = dict(satellite.settings)
+            if own.get("voice"):
+                settings.update(voice=own["voice"], speaker=own.get("speaker"))
+            voice = replace(satellite.voice, tts=None, tts_language=None, tts_voice=None, speak_on=None)
+            return replace(satellite, voice=voice, settings=settings)
+        voice = replace(satellite.voice, tts=own["tts"], tts_language=own.get("tts_language"), tts_voice=own.get("tts_voice"))
         return replace(satellite, voice=voice)
 
     def put_person(self, name: str, own: dict[str, Any], new_name: str | None = None) -> str:
@@ -2754,7 +2772,9 @@ class VoiceLabsApp:
                 await self._event(session, "result", ok=night_mode.went_well(outcome, decision))
         else:
             await self._event(session, "responding", text=speech if isinstance(speech, str) else "")
-            await self._say(session, speech, record, quiet=satellite.night)
+            # In the speaker's voice (voice_for); the agent's answer in its own.
+            said_by = self.agent_voice(satellite) if isinstance(speech, (Answered, Streamed)) else satellite
+            await self._say(session, speech, record, quiet=satellite.night, satellite=said_by)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
         again = self._asks_back(session, call, decision, who, dry_run, outcome, speech)
@@ -3115,17 +3135,18 @@ class VoiceLabsApp:
             reply.response_type or reply.error, " in a kept conversation" if reply.continued else "",
             f", streamed from {reply.first_seconds:.2f}s" if reply.first_seconds is not None else "", reply.seconds,
         )
-        return reply.text if reply.understood and reply.text else None
+        return Answered(reply.text) if reply.understood and reply.text else None
 
     async def _say(
         self, session: Session, text: str | Streamed, record: CallRecord | None = None, paced: bool = False,
-        quiet: bool = False,
+        quiet: bool = False, satellite: Satellite | None = None,
     ) -> None:
         """Say ``text`` on the satellite: with Home Assistant's TTS entity
         when it has one, else Piper, a sentence at a time. An LLM agent's
         answer (Streamed) is said a sentence at a time as it comes, by either.
-        ``quiet`` (at night): by Piper, quieter (voice_labs/night.py)."""
-        satellite = self.satellite(session.satellite)
+        ``quiet`` (at night): by Piper, quieter (voice_labs/night.py).
+        ``satellite``: as it says this (voice_for, agent_voice); else as it is."""
+        satellite = satellite or self.satellite(session.satellite)
         voice = satellite.voice
         streamed = text if isinstance(text, Streamed) else None
         pieces = sentences_of(text) if streamed is None else []
@@ -4061,9 +4082,10 @@ class VoiceLabsApp:
 
     async def _area_voice(self, satellite: Satellite) -> tuple[Any, dict[str, Any] | None]:
         """How replies are said on ``satellite`` when its area has a voice of
-        its own: the voice (Speech.other; None: the whole home's) and how it
-        speaks -- the whole home's settings, with the area's speaker. One not
-        here yet is downloaded, and the whole home's speaks meanwhile."""
+        its own (or the agent's answers do: agent_voice): the voice
+        (Speech.other; None: the whole home's) and how it speaks -- the whole
+        home's settings, with the area's speaker. One not here yet is
+        downloaded, and the whole home's speaks meanwhile."""
         voice = self.area_voice(satellite)
         if voice is None:
             return None, None
@@ -4077,8 +4099,8 @@ class VoiceLabsApp:
         return await self.speech.other(path), settings
 
     def fetch_area_voice(self, voice: Voice) -> None:
-        """An area's voice, downloaded in the background unless it is here
-        or on its way."""
+        """An area's voice (or the agent's), downloaded in the background
+        unless it is here or on its way."""
         if not voice.missing(self.piper_dir) or voice.key in self._fetching_voices:
             return
         self._fetching_voices.add(voice.key)
@@ -4086,7 +4108,7 @@ class VoiceLabsApp:
         async def fetch() -> None:
             try:
                 await downloads.Downloader(voice.missing(self.piper_dir)).run()
-                _LOGGER.info("Downloaded %s, an area's voice", voice.key)
+                _LOGGER.info("Downloaded %s, an area's or the agent's voice", voice.key)
             finally:
                 self._fetching_voices.discard(voice.key)
 

@@ -1813,7 +1813,11 @@ command fallback -- a question still gets an answer:
    Assistant's `no_intent_match` counts as none. A dry run never asks it: an
    agent can act. When it asks something back (`continue_conversation`),
    the satellite listens for the answer without the wake word, and the
-   answer goes to it as said (`voice_labs/follow_up.py`). This replaced a small question LLM (Granite 4.0 350M or
+   answer goes to it as said (`voice_labs/follow_up.py`). Its answers --
+   an `agent.Answered` or `Streamed` -- are said in its own voice when it
+   has one (`agent_voice`: `tts: builtin` with a Piper `voice` and
+   `speaker`, else a TTS entity with `tts_language` and `tts_voice`;
+   `VoiceLabsApp.agent_voice`). This replaced a small question LLM (Granite 4.0 350M or
    Gemma 3 1B in llama.cpp, for what read as a question); the benchmark
    numbers below are from then.
 

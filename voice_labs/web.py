@@ -70,7 +70,7 @@ from .piper_voices import voices as listed_voices
 from .instruments import HIGHEST, INSTRUMENT, LOWEST, RING, SOUNDS, note_name
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
-from .voices import language_code
+from .voices import AUTO, BUILTIN, DEFAULT_VOICE, language_code
 from .pronounce import guess, model_phones
 from .wake import THRESHOLDS
 from .wake import ConfigError as WakeConfigError
@@ -1526,6 +1526,15 @@ class Api:
             if not 0 <= minutes <= 1440:
                 raise ConfigError("agent_keep_minutes: minutes, from 0 to 1440")
             settings["agent_keep_minutes"] = minutes
+        if "agent_voice" in body:
+            # What the conversation agent's answers are said in: none, the satellite's.
+            voice = _agent_voice(body["agent_voice"])
+            if voice:
+                settings["agent_voice"] = voice
+                if (piper := piper_catalog().get(voice.get("voice") or "")) is not None:
+                    self.app.fetch_area_voice(piper)
+            else:
+                settings.pop("agent_voice", None)
         if "agent" in body or "agent_keep_minutes" in body:
             self.app.configure_agent()
         if "tdt_model" in body:
@@ -2101,6 +2110,44 @@ def _stt_audio(value: Any) -> str:
     if value and value not in STT_AUDIO:
         raise ConfigError(f"stt_audio: one of {', '.join(STT_AUDIO)}")
     return value
+
+
+def _agent_voice(value: Any) -> dict[str, str]:
+    """The conversation agent's own voice as the Settings page sends it: none
+    (empty: the satellite's), Piper's (``tts: builtin``, with a ``voice`` of
+    its catalog -- none, the area's or the whole home's -- and one of its
+    ``speaker``s), or a TTS entity's (``tts_language``, ``tts_voice``)."""
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError("agent_voice: a mapping")
+    tts = str(value.get("tts") or "").strip()
+    if not tts:
+        return {}
+    if tts == BUILTIN:
+        out = {"tts": BUILTIN}
+        key = str(value.get("voice") or "")
+        if key:
+            voice = piper_catalog().get(key)
+            if voice is None:
+                raise ConfigError(f"agent_voice: no built-in voice {key!r}")
+            out["voice"] = key
+            speaker = str(value.get("speaker") or "")
+            if speaker and speaker not in voice.speakers:
+                raise ConfigError(f"agent_voice: {voice.name} has no speaker {speaker!r}")
+            if speaker:
+                out["speaker"] = speaker
+        return out
+    if not tts.startswith("tts.") or any(c.isspace() for c in tts):
+        raise ConfigError("agent_voice: tts is builtin or a tts entity")
+    out = {"tts": tts}
+    language = _language(value.get("tts_language"), "agent_voice: tts_language")
+    if language and language != AUTO:
+        out["tts_language"] = language
+    tts_voice = str(value.get("tts_voice") or "").strip()
+    if tts_voice and tts_voice != DEFAULT_VOICE:
+        out["tts_voice"] = tts_voice
+    return out
 
 
 def _language(value: Any, option: str) -> str:

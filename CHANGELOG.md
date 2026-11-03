@@ -155,6 +155,12 @@
     nothing runs. It knows a trigger by its automation's description, else
     its name, and is given it among the closest commands in meaning (its
     templates, said with their wildcards' names).
+- **The conversation agent can have a voice of its own** (Settings,
+  Conversation agent, **Its voice**): a built-in voice and speaker, or a
+  text-to-speech entity and its voice, so its answers sound unlike the
+  commands'. By default they're said as everything else is.
+- **Someone's own voice is used.** The voice set on a person's page was
+  picked for their replies, then not used: the satellite's said them.
 - **The sounds are on a grand piano** unless you choose another instrument
   (from C5). Before, they were on the Tine Electric Piano, which is still
   there (from G5); a home that never chose one hears the piano now.

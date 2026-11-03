@@ -11,6 +11,7 @@ import pytest
 from voice_labs.engine import free_text
 from voice_labs.hass import HassError, HomeAssistant
 from voice_labs.server import VoiceLabsApp
+from voice_labs.web import ConfigError, _agent_voice
 from voice_labs.voices import (
     CLOUD_TAKEN,
     HassTranscriber,
@@ -265,3 +266,19 @@ def test_home_assistant_cloud_is_taken_once():
             server.close()
 
     asyncio.run(scenario())
+
+
+def test_the_agents_own_voice():
+    """As the Settings page sends it: Piper's, one of a voice's speakers; a
+    TTS entity's, its automatic language and default voice left out; none."""
+    many = {"tts": "builtin", "voice": "en_US-libritts_r-medium", "speaker": "103"}
+    assert _agent_voice(many) == many
+    assert _agent_voice({"tts": "builtin", "voice": "", "speaker": "103"}) == {"tts": "builtin"}
+    assert _agent_voice({"tts": "tts.cloud", "tts_language": "auto", "tts_voice": "default"}) == {"tts": "tts.cloud"}
+    assert _agent_voice({"tts": "tts.cloud", "tts_language": "de-DE", "tts_voice": "KatjaNeural"}) == {
+        "tts": "tts.cloud", "tts_language": "de-DE", "tts_voice": "KatjaNeural"}
+    assert _agent_voice(None) == {} and _agent_voice({"tts": ""}) == {}
+    for bad in ({"tts": "builtin", "voice": "en_US-libritts_r-medium", "speaker": "nobody"}, {"tts": "media_player.x"},
+                {"tts": "tts.cloud", "tts_language": "not a language"}, "tts.cloud"):
+        with pytest.raises(ConfigError):
+            _agent_voice(bad)

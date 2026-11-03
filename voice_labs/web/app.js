@@ -682,9 +682,50 @@ function agentPanel() {
   const keep = h("input", { type: "number", min: 0, max: 1440, step: 0.5, value: status.keep_minutes ?? 5, style: "width:80px" });
   const sats = satelliteLabels();
   const kept = Object.entries(status.conversations || {});
+  // Its own voice: Piper's (one of its voices, else the area's or the home's)
+  // or a text-to-speech entity's; none, as everything else is said.
+  const own = status.voice || {};
+  const voiceRow = h("div", { class: "row" });
+  let voiceValue = () => (own.tts ? own : null);
+  Promise.all([api("GET", "voices").catch(() => ({ tts: [] })), api("GET", "piper/voices").catch(() => ({ voices: [] }))]).then(([voices, catalog]) => {
+    const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
+    const tts = voiceSelect("tts", voices.tts || [], own.tts, "the satellite's");
+    const ttsLanguage = languagePicker(voices.tts || [], tts, own.tts_language);
+    const ttsVoice = voicePicker(tts, own.tts_voice, undefined, ttsLanguage);
+    const byKey = Object.fromEntries(catalog.voices.map((v) => [v.key, v]));
+    const piper = h("select", { "aria-label": "Built-in voice" },
+      h("option", { value: "" }, "The area's or the whole home's"),
+      Object.entries(PIPER_REGIONS).map(([code, label]) => h("optgroup", { label },
+        catalog.voices.filter((v) => v.language === code).map((v) => h("option", { value: v.key, selected: v.key === own.voice },
+          `${v.name}, ${v.quality}${v.here ? "" : ` — ${mb(v.size)} to download`}`)))));
+    const speaker = h("select", { "aria-label": "Speaker" });
+    const speakerField = field("Speaker", speaker);
+    const speakers = () => {
+      const chosen = byKey[piper.value];
+      fill(speaker, (chosen ? chosen.speakers : []).map((n) => h("option", { value: n, selected: n === own.speaker }, n)));
+      speakerField.hidden = !(chosen && chosen.speakers.length);
+    };
+    piper.addEventListener("change", speakers);
+    speakers();
+    const builtinFields = h("div", { class: "row" }, field("Built-in voice", piper), speakerField);
+    const entityFields = h("div", { class: "row" }, field("Language", ttsLanguage), field("Voice", ttsVoice));
+    const show = () => {
+      builtinFields.hidden = tts.value !== "builtin";
+      entityFields.hidden = !tts.value || tts.value === "builtin";
+    };
+    tts.addEventListener("change", show);
+    show();
+    fill(voiceRow, field("Its voice", tts, "Its answers in a voice of their own, to tell them from the commands'. Default: as everything else is said there."),
+      builtinFields, entityFields);
+    voiceValue = () => {
+      if (!tts.value) return null;
+      if (tts.value === "builtin") return { tts: "builtin", voice: piper.value || null, speaker: piper.value && !speakerField.hidden ? speaker.value : null };
+      return { tts: tts.value, tts_language: languageValue(ttsLanguage, false), tts_voice: ttsVoice.value && ttsVoice.value !== "default" ? ttsVoice.value : null };
+    };
+  });
   async function save() {
     try {
-      await api("PUT", "settings", { agent: agent.value || null, agent_keep_minutes: Number(keep.value) });
+      await api("PUT", "settings", { agent: agent.value || null, agent_keep_minutes: Number(keep.value), agent_voice: voiceValue() });
       toast("Saved"); await refreshStatus(); pageSettings();
     } catch (err) { toast(err.message); }
   }
@@ -692,8 +733,9 @@ function agentPanel() {
     heading("h2", "Conversation agent", ["What no command, skill or step under “When nothing matches” took goes to one of Home Assistant's conversation agents — its own, or an LLM's (OpenAI, Google, Ollama …) — and its answer is said. What it doesn't understand either is the Unknown command's. An LLM's answer is said as it comes, a sentence at a time. A dry run never asks it, since an agent can act in your home. An LLM agent hears what the speech model wrote, mishearings and all."]),
     h("div", { class: "row" },
       h("div", { class: "field" }, agent, note),
-      field("Keep for", h("label", {}, keep, "minutes"), "After its last answer in an area, the next sentence from a satellite there continues the conversation (“how tall is it?”); a satellite in no area has its own. 0: every sentence starts a new one."),
-      h("button", { class: "primary", onclick: save }, "Save")),
+      field("Keep for", h("label", {}, keep, "minutes"), "After its last answer in an area, the next sentence from a satellite there continues the conversation (“how tall is it?”); a satellite in no area has its own. 0: every sentence starts a new one.")),
+    voiceRow,
+    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")),
     kept.length ? h("p", { class: "small" }, "Kept: ", kept.map(([key, seconds]) => `${sats[key] || areaNameOf(key) || "typed with no satellite"} (${Math.round(seconds)} s more)`).join(", ")) : null);
 }
 

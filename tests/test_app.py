@@ -712,7 +712,18 @@ async def _scenario(tmp_path: Path) -> None:
             agents = (await (await http.get("/api/agents")).json())["agents"]
             assert [a["id"] for a in agents] == ["conversation.home_assistant", "conversation.chatty"]
             assert (await http.put("/api/settings", json={"agent": "conversation.chatty", "agent_keep_minutes": 5})).status == 200
-            assert (await (await http.get("/api/status")).json())["agent"] == {"agent": "conversation.chatty", "keep_minutes": 5.0, "conversations": {}}
+            assert (await (await http.get("/api/status")).json())["agent"] == {"agent": "conversation.chatty", "keep_minutes": 5.0, "voice": {}, "conversations": {}}
+            # Its own voice: Piper's (one of its voices and speakers) or a TTS entity's; refused, why.
+            voice = {"tts": "tts.cloud", "tts_language": "auto", "tts_voice": "GuyNeural"}
+            assert (await http.put("/api/settings", json={"agent_voice": voice})).status == 200
+            assert app.store.settings["agent_voice"] == {"tts": "tts.cloud", "tts_voice": "GuyNeural"}
+            voice = {"tts": "builtin", "voice": "en_US-kristin-medium"}
+            assert (await http.put("/api/settings", json={"agent_voice": voice})).status == 200
+            assert app.store.settings["agent_voice"] == voice
+            for bad in ({"tts": "light.x"}, {"tts": "builtin", "voice": "nobody"}, {"tts": "builtin", "voice": "en_US-kristin-medium", "speaker": "103"}):
+                response = await http.put("/api/settings", json={"agent_voice": bad})
+                assert response.status == 400 and "agent_voice" in (await response.json())["error"], bad
+            assert (await http.put("/api/settings", json={"agent_voice": None})).status == 200 and "agent_voice" not in app.store.settings
             text, record = await agent_said("who wrote the odyssey")
             assert text == "conversation.chatty heard who wrote the odyssey" and record.outcome == "answered"
             asked = hass.conversations[-1]
@@ -1520,6 +1531,31 @@ async def _voices(tmp_path: Path) -> None:
         speech = next(s for s in stages if s["stage"] == "speech")
         assert speech["streamed"] and speech["text"] == "Odysseus sailed home. It took ten years."
         assert speech["ended"] is not None and speech["ended"] >= speech["started"]
+
+        # The conversation agent's answers in a voice of their own: Guy,
+        # where the rest is Jenny ...
+        app.store.settings.update(agent="conversation.home_assistant", agent_voice={"tts": "tts.fake_cloud", "tts_voice": "GuyNeural"})
+        app.configure_agent()
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert spoken[-1]["message"].startswith("conversation.home_assistant heard")
+        assert spoken[-1]["options"] == {"voice": "GuyNeural"} and spoken[-1]["media_player_entity_id"] == own_player
+        # ... or Piper's, on the satellite.
+        app.store.settings["agent_voice"] = {"tts": "builtin"}
+        asked, played = len(spoken), satellite.played
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert len(spoken) == asked and satellite.played > played
+        # Someone with a voice of their own hears their replies in it -- but
+        # the agent's still in the agent's.
+        app.store.people["Anna"] = {"tts": "tts.fake_cloud", "tts_voice": "AriaNeural", "wake_words": ["okay_nabu"]}
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        assert spoken[-1]["message"] == "Turned on the lights." and spoken[-1]["options"] == {"voice": "AriaNeural"}
+        app.store.settings["agent_voice"] = {"tts": "tts.fake_cloud", "tts_voice": "GuyNeural"}
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert spoken[-1]["options"] == {"voice": "GuyNeural"}
+        del app.store.people["Anna"]
+        for key in ("agent", "agent_voice"):
+            del app.store.settings[key]
+        app.configure_agent()
 
         # Free text comes from the STT entity (said by Piper, so there is audio
         # for it to hear).

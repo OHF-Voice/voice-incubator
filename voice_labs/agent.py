@@ -128,6 +128,11 @@ class Reply:
         }
 
 
+class Answered(str):
+    """The agent's answer, come whole: said in the agent's voice, as a
+    Streamed one is (VoiceLabsApp.agent_voice)."""
+
+
 class Streamed:
     """An answer said as it comes: what the agent has made of it so far,
     made into sentences (``sentences``), until ``end``."""
