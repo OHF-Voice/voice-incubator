@@ -10,13 +10,6 @@ shared:
       area: {count: 1}
     # A room with the device picks it out: the one of that name there.
     combinations: [[entity], [entity, area]]
-  place: &place
-    names:
-      area: {count: 1}
-      floor: {count: 1}
-    combinations: [[area], [floor]]
-    needs:
-      - Add names for the areas and floors it may act in (Names page).
 
 commands:
   set_temperature:
@@ -63,7 +56,3 @@ commands:
         combinations: [[entity, temperature], [entity, area, temperature]]
         needs:
           - Add names for the thermostats it may set (Names page).
-      place:
-        <<: *place
-        title: Set the temperature in an area or floor
-        combinations: [[area, temperature], [floor, temperature]]

@@ -41,6 +41,16 @@ def test_the_librarys_version_with_its_settings():
     assert resolve("v", {"from": "music/own_volume_up"})["library"] == "satellites"
 
 
+def test_one_the_library_no_longer_has_is_kept_not_heard():
+    """A version taken out of the library (Set the temperature in an area or
+    floor) leaves the command that followed it as saved, unheard; the rest
+    are still heard."""
+    data = {"commands": {"gone": {"from": "climate/set_temperature_place"}, "lights": {"from": "lights/turn_on_here"}}}
+    compiled = compile_store(data)
+    assert set(compiled.commands) == {"lights"}
+    assert compiled.data["commands"]["gone"] == {"from": "climate/set_temperature_place"}
+
+
 def test_asking_first_its_own_way():
     """The library's question, its condition its own -- or none, and then
     the library's question goes too."""

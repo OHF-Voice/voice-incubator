@@ -437,10 +437,14 @@ def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compile
     # What things are called in the app's language: everything reads these.
     said, hidden_names = names_in(names, here, language)
     own_lists, hidden_lists = lists_in(data.get("lists") or {}, here, language)
-    from .library import follows, resolve  # pylint: disable=import-outside-toplevel
+    from .library import REFERENCE, entry, follows, resolve  # pylint: disable=import-outside-toplevel
 
-    # One that follows the library is its version now, with its settings.
-    heard = {str(k): (resolve(str(k), v) if follows(v) else v) for k, v in every.items() if str(k) not in hidden}
+    # One that follows the library is its version now, with its settings;
+    # one the library no longer has is kept, not heard (the rest still are).
+    gone = sorted(str(k) for k, v in every.items() if str(k) not in hidden and follows(v) and entry(str(v[REFERENCE])) is None)
+    if gone:
+        _LOGGER.warning("No longer in the library, not heard: %s", ", ".join(gone))
+    heard = {str(k): (resolve(str(k), v) if follows(v) else v) for k, v in every.items() if str(k) not in hidden and str(k) not in gone}
     kept = {str(k): heard.get(str(k), v) for k, v in every.items()}  # another language's as saved
     data = {**data, "names": said, "lists": {**languages.current().lists, **own_lists}, "commands": kept}
     commands = parse_commands(heard)

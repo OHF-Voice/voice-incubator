@@ -152,7 +152,7 @@ def test_set_the_thermostat_is_a_version_of_set_the_temperature():
     assert found["spec"]["home"] == "climate" and "intent" not in found["spec"]
     assert found["spec"]["response"]["done"] == {"brief": "Thermostat set.", "specific": "Thermostat set to {{ slots.temperature }} degrees."}
     others = [e for e in load_library() if e["family"] == "set_temperature" and e["variant"] != "here"]
-    assert [e["variant"] for e in others] == ["device", "place"]
+    assert [e["variant"] for e in others] == ["device"]
     assert all(e["spec"]["intent"]["name"] == "HassClimateSetTemperature" and "home" not in e["spec"] and not e["formerly"] for e in others)
 
 
@@ -365,7 +365,6 @@ ROUTES = [
     ("turn the thermostat down", "heat_down", {"step": -1}),
     ("turn up the heat to 72", "set_temperature_here", {"temperature": 72}),
     ("set the thermostat to 70", "set_temperature_here", {"temperature": 70}),
-    ("set the temperature in the kitchen to 20 degrees", "set_temperature_place", {"area": ["kitchen"], "temperature": 20}),
     ("turn up the heating", "heat_up", {"step": 1}),
     # Turned up or to a number, but none of these.
     ("turn up the volume by 20 percent", "It looks like you're trying to set the volume, but I wasn't sure.", {}),

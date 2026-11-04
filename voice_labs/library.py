@@ -236,7 +236,7 @@ def base(ref: str, code: str | None = None) -> dict[str, Any]:
     section. Raises ConfigError when the library has no such command."""
     found = entry(ref, code)
     if found is None:
-        raise ConfigError(f"{ref} is not in the library: take control of it, or delete it")
+        raise ConfigError(f"{ref} is not in the library: delete it")
     spec = copy.deepcopy(found["spec"])
     spec["title"] = found["title"]
     spec["library"] = found["file"]

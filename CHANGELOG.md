@@ -176,11 +176,14 @@
 - **Set the thermostat is a version of Set the temperature.** The two set
   the same thermostat when nothing is named: now one command, for the
   thermostat (the home's or the area's own, as the other thermostat
-  commands), hearing "set the temperature to 70" too; by name and in an area
-  are its other versions, through Home Assistant's intent as before. One
-  added as Set the thermostat follows it. It says "Thermostat set to 70
-  degrees." (not "Set the thermostat …", which sounds like an order), and the
-  mode and fan alike ("Thermostat set to heat.").
+  commands), hearing "set the temperature to 70" too; by name is its other
+  version, through Home Assistant's intent as before. One added as Set the
+  thermostat follows it. It says "Thermostat set to 70 degrees." (not "Set
+  the thermostat …", which sounds like an order), and the mode and fan alike
+  ("Thermostat set to heat."). **Set the temperature in an area or floor is
+  gone** (every language).
+- **A command the library no longer has is kept, not heard**: the others
+  still are (before, none were), and the Home page says to delete it.
 - **Add a command lists titles only.** A command's description and what it
   needs ("Then: …") are gone from the list; search still finds them, and
   what it needs is said on its page once added.
