@@ -1682,11 +1682,10 @@ async function newCommandDialog(area) {
       asList((entry.spec || {}).require).map((g) => asList(g).join(" ")).join(" ")].join(" ").toLowerCase();
     return words.every((w) => text.includes(w));
   };
-  // One version: what it is, and Add (or Open, once added). Its family's
-  // description is said once, on the family.
+  // One version: its title, and Add (or Open, once added). What it needs
+  // is said on its page.
   const row = (entry, iconName) => {
     const added = yours.has(entry.id);
-    const description = entry.variant && entry.description === entry.family_description ? "" : entry.description;
     const tick = added ? null : h("input", { type: "checkbox", checked: selected.has(keyOf(entry)), "aria-label": `Select ${entry.title}`,
       onchange: (e) => { if (e.target.checked) selected.set(keyOf(entry), entry); else selected.delete(keyOf(entry)); renderFooter(); } });
     return h("div", { class: `item ${added ? "added" : ""}` },
@@ -1694,8 +1693,6 @@ async function newCommandDialog(area) {
       icon(iconName, "big"),
       h("div", { class: "grow" },
         h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
-        description ? h("div", { class: "muted small" }, description) : null,
-        entry.needs.length ? h("div", { class: "small" }, "Then: ", entry.needs.join(" ")) : null,
         entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
       added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
       added ? h("button", { type: "button", onclick: () => { close(); location.hash = opening(yours.id(entry.id)); } }, "Open")
@@ -1709,9 +1706,7 @@ async function newCommandDialog(area) {
       h("summary", { class: "item" },
         icon("mdi:chevron-right", "chevron"),
         icon(family.icon || iconFor(family.versions[0].spec), "big"),
-        h("div", { class: "grow" },
-          h("div", { class: "title" }, family.title),
-          h("div", { class: "muted small" }, [...new Set(family.versions.map((e) => e.description))].join(" or "))),
+        h("div", { class: "grow" }, h("div", { class: "title" }, family.title)),
         added ? h("span", { class: "badge ok" }, `${added} of ${family.versions.length} added`) : null,
         h("span", { class: "badge" }, `${family.versions.length} versions`)),
       h("div", { class: "versions" }, versions.map((e) => row(e, VARIANT_ICONS[e.variant] || iconFor(e.spec)))));

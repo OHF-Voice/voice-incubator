@@ -173,6 +173,9 @@
 - **The Wake words page's words.** **Tuning** is **Models**, each wake word
   marked built in or custom by its icon, and a satellite without its own
   listens for **Preferred**. **Upload** comes before **Train**.
+- **Add a command lists titles only.** A command's description and what it
+  needs ("Then: …") are gone from the list; search still finds them, and
+  what it needs is said on its page once added.
 - **"How many more days until Christmas"** is answered as "how many days
   until Christmas" is (weeks and sleeps too).
 - **The home's weather, thermostat and shopping list are found.** Where
