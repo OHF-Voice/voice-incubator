@@ -690,12 +690,16 @@ class Store:
 
         return self.update(edit)
 
-    def put_trigger(self, key: str, disabled: bool) -> Compiled:
+    def put_trigger(self, key: str, disabled: bool | None, fallback: list[str] | None = None) -> Compiled:
         """Turn one of Home Assistant's sentence triggers off everywhere, or
-        back on."""
+        back on; and set which fallback steps may run it. None: as it is."""
 
         def edit(document: dict[str, Any]) -> None:
-            _trigger_settings(document, key)["disabled"] = disabled
+            own = _trigger_settings(document, key)
+            if disabled is not None:
+                own["disabled"] = disabled
+            if fallback is not None:
+                own["fallback"] = fallback
             _tidy_trigger(document, key)
 
         return self.update(edit)

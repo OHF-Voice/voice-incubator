@@ -15,7 +15,7 @@
     gone; nothing stored used them.
   - An area may have its own thermostat, shopping and to-do lists, built-in
     voice (downloaded when first used, two kept loaded besides the whole
-    home's), sounds and instrument, silence to end, and **Say at most**
+    home's), sounds and instrument, silence to end, and **Response Level**
     (brief, or a beep; a question still answers) -- the whole home may cap
     it too. The whole home's settings say which areas have their own.
   - An area's Names say what it is called and hold its devices (one added
@@ -120,7 +120,7 @@
   goes on as before -- to the conversation agent, which keeps its own
   conversation. Sessions show what it was heard as.
 - **An area added is named.** Added on the Home page, an area is called
-  what Home Assistant calls it -- its name and aliases, under **Called** --
+  what Home Assistant calls it -- its name and aliases, under **Area Name** --
   unless it is named already or another area has that name.
 - **A whole house name that is a command word is flagged** on the Names
   page ("command word"): a device called "Light" from every area takes
@@ -159,6 +159,17 @@
   Conversation agent, **Its voice**): a built-in voice and speaker, or a
   text-to-speech entity and its voice, so its answers sound unlike the
   commands'. By default they're said as everything else is.
+- **A sentence trigger has a page.** Open it from the Home page: its
+  sentences, where it's heard, and whether meaning or the model may run it
+  when nothing matches, with **Edit in Home Assistant** for its automation
+  -- which now opens Home Assistant's own page with the app run on its own
+  (it went nowhere). Lists show a trigger's title only, and a skill's
+  description in place of its examples.
+- **The Home page's words.** An area's Commands are under its name and
+  **Whole Home**, and an area with no satellite has no Commands tab (unless
+  it has its own). Its Names are **Area Name** and **Device Names**; its
+  Settings say **Home Default** for the whole home's. **Say at most** is
+  **Response Level**, and its "each command's own" is **Command default**.
 - **"How many more days until Christmas"** is answered as "how many days
   until Christmas" is (weeks and sleeps too).
 - **The home's weather, thermostat and shopping list are found.** Where

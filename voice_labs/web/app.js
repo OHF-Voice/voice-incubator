@@ -524,7 +524,7 @@ function responsesPanel() {
     withOwn(heading("h2", "Responses", "Each command says as much as its own level when it's done: a beep, a brief fixed sentence (“Turned on the lights.”), a specific one (“Turned on the lights in the Kitchen.”) or a verbose one (“Turned on Ceiling and Lamp in the Kitchen.”). Lights beep; timers, locks and lists say what they did. Set it on the command's page."), ["sounds", "instrument", "pitch", "at_most"]),
     h("div", { class: "row", style: "align-items:flex-start" },
       field("A beep out of sight says", select, "A beep is enough where you can see it happen: in the satellite's own area. Somewhere else — another area, a floor, a device in no area — a command that beeps says this instead. Home Assistant's own says the brief one."),
-      field("Say at most", atMost, "No command says more than this, whatever its own level; a question still answers. An area may have its own.")),
+      field("Response Level", atMost, "No command says more than this, whatever its own level; a question still answers. An area may have its own.")),
     h("div", { class: "row" },
       h("label", {}, sounds, "Sounds", hint("A sound the moment a command ends, another before saying it wasn't understood or went wrong, another as the conversation agent is asked, and another when the microphone opens for an answer.")),
       field("Instrument", instrument, "What the sounds, the beep when a command is done, and a timer's ring are played on."),
@@ -633,7 +633,7 @@ async function pageFallback() {
       title: trigger.by_meaning ? "Meaning sends Home Assistant the trigger's sentence closest to what was said" : "Free text: no sentence of its own to send" });
     const llm = h("input", { type: "checkbox", checked: steps.includes("llm"), disabled: !trigger.by_model,
       title: trigger.by_model ? `GLiNER knows it by “${trigger.about || trigger.title}” and hears its free text` : "No free text for the model to hear" });
-    const spec = { title: trigger.title, description: `Home Assistant · “${(trigger.sentences || [])[0] || ""}”` };
+    const spec = { title: trigger.title, description: "Home Assistant" };
     const row = h("div", { class: "item" }, icon("mdi:home-assistant", "big"),
       h("div", { class: "grow" }, h("div", { class: "title" }, trigger.title || cid), h("div", { class: "muted small" }, spec.description)),
       h("label", { title: meaning.title }, meaning, "meaning"), h("label", { title: llm.title }, llm, "model"));
@@ -795,7 +795,7 @@ async function pageCommand(id, prefill, query) {
   const areas = await areaLabels();
   const params = new URLSearchParams(query || "");
   const isNew = !id;
-  if (!isNew && (state.store.triggers || {})[id]) { fill($main, triggerPage(state.store, id)); return; }
+  if (!isNew && (state.store.triggers || {})[id]) { fill($main, triggerPage(state.store, id, query)); return; }
   let spec = isNew ? (prefill || { description: "", examples: [] }) : clone(state.store.commands[id]);
   if (!spec) { fill($main, errorBox(`No command ${id}`)); return; }
   if (isNew && params.get("area")) spec.area = params.get("area");
@@ -1731,7 +1731,7 @@ async function newCommandDialog(area) {
       h("div", { class: "grow" },
         h("div", { class: "title" }, skill.name, h("span", { class: "badge", style: "margin-left:8px" }, "skill"),
           added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
-        h("div", { class: "muted small" }, skill.description, " · ", skill.examples.map((e) => `“${e}”`).join(" · "))),
+        h("div", { class: "muted small" }, skill.description)),
       added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}${where ? `?from=${encodeURIComponent(where)}` : ""}`; } }, "Open")
         : h("button", { type: "button", class: "primary", onclick: async () => {
           try {
@@ -1884,14 +1884,14 @@ function commandItem(store, id, from, extra) {
     extra || null);
 }
 
-// One of Home Assistant's sentence triggers, as listed with the commands:
-// edited in Home Assistant, on its automation's page. On the whole home's
-// list (no `from`), its switch: heard, or turned off everywhere.
+// One of Home Assistant's sentence triggers, as listed with the commands;
+// its page has the rest. On the whole home's list (no `from`), its switch:
+// heard, or turned off everywhere.
 function triggerItem(store, id, from, extra) {
   const t = store.triggers[id];
-  const edit = t.automation_id ? `/config/automation/edit/${encodeURIComponent(t.automation_id)}` : null;
-  const clashes = (t.clashes || []).map((c) => { const spec = store.commands[c] || {}; return spec.title || spec.description || c; });
-  const unheard = (t.problems || []).length ? t.problems.join(" ") : !t.heard && !t.disabled ? (store.triggers_error || "Nothing in it can be listened for.") : null;
+  const href = `#/command/${id}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
+  const clashes = triggerClashes(store, t);
+  const unheard = triggerUnheard(store, t);
   const toggle = from ? null : h("input", { type: "checkbox", class: "switch", checked: !t.disabled, "aria-label": `${t.title}, everywhere`,
     onclick: (e) => e.stopPropagation(), onchange: async (e) => {
       try {
@@ -1901,28 +1901,85 @@ function triggerItem(store, id, from, extra) {
         route();
       } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
     } });
-  return h("div", { class: `item${edit ? " clickable" : ""}`, title: edit ? "Edit its automation in Home Assistant" : t.title,
-    onclick: edit ? () => window.open(edit, "_top") : null },
+  return h("div", { class: "item clickable", title: t.title, onclick: () => { location.hash = href; } },
     icon("mdi:home-assistant", "big"),
-    h("div", { class: "grow" },
-      h("div", { class: "title" }, t.title),
-      h("div", { class: "muted small" }, t.sentences.map((sentence) => `“${sentence}”`).join(" · "))),
+    h("div", { class: "grow" }, h("div", { class: "title" }, t.title)),
     from ? null : offBadge(t.off, t.disabled),
+    asList(t.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(t.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
     clashes.length ? h("span", { class: "badge warn", title: `${andList(clashes)} says it too. The trigger goes first.` }, "goes first") : null,
     unheard ? h("span", { class: "badge bad", title: unheard }, "not heard") : h("span", { class: "badge accent" }, "trigger"),
     extra || toggle);
 }
 
-// A sentence trigger's page (a session links to it): its row, and its
-// automation in Home Assistant, where it's edited.
-function triggerPage(store, id) {
+// The commands that say what a trigger says (it goes first), by title.
+const triggerClashes = (store, t) => (t.clashes || []).map((c) => { const spec = store.commands[c] || {}; return spec.title || spec.description || c; });
+
+// Why a trigger isn't heard, or null.
+const triggerUnheard = (store, t) => ((t.problems || []).length ? t.problems.join(" ")
+  : !t.heard && !t.disabled ? (store.triggers_error || "Nothing in it can be listened for.") : null);
+
+// A page of Home Assistant's: through ingress, in the frame around this
+// page; with the app run on its own, at Home Assistant's address.
+function openInHomeAssistant(path) {
+  const base = (state.status || {}).home_assistant;
+  if (base) window.open(`${base}${path}`, "_blank", "noopener");
+  else window.open(path, "_top");
+}
+
+// A sentence trigger's page: where it's heard, and whether a step after
+// keywords and examples may run it. Its sentences are edited in Home
+// Assistant, on its automation's page. `query`: from (the area whose list
+// it was opened from).
+function triggerPage(store, id, query) {
   const t = store.triggers[id];
+  const from = new URLSearchParams(query || "").get("from") || "home";
+  const clashes = triggerClashes(store, t);
+  const unheard = triggerUnheard(store, t);
+  const off = asList(t.off);
+  const where = h("select", { "aria-label": "Where", onchange: async (e) => {
+    try {
+      await api("PUT", `triggers/${encodeURIComponent(id)}`, { disabled: e.target.value === "none" });
+      t.disabled = e.target.value === "none";
+      toast("Saved"); refreshStatus(); route();
+    } catch (err) { toast(err.message); route(); }
+  } },
+  h("option", { value: "home", selected: !t.disabled }, "Whole Home"),
+  h("option", { value: "none", selected: !!t.disabled }, "Nowhere (turned off)"));
+  // A fallback step: ticked, it may run the trigger; saved at once.
+  const step = (name, label, able, why, help) => {
+    const on = asList(t.fallback).includes(name);
+    return h("label", { title: able ? "" : why },
+      h("input", { type: "checkbox", checked: on, disabled: !able && !on, onchange: async (e) => {
+        const next = ["meaning", "llm"].filter((x) => (x === name ? e.target.checked : asList(t.fallback).includes(x)));
+        try {
+          await api("PUT", `triggers/${encodeURIComponent(id)}`, { fallback: next });
+          t.fallback = next;
+          toast("Saved"); refreshStatus();
+        } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+      } }), label, hint(able ? help : why),
+      ((state.status || {}).fallback || {})[name] === false
+        ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” in Whole Home's Settings" }, "off in Settings") : null);
+  };
   return [
     h("div", { class: "row" },
-      h("a", { href: "#/home" }, "← Whole Home"),
+      h("a", { href: placeHref(from) }, `← ${placeLabel(from)}`),
       h("h1", { class: "grow", style: "margin:0" }, t.title),
-      t.automation_id ? h("button", { class: "primary", onclick: () => window.open(`/config/automation/edit/${encodeURIComponent(t.automation_id)}`, "_top") }, "Edit in Home Assistant") : null),
-    h("div", { class: "panel" }, h("div", { class: "list" }, triggerItem(store, id))),
+      t.automation_id ? h("button", { class: "primary", onclick: () => openInHomeAssistant(`/config/automation/edit/${encodeURIComponent(t.automation_id)}`) }, "Edit in Home Assistant") : null),
+    unheard ? h("div", { class: "notice bad" }, `Not heard: ${unheard}`) : null,
+    clashes.length ? h("div", { class: "notice info" }, `${andList(clashes)} says it too. The trigger goes first.`) : null,
+    h("div", { class: "panel" },
+      heading("h2", "Sentences", "Home Assistant's sentence trigger, heard before the app's commands. Edited on its automation's page."),
+      h("div", { class: "stack" }, t.sentences.map((sentence) => h("div", {}, `“${sentence}”`))),
+      field("Where", h("div", { class: "stack" }, where,
+        !t.disabled && off.length ? h("div", { class: "muted small" }, "Turned off in ",
+          ...off.map((a, i) => [i ? (i === off.length - 1 ? " and " : ", ") : "", h("a", { href: placeHref(a) }, areaNameOf(a))]), ".") : null))),
+    h("div", { class: "panel" },
+      heading("h2", "When nothing matches", "Keywords and example sentences come first. When they find nothing, these may run it."),
+      h("div", { class: "wake-list" },
+        step("meaning", "Also sentences that mean the same", t.by_meaning, "Free text: no sentence of its own to send.",
+          "A sentence very close in meaning to one of its own sends Home Assistant that one."),
+        step("llm", "Also when the model hears its free text", t.by_model, "No free text for the model to hear.",
+          `A small model (GLiNER) may pick it, by “${t.about || t.title}”, and hear its free text, sent in one of its sentences.`))),
   ];
 }
 
@@ -1932,7 +1989,7 @@ function skillItem(skill, from, extra) {
     icon(skill.icon, "big"),
     h("div", { class: "grow" },
       h("div", { class: "title" }, skill.name),
-      h("div", { class: "muted small" }, skill.examples.map((e) => `“${e}”`).join(" · "))),
+      h("div", { class: "muted small" }, skill.description)),
     from ? null : offBadge(skill.off, skill.disabled),
     h("span", { class: "badge accent" }, "skill"),
     extra || null);
@@ -2139,8 +2196,13 @@ async function pageHome(query) {
   let place = old ? old.area || "home" : params.get("place") || "home";
   let area = places.areas.find((a) => a.id === place) || null;
   if (!area) place = "home";
-  const tab = ["commands", "names", "settings"].includes(params.get("tab")) ? params.get("tab") : (area ? areaTab(area.id, "commands") : "commands");
   const here = sats.filter((s) => (area ? s.area === area.id : !s.area));
+  // An area with no satellite hears nothing: no Commands, unless it has
+  // its own (to reach them).
+  const tabs = [["commands", "Commands"], ["names", "Names"], ["settings", "Settings"]]
+    .filter(([id]) => id !== "commands" || !area || here.length || area.commands);
+  const asked = params.get("tab") || (area ? areaTab(area.id, "commands") : "commands");
+  const tab = tabs.some(([id]) => id === asked) ? asked : tabs[0][0];
   const body = h("div");
   if (tab === "commands") fill(body, area ? areaCommands(store, skillData, area, here) : wholeCommands(store, skillData, params.get("q") || ""));
   else if (tab === "names") fill(body, await namesTab(store, area));
@@ -2151,7 +2213,6 @@ async function pageHome(query) {
     if (Object.keys(area.own || {}).length && !confirm(`Take the ${area.name} off the list? Its own settings are lost.`)) return;
     try { await api("DELETE", `areas/${encodeURIComponent(area.id)}`); location.hash = "#/home"; } catch (err) { toast(err.message); }
   };
-  const tabs = [["commands", "Commands"], ["names", "Names"], ["settings", "Settings"]];
   const [nav, select] = placesNav(places, sats, place, tab);
   fill($main,
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
@@ -2244,11 +2305,11 @@ function areaCommands(store, skillData, area, here) {
   return [
     here.length ? null : h("div", { class: "notice info" }, `No satellite is in the ${area.name}, so nothing here is heard yet.`),
     h("div", { class: "row commands-bar" },
-      heading("h2", "Its own", `Heard only from satellites in the ${area.name}. Where one takes the same sentence as the whole home's, it goes first here.`, { class: "grow", style: "margin:0" }),
+      heading("h2", area.name, `Heard only from satellites in the ${area.name}. Where one takes the same sentence as the whole home's, it goes first here.`, { class: "grow", style: "margin:0" }),
       h("button", { class: "primary", onclick: () => newCommandDialog(area) }, "Add")),
     placedSections(store, skillData, area.id, "None yet: press Add."),
     h("div", { class: "row commands-bar" },
-      heading("h2", "From Whole Home", `Turned off, a satellite here answers “${notAvailable(area.name)}”`, { class: "grow", style: "margin:0" })),
+      heading("h2", "Whole Home", `Turned off, a satellite here answers “${notAvailable(area.name)}”`, { class: "grow", style: "margin:0" })),
     inheritedPanel(store, skillData, area),
   ];
 }
@@ -2901,7 +2962,7 @@ function devicesPanel(store, areas, only) {
   const word = (device) => commandWord(device.house.filter((n) => (device.command_words || []).some((w) => sameName(w, n))), "from every area");
   const name = only ? areaName(only) : null;
   return h("div", { class: "panel" },
-    only ? heading("h2", "Devices", `Voice acts only on the devices added: by their names in the ${name}, by their names in the whole house, or as part of the ${name} (“turn on the lights”). Home Assistant's exposure to Assist doesn't count.`)
+    only ? heading("h2", "Device Names", `Voice acts only on the devices added: by their names in the ${name}, by their names in the whole house, or as part of the ${name} (“turn on the lights”). Home Assistant's exposure to Assist doesn't count.`)
       : heading("h2", "In no area", "Devices heard only by their names in the whole house. Voice acts only on the devices added; Home Assistant's exposure to Assist doesn't count."),
     ids.length ? h("table", { class: only ? "devices" : "devices loose" },
       h("tr", {}, h("th", {}, "Id"), h("th", {}, only ? `In the ${name}` : ""), h("th", {}, "Whole house"), h("th", {}, only ? "Part of the area" : ""), h("th", {})),
@@ -2959,7 +3020,7 @@ function areaNamesPanel(store, area) {
   const panel = h("div", { class: "panel" });
   function draw(editing) {
     if (!saved && !editing) {
-      fill(panel, heading("h2", "Called", help),
+      fill(panel, heading("h2", "Area Name", help),
         h("p", { class: "muted small" }, "Not named yet."),
         h("button", { onclick: () => draw(true) }, "Name it"));
       return;
@@ -2967,7 +3028,7 @@ function areaNamesPanel(store, area) {
     const name = h("input", { type: "text", value: saved ? saved.name : theirs.name, placeholder: "name" });
     let aliases = saved ? saved.aliases : asList(theirs.aliases).filter((a) => !sameName(a, theirs.name));
     const errors = h("div");
-    fill(panel, heading("h2", "Called", help),
+    fill(panel, heading("h2", "Area Name", help),
       saved ? null : h("p", { class: "muted small" }, "Suggested from Home Assistant — edit before saving"),
       h("div", { class: "grid2" },
         field("Name", name),
@@ -4762,7 +4823,7 @@ function settingsPanels() {
 }
 
 // The most a command says (areas.AT_MOST): none, or a cap.
-const AT_MOST = { "": "Each command's own", brief: "Brief", beep: "A beep" };
+const AT_MOST = { "": "Command default", brief: "Brief", beep: "A beep" };
 
 // What an area may have its own of (areas.KEYS), by its settings' groups.
 const AREA_GROUPS = [
@@ -4824,13 +4885,13 @@ function areaSettingsPanel(area) {
           const chosen = h("select", { "aria-label": "Instrument", onchange: (e) => onChange(e.target.value) }, instrumentOptions(v));
           return h("div", { class: "row" }, chosen, tryButton(chosen, { value: own.pitch || status.pitch || ownPitch(v) }));
         }],
-      ["pitch", "Pitch", "responses", status.pitch, (v) => v || "the instrument's own",
+      ["pitch", "Pitch", "responses", status.pitch, (v) => v || "the instrument's default",
         (v, onChange) => {
           const chosen = h("select", { "aria-label": "Pitch", onchange: (e) => onChange(e.target.value) }, pitchOptions(v, own.instrument || status.instrument));
           return h("div", { class: "row" }, chosen, tryButton({ value: own.instrument || status.instrument }, chosen));
         },
         "The note the sounds start from."],
-      ["at_most", "Say at most", "responses", (status.verbosity || {}).at_most || "", (v) => AT_MOST[v || ""],
+      ["at_most", "Response Level", "responses", (status.verbosity || {}).at_most || "", (v) => AT_MOST[v || ""],
         (v, onChange) => select(Object.entries(AT_MOST), v || "", (x) => onChange(x || null)),
         "No command here says more than this, whatever its own level; a question still answers."],
       ["silence_seconds", "Silence to end (s)", "end", ((status.end_of_speech || {}).used || {}).silence_seconds, (v) => `${v} s`,
@@ -4852,12 +4913,12 @@ function areaSettingsPanel(area) {
       fill(panel, h("div", { class: "settings-groups", style: "margin:0; border-top:none" }, AREA_GROUPS.map(([id, title, help]) => {
         const mine = defs.filter((d) => d[2] === id && own[d[0]] !== undefined);
         const group = settingsGroup(id, title,
-          mine.length ? mine.map(([key, label, , , text]) => `${label}: ${text(own[key])}`).join(" · ") : "Whole Home's", opened,
+          mine.length ? mine.map(([key, label, , , text]) => `${label}: ${text(own[key])}`).join(" · ") : "Home Default", opened,
           help ? h("p", { class: "muted small", style: "margin-top:0" }, help) : null,
           defs.filter((d) => d[2] === id).map(([key, label, , whole, text, control, tip]) => {
             if (own[key] === undefined && !editing.has(key)) {
               return field(label, h("div", { class: "inherit-row" },
-                h("span", { class: "whole-value" }, `Whole Home's: ${text(whole)}`),
+                h("span", { class: "whole-value" }, `Home Default: ${text(whole)}`),
                 h("button", { type: "button", class: "link", onclick: () => { editing.add(key); draw(); } }, `Change for the ${area.name}`)), tip);
             }
             const value = own[key] !== undefined ? own[key] : whole;
@@ -4867,7 +4928,7 @@ function areaSettingsPanel(area) {
                 control(value, (v, more) => save({ [key]: v, ...(more || {}) })),
                 h("button", { type: "button", class: "link", onclick: () => {
                   if (own[key] === undefined) { editing.delete(key); draw(); } else save({ [key]: null });
-                } }, `Use Whole Home's (${text(whole)})`)));
+                } }, `Use Home Default (${text(whole)})`)));
           }));
         group.addEventListener("toggle", () => { if (group.open) opened.add(id); else opened.delete(id); });
         return group;

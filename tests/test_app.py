@@ -801,6 +801,17 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/fallback", json={"llm": ["trigger_1"]})).status == 400
             assert (await http.put("/api/fallback", json={"meaning": []})).status == 200
             assert app.store.document()["triggers"] == {"automation:2": {"disabled": True}}
+            # On its own page: its steps, kept apart from its switch.
+            assert (await http.put("/api/triggers/trigger_1", json={"fallback": ["meaning"]})).status == 200
+            assert app.store.document()["triggers"] == {"automation:1": {"fallback": ["meaning"]}, "automation:2": {"disabled": True}}
+            for wrong in ({"fallback": ["llm"]}, {"fallback": ["guess"]}, {"fallback": "meaning"}, {}):
+                assert (await http.put("/api/triggers/trigger_1", json=wrong)).status == 400, wrong
+            assert (await http.put("/api/triggers/trigger_1", json={"fallback": []})).status == 200
+            assert app.store.document()["triggers"] == {"automation:2": {"disabled": True}}
+            # Where Home Assistant's pages are: through ingress, around this one.
+            assert (await (await http.get("/api/status")).json())["home_assistant"] == app.hass.url
+            ingress = await http.get("/api/status", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"})
+            assert (await ingress.json())["home_assistant"] is None
             await hass.turn_automation("automation.good_night", "off")
             await wait_for(lambda: [t.title for t in app.engine.compiled.triggers.values()] == ["Clock"])
             assert (await agent_said("good night"))[0] == "conversation.chatty heard good night"

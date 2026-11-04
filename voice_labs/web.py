@@ -256,6 +256,9 @@ class Api:
         return web.json_response(
             {
                 "hass": app.hass.connected.is_set(),
+                # Where its pages open: through ingress, in the frame around
+                # this one (none); run on its own, at its address.
+                "home_assistant": None if request.headers.get("X-Ingress-Path") else app.hass.url,
                 "store_error": app.store_error,
                 "unspeakable": engine.unspeakable if engine else [],
                 "build_ms": round(engine.build_seconds * 1000) if engine else None,
@@ -465,24 +468,42 @@ class Api:
             }
         return out, first
 
-    def _trigger_key(self, command_id: str) -> str:
-        """The key of the trigger whose command this is."""
+    def _trigger(self, command_id: str) -> Any:
+        """The trigger whose command this is."""
         compiled = self.app.engine.compiled if self.app.engine is not None else None
         trigger = (compiled.triggers if compiled else {}).get(command_id)
         if trigger is None:
             trigger = next((t for t in self.app.store.triggers if t.command_id == command_id), None)
         if trigger is None:
             raise FileNotFoundError(f"No sentence trigger {command_id}")
-        return trigger.key
+        return trigger
+
+    def _trigger_key(self, command_id: str) -> str:
+        """The key of the trigger whose command this is."""
+        return self._trigger(command_id).key
 
     async def put_trigger(self, request: web.Request) -> web.Response:
         """One of Home Assistant's sentence triggers turned off everywhere
-        (``disabled``: true), or back on."""
+        (``disabled``: true), or back on; and which fallback steps may run
+        it (``fallback``: meaning for one with sentences of its own, the
+        model for one with free text)."""
         body = await request.json()
-        if not isinstance(body.get("disabled"), bool):
+        if "disabled" not in body and "fallback" not in body:
+            raise ConfigError("disabled or fallback: expected one")
+        if "disabled" in body and not isinstance(body["disabled"], bool):
             raise ConfigError("disabled: true or false")
-        key = self._trigger_key(request.match_info["id"])
-        return await self._saved(self.app.store.put_trigger(key, body["disabled"]))
+        trigger = self._trigger(request.match_info["id"])
+        fallback = None
+        if "fallback" in body:
+            fallback = body["fallback"] or []
+            if not isinstance(fallback, list) or not set(map(str, fallback)) <= set(FALLBACK_STEPS):
+                raise ConfigError(f"fallback: some of {', '.join(FALLBACK_STEPS)}")
+            if "meaning" in fallback and not trigger.examples:
+                raise ConfigError(f"{trigger.title} has no sentence of its own to send")
+            if "llm" in fallback and not any(trigger.free):
+                raise ConfigError(f"{trigger.title} has no free text for the model to hear")
+            fallback = [step for step in FALLBACK_STEPS if step in fallback]
+        return await self._saved(self.app.store.put_trigger(trigger.key, body.get("disabled"), fallback))
 
     async def _saved(self, compiled) -> web.Response:
         await self.app.apply(compiled)
