@@ -12,6 +12,10 @@
 title: Satellites
 icon: mdi:speaker-wireless
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  own_volume: {title: Satellite volume, icon: mdi:volume-equal}
+
 commands:
   announce:
     title: Announce
@@ -51,6 +55,7 @@ commands:
   # The satellite's own speaker, whatever plays on it: what its dial sets.
   own_volume_up:
     title: Turn yourself up
+    topic: own_volume
     icon: mdi:volume-plus
     description: turn up the satellite's own volume
     examples: [speak up, talk louder, turn yourself up, turn up your volume]
@@ -63,6 +68,7 @@ commands:
 
   own_volume_down:
     title: Turn yourself down
+    topic: own_volume
     icon: mdi:volume-minus
     description: turn down the satellite's own volume
     examples: [turn yourself down, turn down your volume, talk quieter, speak more quietly]
@@ -75,6 +81,7 @@ commands:
 
   own_volume_set:
     title: Set your volume
+    topic: own_volume
     icon: mdi:volume-equal
     description: set the satellite's own volume
     # Also turned up or down to a number: "turn yourself up to 50".

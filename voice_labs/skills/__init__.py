@@ -130,6 +130,13 @@ def skill_place(settings: Any, skill_id: str) -> tuple[bool, tuple[str, ...]]:
     return bool(value.get("disabled")), tuple(str(a) for a in value.get("off") or [])
 
 
+def skill_removed(settings: Any, skill_id: str) -> bool:
+    """Whether a skill was deleted from the Home page's list (``removed``:
+    off everywhere too); Add puts it back."""
+    value = settings.get(skill_id) if isinstance(settings, dict) else None
+    return isinstance(value, dict) and bool(value.get("removed"))
+
+
 def skill_off(settings: Any, skill_id: str) -> tuple[str, ...] | bool:
     """Where a skill doesn't answer: everywhere (True), or in these areas
     (none: an empty tuple)."""

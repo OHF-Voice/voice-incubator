@@ -6,6 +6,11 @@
 title: Lights and switches
 icon: mdi:lightbulb-outline
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  on_and_off: {title: On and off, icon: mdi:lightbulb-on-outline}
+  brightness_and_color: {title: Brightness and color, icon: mdi:brightness-6}
+
 # What the versions add to a command (merged into them with <<).
 shared:
   device: &device
@@ -61,6 +66,7 @@ commands:
   # Lights here, in an area or on a floor named, or a device by name.
   turn_on:
     title: Turn on
+    topic: on_and_off
     icon: mdi:lightbulb-on-outline
     description: turn on the lights
     require: [[turn on, switch on, turn ... on, switch ... on], [light, lights]]
@@ -108,6 +114,7 @@ commands:
 
   turn_off:
     title: Turn off
+    topic: on_and_off
     icon: mdi:lightbulb-off-outline
     description: turn off the lights
     require: [[turn off, switch off, turn ... off, switch ... off], [light, lights]]
@@ -156,6 +163,7 @@ commands:
 
   any_lights_on:
     title: Are any lights on
+    topic: on_and_off
     icon: mdi:lightbulb-question
     description: say which lights are on
     # No example sentences: one said word for word carries no area or floor.
@@ -222,6 +230,7 @@ commands:
 
   set_brightness:
     title: Set the brightness
+    topic: brightness_and_color
     icon: mdi:brightness-6
     description: set the brightness of the lights
     supports: brightness
@@ -272,6 +281,7 @@ commands:
 
   light_color:
     title: Set the light color
+    topic: brightness_and_color
     icon: mdi:format-color-fill
     description: change the color of the lights
     supports: color
@@ -309,6 +319,7 @@ commands:
 
   brighter:
     title: Brighter
+    topic: brightness_and_color
     icon: mdi:brightness-7
     description: make the lights brighter
     supports: brightness
@@ -343,6 +354,7 @@ commands:
 
   dimmer:
     title: Dimmer
+    topic: brightness_and_color
     icon: mdi:brightness-4
     description: make the lights dimmer
     supports: brightness
@@ -377,6 +389,7 @@ commands:
 
   light_temperature:
     title: Set the color temperature
+    topic: brightness_and_color
     icon: mdi:white-balance-sunny
     description: change the color temperature of the lights
     supports: color_temp

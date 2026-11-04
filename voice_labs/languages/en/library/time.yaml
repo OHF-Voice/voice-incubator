@@ -3,9 +3,14 @@
 title: Date and time
 icon: mdi:clock-outline
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  date_and_time: {title: Date and time, icon: mdi:clock-outline}
+
 commands:
   what_time:
     title: What time is it
+    topic: date_and_time
     icon: mdi:clock-outline
     description: tell the time
     examples: [what time is it]
@@ -19,6 +24,7 @@ commands:
 
   what_date:
     title: What's the date
+    topic: date_and_time
     icon: mdi:calendar-today
     description: tell the date
     examples: ["what's the date [today]", "what day is it [today]"]

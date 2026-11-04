@@ -410,6 +410,19 @@ async def _scenario(tmp_path: Path) -> None:
             assert next(s for s in listed["skills"] if s["id"] == "arithmetic")["off"] == ["kitchen"]
             assert (await http.put("/api/areas/kitchen/off", json={"skills": ["arithmetic"], "off": False})).status == 200
             assert "skills" not in app.store.settings
+            # Deleted from the Home page's list: off everywhere too, and kept
+            # so while turned off in an area; Add (on) puts it back.
+            assert (await http.put("/api/skills/arithmetic", json={"removed": True})).status == 200
+            assert app.store.settings["skills"] == {"arithmetic": {"disabled": True, "removed": True}}
+            assert await said("what is twelve times eight") != "It's 96."
+            assert (await http.put("/api/areas/kitchen/off", json={"skills": ["arithmetic"], "off": True})).status == 200
+            listed = await (await http.get("/api/skills")).json()
+            math = next(s for s in listed["skills"] if s["id"] == "arithmetic")
+            assert (math["removed"], math["disabled"], math["off"]) == (True, True, ["kitchen"])
+            assert (await http.put("/api/skills/arithmetic", json={"on": True})).status == 200
+            assert app.store.settings["skills"] == {"arithmetic": {"off": ["kitchen"]}}
+            assert (await http.put("/api/areas/kitchen/off", json={"skills": ["arithmetic"], "off": False})).status == 200
+            assert (await http.put("/api/skills/arithmetic", json={"removed": "yes"})).status == 400
             assert (await http.put("/api/skills/nope", json={"on": False})).status == 404
             assert (await http.put("/api/skills/live", json={"on": False})).status == 404
             assert (await http.put("/api/skills/units", json={"on": "off"})).status == 400
@@ -1699,11 +1712,13 @@ def _library_commands(*wanted: tuple[str, str]) -> str:
     """Commands from the English library, as they are added from it."""
     from ruamel.yaml import YAML  # pylint: disable=import-outside-toplevel
 
+    from voice_labs.library import LIBRARY_ONLY  # pylint: disable=import-outside-toplevel
+
     library = ROOT / "voice_labs/languages/en/library"
     out = {}
     for file, command in wanted:
         spec = YAML(typ="safe").load((library / f"{file}.yaml").read_text())["commands"][command]
-        out[command] = {k: v for k, v in spec.items() if k != "needs"}
+        out[command] = {k: v for k, v in spec.items() if k not in LIBRARY_ONLY}
     return json.dumps({"commands": out})
 
 

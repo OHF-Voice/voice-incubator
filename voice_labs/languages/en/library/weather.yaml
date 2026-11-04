@@ -7,6 +7,10 @@
 title: Weather
 icon: mdi:weather-partly-cloudy
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  weather: {title: Weather, icon: mdi:weather-partly-cloudy}
+
 # What the commands share (merged into them with <<, or as a whole).
 shared:
   # The daily forecast, as the response's result.days.
@@ -29,6 +33,7 @@ shared:
 commands:
   weather:
     title: What's the weather
+    topic: weather
     icon: mdi:weather-partly-cloudy
     description: tell the weather now
     examples: ["what's the weather [like] [today|right now|outside]", "how's the weather [today|outside]"]
@@ -45,6 +50,7 @@ commands:
 
   weather_day:
     title: The weather on a day
+    topic: weather
     icon: mdi:weather-cloudy-clock
     description: tell the weather forecast for a day
     # "What's the weather tomorrow", "the forecast for Saturday", "what will
@@ -96,6 +102,7 @@ commands:
 
   weather_week:
     title: The weather this week
+    topic: weather
     icon: mdi:calendar-week
     description: tell the weather forecast for the week
     examples: ["what's the (weather|forecast) [for] [this|the] week", "what's the weather (like|looking) for the next few days"]
@@ -134,6 +141,7 @@ commands:
 
   will_it_rain:
     title: Will it rain
+    topic: weather
     icon: mdi:weather-rainy
     description: say whether it will rain or snow
     # "Is it going to rain tomorrow", "will it snow on Saturday", "do I need

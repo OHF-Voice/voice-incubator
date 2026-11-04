@@ -1644,8 +1644,8 @@ async function newCommandDialog(area) {
       return ids.find((id) => known.some((k) => libraryAdded([id], k)));
     },
   };
-  // A skill is added while it answers there.
-  const skillsHere = new Set(skillData.skills.filter((sk) => !sk.disabled && !(where && asList(sk.off).includes(where))).map((sk) => sk.id));
+  // A skill is added while it's listed (not deleted), and not off there.
+  const skillsHere = new Set(skillData.skills.filter((sk) => !sk.removed && !(where && asList(sk.off).includes(where))).map((sk) => sk.id));
   const opening = (id) => `#/command/${id}${where ? `?from=${encodeURIComponent(where)}` : ""}`;
   const QUESTIONS = "Questions";
   const groups = [...new Map(data.entries.map((e) => [e.group, e.group_icon])).entries(), [QUESTIONS, "mdi:comment-question-outline"]];
@@ -1686,7 +1686,7 @@ async function newCommandDialog(area) {
     h("span", { class: "grow" }, h("span", { class: "title" }, "Custom command"),
       h("span", { class: "muted small" }, "Start from scratch.")));
   const matches = (entry, words) => {
-    const text = [entry.title, entry.description, entry.id, entry.group, entry.family_title, entry.family_description,
+    const text = [entry.title, entry.description, entry.id, entry.group, entry.family_title, entry.family_description, entry.topic_title,
       asList((entry.spec || {}).require).map((g) => asList(g).join(" ")).join(" ")].join(" ").toLowerCase();
     return words.every((w) => text.includes(w));
   };
@@ -1725,6 +1725,30 @@ async function newCommandDialog(area) {
     });
     return details;
   };
+  // A command, or one with versions.
+  const familyItem = ([family, versions], searching) => (family.versions.length === 1 && !family.versions[0].variant
+    ? row(versions[0], iconFor(versions[0].spec))
+    : familyRow(family, versions, searching));
+  // Commands shown together (their topic): a row that opens to them --
+  // opened while searching, or when it's all there is.
+  const topicRow = (topic, searching, only) => {
+    const entries = topic.members.flatMap(([family]) => family.versions);
+    const added = entries.filter((e) => yours.has(e.id)).length;
+    const details = h("details", { class: "family" },
+      h("summary", { class: "item" },
+        icon("mdi:chevron-right", "chevron"),
+        icon(topic.icon || iconFor(entries[0].spec), "big"),
+        h("div", { class: "grow" }, h("div", { class: "title" }, topic.title)),
+        added ? h("span", { class: "badge ok" }, `${added} of ${entries.length} added`) : null,
+        h("span", { class: "badge" }, `${entries.length} commands`)),
+      h("div", { class: "versions" }, topic.members.map((member) => familyItem(member, searching))));
+    details.open = searching || only || opened.has(topic.key);
+    details.addEventListener("toggle", () => {
+      if (searching || only) return;
+      if (details.open) opened.add(topic.key); else opened.delete(topic.key);
+    });
+    return details;
+  };
   // A skill: added there, or Add.
   const skillMatches = (skill, words) => words.every((w) => [skill.name, skill.description, ...skill.examples, QUESTIONS].join(" ").toLowerCase().includes(w));
   const skillRow = (skill) => {
@@ -1738,7 +1762,7 @@ async function newCommandDialog(area) {
       added ? h("button", { type: "button", onclick: () => { close(); location.hash = `#/skill/${skill.id}${where ? `?from=${encodeURIComponent(where)}` : ""}`; } }, "Open")
         : h("button", { type: "button", class: "primary", onclick: async () => {
           try {
-            if (skill.disabled) await api("PUT", `skills/${skill.id}`, { on: true });
+            if (skill.disabled || skill.removed) await api("PUT", `skills/${skill.id}`, { on: true });
             if (where && asList(skill.off).includes(where)) await api("PUT", `areas/${encodeURIComponent(where)}/off`, { skills: [skill.id], off: false });
             toast(`Added ${skill.name}`); close(); route();
           } catch (err) { toast(err.message); }
@@ -1763,9 +1787,18 @@ async function newCommandDialog(area) {
       for (const family of missing) { const entry = defaultVersion(family); selected.set(keyOf(entry), entry); }
       render();
     } }, `Select the ${missing.length} not added`) : null);
-    fill(list, ...shown.map(([family, versions]) => (family.versions.length === 1 && !family.versions[0].variant
-      ? row(versions[0], iconFor(versions[0].spec))
-      : familyRow(family, versions, words.length > 0))),
+    // By topic where the library gives one, at its first command's place.
+    const rows = [];
+    const topics = new Map();
+    for (const member of shown) {
+      const first = member[0].versions[0];
+      if (!first.topic) { rows.push(member); continue; }
+      const key = `topic:${first.file}/${first.topic}`;
+      if (!topics.has(key)) { topics.set(key, { key, title: first.topic_title, icon: first.topic_icon, members: [] }); rows.push(topics.get(key)); }
+      topics.get(key).members.push(member);
+    }
+    const only = rows.length + skills.length === 1;
+    fill(list, ...rows.map((r) => (r.members ? topicRow(r, words.length > 0, only) : familyItem(r, words.length > 0))),
     ...skills.map(skillRow),
     shown.length || skills.length ? null : h("p", { class: "muted" }, "Nothing in the library matches. Start a custom command above."));
     renderFooter();
@@ -1986,8 +2019,19 @@ function triggerPage(store, id, query) {
   ];
 }
 
+// A skill, as listed on the Home page; on the whole home's list (no
+// `from`), its switch: on, or off everywhere.
 function skillItem(skill, from, extra) {
   const href = `#/skill/${skill.id}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
+  const toggle = from ? null : h("input", { type: "checkbox", class: "switch", checked: !skill.disabled, "aria-label": `${skill.name}, everywhere`,
+    onclick: (e) => e.stopPropagation(), onchange: async (e) => {
+      try {
+        await api("PUT", `skills/${skill.id}`, { on: e.target.checked });
+        skill.disabled = !e.target.checked;
+        refreshStatus();
+        route();
+      } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+    } });
   return h("div", { class: "item clickable", title: skill.description, onclick: () => { location.hash = href; } },
     icon(skill.icon, "big"),
     h("div", { class: "grow" },
@@ -1995,7 +2039,7 @@ function skillItem(skill, from, extra) {
       h("div", { class: "muted small" }, skill.description)),
     from ? null : offBadge(skill.off, skill.disabled),
     h("span", { class: "badge accent" }, "skill"),
-    extra || null);
+    extra || toggle);
 }
 
 // Commands -- the whole home's, or an area's own (`area`) -- grouped by what
@@ -2023,7 +2067,7 @@ function commandGroups(store, skillData, area, words = []) {
   for (const s of store.sections || []) {
     if ((bySection[s.file] || []).length) groups.push([s.title, s.icon || "mdi:folder-outline", bySection[s.file], [], s.file]);
   }
-  const skills = area ? [] : skillData.skills.filter((sk) => !words.length || said(sk.name, sk.description, ...sk.examples, "Questions"));
+  const skills = area ? [] : skillData.skills.filter((sk) => !sk.removed && (!words.length || said(sk.name, sk.description, ...sk.examples, "Questions")));
   if (skills.length) groups.push(["Questions", "mdi:comment-question-outline", [], skills, null]);
   return groups;
 }
@@ -2697,6 +2741,14 @@ async function pageSkill(id, query) {
       toast("Saved"); pageSkill(id, query);
     } catch (err) { toast(err.message); }
   }
+  // Off the Home page's list, and off everywhere; Add puts it back.
+  async function remove() {
+    if (!confirm(`Delete ${skill.name}?`)) return;
+    try {
+      await api("PUT", `skills/${id}`, { removed: true });
+      toast("Deleted"); refreshStatus(); location.hash = back;
+    } catch (err) { toast(err.message); }
+  }
   async function restore() {
     if (!confirm(`Put ${skill.name}'s settings back as built in? Yours are lost.`)) return;
     try {
@@ -2709,6 +2761,7 @@ async function pageSkill(id, query) {
       h("a", { href: back }, `← ${placeLabel(from)}`),
       icon(skill.icon, "big"),
       h("h1", { class: "grow", style: "margin:0" }, skill.name),
+      skill.removed ? null : h("button", { class: "danger", onclick: remove }, "Delete"),
       h("button", { class: "primary", onclick: save }, "Save")),
     h("div", { class: "panel" },
       h("p", {}, skill.description),

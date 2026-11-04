@@ -3,9 +3,15 @@
 title: Lists
 icon: mdi:format-list-checks
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  shopping_list: {title: Shopping list, icon: mdi:cart-outline}
+  todo_list: {title: To-do list, icon: mdi:format-list-checks}
+
 commands:
   shopping_list_add:
     title: Add to the shopping list
+    topic: shopping_list
     icon: mdi:cart-plus
     description: add something to the shopping list
     require: [[add, put], [shopping list, list]]
@@ -55,6 +61,7 @@ commands:
 
   shopping_list_remove:
     title: Take off the shopping list
+    topic: shopping_list
     icon: mdi:cart-minus
     description: take something off the shopping list
     # Gone from the list; checking it off (done, and kept) is Check off the
@@ -89,6 +96,7 @@ commands:
 
   shopping_list_check:
     title: Check off the shopping list
+    topic: shopping_list
     icon: mdi:cart-check
     description: check something off the shopping list as bought
     # Done, and kept on the list as such: "cross the milk off the list",
@@ -126,6 +134,7 @@ commands:
 
   shopping_list_items:
     title: What's on the shopping list
+    topic: shopping_list
     icon: mdi:cart-outline
     description: say what's on the shopping list
     # What is still to get; what was checked off is left out.
@@ -166,6 +175,7 @@ commands:
 
   todo_add:
     title: Add to the to-do list
+    topic: todo_list
     icon: mdi:format-list-checks
     description: add something to the to-do list
     require: [[add, put], [to do list, to do]]
@@ -212,6 +222,7 @@ commands:
 
   todo_remove:
     title: Take off the to-do list
+    topic: todo_list
     icon: mdi:playlist-remove
     description: take something off the to-do list
     # Gone from the list; checking it off (done, and kept) is Check off the
@@ -244,6 +255,7 @@ commands:
 
   todo_check:
     title: Check off the to-do list
+    topic: todo_list
     icon: mdi:playlist-check
     description: check something off the to-do list as done
     # Done, and kept on the list as such: "check off call the plumber on the
@@ -279,6 +291,7 @@ commands:
 
   todo_add_mine:
     title: Add to my to-do list
+    topic: todo_list
     icon: mdi:account-check-outline
     description: add something to my to-do list
     # The speaker's own (People page); where nobody has one, this one.

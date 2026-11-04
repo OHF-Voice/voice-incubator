@@ -182,6 +182,15 @@
   the thermostat …", which sounds like an order), and the mode and fan alike
   ("Thermostat set to heat."). **Set the temperature in an area or floor is
   gone** (every language).
+- **Add a command shows related commands together** (English): Thermostat,
+  Blinds and covers, Locks, Date and time, On and off, Brightness and color,
+  Shopping list, To-do list, Play music, Pause and skip, Volume, Shuffle and
+  repeat, Reminders, Satellite volume, Timers, Alarms and Weather -- a row
+  each, opened to its commands (a command's versions still open from it).
+  The library gives each file's `topics` and each command's `topic`.
+- **A skill has a switch on Whole Home's Commands**, as a sentence trigger
+  has, and **Delete** on its page: off the list (and off) until added again.
+  Time from now is "How long until a future time."
 - **A command the library no longer has is kept, not heard**: the others
   still are (before, none were), and the Home page says to delete it.
 - **Add a command lists titles only.** A command's description and what it

@@ -59,8 +59,9 @@ VARIANTS = {
 them: the satellite it is said to (nothing named), a device named, or an area
 or floor named."""
 
-LIBRARY_ONLY = ("needs", "variants", "formerly")
-"""Library keys that are not the command's: not added with it."""
+LIBRARY_ONLY = ("needs", "variants", "formerly", "topic")
+"""Library keys that are not the command's: not added with it. ``topic``:
+the file's ``topics`` it is shown with in Add a command."""
 
 
 def library_files(code: str | None = None) -> list[tuple[Path, dict[str, Any]]]:
@@ -170,6 +171,12 @@ def _library_entry(
         "lists": {name: file_lists[name] for name in used},
         "needs": full.get("needs") or [],
     }
+    topic = full.get("topic")
+    if topic:
+        found = (data.get("topics") or {}).get(topic) or {}
+        entry.update(topic=str(topic), topic_title=found.get("title") or str(topic), topic_icon=found.get("icon"))
+        if not found:
+            failed = failed or f"topic {topic}: not one of the file's topics"
     if failed:
         entry["error"] = failed
         return entry

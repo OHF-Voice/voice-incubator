@@ -13,6 +13,10 @@
 title: Climate
 icon: mdi:thermostat
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  thermostat: {title: Thermostat, icon: mdi:thermostat}
+
 # What the commands share (merged into them with <<, or as a whole).
 shared:
   device: &device
@@ -80,6 +84,7 @@ commands:
   # the heating to 20".
   set_temperature:
     title: Set the temperature
+    topic: thermostat
     icon: mdi:thermometer
     description: set the temperature
     supports: temperature
@@ -129,6 +134,7 @@ commands:
 
   thermostat:
     title: Ask the thermostat
+    topic: thermostat
     icon: mdi:thermostat
     description: say what the thermostat is set to and how warm it is inside
     examples: ["what's the thermostat (set to|at)", "what is the thermostat (set to|at)",
@@ -153,6 +159,7 @@ commands:
 
   heat_up:
     title: Turn up the heat
+    topic: thermostat
     icon: mdi:thermometer-chevron-up
     description: turn up the heat
     # "Turn up the heat", "turn the thermostat up", "raise the temperature";
@@ -177,6 +184,7 @@ commands:
 
   heat_down:
     title: Turn down the heat
+    topic: thermostat
     icon: mdi:thermometer-chevron-down
     description: turn down the heat
     require: [[turn down, turn ... down, lower, decrease], [heat, heating, temperature, thermostat]]
@@ -198,6 +206,7 @@ commands:
 
   thermostat_mode:
     title: Ask the thermostat's mode
+    topic: thermostat
     icon: mdi:thermostat
     description: say what mode the thermostat is in and what it's doing
     examples: ["what mode is the thermostat (in|on|set to)", "(what's|what is) the thermostat (mode|doing)",
@@ -219,6 +228,7 @@ commands:
 
   set_thermostat_mode:
     title: Set the thermostat's mode
+    topic: thermostat
     icon: mdi:thermostat
     description: set the thermostat to heat, cool, auto or off
     # "Set the thermostat to heat", "turn the thermostat off", "switch the
@@ -248,6 +258,7 @@ commands:
 
   thermostat_fan:
     title: Ask the thermostat's fan
+    topic: thermostat
     icon: mdi:fan
     description: say what the thermostat's fan is set to
     examples: ["(what's|what is) the [thermostat] fan (mode|setting|set to)", "(what's|what is) the thermostat's fan (mode|setting|set to)"]
@@ -266,6 +277,7 @@ commands:
 
   set_thermostat_fan:
     title: Set the thermostat's fan
+    topic: thermostat
     icon: mdi:fan
     description: set the thermostat's fan mode
     # "Set the fan mode to auto", "turn the thermostat fan on". A fan alone is

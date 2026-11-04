@@ -18,6 +18,11 @@
 title: Covers and locks
 icon: mdi:door
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  covers: {title: Blinds and covers, icon: mdi:blinds-horizontal}
+  locks: {title: Locks, icon: mdi:lock}
+
 # What the versions add to a command (merged into them with <<).
 shared:
   cover: &cover
@@ -42,6 +47,7 @@ commands:
   # named, or a cover by name.
   open_covers:
     title: Open covers
+    topic: covers
     icon: mdi:blinds-open
     description: open the blinds
     require: [[open, raise]]
@@ -98,6 +104,7 @@ commands:
 
   close_covers:
     title: Close covers
+    topic: covers
     icon: mdi:blinds
     description: close the blinds
     require: [[close, shut, lower]]
@@ -156,6 +163,7 @@ commands:
   # set to a position are (supports); the others there are left out.
   cover_position:
     title: Set covers to a position
+    topic: covers
     icon: mdi:blinds-horizontal
     description: set the blinds to a position
     require: [[set, put, move, open, close, raise, lower]]
@@ -219,6 +227,7 @@ commands:
 
   lock:
     title: Lock a lock
+    topic: locks
     icon: mdi:lock
     description: lock a door
     require: [[lock]]
@@ -241,6 +250,7 @@ commands:
 
   unlock:
     title: Unlock a lock
+    topic: locks
     icon: mdi:lock-open-variant
     description: unlock a door
     require: [[unlock]]
@@ -264,6 +274,7 @@ commands:
 
   lock_all:
     title: Lock up
+    topic: locks
     icon: mdi:shield-lock
     description: lock all the doors
     examples: [lock up, "lock all [the] doors", lock everything]
@@ -279,6 +290,7 @@ commands:
 
   are_covers_open:
     title: Are covers open
+    topic: covers
     icon: mdi:blinds-horizontal
     description: say if the blinds are open
     require: [[is, are]]
@@ -354,6 +366,7 @@ commands:
 
   is_locked:
     title: Is a lock locked
+    topic: locks
     icon: mdi:lock-question
     description: say if a door is locked
     require: [[is, are]]
@@ -384,6 +397,7 @@ commands:
 
   all_locked:
     title: Is everything locked
+    topic: locks
     icon: mdi:lock-alert
     description: say if all the doors are locked
     require: [[is, are], [all, any, everything, doors]]

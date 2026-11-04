@@ -45,7 +45,7 @@ from .commands import (
 )
 from .hass import VOICE_DOMAINS, HassError
 from .triggers import ID_PREFIX as TRIGGER_PREFIX
-from .skills import LEVELS, SKILLS, available, skill_place
+from .skills import LEVELS, SKILLS, available, skill_place, skill_removed
 from .skills import answer as skill_answer
 from .skills import load as load_skill_settings
 from .store import (
@@ -800,6 +800,8 @@ class Api:
             # Whether it answers at all, and the areas it is turned off in.
             disabled, off = skill_place(store.settings.get("skills"), skill.id)
             item["disabled"], item["off"] = disabled, list(off)
+            # Deleted from the Home page's list (off too): Add puts it back.
+            item["removed"] = skill_removed(store.settings.get("skills"), skill.id)
             out.append(item)
         return web.json_response(
             {
@@ -809,8 +811,10 @@ class Api:
         )
 
     async def put_skill(self, request: web.Request) -> web.Response:
-        """Whether a skill answers at all (``on``: false for nowhere; the
-        areas it is turned off in are the Home page's), how it answers (``verbosity``: a level,
+        """Whether a skill answers at all (``on``: false for nowhere, true
+        also puts back one deleted; the areas it is turned off in are the
+        Home page's), deleted from the Home page's list (``removed``: true,
+        off everywhere too), how it answers (``verbosity``: a level,
         null for the default; ``response``: a template for every level, or
         ``{brief, specific, verbose}``, empty for the built-in sentences),
         and its settings (``settings``: in full, as GET gives them; null for
@@ -870,7 +874,12 @@ class Api:
         if "on" in body:
             if not isinstance(body["on"], bool):
                 raise ConfigError("on: true or false")
-            _skill_place(store.settings, skill_id, disabled=not body["on"])
+            _skill_place(store.settings, skill_id, disabled=not body["on"], removed=False if body["on"] else None)
+            store.save_settings()
+        if "removed" in body:
+            if not isinstance(body["removed"], bool):
+                raise ConfigError("removed: true or false")
+            _skill_place(store.settings, skill_id, disabled=True if body["removed"] else None, removed=body["removed"])
             store.save_settings()
         return web.json_response({"ok": True})
 
@@ -2020,14 +2029,18 @@ class Api:
         return web.json_response(record.to_json(), dumps=_dumps)
 
 
-def _skill_place(settings: dict[str, Any], skill_id: str, disabled: bool | None = None, off: list[str] | None = None) -> None:
-    """A skill off everywhere (``disabled``), and the areas it is turned off
-    in (``off``), into settings.json ``skills``; None: as it was."""
+def _skill_place(
+    settings: dict[str, Any], skill_id: str, disabled: bool | None = None, off: list[str] | None = None, removed: bool | None = None
+) -> None:
+    """A skill off everywhere (``disabled``), the areas it is turned off in
+    (``off``), and whether it was deleted from the Home page's list
+    (``removed``), into settings.json ``skills``; None: as it was."""
     was_disabled, was_off = skill_place(settings.get("skills"), skill_id)
     disabled = was_disabled if disabled is None else disabled
     off = list(was_off) if off is None else list(dict.fromkeys(off))
+    removed = skill_removed(settings.get("skills"), skill_id) if removed is None else removed
     placed = settings.setdefault("skills", {})
-    entry = {**({"disabled": True} if disabled else {}), **({"off": off} if off else {})}
+    entry = {**({"disabled": True} if disabled else {}), **({"off": off} if off else {}), **({"removed": True} if removed else {})}
     if entry:
         placed[skill_id] = entry
     else:

@@ -22,6 +22,13 @@
 title: Music
 icon: mdi:music
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  play: {title: Play music, icon: mdi:music}
+  playback: {title: Pause and skip, icon: mdi:pause}
+  volume: {title: Volume, icon: mdi:volume-high}
+  shuffle_and_repeat: {title: Shuffle and repeat, icon: mdi:shuffle-variant}
+
 # What the versions add to a command (merged into them with <<).
 shared:
   player: &player
@@ -44,6 +51,7 @@ shared:
 commands:
   play_music:
     title: Play music
+    topic: play
     icon: mdi:music
     description: play an artist, album, song, playlist or genre
     require: [[play, put on, listen to]]
@@ -68,6 +76,7 @@ commands:
 
   play_my_playlist:
     title: Play my playlist
+    topic: play
     icon: mdi:playlist-star
     description: play my playlist
     # The speaker's own (People page), on this satellite's player.
@@ -80,6 +89,7 @@ commands:
 
   add_to_queue:
     title: Add to the queue
+    topic: play
     icon: mdi:playlist-plus
     description: add an artist, album or song to the queue
     require: [[add], [queue]]
@@ -101,6 +111,7 @@ commands:
 
   play_similar:
     title: Play music like it
+    topic: play
     icon: mdi:radio
     description: "play more music like what's playing"
     require: [[like, similar]]
@@ -125,6 +136,7 @@ commands:
 
   pause_music:
     title: Pause the music
+    topic: playback
     icon: mdi:pause
     description: pause the music
     require: [[pause]]
@@ -151,6 +163,7 @@ commands:
 
   resume_music:
     title: Resume the music
+    topic: playback
     icon: mdi:play
     description: resume the music
     require: [[resume, unpause, continue, keep playing]]
@@ -177,6 +190,7 @@ commands:
 
   stop_music:
     title: Stop the music
+    topic: playback
     icon: mdi:stop
     description: stop the music
     require: [[stop], [music, song, playing, playback]]
@@ -196,6 +210,7 @@ commands:
 
   next_track:
     title: Next track
+    topic: playback
     icon: mdi:skip-next
     description: skip to the next song
     require: [[next, skip]]
@@ -220,6 +235,7 @@ commands:
 
   previous_track:
     title: Previous track
+    topic: playback
     icon: mdi:skip-previous
     description: go back to the previous song
     require: [[previous, go back, last song, last track]]
@@ -244,6 +260,7 @@ commands:
 
   volume_up:
     title: Turn it up
+    topic: volume
     icon: mdi:volume-plus
     description: turn up the volume
     require: [[louder, volume up, turn it up, turn up, turn ... up, increase the volume, raise the volume]]
@@ -270,6 +287,7 @@ commands:
 
   volume_down:
     title: Turn it down
+    topic: volume
     icon: mdi:volume-minus
     description: turn down the volume
     require: [[quieter, softer, volume down, turn it down, turn down, turn ... down, decrease the volume, lower the volume]]
@@ -296,6 +314,7 @@ commands:
 
   set_volume:
     title: Set the volume
+    topic: volume
     icon: mdi:volume-equal
     description: set the volume
     # Also turned up or down to a number: "turn the TV up to 50", "turn down
@@ -326,6 +345,7 @@ commands:
 
   mute_music:
     title: Mute
+    topic: volume
     icon: mdi:volume-off
     description: mute the music
     require: [[mute]]
@@ -351,6 +371,7 @@ commands:
 
   unmute_music:
     title: Unmute
+    topic: volume
     icon: mdi:volume-high
     description: unmute the music
     require: [[unmute]]
@@ -376,6 +397,7 @@ commands:
 
   shuffle_on:
     title: Shuffle
+    topic: shuffle_and_repeat
     icon: mdi:shuffle-variant
     description: shuffle the music
     require: [[shuffle]]
@@ -396,6 +418,7 @@ commands:
 
   shuffle_off:
     title: Stop shuffling
+    topic: shuffle_and_repeat
     icon: mdi:shuffle-disabled
     description: stop shuffling
     require: [[shuffle, shuffling], [off, stop, don't]]
@@ -415,6 +438,7 @@ commands:
 
   repeat_one:
     title: Repeat this song
+    topic: shuffle_and_repeat
     icon: mdi:repeat-once
     description: repeat this song
     require: [[repeat, again], [this song, this track, this one]]
@@ -434,6 +458,7 @@ commands:
 
   repeat_all:
     title: Repeat
+    topic: shuffle_and_repeat
     icon: mdi:repeat
     description: repeat the music
     require: [[repeat]]
@@ -454,6 +479,7 @@ commands:
 
   repeat_off:
     title: Stop repeating
+    topic: shuffle_and_repeat
     icon: mdi:repeat-off
     description: stop repeating
     require: [[repeat, repeating], [off, stop, don't]]
@@ -476,6 +502,7 @@ commands:
   # Bringing it here ("move the music here") is not a version yet.
   move_music:
     title: Move the music
+    topic: play
     icon: mdi:cast-audio
     description: move the music to another room, floor or speaker
     require: [[move, transfer, send, take], [music, song, playlist, audio]]
@@ -494,6 +521,7 @@ commands:
 
   whats_playing:
     title: What's playing
+    topic: play
     icon: mdi:playlist-music
     description: say what's playing
     require: [[what's playing, what is playing, what song, which song, who sings, who is singing, who is this, what is this song]]

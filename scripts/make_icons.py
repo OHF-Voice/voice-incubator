@@ -1,7 +1,7 @@
 """Write voice_labs/web/icons.js: the Material Design Icons the web UI shows.
 
-Only the icons used are shipped: every ``icon:`` in the library, each
-skill's (voice_labs/skills/), the defaults for each kind of command (DEFAULTS
+Only the icons used are shipped: every ``icon:`` in the library (its topics'
+too), each skill's (voice_labs/skills/), the defaults for each kind of command (DEFAULTS
 in app.js), the editor's choices (PICKER below) and areas' (AREA_ICONS). Paths come from @mdi/js (Apache-2.0), e.g. the Home Assistant
 frontend's node_modules:
 
@@ -179,6 +179,7 @@ def library_icons() -> list[str]:
         data = yaml.load(path.read_text("utf-8")) or {}
         if data.get("icon"):
             icons.append(data["icon"])
+        icons += [topic["icon"] for topic in (data.get("topics") or {}).values() if (topic or {}).get("icon")]
         for spec in (data.get("commands") or {}).values():
             for version in [spec, *(spec.get("variants") or {}).values()]:
                 if (version or {}).get("icon"):

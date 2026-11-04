@@ -115,6 +115,7 @@ def test_every_icon_is_shipped(language):
     used = {e["spec"]["icon"] for e in load_library() if e["spec"].get("icon")}
     used |= {e["group_icon"] for e in load_library() if e["group_icon"]}
     used |= {e["family_icon"] for e in load_library() if e["family_icon"]}
+    used |= {e["topic_icon"] for e in load_library() if e.get("topic_icon")}
     # Every icon the page names, the kinds' defaults among them.
     page = set(re.findall(r'"(mdi:[a-z0-9-]+)"', (WEB / "app.js").read_text()))
     assert used and not (used | page) - icons
@@ -139,6 +140,20 @@ def test_commands_are_listed_by_library_section():
     # A version, its family, and what a family was before it had versions.
     assert [library_of(i, {}) for i in ("play_music_device_2", "turn_on_place", "turn_on", "device_off", "open_cover")] == [
         "music", "lights", "lights", "lights", "home"]
+
+
+def test_a_topics_commands_are_shown_together():
+    """Add a command shows a topic's commands together (the file's topics,
+    each command's topic): the thermostat's, the shopping list's, ..."""
+    topics: dict[str, list[str]] = {}
+    for e in load_library():
+        assert "topic" not in e["spec"], e["id"]
+        if e.get("topic"):
+            topics.setdefault(e["topic_title"], []).append(e["title"])
+    assert topics["Thermostat"][:3] == ["Set the thermostat", "Set the temperature of a thermostat by name", "Ask the thermostat"]
+    assert topics["Shopping list"] == ["Add to the shopping list", "Take off the shopping list", "Check off the shopping list",
+                                       "What's on the shopping list"]
+    assert topics["Date and time"] == ["What time is it", "What's the date"]
 
 
 def test_set_the_thermostat_is_a_version_of_set_the_temperature():

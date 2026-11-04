@@ -18,9 +18,15 @@
 title: Timers and alarms
 icon: mdi:timer-outline
 
+# Commands shown together in Add a command: each one's topic.
+topics:
+  timers: {title: Timers, icon: mdi:timer-outline}
+  alarms: {title: Alarms, icon: mdi:alarm}
+
 commands:
   start_timer:
     title: Start a timer
+    topic: timers
     icon: mdi:timer-plus-outline
     description: set a timer
     # Said quickly, "timer" loses its "r": "set a time for ninety seconds". The
@@ -36,6 +42,7 @@ commands:
 
   set_alarm:
     title: Set an alarm
+    topic: alarms
     icon: mdi:alarm
     description: set an alarm
     # On the Voice Labs calendar in Home Assistant: "set an alarm for seven
@@ -54,6 +61,7 @@ commands:
 
   cancel_alarm:
     title: Cancel an alarm
+    topic: alarms
     icon: mdi:alarm-off
     description: cancel an alarm
     # "cancel my alarm", "delete the 7 o'clock alarm", "turn off the alarm
@@ -67,6 +75,7 @@ commands:
 
   alarm_status:
     title: Say the alarms
+    topic: alarms
     icon: mdi:alarm-check
     description: say which alarms are set
     examples: [what alarms do i have, when is my alarm, do i have any alarms]
@@ -77,6 +86,7 @@ commands:
 
   cancel_timer:
     title: Cancel a timer
+    topic: timers
     icon: mdi:timer-off-outline
     description: cancel a timer
     require: [[cancel, stop, delete], [timer, time]]
@@ -92,6 +102,7 @@ commands:
 
   cancel_all_timers:
     title: Cancel every timer
+    topic: timers
     icon: mdi:timer-cancel-outline
     description: cancel all the timers
     require: [[cancel, stop, delete], [all], [timers, timer]]
@@ -104,6 +115,7 @@ commands:
 
   pause_timer:
     title: Pause a timer
+    topic: timers
     icon: mdi:timer-pause-outline
     description: pause a timer
     require: [[pause, hold], [timer, timers, time]]
@@ -119,6 +131,7 @@ commands:
 
   resume_timer:
     title: Resume a timer
+    topic: timers
     icon: mdi:timer-play-outline
     description: resume a timer
     # Parakeet may write "unpause" as one word or two.
@@ -135,6 +148,7 @@ commands:
 
   timer_status:
     title: How long is left
+    topic: timers
     icon: mdi:timer-sand
     description: say how long is left on a timer
     examples: [how much time is left, how long is left on my timer]
@@ -150,6 +164,7 @@ commands:
 
   add_time:
     title: Add time to a timer
+    topic: timers
     icon: mdi:clock-plus-outline
     description: add time to a timer
     require: [[add], [timer, time]]
@@ -165,6 +180,7 @@ commands:
 
   subtract_time:
     title: Take time off a timer
+    topic: timers
     icon: mdi:clock-minus-outline
     description: take time off a timer
     require: [[decrease, reduce, subtract, remove, take off], [timer, time]]
