@@ -159,6 +159,11 @@
   Conversation agent, **Its voice**): a built-in voice and speaker, or a
   text-to-speech entity and its voice, so its answers sound unlike the
   commands'. By default they're said as everything else is.
+- **The home's weather, thermostat and shopping list are found.** Where
+  none is set, the app takes Home Assistant's weather entity, its
+  thermostat, and its to-do list called "Shopping list" (the Shopping List
+  integration's) -- when it has just one of each; with several, you choose.
+  Once each: one you clear or change afterwards stays so.
 - **Audio and Runs show only with a speech-to-text entity.** They were shown
   with the built-in model too, which always hears AGC and was never sent
   either: choosing AEC there changed nothing.

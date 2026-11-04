@@ -562,18 +562,26 @@ async def _scenario(tmp_path: Path) -> None:
             assert await said("remove kiwis and figs from the shopping list") == "Kiwis and figs aren't on the list."
             assert (await http.delete("/api/commands/shopping_remove")).status == 200
 
-            # The home's weather (Settings): what a command on it uses without its own.
+            # The home's weather (Settings): what a command on it uses without
+            # its own -- Home Assistant's one, taken where none was set, with
+            # its one thermostat and its shopping list.
+            found = {"weather": "weather.home", "climate": "climate.ecobee", "shopping_list": "todo.shopping_list"}
+            assert app.store.settings["home"] == found
             report = {
                 "description": "tell the weather now", "require": [["weather"], ["report"]], "home": "weather",
                 "response": "From {{ slots.entity[0] }}.",
             }
             assert (await http.put("/api/commands/weather_report", json={"spec": report})).status == 200
+            assert await said("weather report") == "From weather.home."
+            # Cleared, it stays so.
+            assert (await http.put("/api/settings", json={"home": {"weather": None}})).status == 200
+            await app.hass.refresh_catalog()
             assert await said("weather report") == "That isn't set up yet."
             record = app.calls.recent[-1]
             assert next(s for s in record.stages if s["stage"] == "action")["outcome"] == "not_set"
             assert (await http.put("/api/settings", json={"home": {"weather": "weather.home"}})).status == 200
-            assert app.store.settings["home"] == {"weather": "weather.home"}
-            assert (await (await http.get("/api/store")).json())["home"] == {"weather": "weather.home"}
+            assert app.store.settings["home"] == found
+            assert (await (await http.get("/api/store")).json())["home"] == found
             assert await said("weather report") == "From weather.home."
             # Its own implied target goes first.
             own = {**report, "slots": {"entity": ["weather.cabin"]}}
@@ -582,7 +590,7 @@ async def _scenario(tmp_path: Path) -> None:
             for wrong, why in (({"weather": "sensor.outside"}, "a weather entity"), ({"rain": "weather.home"}, "unknown 'rain'")):
                 response = await http.put("/api/settings", json={"home": wrong})
                 assert response.status == 400 and why in (await response.json())["error"]
-            assert (await http.put("/api/settings", json={"home": {"weather": None}})).status == 200
+            assert (await http.put("/api/settings", json={"home": {"weather": None, "climate": None, "shopping_list": None}})).status == 200
             assert "home" not in app.store.settings
             assert (await http.delete("/api/commands/weather_report")).status == 200
             # "My" to-do list: the speaker's own, else the home's.

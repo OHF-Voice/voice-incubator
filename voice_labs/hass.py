@@ -23,6 +23,7 @@ import contextlib
 import itertools
 import json
 import logging
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -187,6 +188,27 @@ class Catalog:
             return exact
         same = [e.entity_id for e in players if self.device_models.get(e.device_id or "") == ("ESPHome", node)]
         return same[0] if len(same) == 1 else None
+
+    def home_things(self) -> dict[str, str | None]:
+        """The home's own things Home Assistant has just one of, for a home
+        with none chosen (server.VoiceLabsApp._take_home): its weather
+        entity, its thermostat, and its to-do list called "Shopping list" (the
+        Shopping List integration's is ``todo.shopping_list`` in any
+        language). None where it has none, or several: then it's a choice."""
+
+        def shopping_list(entity: Entity) -> bool:
+            names = (entity.name, *entity.aliases)
+            return entity.entity_id == "todo.shopping_list" or any(
+                " ".join(re.split(r"[\s_-]+", n.lower())).strip() == "shopping list" for n in names
+            )
+
+        stated = [e for e in self.entities.values() if e.attributes is not None]
+        found = {
+            "weather": [e for e in stated if e.domain == "weather"],
+            "climate": [e for e in stated if e.domain == "climate"],
+            "shopping_list": [e for e in stated if e.domain == "todo" and shopping_list(e)],
+        }
+        return {thing: entities[0].entity_id if len(entities) == 1 else None for thing, entities in found.items()}
 
     def area_info(self, area_id: str | None) -> dict[str, Any]:
         """``area_id``, ``area_name``, ``floor_id`` and ``floor_name`` for a

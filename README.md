@@ -1374,6 +1374,15 @@ and the entity's best match for the language. `settings.json` `cloud_taken` says
 a choice made afterwards, the built-in models included (no key, as before),
 stands. Not signed in, it is looked for again on the next connection.
 
+**The home's weather, thermostat and shopping list are taken too.** Each
+time the registries are read, the home's `weather`, `climate` and
+`shopping_list` (`settings.json` `home`) are set where none is, to Home
+Assistant's one weather entity, one thermostat, and one to-do list called
+"Shopping list" or `todo.shopping_list` (`Catalog.home_things`; several is a
+choice, and none is taken) -- by `VoiceLabsApp._take_home`, once each:
+`settings.json` `home_taken` lists those taken or found chosen already, so
+one cleared or changed afterwards stays so.
+
 **STT replaces TDT, not the matcher.** The CTC matcher always decides. The
 engine asks a transcriber only for text: examples not found in the CTC
 evidence (`match_examples`, which takes a per-call transcriber now), free text

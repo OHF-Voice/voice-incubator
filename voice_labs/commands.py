@@ -265,6 +265,10 @@ REMOVED_KEYS = {
 FALLBACK_STEPS = ("meaning", "llm")
 HOME_THINGS = {"weather": "weather", "climate": "climate", "shopping_list": "todo", "todo_list": "todo"}
 """What the home has one of (Settings, ``home``), and its entities' domain."""
+HOME_TAKEN = "home_taken"
+"""settings.json: the home's own things taken from Home Assistant where none
+was chosen (VoiceLabsApp._take_home), or found chosen already -- each once,
+so what is chosen afterwards stands, none too."""
 
 # Shared settings for every home, whatever its language: examples that win
 # when said word for word. The embedding names the closest command when

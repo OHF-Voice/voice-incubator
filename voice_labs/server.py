@@ -27,7 +27,7 @@ from .skills import skill_response
 from .agent import KEEP_SECONDS, Agent, Answered, Streamed, conversation_key
 from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
-from .commands import VERBOSITY
+from .commands import HOME_TAKEN, VERBOSITY
 from .discover import Device, Discovery
 from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain
 from .endpoint import parse as parse_end_of_speech
@@ -661,6 +661,7 @@ class VoiceLabsApp:
         self.hass.on_catalog_change(self.voices.forget)
         self.hass.on_catalog_change(self._follow_disabled)
         self.hass.on_connect(self._take_cloud)
+        self.hass.on_catalog_change(self._take_home)
         self._timer_rebuild: asyncio.Task | None = None
         self.timer_colors: dict[str, dict[str, int]] = {}
         """Each timer list's running timers' colors on the rings (timers.colors)."""
@@ -806,6 +807,31 @@ class VoiceLabsApp:
         self.store.save_settings()
         if taken:
             _LOGGER.info("Home Assistant Cloud found: %s for every satellite", " and ".join(taken.values()))
+
+    def _take_home(self) -> None:
+        """The home's weather, thermostat and shopping list, from Home
+        Assistant where none is chosen, once it has just one of each
+        (Catalog.home_things). Each once: one chosen already counts, and what
+        is chosen afterwards stands, none too."""
+        settings = self.store.settings
+        home = dict(settings.get("home") or {})
+        done = list(settings.get(HOME_TAKEN) or [])
+        taken: dict[str, str] = {}
+        for thing, entity_id in self.hass.catalog.home_things().items():
+            if thing in done:
+                continue
+            if not home.get(thing) and entity_id:
+                home[thing] = taken[thing] = entity_id
+            if home.get(thing):
+                done.append(thing)
+        if done == list(settings.get(HOME_TAKEN) or []):
+            return
+        if home:
+            settings["home"] = home
+        settings[HOME_TAKEN] = done
+        self.store.save_settings()
+        if taken:
+            _LOGGER.info("From Home Assistant: %s", ", ".join(f"the home's {t} {e}" for t, e in taken.items()))
 
     async def _triggers_changed(self, found: list[triggers.Trigger]) -> None:
         """Home Assistant's sentence triggers changed: heard from now on (from
