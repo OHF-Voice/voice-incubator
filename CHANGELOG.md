@@ -159,6 +159,8 @@
   Conversation agent, **Its voice**): a built-in voice and speaker, or a
   text-to-speech entity and its voice, so its answers sound unlike the
   commands'. By default they're said as everything else is.
+- **"How many more days until Christmas"** is answered as "how many days
+  until Christmas" is (weeks and sleeps too).
 - **The home's weather, thermostat and shopping list are found.** Where
   none is set, the app takes Home Assistant's weather entity, its
   thermostat, and its to-do list called "Shopping list" (the Shopping List

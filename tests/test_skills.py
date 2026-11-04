@@ -205,6 +205,10 @@ def test_days_until(monkeypatch):
     assert skills.answer("how many days until october 16th").text == "It's 1 day."
     assert skills.answer("how many weeks until halloween").text == "It's 2 weeks."
     assert skills.answer("how many days until valentine's day").text == "It's 122 days."
+    # "More" asks the same.
+    assert skills.answer("how many more days until Christmas").text == "It's 71 days."
+    assert skills.answer("how many more sleeps till halloween").text == "It's 16 days."
+    assert skills.answer("how many days more are left until christmas").text == "It's 71 days."
     # Under a week, in days; a week, one; on the day, today.
     assert skills.answer("how many weeks until october 20").text == "It's 5 days."
     assert skills.answer("how many weeks until october 24").text == "It's 1 week."

@@ -251,7 +251,7 @@ def solve(q, settings):
                 return _said(date, today, year=True) if date else None
             date = holiday.next(today)
             return _said(date, today) if date else None
-    if m := re.fullmatch(r"how many (days|weeks|sleeps) (?:are )?(?:left )?(?:until|till|til|to|before) (.+)", s):
+    if m := re.fullmatch(r"how many (?:more )?(days|weeks|sleeps) (?:more )?(?:are )?(?:left )?(?:until|till|til|to|before) (.+)", s):
         today = shared.today()
         target = _day_of(m.group(2), today, settings)
         if target is not None:
