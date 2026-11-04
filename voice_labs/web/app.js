@@ -2444,7 +2444,7 @@ async function pageSatellite(key, opened) {
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Labs integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Wake words"), h("div", {}, wakeWordNames(wake, s.wake_words_used), s.wake_words ? " (its own)" : " (the preferred one)",
+          h("div", {}, "Wake words"), h("div", {}, wakeWordNames(wake, s.wake_words_used), s.wake_words ? " (its own)" : " (preferred)",
             (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordNames(wake, s.wake_words_need_firmware)} needs newer firmware`) : null,
             " · ", h("a", { href: "#/wake" }, "change")),
           s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
@@ -3539,7 +3539,7 @@ async function pageWakeWords(query) {
       const add = h("select", { "aria-label": `Add a wake word to ${s.name}`, disabled: row.own.length >= MAX_WAKE_WORDS || null, onchange: (e) => {
         if (e.target.value) { row.own.push(e.target.value); render(); }
       } },
-        h("option", { value: "" }, row.own.length ? "Add a wake word…" : `The preferred one (${wakeWordName(wake, wake.preferred)})`),
+        h("option", { value: "" }, row.own.length ? "Add a wake word…" : `Preferred (${wakeWordName(wake, wake.preferred)})`),
         runs.filter((w) => !row.own.includes(w.id)).map((w) => option(w, false)));
       fill(row.box,
         row.own.length ? h("div", { class: "chips" }, row.own.map((id, i) => h("span", { class: "chip" }, wakeWordName(wake, id),
@@ -3561,6 +3561,7 @@ async function pageWakeWords(query) {
     const details = h("details", { class: "family" },
       h("summary", { class: "item" },
         icon("mdi:chevron-right", "chevron"),
+        word.custom ? icon("mdi:pencil-outline", null, "custom") : icon("mdi:package-variant-closed", null, "built in"),
         h("div", { class: "grow" },
           h("div", { class: "title" }, word.name),
           h("div", { class: "muted small" }, [
@@ -3622,9 +3623,8 @@ async function pageWakeWords(query) {
         } catch (err) { toast(err.message); }
       } }, "Save"))) : null,
     h("div", { class: "panel" },
-      heading("h2", "Tuning", "Built-in wake words are verified. Custom ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — run at the cutoff they were trained for, unverified until given confusables."),
+      heading("h2", "Models", "Built-in wake words are verified. Custom ones — a microWakeWord manifest (.json) and model (.tflite), as ESPHome and Tater share them — run at the cutoff they were trained for, unverified until given confusables."),
       filter, list),
-    wakeTraining(training, reload),
     h("div", { class: "panel" },
       h("h2", {}, "Upload"),
       h("div", { class: "row" },
@@ -3641,6 +3641,7 @@ async function pageWakeWords(query) {
             location.hash = `#/wake?word=${encodeURIComponent(data.id)}`;
           } catch (err) { toast(err.message); }
         } }, "Upload"))),
+    wakeTraining(training, reload),
   );
 }
 

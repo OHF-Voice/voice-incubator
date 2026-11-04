@@ -170,6 +170,9 @@
   it has its own). Its Names are **Area Name** and **Device Names**; its
   Settings say **Home Default** for the whole home's. **Say at most** is
   **Response Level**, and its "each command's own" is **Command default**.
+- **The Wake words page's words.** **Tuning** is **Models**, each wake word
+  marked built in or custom by its icon, and a satellite without its own
+  listens for **Preferred**. **Upload** comes before **Train**.
 - **"How many more days until Christmas"** is answered as "how many days
   until Christmas" is (weeks and sleeps too).
 - **The home's weather, thermostat and shopping list are found.** Where
