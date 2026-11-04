@@ -119,8 +119,10 @@ def _library(code: str) -> list[dict[str, Any]]:
                 failed = str(err)
             else:
                 failed = None
-            for command_id, variant, spec in versions:
+            for index, (command_id, variant, spec) in enumerate(versions):
                 entries.append(_library_entry(path.stem, data, file_lists, family_id, family, command_id, variant, spec, failed, checked))
+                # The family's former ids are its first version's (entry()).
+                entries[-1]["formerly"] = [str(i) for i in family.get("formerly") or []] if index == 0 else []
     return entries
 
 

@@ -1,7 +1,8 @@
 # The home's thermostat (Settings), or one a command is given (its
 # implied target): what it's set to and how warm it is inside, setting it,
-# its mode (heat, cool, off ...), and its fan. A thermostat by name, or in an
-# area, is Set the temperature, through Home Assistant's intent.
+# its mode (heat, cool, off ...), and its fan. Setting it is a version of Set
+# the temperature, whose others set a thermostat by name, or those in an
+# area, through Home Assistant's intent.
 #
 # Setting the temperature sets the one the thermostat keeps: in heat and cool
 # mode it keeps two, and Home Assistant refuses one alone. Modes are the
@@ -81,16 +82,19 @@ shared:
     keeps_none: The thermostat isn't keeping a temperature.
 
 commands:
+  # The thermostat (the home's, or one of its own), a thermostat by name, or
+  # those in an area or floor named (Home Assistant's intent). Also the
+  # heat: "turn the heat up to 72", "set the heating to 20".
   set_temperature:
     title: Set the temperature
     icon: mdi:thermometer
     description: set the temperature
     supports: temperature
-    require: [[set, temperature, degrees]]
-    optional: [[set], [temperature], [to, at], [degrees], [in, on], [the]]
-    # A question about degrees is not a setting: "what's 20 degrees C in
-    # Fahrenheit" (the units skill).
-    exclude: [what, "what's", how, convert]
+    require: [[set, temperature, degrees, thermostat, heat, heating]]
+    optional: [[set, put, turn], [the], [up, down], [temperature], [to, at], [degrees], [in, on]]
+    # A question is not a setting: "what's the thermostat set to", "what's
+    # 20 degrees C in Fahrenheit" (the units skill).
+    exclude: [what, "what's", how, is, convert]
     number: temperature
     intent:
       name: HassClimateSetTemperature
@@ -99,13 +103,28 @@ commands:
     verbosity: specific
     response:
       done:
-        brief: Set the temperature.
+        brief: Temperature set.
         specific: >-
-          Set {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
-          else 'the temperature ' ~ place.said }} to {{ slots.temperature }} degrees.
+          {{ names.get(slots.entity[0], state_attr(slots.entity[0], 'friendly_name')) if slots.entity
+          else 'Temperature ' ~ place.said }} set to {{ slots.temperature }} degrees.
+    formerly: [set_thermostat]
     variants:
       here:
-        title: Set the temperature in this satellite's area
+        title: Set the thermostat
+        description: set the thermostat to a temperature
+        intent: null
+        home: climate
+        action:
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              temperature: "{{ slots.temperature }}"
+        response:
+          done:
+            brief: Thermostat set.
+            specific: Thermostat set to {{ slots.temperature }} degrees.
+        needs: *needs
       device:
         <<: *device
         title: Set the temperature of a thermostat by name
@@ -144,38 +163,12 @@ commands:
       {%- endif -%}
     needs: *needs
 
-  set_thermostat:
-    title: Set the thermostat
-    icon: mdi:thermometer
-    description: set the thermostat to a temperature
-    # Also the heat: "turn the heat up to 72", "set the heating to 20".
-    require: [[thermostat, heat, heating]]
-    optional: [[set, put, turn], [the], [up, down], [to, at], [degrees]]
-    # A question is not a setting: "what's the thermostat set to".
-    exclude: [what, "what's", is]
-    number: temperature
-    home: climate
-    supports: temperature
-    action:
-      - action: climate.set_temperature
-        target:
-          entity_id: "{{ slots.entity }}"
-        data:
-          temperature: "{{ slots.temperature }}"
-    # Not seen at once, and a misheard number matters: said.
-    verbosity: specific
-    response:
-      done:
-        brief: Set the thermostat.
-        specific: Set the thermostat to {{ slots.temperature }} degrees.
-    needs: *needs
-
   heat_up:
     title: Turn up the heat
     icon: mdi:thermometer-chevron-up
     description: turn up the heat
     # "Turn up the heat", "turn the thermostat up", "raise the temperature";
-    # to a number, it's Set the thermostat.
+    # to a number, it's Set the thermostat (Set the temperature's version).
     require: [[turn up, turn ... up, raise, increase], [heat, heating, temperature, thermostat]]
     optional: [[a bit, a little], [the]]
     exclude: [what, "what's", is]
@@ -258,10 +251,10 @@ commands:
     verbosity: specific
     response:
       done:
-        brief: Set the thermostat.
+        brief: Thermostat set.
         specific: >-
           {%- if slots.mode == 'off' -%}Turned off the thermostat.
-          {%- else -%}Set the thermostat to {{ {'heat_cool': 'heat and cool', 'fan_only': 'fan only'}.get(slots.mode, slots.mode) }}.
+          {%- else -%}Thermostat set to {{ {'heat_cool': 'heat and cool', 'fan_only': 'fan only'}.get(slots.mode, slots.mode) }}.
           {%- endif -%}
     needs: *needs
 
@@ -305,11 +298,11 @@ commands:
     verbosity: specific
     response:
       done:
-        brief: Set the thermostat's fan.
+        brief: Thermostat's fan set.
         specific: >-
           {%- set mode = slots.mode | lower | replace('_', ' ') -%}
           {%- if mode.split()[0] in ['on', 'off'] -%}Turned the thermostat's fan {{ mode }}.
-          {%- else -%}Set the thermostat's fan to {{ mode }}.
+          {%- else -%}Thermostat's fan set to {{ mode }}.
           {%- endif -%}
     needs:
       - Set the home's thermostat in Settings, or give it one of its own

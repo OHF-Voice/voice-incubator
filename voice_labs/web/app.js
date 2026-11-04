@@ -1635,7 +1635,15 @@ async function newCommandDialog(area) {
   const where = area ? area.id : null;
   // Added: one of the whole home's, or of the area's own.
   const ids = Object.keys(store.commands || {}).filter((id) => ((store.details[id] || {}).area || null) === where);
-  const yours = { has: (libraryId) => libraryAdded(ids, libraryId), id: (libraryId) => ids.find((id) => libraryAdded([id], libraryId)) };
+  // By its id, or one its family had (the one it was before it had versions).
+  const yours = {
+    has: (libraryId) => !!yours.id(libraryId),
+    id: (libraryId) => {
+      const entry = data.entries.find((e) => e.id === libraryId);
+      const known = [libraryId, ...((entry && entry.formerly) || [])];
+      return ids.find((id) => known.some((k) => libraryAdded([id], k)));
+    },
+  };
   // A skill is added while it answers there.
   const skillsHere = new Set(skillData.skills.filter((sk) => !sk.disabled && !(where && asList(sk.off).includes(where))).map((sk) => sk.id));
   const opening = (id) => `#/command/${id}${where ? `?from=${encodeURIComponent(where)}` : ""}`;

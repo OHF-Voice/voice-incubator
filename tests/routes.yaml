@@ -168,7 +168,7 @@ set the desk lamp to 40: null
 set the ecobee to 70 degrees: {"command": "set_temperature_device", "slots": {"entity": ["climate.ecobee"], "temperature": 70}}
 set the fan speed to 50 percent: null
 set the fan to 50 percent: null
-set the heat to 68: {"command": "set_thermostat", "slots": {"temperature": 68}}
+set the heat to 68: {"command": "set_temperature_here", "slots": {"temperature": 68}}
 set the humidity to 40 percent: null
 set the kitchen brightness at 13 percent: {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 13}}
 set the kitchen brightness of 15 percent: {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 15}}
@@ -186,9 +186,9 @@ set the lights to 50: {"command": "set_brightness_here", "slots": {"percentage":
 set the lights to 50 percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
 set the temperature to 20.5 degrees: {"command": "set_temperature_here", "slots": {"temperature": 20.5}}
 set the temperature to 70: {"command": "set_temperature_here", "slots": {"temperature": 70}}
-set the thermostat to 70: {"command": "set_thermostat", "slots": {"temperature": 70}}
-set the thermostat to 72 and a half degrees: {"command": "set_thermostat", "slots": {"temperature": 72.5}}
-set the thermostat to 72.5 degrees: {"command": "set_thermostat", "slots": {"temperature": 72.5}}
+set the thermostat to 70: {"command": "set_temperature_here", "slots": {"temperature": 70}}
+set the thermostat to 72 and a half degrees: {"command": "set_temperature_here", "slots": {"temperature": 72.5}}
+set the thermostat to 72.5 degrees: {"command": "set_temperature_here", "slots": {"temperature": 72.5}}
 set the thermostat to heat: {"command": "set_thermostat_mode", "slots": {"mode": "heat"}}
 set the timer for 50 seconds: null
 set the timer for an hour and a half: null
@@ -288,11 +288,11 @@ turn the fan up to 3: null
 turn the fireplace up to 4: null
 turn the heat down: {"command": "heat_down", "slots": {"step": -1}}
 turn the heat down a little: {"command": "heat_down", "slots": {"step": -1}}
-turn the heat down to 65: {"command": "set_thermostat", "slots": {"temperature": 65}}
+turn the heat down to 65: {"command": "set_temperature_here", "slots": {"temperature": 65}}
 turn the heat on: null
 turn the heat up: {"command": "heat_up", "slots": {"step": 1}}
-turn the heat up to 70: {"command": "set_thermostat", "slots": {"temperature": 70}}
-turn the heat up to 70 degrees: {"command": "set_thermostat", "slots": {"temperature": 70}}
+turn the heat up to 70: {"command": "set_temperature_here", "slots": {"temperature": 70}}
+turn the heat up to 70 degrees: {"command": "set_temperature_here", "slots": {"temperature": 70}}
 turn the humidifier up to 40 percent: null
 turn the kitchen down: {"command": "volume_down_place", "slots": {"area": ["kitchen"]}}
 turn the kitchen lights on: {"command": "turn_on_place", "slots": {"area": ["kitchen"]}}
@@ -314,7 +314,7 @@ turn the music down to 20: {"command": "set_volume_here", "slots": {"kind": "mus
 turn the temperature up in the kitchen: null
 turn the thermostat down: {"command": "heat_down", "slots": {"step": -1}}
 turn the thermostat off: {"command": "set_thermostat_mode", "slots": {"mode": "off"}}
-turn the thermostat up to 70: {"command": "set_thermostat", "slots": {"temperature": 70}}
+turn the thermostat up to 70: {"command": "set_temperature_here", "slots": {"temperature": 70}}
 turn the tv down: {"command": "volume_down_here", "slots": {"kind": "tv"}}
 turn the tv down to 10: {"command": "set_volume_here", "slots": {"kind": "tv", "percentage": 10}}
 turn the tv up to 50: {"command": "set_volume_here", "slots": {"kind": "tv", "percentage": 50}}
@@ -328,8 +328,8 @@ turn up the desk lamp to 3: null
 turn up the fan: null
 turn up the heat: {"command": "heat_up", "slots": {"step": 1}}
 turn up the heat a bit: {"command": "heat_up", "slots": {"step": 1}}
-turn up the heat to 70: {"command": "set_thermostat", "slots": {"temperature": 70}}
-turn up the heat to 72: {"command": "set_thermostat", "slots": {"temperature": 72}}
+turn up the heat to 70: {"command": "set_temperature_here", "slots": {"temperature": 70}}
+turn up the heat to 72: {"command": "set_temperature_here", "slots": {"temperature": 72}}
 turn up the heating: {"command": "heat_up", "slots": {"step": 1}}
 turn up the lights: {"command": "brighter_here", "slots": {"step": 30}}
 turn up the lights to 80 percent: {"command": "set_brightness_here", "slots": {"percentage": 80}}
@@ -340,7 +340,7 @@ turn up the music in the kitchen to 40 percent: {"command": "set_volume_place", 
 turn up the oven to 350: null
 turn up the temperature: {"command": "heat_up", "slots": {"step": 1}}
 turn up the thermostat: {"command": "heat_up", "slots": {"step": 1}}
-turn up the thermostat to 70 degrees: {"command": "set_thermostat", "slots": {"temperature": 70}}
+turn up the thermostat to 70 degrees: {"command": "set_temperature_here", "slots": {"temperature": 70}}
 turn up the tv to 50 percent: {"command": "set_volume_here", "slots": {"kind": "tv", "percentage": 50}}
 turn up the volume: {"command": "volume_up_here"}
 turn up the volume by 20 percent: null

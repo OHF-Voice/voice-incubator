@@ -40,12 +40,14 @@ def test_the_homes_own(language):
     home's (Settings) where they aren't given their own."""
     entries = {e["id"]: e for e in load_library()}
     homes = {"weather": "weather", "weather_day": "weather", "weather_week": "weather", "will_it_rain": "weather",
-             "thermostat": "climate", "set_thermostat": "climate", "thermostat_fan": "climate",
+             "thermostat": "climate", "set_temperature_here": "climate", "thermostat_fan": "climate",
              "set_thermostat_fan": "climate", "thermostat_mode": "climate", "set_thermostat_mode": "climate",
              "shopping_list_add": "shopping_list", "shopping_list_remove": "shopping_list",
              "shopping_list_check": "shopping_list", "shopping_list_items": "shopping_list", "todo_add": "todo_list",
              "todo_add_mine": "todo_list"}
-    found = {i: entries[i]["spec"] for i in homes if i in entries}
+    # Set the temperature's first version is the thermostat's where the
+    # language has its commands (English); elsewhere Home Assistant's intent.
+    found = {i: entries[i]["spec"] for i in homes if i in entries and (i != "set_temperature_here" or "thermostat" in entries)}
     assert {"weather", "shopping_list_add", "todo_add"} <= set(found)
     assert {i: s.get("home") for i, s in found.items()} == {i: homes[i] for i in found}
     assert not [i for i, s in found.items() if (s.get("slots") or {}).get("entity")]
@@ -137,6 +139,21 @@ def test_commands_are_listed_by_library_section():
     # A version, its family, and what a family was before it had versions.
     assert [library_of(i, {}) for i in ("play_music_device_2", "turn_on_place", "turn_on", "device_off", "open_cover")] == [
         "music", "lights", "lights", "lights", "home"]
+
+
+def test_set_the_thermostat_is_a_version_of_set_the_temperature():
+    """The home's thermostat (or one of its own) is Set the temperature's
+    first version: one added as Set the thermostat follows it, and the Add
+    dialog knows it by that id. The others are Home Assistant's intent."""
+    from voice_labs.library import entry  # pylint: disable=import-outside-toplevel
+
+    found = entry("climate/set_thermostat")
+    assert (found["id"], found["title"], found["formerly"]) == ("set_temperature_here", "Set the thermostat", ["set_thermostat"])
+    assert found["spec"]["home"] == "climate" and "intent" not in found["spec"]
+    assert found["spec"]["response"]["done"] == {"brief": "Thermostat set.", "specific": "Thermostat set to {{ slots.temperature }} degrees."}
+    others = [e for e in load_library() if e["family"] == "set_temperature" and e["variant"] != "here"]
+    assert [e["variant"] for e in others] == ["device", "place"]
+    assert all(e["spec"]["intent"]["name"] == "HassClimateSetTemperature" and "home" not in e["spec"] and not e["formerly"] for e in others)
 
 
 
@@ -346,7 +363,9 @@ ROUTES = [
     ("set the ecobee to 70 degrees", "set_temperature_device", {"entity": ["climate.ecobee"], "temperature": 70}),
     ("turn up the heat", "heat_up", {"step": 1}),
     ("turn the thermostat down", "heat_down", {"step": -1}),
-    ("turn up the heat to 72", "set_thermostat", {"temperature": 72}),
+    ("turn up the heat to 72", "set_temperature_here", {"temperature": 72}),
+    ("set the thermostat to 70", "set_temperature_here", {"temperature": 70}),
+    ("set the temperature in the kitchen to 20 degrees", "set_temperature_place", {"area": ["kitchen"], "temperature": 20}),
     ("turn up the heating", "heat_up", {"step": 1}),
     # Turned up or to a number, but none of these.
     ("turn up the volume by 20 percent", "It looks like you're trying to set the volume, but I wasn't sure.", {}),
