@@ -22,8 +22,7 @@ configuration:
     name: Wyoming port
     description: >-
       Home Assistant's voice assistants reach the app's speech-to-text,
-      text-to-speech and conversation agent here, and Parakeet's
-      speech-to-text on the next port. 0: neither.
+      text-to-speech and conversation agent here. 0: none.
   debug_logging:
     name: Debug logging
     description: >-

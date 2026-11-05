@@ -22,7 +22,7 @@ panel_icon: mdi:account-voice
 panel_title: Voice Labs
 # Home Assistant's pipelines: the app's speech-to-text, text-to-speech and
 # conversation agent over Wyoming (voice_labs/wyoming_server.py), announced to
-# Home Assistant; Parakeet's speech-to-text on the next port.
+# Home Assistant.
 discovery:
   - wyoming
 options:

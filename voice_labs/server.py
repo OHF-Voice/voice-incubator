@@ -122,6 +122,8 @@ INTERCOM_START_WAIT = 30.0
 # Home Assistant's pipelines (Wyoming): how long a question asked back waits
 # for its answer, which comes with the conversation's id.
 ASKED_SECONDS = 60.0
+OWN_STT = "voice labs"
+"""In an STT entity's name or id: the app's own Wyoming speech-to-text."""
 INTERCOM_BACKLOG = 64 * 1024
 INTERCOM_LIMIT = 30 * 60.0
 
@@ -362,8 +364,7 @@ class Options:
     wyoming_host: str = "127.0.0.1"
     wyoming_port: int = 0
     """Where Home Assistant's pipelines reach the app (voice_labs/wyoming_server.py):
-    its speech-to-text, text-to-speech and conversation agent here, Parakeet's
-    speech-to-text on the next port. 0: nowhere."""
+    its speech-to-text, text-to-speech and conversation agent. 0: nowhere."""
     wyoming_allow: tuple[str, ...] = ()
     """Who may connect (wyoming_server.Endpoints); none: whoever can reach it."""
     supervisor_token: str | None = None
@@ -707,6 +708,8 @@ class VoiceLabsApp:
         self.voice_uses = piper_voices.Uses(self.store.data_dir / "piper_used.json")
         """When Home Assistant last asked for each voice."""
         self._voice_fetches: dict[str, asyncio.Future] = {}
+        self._own_stt: set[str] = set()
+        """STT entities found to be the app's own (stt_entity), said once."""
         # Recognition, Piper and the wake verifier's retry share the CPU; two
         # satellites waking at once is rare, so one lock over them is enough.
         self._model_lock = asyncio.Lock()
@@ -2510,7 +2513,10 @@ class VoiceLabsApp:
                 peak = float(np.max(np.abs(wake))) if len(wake) else 0.0
                 gain = min(STT_MAX_GAIN, STT_PEAK / peak) if peak > 0 else 1.0
                 audio.update(gain_db=round(20 * math.log10(gain), 1), set_by="the wake word")
-        stream = await self.voices.streaming_transcriber(voice.stt, self.engine.transcriber, voice.stt_language, audio)
+        entity = self.stt_entity(satellite)
+        if entity is None:
+            return
+        stream = await self.voices.streaming_transcriber(entity, self.engine.transcriber, voice.stt_language, audio)
         if stream is None:
             return
         if call.finished or session.call is not call:
@@ -3433,7 +3439,8 @@ class VoiceLabsApp:
     def assist_satellite(self, context: dict[str, Any] | None) -> Satellite:
         """Who asks through Wyoming, as commands see them: Home Assistant's
         satellite, by its device -- its area, its media player -- or, typed
-        in Assist, nobody in particular, in no area. It can't beep (a command
+        in Assist, nobody in particular, in no area. It hears with every
+        satellite's speech-to-text (``choose``). It can't beep (a command
         that beeps says its brief response), and it has neither the app's
         timers nor its night mode: it can't blink."""
         context = context or {}
@@ -3447,6 +3454,7 @@ class VoiceLabsApp:
             **catalog.area_info(area),
             device_id=device_id,
             device_media_player=catalog.media_player_of(device_id) if device_id else None,
+            voice=choose(self.store.settings, {}),
             skills=self.satellite_skills(area),
             settings=areas.effective(self.store.settings, area),
             beeps=False,
@@ -3534,48 +3542,66 @@ class VoiceLabsApp:
         record.stage("timer", agent=HOME_ASSISTANT_AGENT, said=said, error=code)
         return said, "not recognized" if failed else "done", f"{text!r}: Home Assistant's timer"
 
-    async def transcribe(self, pcm: bytes, context: dict[str, Any] | None, plain: bool = False) -> str:
-        """What Home Assistant's satellite said (Wyoming's speech-to-text):
-        as the TDT head heard it (``plain``), else written as the command the
-        app heard in it (voice_labs/corrected.py) -- and kept a while, for
-        the conversation agent to recognize again (``heard``)."""
+    async def transcribe(self, pcm: bytes, context: dict[str, Any] | None) -> str:
+        """What Home Assistant's satellite said (Wyoming's speech-to-text),
+        written as the command the app heard in it (voice_labs/corrected.py):
+        heard as on its own satellites -- with the TDT head, or the STT
+        entity it uses, which is always asked here (a transcript is wanted
+        whether or not a command needs its words), the TDT head standing in
+        when it fails. Kept a while, for the conversation agent to recognize
+        again (``heard``)."""
         context = {k: v for k, v in (context or {}).items() if k in CONTEXT_KEYS and v}
         satellite = self.assist_satellite(context)
         record = self.calls.begin("wyoming", satellite.as_dict())
-        record.stage("transcribe", corrected=not plain, seconds=round(len(pcm) / BYTE_RATE, 3), context=context)
+        record.stage("transcribe", seconds=round(len(pcm) / BYTE_RATE, 3), context=context)
         audio = _pcm_to_float(pcm)
         assert self.engine is not None
         engine = self.engine
         names = self.said_names(satellite.area_id)
+        tdt = Remembered(engine.transcriber) if engine.transcriber is not None else None
+        entity = self.stt_entity(satellite)
+        transcriber = (await self.voices.transcriber(entity, tdt, satellite.voice.stt_language) if entity else None) or tdt
         async with self._model_lock:
+            evidence = await asyncio.to_thread(engine.model.log_probs, audio)
+            decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, transcriber, evidence)
+            record.stage("recognition", **decision.to_json())
             started = time.perf_counter()
-            if plain:
-                text = await asyncio.to_thread(engine.transcribe, audio)
-                record.stage("transcript", text=text, seconds=_seconds(time.perf_counter() - started))
-            else:
-                transcriber = Remembered(engine.transcriber) if engine.transcriber is not None else None
-                evidence = await asyncio.to_thread(engine.model.log_probs, audio)
-                decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, transcriber, evidence)
-                record.stage("recognition", **decision.to_json())
-                started = time.perf_counter()
-                text, how = await asyncio.to_thread(
-                    self._corrected, decision, audio, transcriber, evidence[1], names, satellite
-                )
-                record.stage("transcript", text=text, **how, seconds=_seconds(time.perf_counter() - started))
-                self.heard.keep(Heard(text, audio, evidence, transcriber, context.get("satellite_id"), record.id))
+            text, how = await asyncio.to_thread(
+                self._corrected, decision, audio, transcriber, tdt, evidence[1], names, satellite
+            )
+            record.stage(
+                "transcript", text=text, **how, stt=_stt_json(transcriber), seconds=_seconds(time.perf_counter() - started)
+            )
+            self.heard.keep(Heard(text, audio, evidence, transcriber, context.get("satellite_id"), record.id))
         self.calls.finish(record, "transcribed", repr(text), {"command": pcm})
         return text
 
     def _corrected(
-        self, decision: Decision, audio: np.ndarray, transcriber: Remembered | None, frame_seconds: float,
+        self, decision: Decision, audio: np.ndarray, transcriber: Any, tdt: Remembered | None, frame_seconds: float,
         names: dict[str, dict[str, str]], satellite: Satellite,
     ) -> tuple[str, dict[str, Any]]:
-        """``transcribe``'s corrected transcript (from the engine's thread)."""
+        """``transcribe``'s corrected transcript (from the engine's thread):
+        on the STT entity's words, when it heard them, else the TDT head's."""
         engine = self.engine
         assert engine is not None
-        transcript, words = transcriber.transcribe_words(audio) if transcriber is not None else (decision.transcript, [])
+
+        def tdt_words() -> list:
+            assert tdt is not None
+            return tdt.transcribe_words(audio)[1]
+
+        timed = None
+        if isinstance(transcriber, HassTranscriber):
+            transcript, words = transcriber.transcribe(audio), None
+            if transcriber.source == "TDT" and tdt is not None:  # it failed, or heard nothing
+                transcript, words = tdt.transcribe_words(audio)
+            elif tdt is not None:
+                timed = tdt_words
+        elif transcriber is not None:
+            transcript, words = transcriber.transcribe_words(audio)
+        else:
+            transcript, words = decision.transcript, []
         return corrected.correct(
-            decision, transcript, words or [], frame_seconds, names, lambda text: engine.recognize_text(text, satellite)
+            decision, transcript, words, frame_seconds, names, lambda text: engine.recognize_text(text, satellite), timed
         )
 
     async def wyoming_voice(self, name: str | None, speaker: str | None = None) -> Spoken:
@@ -4265,11 +4291,25 @@ class VoiceLabsApp:
 
     async def _transcriber(self, satellite: Satellite):
         """The satellite's STT entity for this command, or None: the TDT head."""
-        if satellite.voice.stt is None or self.engine is None:
+        entity = self.stt_entity(satellite)
+        if entity is None or self.engine is None:
             return None
-        return await self.voices.transcriber(
-            satellite.voice.stt, self.engine.transcriber, satellite.voice.stt_language
-        )
+        return await self.voices.transcriber(entity, self.engine.transcriber, satellite.voice.stt_language)
+
+    def stt_entity(self, satellite: Satellite) -> str | None:
+        """The STT entity the satellite hears with -- but never the app's
+        own (its Wyoming speech-to-text, wyoming_server), which would ask
+        itself: one called Voice Labs is the TDT head."""
+        entity = satellite.voice.stt
+        if entity is None:
+            return None
+        called = f"{entity} {self.hass.catalog.stt_names.get(entity) or ''}".lower().replace("_", " ")
+        if OWN_STT in called:
+            if entity not in self._own_stt:
+                self._own_stt.add(entity)
+                _LOGGER.warning("%s is this app's own speech-to-text: using the TDT head instead", entity)
+            return None
+        return entity
 
     async def _quiet(self, session: Session, close: bool) -> None:
         """No more of the call's sounds (``Cues.stop``)."""

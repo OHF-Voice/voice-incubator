@@ -26,14 +26,17 @@
   port 10800; option `wyoming_port`, 0 for none). The Supervisor announces it
   to Home Assistant, and only Home Assistant may connect (this machine and
   the Supervisor's network).
-  - **Speech-to-text** writes what it heard as the command it heard: the
-    names and numbers the command was heard with are written over the TDT
-    words said there ("Turn on the Nanoleaf." for "Turn on the Neno leave"),
-    as the Names page has them -- kept only when that reads back as the same
-    command, else the TDT words, else the command's own words. Nothing heard
-    is the TDT words. The conversation agent, given the same words from the
-    same satellite within 30 seconds, recognizes their audio again (in the
-    satellite's area) rather than the words.
+  - **Speech-to-text** hears as the app's satellites do -- with the TDT head,
+    or the STT entity chosen on the Settings page (always asked here; the TDT
+    head stands in when it fails) -- and writes what it heard as the command
+    it heard: the names and numbers the command was heard with are written
+    over the TDT words said there ("Turn on the Nanoleaf." for "Turn on the
+    Neno leave"), as the Names page has them -- kept only when that reads
+    back as the same command, else the words as heard, else the command's
+    own words. An STT entity's words are tried as they are first. What isn't
+    a command is the words as heard. The conversation agent, given the same
+    words from the same satellite within 30 seconds, recognizes their audio
+    again (in the satellite's area) rather than the words.
   - **Text-to-speech** is Piper with every voice in the catalog, each
     downloaded the first time it is asked for and removed once unused for 30
     days (never one the app speaks with); text in pieces is said a sentence
@@ -46,7 +49,8 @@
     Assistant can't be asked for the sound with Wyoming 1.11; a timer goes to
     Home Assistant's own agent, to ring on that satellite. Sessions shows
     each request.
-  - **Parakeet's speech-to-text** alone is on the next port.
+  - **An STT entity called Voice Labs** -- the app's own -- is never used as
+    one: the TDT head hears instead, on every satellite.
 - **"Stop" ends a reply**, said alone while the satellite says it, as on the
   stock firmware. Firmware that says so (HELLO `stop_word`) keeps the "stop"
   model loaded, pushed with the wake words, and runs it only while a reply is

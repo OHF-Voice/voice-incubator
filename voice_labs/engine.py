@@ -592,13 +592,6 @@ class Engine:
             decision.timings["answer_words"] = time.perf_counter() - started
         return decision
 
-    def transcribe(self, audio: np.ndarray) -> str:
-        """What was said, as the TDT head heard it -- else (``--no-tdt``) the CTC head."""
-        transcriber = self.transcriber
-        if transcriber is not None:
-            return transcriber.transcribe(audio)
-        return self._greedy(self.model.log_probs(audio)[0])
-
     def recognize_text(self, text: str, satellite: Satellite, clause: bool = False) -> Decision:
         """Typed text, as if it had been said and heard word for word: the
         CTC matcher reads evidence made from its spoken words (no audio, no

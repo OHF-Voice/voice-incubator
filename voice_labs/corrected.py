@@ -2,22 +2,25 @@
 that it reads back as the same command -- the speech-to-text the app gives
 Home Assistant's pipelines (voice_labs/wyoming_server.py).
 
-Its words are the TDT head's, which spells well but doesn't know the home's
-names ("switch on an edge thread" for the Nachtlicht). The CTC matcher found
-the command in the audio with its names and numbers, each where it was said;
-so each is written over the TDT words said there -- a name as the Names page
-has it, a number in digits: "Switch on the Nachtlicht." That stands when it
-reads back, as the app reads typed text (Engine.recognize_text), as the same
-command with the same slots. Else the TDT words as they are, if they do; else
-the command's own words, names and numbers in the order they were heard
-("switch on the Nachtlicht"). When none does -- or no command was heard --
-it is the TDT words: what was said, as well as it was heard.
+Its words are the speech-to-text the app uses: the TDT head's, which spells
+well but doesn't know the home's names ("switch on an edge thread" for the
+Nachtlicht), or an STT entity's. The CTC matcher found the command in the
+audio with its names and numbers, each where it was said; so each is written
+over the TDT words said there -- a name as the Names page has it, a number in
+digits: "Switch on the Nachtlicht." That stands when it reads back, as the
+app reads typed text (Engine.recognize_text), as the same command with the
+same slots. Else the words as they are, if they do; else the command's own
+words, names and numbers in the order they were heard ("switch on the
+Nachtlicht"). An STT entity's words have no times to write over: they are
+tried first, as they are, and then the TDT head's with the names written
+over them. When none reads back -- or no command was heard -- it is the
+words as heard.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from adapt_ctc.numbers import to_python
@@ -34,22 +37,24 @@ Words = list[tuple[str, float, float]]
 def correct(
     decision: Decision,
     transcript: str,
-    words: Words,
+    words: Words | None,
     frame_seconds: float,
     names: dict[str, dict[str, str]],
     read: Callable[[str], Decision],
+    timed: Callable[[], Words] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """The transcript to give for ``decision`` -- the command heard in the
-    audio, of which the TDT head heard ``transcript`` (``words``, timed) --
-    and how it was written: ``as`` (``names``: written over; ``heard``: the
-    TDT words; ``command``: the command's own) and what else was ``tried``.
-    ``names``: what things are called (said_names); ``read``: the command
-    some text reads as."""
+    audio, of which speech-to-text heard ``transcript`` (``words``, timed;
+    None from an STT entity, which has no times: then ``timed`` gives the
+    TDT head's, should they be needed) -- and how it was written: ``as``
+    (``names``: written over; ``heard``: the words as heard; ``command``: the
+    command's own) and what else was ``tried``. ``names``: what things are
+    called (said_names); ``read``: the command some text reads as."""
     heard = transcript.strip() or decision.transcript
     if decision.command is None:
         return heard, {"as": "heard"}
     tried = []
-    for how, text in candidates(decision, heard, words, frame_seconds, names):
+    for how, text in candidates(decision, heard, words, frame_seconds, names, timed):
         again = read(text)
         if same(decision, again):
             return text, {"as": how, **({"tried": tried} if tried else {})}
@@ -58,25 +63,44 @@ def correct(
 
 
 def candidates(
-    decision: Decision, transcript: str, words: Words, frame_seconds: float, names: dict[str, dict[str, str]]
-) -> list[tuple[str, str]]:
+    decision: Decision, transcript: str, words: Words | None, frame_seconds: float,
+    names: dict[str, dict[str, str]], timed: Callable[[], Words] | None = None,
+) -> Iterator[tuple[str, str]]:
     """What ``decision``'s command may be written as, best first: the TDT
     words with its names and numbers written over them (only when the CTC
-    head found it: theirs are the audio's times), the TDT words, and the
-    command's own words. Two commands said together: the TDT words."""
-    out = []
-    intent = decision.intent
-    if decision.then is None and intent is not None:
-        if decision.matched_by == "ctc" and words:
-            written = written_over(words, intent.spans, frame_seconds, names)
-            if written != " ".join(word for word, _, _ in words):
-                out.append(("names", written))
-        out.append(("heard", transcript))
-        out.append(("command", own_words(decision, names)))
-    else:
-        out.append(("heard", transcript))
+    head found it: theirs are the audio's times), the words as heard, and the
+    command's own words -- an STT entity's words (no ``words``) before the
+    TDT head's written over (``timed``, asked for only then). Two commands
+    said together: the words as heard. Each once."""
     seen: set[str] = set()
-    return [(how, text) for how, text in out if text.strip() and not (text in seen or seen.add(text))]
+
+    def fresh(text: str) -> bool:
+        if not text.strip() or text in seen:
+            return False
+        seen.add(text)
+        return True
+
+    intent = decision.intent
+    if decision.then is not None or intent is None:
+        if fresh(transcript):
+            yield "heard", transcript
+        return
+    ctc = decision.matched_by == "ctc"
+    if words:
+        written = written_over(words, intent.spans, frame_seconds, names) if ctc else ""
+        if written != " ".join(word for word, _, _ in words) and fresh(written):
+            yield "names", written
+    if fresh(transcript):
+        yield "heard", transcript
+    if words is None and ctc and timed is not None:
+        tdt = timed()
+        if tdt:
+            written = written_over(tdt, intent.spans, frame_seconds, names)
+            if fresh(written):
+                yield "names", written
+    own = own_words(decision, names)
+    if fresh(own):
+        yield "command", own
 
 
 def proper(use: Any, names: dict[str, dict[str, str]]) -> str | None:

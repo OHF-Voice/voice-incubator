@@ -148,6 +148,8 @@ class Catalog:
     """Device id -> its name (the one given it, else its own)."""
     satellite_devices: dict[str, str] = field(default_factory=dict)
     """Home Assistant's satellites (assist_satellite entities) -> their devices."""
+    stt_names: dict[str, str] = field(default_factory=dict)
+    """Its STT entities -> their names."""
     disabled_satellites: dict[str, str] = field(default_factory=dict)
     """Satellite key -> its Voice Labs device, for each one whose device is
     disabled: this app leaves it to another (server.VoiceLabsApp)."""
@@ -755,6 +757,7 @@ class HomeAssistant:
         catalog = Catalog(
             device_areas=catalog_device_areas, device_models=device_models, device_macs=device_macs,
             device_names=device_names, satellite_devices=satellite_devices, disabled_satellites=disabled_satellites,
+            stt_names={e: name for e, name in friendly.items() if e.startswith("stt.")},
         )
         for floor in floors or []:
             catalog.floors[floor["floor_id"]] = Floor(

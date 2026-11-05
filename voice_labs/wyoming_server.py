@@ -2,25 +2,23 @@
 Assistant's own voice pipelines (Assist) -- satellites that aren't the
 app's, and what's typed.
 
-Two servers, each a Wyoming Protocol integration in Home Assistant:
+One server (``port``, 10800 as an app), a Wyoming Protocol integration in
+Home Assistant, which the Supervisor announces to it:
 
-* **The app's** (``port``, 10800 as an app), which the Supervisor announces
-  to Home Assistant:
-
-  - **Text-to-speech**: Piper, every voice of its catalog (piper_voices),
-    each downloaded the first time it is asked for, and removed once it has
-    gone unused for 30 days (piper_voices.Uses). Text that comes in pieces
-    (an LLM's answer) is said a sentence at a time, as each is whole.
-  - **A conversation agent** (``handle``): the app's commands, skills,
-    fallback and conversation agent, as on a satellite of the app's in the
-    asking satellite's area (VoiceLabsApp.handle_text). An LLM's answer is
-    streamed as it comes. A question asked back -- a command's confirm, the
-    agent's -- keeps the conversation going (``continue_conversation``).
-  - **Speech-to-text** that writes what it heard as the command it heard,
-    with the home's names spelled right (voice_labs/corrected.py).
-
-* **Parakeet's** (the next port): speech-to-text alone, what the TDT head
-  heard -- for a pipeline whose agent is another.
+* **Text-to-speech**: Piper, every voice of its catalog (piper_voices), each
+  downloaded the first time it is asked for, and removed once it has gone
+  unused for 30 days (piper_voices.Uses). Text that comes in pieces (an
+  LLM's answer) is said a sentence at a time, as each is whole.
+* **A conversation agent** (``handle``): the app's commands, skills,
+  fallback and conversation agent, as on a satellite of the app's in the
+  asking satellite's area (VoiceLabsApp.handle_text). An LLM's answer is
+  streamed as it comes. A question asked back -- a command's confirm, the
+  agent's -- keeps the conversation going (``continue_conversation``).
+* **Speech-to-text** that writes what it heard as the command it heard, with
+  the home's names spelled right (voice_labs/corrected.py) -- its words the
+  speech-to-text the app uses (the Settings page's: the TDT head, or an STT
+  entity it stands in for), as on its own satellites
+  (VoiceLabsApp.transcribe).
 
 What speech-to-text gave is kept a little while with its audio
 (``HeardCache``): when the same words come to the conversation agent, from
@@ -75,7 +73,7 @@ from .tts import sentences_of, stream_sentences
 _LOGGER = logging.getLogger(__name__)
 
 PORT = 10800
-"""The app's server, as an app (Parakeet's is the next)."""
+"""The app's server, as an app."""
 
 SAMPLE_RATE = 16000
 SAMPLES_PER_CHUNK = 1024
@@ -207,21 +205,18 @@ class Endpoints:
         self.port = port
         self.allow = allow
         self._networks = [ipaddress.ip_network(a) for a in allow if a != "host"]
-        self._servers: list[AsyncTcpServer] = []
+        self._server: AsyncTcpServer | None = None
 
     async def start(self) -> None:
-        for plain, port in ((False, self.port), (True, self.port + 1)):
-            server = AsyncTcpServer(self.host, port)
-            await server.start(partial(Handler, self, plain))
-            self._servers.append(server)
-        _LOGGER.info(
-            "Wyoming: Voice Labs on %s:%d, Parakeet on %s:%d", self.host, self.port, self.host, self.port + 1
-        )
+        server = AsyncTcpServer(self.host, self.port)
+        await server.start(partial(Handler, self))
+        self._server = server
+        _LOGGER.info("Wyoming: on %s:%d", self.host, self.port)
 
     async def stop(self) -> None:
-        for server in self._servers:
-            await server.stop()
-        self._servers.clear()
+        if self._server is not None:
+            await self._server.stop()
+            self._server = None
 
     def allows(self, peer: Any, local: Any) -> bool:
         """May the client at ``peer`` (on our ``local`` address) connect?"""
@@ -237,17 +232,12 @@ class Endpoints:
             return True
         return any(address in network for network in self._networks)
 
-    def info(self, plain: bool) -> Info:
+    def info(self) -> Info:
         language = self.app.language.code
         parakeet = AsrModel(
             name="parakeet", description="Parakeet", attribution=PARAKEET, installed=True, version=None,
             languages=[language],
         )
-        if plain:
-            return Info(asr=[AsrProgram(
-                name="Parakeet", description="What Voice Labs' speech model heard", attribution=PARAKEET,
-                installed=True, version=None, models=[parakeet],
-            )])
         voices = [
             TtsVoice(
                 name=voice.key, description=f"{voice.to_json()['name']} ({voice.quality})", attribution=PIPER,
@@ -294,11 +284,10 @@ class Handler(AsyncEventHandler):
     """One connection. Home Assistant asks for one thing on each: a
     transcript, a reply, or speech."""
 
-    def __init__(self, endpoints: Endpoints, plain: bool, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    def __init__(self, endpoints: Endpoints, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         super().__init__(reader, writer)
         self.endpoints = endpoints
         self.app = endpoints.app
-        self.plain = plain
         self.peer = writer.get_extra_info("peername")
         self.allowed = endpoints.allows(self.peer, writer.get_extra_info("sockname"))
         self._transcribe: Transcribe | None = None
@@ -323,7 +312,7 @@ class Handler(AsyncEventHandler):
 
     async def _handle_event(self, event: Event) -> bool:
         if Describe.is_type(event.type):
-            await self.write_event(self.endpoints.info(self.plain).event())
+            await self.write_event(self.endpoints.info().event())
         elif Transcribe.is_type(event.type):
             self._transcribe = Transcribe.from_event(event)
         elif AudioStart.is_type(event.type):
@@ -335,10 +324,8 @@ class Handler(AsyncEventHandler):
             if self._audio is not None:
                 pcm, self._audio = bytes(self._audio), None
                 context = self._transcribe.context if self._transcribe is not None else None
-                text = await self.app.transcribe(pcm, context, self.plain)
+                text = await self.app.transcribe(pcm, context)
                 await self.write_event(Transcript(text=text, language=self.app.language.code).event())
-        elif self.plain:
-            pass
         elif Transcript.is_type(event.type):
             await self._reply(Transcript.from_event(event))
         elif Synthesize.is_type(event.type):

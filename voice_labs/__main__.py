@@ -62,11 +62,10 @@ async def main() -> None:
         type=int,
         default=WYOMING_PORT,
         help="Home Assistant's pipelines reach the app's speech-to-text, text-to-speech "
-        "and conversation agent here, and Parakeet's speech-to-text on the next port "
-        f"(default {WYOMING_PORT}; 0 for neither)",
+        f"and conversation agent here (default {WYOMING_PORT}; 0 for none)",
     )
     parser.add_argument(
-        "--wyoming-host", help="address they listen on (default 127.0.0.1, or every one as an app)"
+        "--wyoming-host", help="address it listens on (default 127.0.0.1, or every one as an app)"
     )
     parser.add_argument("--language", default="en", help="what it hears and says (voice_labs/languages)")
     parser.add_argument("--silence", type=float, default=1.0)

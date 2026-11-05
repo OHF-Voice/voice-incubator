@@ -288,18 +288,10 @@ commands:
 KITCHEN = {"device_id": fake_hass.ASSIST_SATELLITE["id"], "satellite_id": fake_hass.ASSIST_SATELLITE["entity_id"]}
 
 
-def free_ports() -> int:
-    """A free port with a free one after it."""
-    while True:
-        with socket.socket() as first:
-            first.bind(("127.0.0.1", 0))
-            port = first.getsockname()[1]
-            with socket.socket() as second:
-                try:
-                    second.bind(("127.0.0.1", port + 1))
-                except OSError:
-                    continue
-                return port
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 async def ask(port: int, *events, until=None) -> list:
@@ -350,14 +342,13 @@ def test_home_assistant_s_pipelines(tmp_path):
 
 async def _pipelines(tmp_path: Path) -> None:
     hass, hass_server = await fake_hass.serve()
+    rest, rest_port = await fake_hass.serve_rest(hass)
     hass_port = hass_server.sockets[0].getsockname()[1]
     (tmp_path / "commands.yaml").write_text(COMMANDS)
-    port = free_ports()
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        http_port = sock.getsockname()[1]
+    port = free_port()
     app = VoiceLabsApp(Options(
-        hass_url=f"http://127.0.0.1:{hass_port}", hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port,
+        hass_url=f"http://127.0.0.1:{rest_port}", hass_websocket_url=f"ws://127.0.0.1:{hass_port}/api/websocket",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(),
         speaker_profiles=tmp_path / "speakers.json", threads=4, wyoming_port=port,
     ))
     await app.start()
@@ -365,7 +356,7 @@ async def _pipelines(tmp_path: Path) -> None:
         await app.hass.wait_connected(10)
         await app.hass.refresh_catalog()
 
-        # What each server offers.
+        # What it offers.
         [info] = await ask(port, Describe(), until=lambda e: True)
         info = Info.from_event(info)
         assert [a.name for a in info.asr] == ["Voice Labs"] and info.asr[0].models[0].languages == ["en"]
@@ -373,9 +364,6 @@ async def _pipelines(tmp_path: Path) -> None:
         tts = info.tts[0]
         assert tts.supports_synthesize_streaming and len(tts.voices) == len(catalog())
         assert all(v.installed for v in tts.voices)  # downloaded when asked for
-        [plain] = await ask(port + 1, Describe(), until=lambda e: True)
-        plain = Info.from_event(plain)
-        assert [a.name for a in plain.asr] == ["Parakeet"] and not plain.tts and not plain.handle
 
         # A command, in the satellite's area; one that beeps says its brief response.
         [handled] = await reply(port, "turn on the lights", conversation_id="c1", **KITCHEN)
@@ -438,12 +426,9 @@ async def _pipelines(tmp_path: Path) -> None:
         assert sum(AudioStart.is_type(e.type) for e in events) == 2 == sum(AudioStop.is_type(e.type) for e in events)
         assert OTHER_VOICE in json.loads((tmp_path / "piper_used.json").read_text())
 
-        # Speech-to-text: Parakeet's ...
+        # Speech-to-text, with the home's names; the conversation agent then
+        # hears the audio again, as the satellite's.
         command = said("turn on the nanoleaf")
-        heard = await transcribe(port + 1, command)
-        assert "turn on" in heard.lower()
-        # ... and the app's, with the home's names; the conversation agent
-        # then hears the audio again, as the satellite's.
         text = await transcribe(port, command, KITCHEN)
         assert "Nanoleaf" in text
         transcribed = app.calls.recent[-1]
@@ -456,6 +441,34 @@ async def _pipelines(tmp_path: Path) -> None:
         # Heard once: the same words again are read as words.
         await reply(port, text, **KITCHEN)
         assert "heard" not in next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
+        assert hass.stt_requests == []  # no STT entity chosen
+
+        # With the STT entity the app hears with: asked every time. What
+        # isn't a command is its words ...
+        app.store.settings["stt"] = "stt.fake_whisper"
+        hass.stt_text = "The quick brown fox."
+        assert await transcribe(port, said("the quick brown fox"), KITCHEN) == "The quick brown fox."
+        assert hass.stt_requests[-1]["entity_id"] == "stt.fake_whisper"
+        # ... as is a command's, when they read back as it ...
+        hass.stt_text = "Turn on Nanoleaf."
+        assert await transcribe(port, command, KITCHEN) == "Turn on Nanoleaf."
+        # ... else the TDT head's, with the names written over them.
+        hass.stt_text = "Turn on the lamp."
+        text = await transcribe(port, command, KITCHEN)
+        how = next(s for s in app.calls.recent[-1].stages if s["stage"] == "transcript")
+        assert "Nanoleaf" in text and how["as"] == "names" and how["tried"][0]["text"] == "Turn on the lamp."
+        assert how["stt"]["entity"] == "stt.fake_whisper"
+
+        # The app's own speech-to-text (an STT entity called Voice Labs) would
+        # ask itself: the TDT head hears instead.
+        asked = len(hass.stt_requests)
+        app.store.settings["stt"] = "stt.voice_labs"
+        assert "Nanoleaf" in await transcribe(port, command, KITCHEN) and len(hass.stt_requests) == asked
+        named = app.assist_satellite(KITCHEN)
+        app.store.settings["stt"] = "stt.mine"
+        app.hass.catalog.stt_names["stt.mine"] = "Voice Labs"
+        assert app.stt_entity(app.assist_satellite(KITCHEN)) is None and named.voice.stt == "stt.voice_labs"
     finally:
         await app.stop()
+        await rest.cleanup()
         hass_server.close()
