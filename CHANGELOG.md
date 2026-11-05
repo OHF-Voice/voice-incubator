@@ -228,6 +228,14 @@
   Time from now is "How long until a future time."
 - **A command the library no longer has is kept, not heard**: the others
   still are (before, none were), and the Home page says to delete it.
+- **Sessions say whether the speech-to-text entity ran.** The recognition
+  step has a row for it -- not asked (its words weren't needed); asked, what
+  it heard and how long it took; heard as you spoke, and how soon after you
+  stopped; or failed or heard nothing, and the TDT's words instead -- and
+  the log has a line each time it answers ("stt.home_assistant_cloud heard
+  'is it going to rain on Saturday' (0.63 s)"). The conversation agent's
+  sessions from Home Assistant say "From Home Assistant" for the words it
+  was sent, which weren't the entity's.
 - **The music's versions for "here" are "in this satellite's area"**
   ("Pause the music in this satellite's area", every language): they act on
   whatever plays there, not only the satellite's player. Their ids are the

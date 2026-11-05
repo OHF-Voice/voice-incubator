@@ -507,16 +507,25 @@ async def _pipelines(tmp_path: Path) -> None:
         hass.stt_text = "The quick brown fox."
         assert await transcribe(port, said("the quick brown fox"), KITCHEN) == "The quick brown fox."
         assert hass.stt_requests[-1]["entity_id"] == "stt.fake_whisper"
+        stt = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")["stt"]
+        assert stt["asked"] and stt["text"] == "The quick brown fox."
         # ... and not for a command the audio made out: the TDT head's words.
         asked = len(hass.stt_requests)
         hass.stt_text = "Turn on Nanoleaf."
         assert await transcribe(port, command, KITCHEN) == text and len(hass.stt_requests) == asked
+        transcribed = app.calls.recent[-1]
+        assert not next(s for s in transcribed.stages if s["stage"] == "recognition")["stt"]["asked"]
+        # The conversation agent then has Home Assistant's words, not the entity's.
+        await reply(port, text, **KITCHEN)
+        recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
+        assert recognition["heard"] == transcribed.id and recognition["from_home_assistant"]
+        assert recognition["text_source"] == "home_assistant" and recognition["recognition"]["tdt_transcript"] == text
         # "Always, as you speak": it hears every command as it comes, and its
         # words are tried first -- as they are, when they read back ...
         app.store.settings["stt_always"] = True
         assert await transcribe(port, command, KITCHEN) == "Turn on Nanoleaf."
         assert hass.stt_requests[-1]["bytes"] == 2 * len(command) and len(hass.stt_requests) == asked + 1
-        stt = next(s for s in app.calls.recent[-1].stages if s["stage"] == "transcript")["stt"]
+        stt = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")["stt"]
         assert stt["entity"] == "stt.fake_whisper" and stt["streamed"]["seconds"] == pytest.approx(len(command) / 16000, abs=0.01)
         # ... else the TDT head's, with the names written over them.
         hass.stt_text = "Turn on the lamp."

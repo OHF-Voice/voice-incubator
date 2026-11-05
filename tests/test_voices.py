@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import numpy as np
@@ -104,7 +105,9 @@ class StubTdt:
         return "from tdt"
 
 
-def test_the_transcriber_asks_once_from_the_engines_thread():
+def test_the_transcriber_asks_once_from_the_engines_thread(caplog):
+    caplog.set_level(logging.INFO, logger="voice_labs.voices")
+
     async def scenario():
         hass = StubHass("turn on the lights")
         transcriber = HassTranscriber(hass, "stt.whisper", "en-US", asyncio.get_running_loop(), StubTdt())
@@ -114,6 +117,8 @@ def test_the_transcriber_asks_once_from_the_engines_thread():
         assert first == "turn on the lights" and again == ("turn on the lights", None)
         assert hass.calls == [("stt.whisper", 32000, "en-US")]
         assert transcriber.source == "stt.whisper"
+        # Said in the log, each time it answers.
+        assert "stt.whisper heard 'turn on the lights' (" in caplog.text
 
         failing = HassTranscriber(StubHass(error="503"), "stt.whisper", "en-US", asyncio.get_running_loop(), StubTdt())
         assert await asyncio.to_thread(failing.transcribe, audio) == "from tdt"
@@ -140,7 +145,9 @@ class StreamingHass(StubHass):
         return self.text
 
 
-def test_streaming_while_the_command_is_said():
+def test_streaming_while_the_command_is_said(caplog):
+    caplog.set_level(logging.INFO, logger="voice_labs.voices")
+
     async def scenario():
         loop = asyncio.get_running_loop()
         audio = np.zeros(16000, dtype=np.float32)
@@ -152,8 +159,9 @@ def test_streaming_while_the_command_is_said():
         assert hass.chunks == [3200, 3200, 3200] and hass.calls == []  # still listening
         stream.finish()
         stream.feed(bytes(3200))  # after the end: not sent
-        # Not needed: the transcript is had all the same.
+        # Not needed: the transcript is had all the same -- and said in the log.
         assert await stream.result() == "turn on the lights"
+        assert "stt.whisper heard 'turn on the lights' as it was said" in caplog.text
         assert stream.to_json()["text"] == "turn on the lights" and not stream.to_json()["asked"]
         assert stream.to_json()["streamed"]["seconds"] == 0.3
         # Needed: no second request.

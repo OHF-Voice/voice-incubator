@@ -166,6 +166,8 @@ class HassTranscriber:
             )
             try:
                 self._text = self._or_fallback(future.result(STT_TIMEOUT), audio)
+                if not self.empty:
+                    _LOGGER.info("%s heard %r (%.2f s)", self.entity_id, self._text, time.perf_counter() - started)
             except Exception as err:  # noqa: BLE001 - any failure falls back
                 future.cancel()
                 self.error = str(err) or type(err).__name__
@@ -250,9 +252,14 @@ class StreamingTranscriber(HassTranscriber):
 
     def _done(self, task: asyncio.Task) -> None:
         self._answered = time.perf_counter()
-        if not task.cancelled() and task.exception() is not None:
+        if task.cancelled():
+            return
+        if task.exception() is not None:
             self.error = str(task.exception()) or type(task.exception()).__name__
             _LOGGER.warning("%s: streaming failed (%s)", self.entity_id, self.error)
+        else:
+            after = f", {self.waited:.2f} s after the end" if self.waited is not None else ""
+            _LOGGER.info("%s heard %r as it was said%s", self.entity_id, task.result(), after)
 
     def feed(self, pcm: bytes) -> None:
         """More of the command (on the event loop)."""

@@ -4239,7 +4239,9 @@ function sessionGlance(record) {
   const errors = (record.stages || []).filter((s) => s.error && ["action", "error", "speech_failed", "agent"].includes(s.stage)).map((s) => s.error);
   const [resultIcon, result] = sessionResult(record);
   return h("div", { class: "glance" },
-    heard ? h("div", { class: "glance-heard" }, icon(typed || (rec && rec.text_source === "typed") ? "mdi:keyboard-outline" : "mdi:ear-hearing", "", typed ? "Typed" : "Heard"), h("span", {}, quoted(heard))) : null,
+    heard ? h("div", { class: "glance-heard" }, typed && typed.context
+      ? icon("mdi:home-assistant", "", "From Home Assistant")
+      : icon(typed || (rec && rec.text_source === "typed") ? "mdi:keyboard-outline" : "mdi:ear-hearing", "", typed ? "Typed" : "Heard"), h("span", {}, quoted(heard))) : null,
     h("div", { class: "glance-line" }, icon(resultIcon, "", "Result"), h("span", {}, ...result)),
     speech ? h("div", { class: "glance-line" }, icon("mdi:volume-high", "", "Said"),
       h("span", {}, speech.text ? quoted(speech.text) : h("span", { class: "muted" }, speech.silent ? "Nothing: it's silent" : "A short sound"))) : null,
@@ -4269,10 +4271,27 @@ function intentSlots(text) {
 }
 
 // What the transcripts are called: heard by the CTC and TDT heads (or an STT
-// entity), or typed (a satellite's Test it) and read as spoken words.
+// entity), typed (a satellite's Test it) and read as spoken words, or sent by
+// Home Assistant to the conversation agent (Wyoming).
 function heardLabels(rec) {
-  if (rec.text_source === "typed") return { ctc: "Read as", text: "Typed" };
+  const sent = rec.from_home_assistant ? "From Home Assistant" : null;
+  if (rec.text_source === "typed") return { ctc: "Read as", text: sent || "Typed" };
+  if (rec.text_source === "home_assistant") return { ctc: "CTC heard", text: "From Home Assistant" };
   return { ctc: "CTC heard", text: `${rec.text_source && rec.text_source !== "TDT" ? rec.text_source : "TDT"} heard` };
+}
+
+// What the STT entity did: asked or not, and what came of it.
+function sttStatus(stt) {
+  const heard = stt.text ? ` ${quoted(stt.text)}` : "";
+  if (stt.error) return `asked, and failed (${stt.error}): the TDT's words instead`;
+  if (stt.empty) return "asked, and heard nothing (no text, no error): the TDT's words instead";
+  if (stt.streamed) {
+    const after = stt.streamed.after_speech !== null && stt.streamed.after_speech !== undefined
+      ? `, answered ${Math.round(stt.streamed.after_speech * 1000)} ms after you stopped` : "";
+    return `${stt.text ? `heard${heard}` : "nothing yet"} as you spoke (${num(stt.streamed.seconds, 1)} s)${after}${stt.asked ? "" : " · not needed"}`;
+  }
+  if (stt.asked) return `asked: heard${heard}${stt.seconds !== null && stt.seconds !== undefined ? `, in ${took(stt.seconds)}` : ""}`;
+  return "not asked: its words weren't needed";
 }
 
 function renderRecognition(rec) {
@@ -4290,10 +4309,8 @@ function renderRecognition(rec) {
   return h("div", {},
     h("div", { class: "kv" },
       h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
-      h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run")),
-      rec.stt && rec.stt.empty ? [h("div", {}, `${rec.stt.entity} heard`), h("div", { class: "muted" }, "nothing (no text, no error): the TDT's words instead")] : null,
-      rec.stt && rec.stt.streamed && !rec.stt.asked ? [h("div", {}, `${rec.stt.entity} heard`), h("div", {}, rec.stt.text ? rec.stt.text : h("span", { class: "muted" }, rec.stt.error ? `nothing (${rec.stt.error})` : "nothing yet"), h("span", { class: "muted small" }, " · not needed"))] : null,
-      rec.stt && rec.stt.streamed ? [h("div", {}, "Streamed"), h("div", { class: "small" }, `${num(rec.stt.streamed.seconds, 1)} s as you spoke`, rec.stt.streamed.after_speech !== null && rec.stt.streamed.after_speech !== undefined ? `; answered ${Math.round(rec.stt.streamed.after_speech * 1000)} ms after` : "")] : null,
+      r.tdt_transcript || !rec.stt ? [h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run"))] : null,
+      rec.stt ? [h("div", {}, rec.stt.entity), h("div", {}, sttStatus(rec.stt))] : null,
       rec.stt && (rec.stt.asked || rec.stt.streamed) && rec.stt.audio ? [h("div", {}, "Sent"), h("div", {}, rec.stt.audio.channel === "aec" ? (rec.stt.audio.gain_db !== undefined ? `AEC, boosted ${num(rec.stt.audio.gain_db, 1)} dB` : "AEC") : `AGC${rec.stt.audio.why ? ` (${rec.stt.audio.why})` : ""}`,
         rec.stt.audio.from !== undefined ? h("span", { class: "muted" }, ` · from ${num(rec.stt.audio.from, 2)} s, where Kaldi ended the wake word`) : null)] : null,
       r.unspellable ? [h("div", {}, "Not in the model's pieces"), h("div", {}, r.unspellable.join(", "))] : null,

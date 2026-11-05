@@ -124,6 +124,9 @@ INTERCOM_LIMIT = 30 * 60.0
 # Home Assistant's pipelines (Wyoming): how long a question asked back waits
 # for its answer, which comes with the conversation's id.
 ASKED_SECONDS = 60.0
+FROM_HOME_ASSISTANT = "home_assistant"
+"""Who wrote the words recognized (Decision.text_source): Home Assistant,
+which sent them to the conversation agent."""
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -3508,8 +3511,13 @@ class VoiceLabsApp:
             else:
                 decision = await asyncio.to_thread(engine.recognize_text, text, satellite)
         if decision.recognition.get("tdt_transcript") is None:
-            decision.recognition["tdt_transcript"] = text  # what the agent is asked
-        record.stage("recognition", **decision.to_json(), **({"heard": heard.record_id} if heard is not None else {}))
+            # What the agent is asked: Home Assistant's words, not an STT entity's.
+            decision.recognition["tdt_transcript"] = text
+            decision.text_source = FROM_HOME_ASSISTANT
+        record.stage(
+            "recognition", **decision.to_json(), from_home_assistant=True,
+            **({"heard": heard.record_id} if heard is not None else {}),
+        )
         who = self.speaking()
         if asked is not None:
             speech, outcome, summary = await self._answer(asked, decision, satellite, False, record, _no_cue)
@@ -3601,14 +3609,13 @@ class VoiceLabsApp:
         async with self._model_lock:
             evidence = await asyncio.to_thread(engine.model.log_probs, audio)
             decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, transcriber, evidence)
-            record.stage("recognition", **decision.to_json())
             started = time.perf_counter()
             text, how = await asyncio.to_thread(
                 self._corrected, decision, audio, transcriber, tdt, evidence[1], names, satellite
             )
-            record.stage(
-                "transcript", text=text, **how, stt=_stt_json(transcriber), seconds=_seconds(time.perf_counter() - started)
-            )
+            # The STT entity as it is now: asked for the transcript, if not before.
+            record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
+            record.stage("transcript", text=text, **how, seconds=_seconds(time.perf_counter() - started))
             self.heard.keep(Heard(text, audio, evidence, transcriber, context.get("satellite_id"), record.id))
         self.calls.finish(record, "transcribed", repr(text), {"command": pcm})
         return text
