@@ -1,11 +1,13 @@
 # Music, on Music Assistant's players. A satellite's own player is its
 # Sendspin client's (Music Assistant finds the satellite on the network; the
-# app finds its player by MAC), or one picked on the satellite's page.
+# app finds its player by MAC), or one picked on the satellite's page. An
+# area may have a music player (its Settings): where music asked for there
+# plays without a satellite's own -- Home Assistant's satellites have none.
 #
 # Each command comes in versions (variants) for where it plays:
-#   here    the satellite's own player. Pause, skip, "what's playing" and the
-#           volume act on whichever player plays in the satellite's area when
-#           its own does not.
+#   here    the satellite's area: its own player, else its area's music
+#           player, else a Music Assistant player there. Pause, skip, "what's
+#           playing" and the volume act on whichever player plays there.
 #   device  a Music Assistant player by name: "pause the music on the Mark 2"
 #   place   the players in an area or on a floor by name: "play jazz in the
 #           kitchen", "turn it up upstairs"
@@ -64,7 +66,7 @@ commands:
     verbosity: specific
     variants:
       here:
-        title: Play music on this satellite
+        title: Play music in this satellite's area
       device:
         <<: *player
         title: Play music on a different device
@@ -99,7 +101,7 @@ commands:
     verbosity: specific
     variants:
       here:
-        title: Add to the queue on this satellite
+        title: Add to the queue in this satellite's area
       device:
         <<: *player
         title: Add to the queue on a different device
@@ -122,7 +124,7 @@ commands:
     # Like what plays there, or like what was said.
     variants:
       here:
-        title: Play music like it on this satellite
+        title: Play music like it in this satellite's area
         examples: ["[play] more like this", play something similar]
         combinations: [[], [query]]
       device:
@@ -148,7 +150,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Pause the music on this satellite
+        title: Pause the music in this satellite's area
         combinations: [[], [kind]]
         examples: [pause]
       device:
@@ -175,7 +177,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Resume the music on this satellite
+        title: Resume the music in this satellite's area
         combinations: [[], [kind]]
         examples: [resume, unpause, play music, keep playing]
       device:
@@ -200,7 +202,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Stop the music on this satellite
+        title: Stop the music in this satellite's area
       device:
         <<: *player
         title: Stop the music on a different device
@@ -221,7 +223,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Next track on this satellite
+        title: Next track in this satellite's area
         combinations: [[], [kind]]
         examples: ["next [song]", "skip [this song]"]
       device:
@@ -246,7 +248,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Previous track on this satellite
+        title: Previous track in this satellite's area
         combinations: [[], [kind]]
         examples: ["(previous|last) song", go back]
       device:
@@ -272,7 +274,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Turn it up on this satellite
+        title: Turn it up in this satellite's area
         combinations: [[], [kind]]
         examples: [louder, turn it up, volume up]
       device:
@@ -299,7 +301,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Turn it down on this satellite
+        title: Turn it down in this satellite's area
         combinations: [[], [kind]]
         examples: [quieter, turn it down, volume down]
       device:
@@ -331,7 +333,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Set the volume on this satellite
+        title: Set the volume in this satellite's area
         combinations: [[percentage], [kind, percentage]]
       device:
         <<: *player
@@ -407,7 +409,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Shuffle on this satellite
+        title: Shuffle in this satellite's area
         examples: ["shuffle [the music]", turn on shuffle]
       device:
         <<: *player
@@ -427,7 +429,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Stop shuffling on this satellite
+        title: Stop shuffling in this satellite's area
         examples: [stop shuffling, turn off shuffle, shuffle off]
       device:
         <<: *player
@@ -447,7 +449,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Repeat this song on this satellite
+        title: Repeat this song in this satellite's area
         examples: [repeat this song, play this song again]
       device:
         <<: *player
@@ -468,7 +470,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Repeat on this satellite
+        title: Repeat in this satellite's area
         examples: ["repeat [all]", turn on repeat]
       device:
         <<: *player
@@ -488,7 +490,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Stop repeating on this satellite
+        title: Stop repeating in this satellite's area
         examples: [stop repeating, turn off repeat, repeat off]
       device:
         <<: *player
@@ -529,7 +531,7 @@ commands:
     music: status
     variants:
       here:
-        title: What's playing on this satellite
+        title: What's playing in this satellite's area
         examples: [what's playing, what song is this, who is this, who sings this]
       device:
         <<: *player

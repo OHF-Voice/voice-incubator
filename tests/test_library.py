@@ -74,7 +74,7 @@ def test_a_command_comes_in_versions():
     entries = {e["id"]: e for e in load_library()}
     play = [e for e in entries.values() if e["family"] == "play_music"]
     assert [(e["variant"], e["title"]) for e in play] == [
-        ("here", "Play music on this satellite"),
+        ("here", "Play music in this satellite's area"),
         ("device", "Play music on a different device"),
         ("place", "Play music in an area or floor"),
     ]

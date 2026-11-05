@@ -51,13 +51,13 @@ def library_dir(code: str | None = None) -> Path:
 
 
 VARIANTS = {
-    "here": "on this satellite",
+    "here": "in this satellite's area",
     "device": "on a device by name",
     "place": "in an area or floor by name",
 }
 """What a library family's versions act on, in the order the library shows
-them: the satellite it is said to (nothing named), a device named, or an area
-or floor named."""
+them: where the satellite it is said to is (nothing named), a device named, or
+an area or floor named."""
 
 LIBRARY_ONLY = ("needs", "variants", "formerly", "topic")
 """Library keys that are not the command's: not added with it. ``topic``:

@@ -14,6 +14,10 @@ What an area may have its own of (``KEYS``):
 - ``climate``, ``shopping_list``, ``todo_list``: the home's own things that
   commands use without a target of their own (``home``; the weather is the
   whole home's).
+- ``music_player``: the Music Assistant player music asked for there plays
+  on, after a satellite's own (voice_labs/actions.py): what Home Assistant's
+  satellites, which have none the app knows of, play on. The whole home has
+  none: an area without one plays on whichever player is there.
 - ``voice`` (and its ``speaker``): Piper's voice, which replies are said in.
 - ``sounds`` (false: none), ``instrument`` and ``pitch``: the call's sounds.
 - ``at_most``: the most a command says, ``brief`` or ``beep`` (the whole
@@ -38,7 +42,7 @@ HOME = ("climate", "shopping_list", "todo_list")
 """The home's own things an area may have its own of."""
 AT_MOST = ("brief", "beep")
 """The most a command may say, where it is capped."""
-KEYS = (*HOME, "voice", "speaker", "sounds", "instrument", "pitch", "at_most", "silence_seconds")
+KEYS = (*HOME, "music_player", "voice", "speaker", "sounds", "instrument", "pitch", "at_most", "silence_seconds")
 
 
 def own(settings: dict[str, Any], area: str | None) -> dict[str, Any]:
@@ -62,7 +66,8 @@ def whole_sounds(settings: dict[str, Any]) -> bool:
 def effective(settings: dict[str, Any], area: str | None) -> dict[str, Any]:
     """What a satellite in ``area`` uses: the area's own, else the whole
     home's. ``voice``/``speaker`` and ``silence_seconds`` are only the
-    area's own (None: the whole home's, which is decided elsewhere)."""
+    area's own (None: the whole home's, which is decided elsewhere), and
+    ``music_player`` too (None: none)."""
     mine = own(settings, area)
     home = {**(settings.get("home") or {}), **{k: mine[k] for k in HOME if mine.get(k)}}
     at_most = mine.get("at_most") or settings.get("at_most")
@@ -75,6 +80,7 @@ def effective(settings: dict[str, Any], area: str | None) -> dict[str, Any]:
         "pitch": mine.get("pitch") or settings.get("pitch"),
         "at_most": at_most if at_most in AT_MOST else None,
         "silence_seconds": mine.get("silence_seconds"),
+        "music_player": mine.get("music_player"),
     }
 
 
@@ -130,6 +136,9 @@ def put(settings: dict[str, Any], area: str, values: dict[str, Any] | None, voic
             domain = HOME_THINGS[key]
             if not isinstance(value, str) or not value.startswith(f"{domain}."):
                 raise ConfigError(f"{key}: a {domain} entity")
+        elif key == "music_player":
+            if not isinstance(value, str) or not value.startswith("media_player."):
+                raise ConfigError("music_player: a media_player entity")
         elif key == "voice":
             if str(value) not in voices:
                 raise ConfigError(f"voice: no voice {value!r}")

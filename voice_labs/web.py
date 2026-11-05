@@ -1077,6 +1077,11 @@ class Api:
                 "no_area": satellites.get(None, []),
                 "floors": [{"id": f.floor_id, "name": f.name} for f in floors],
                 "keys": list(areas.KEYS),
+                # What an area's music player may be (areas.py).
+                "music_players": sorted(
+                    ({"entity_id": e.entity_id, "name": e.name, "area": e.area_id} for e in catalog.music_players()),
+                    key=lambda m: m["name"].lower(),
+                ),
             }
         )
 

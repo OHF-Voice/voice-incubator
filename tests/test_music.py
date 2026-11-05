@@ -6,7 +6,9 @@ import asyncio
 
 import pytest
 
-from voice_labs import actions, music
+from adapt_ctc.config import ConfigError
+
+from voice_labs import actions, areas, music
 from voice_labs.commands import parse_command
 from voice_labs.engine import Decision, Satellite
 from voice_labs.hass import HomeAssistant
@@ -232,6 +234,23 @@ def test_without_a_player_of_its_own():
             outcome = await _run(hass, {"music": "play"}, {"query": "chill playlist", "area": ["kitchen"]}, satellite=lonely)
             assert outcome.speech == "Playing the Chill playlist."
             assert fake.services[-1]["target"] == {"entity_id": [KITCHEN]}
+            # The area's music player (its Settings): where it plays without
+            # one of its own -- as Home Assistant's satellites are -- and here.
+            settings: dict = {}
+            areas.put(settings, "bedroom", {"music_player": OWN}, {}, [])
+            bedroom = Satellite("112233445566", "Bedroom", "bedroom", "Bedroom", settings=areas.effective(settings, "bedroom"))
+            outcome = await _run(hass, {"music": "play"}, {"query": "chill playlist"}, satellite=bedroom)
+            assert outcome.name == "done" and fake.services[-1]["target"] == {"entity_id": [OWN]}
+            assert outcome.variables["place"]["here"]
+            # Pausing it too, when it's what plays.
+            outcome = await _run(hass, {"music": "pause"}, satellite=bedroom)
+            assert outcome.name == "done" and fake.states[OWN][0] == "paused"
+            # A satellite's own player still comes first.
+            own = Satellite(**{**bedroom.__dict__, "media_player": KITCHEN})
+            outcome = await _run(hass, {"music": "play"}, {"query": "chill playlist"}, satellite=own)
+            assert fake.services[-1]["target"] == {"entity_id": [KITCHEN]}
+            with pytest.raises(ConfigError):
+                areas.put(settings, "bedroom", {"music_player": "light.lamp"}, {}, [])
         finally:
             await hass.stop()
             server.close()

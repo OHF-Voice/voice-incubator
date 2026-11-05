@@ -1487,8 +1487,9 @@ def _all_music_players(hass: HomeAssistant) -> list[str]:
 
 
 def _player_area(entity_id: str, satellite: Satellite, catalog: Any) -> str | None:
-    """A player's area: the satellite's own player is where it is."""
-    if entity_id == satellite.media_player:
+    """A player's area: the satellite's own player is where it is, and its
+    area's music player (areas.py) in its area."""
+    if entity_id in (satellite.media_player, (satellite.settings or {}).get("music_player")):
         return satellite.area_id
     entity = catalog.entities.get(entity_id) if catalog is not None else None
     return entity.area_id if entity is not None else None
@@ -1548,6 +1549,10 @@ def _music_players(
         for p in players
         if satellite.area_id and p.area_id == satellite.area_id and p.entity_id != satellite.media_player
     ]
+    # The area's own music player (areas.py) next, after the satellite's.
+    chosen = (satellite.settings or {}).get("music_player")
+    if chosen and kind != "tv" and chosen != satellite.media_player:
+        nearby = [str(chosen), *(p for p in nearby if p != chosen)]
     return named, nearby
 
 

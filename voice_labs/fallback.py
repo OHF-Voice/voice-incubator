@@ -546,7 +546,7 @@ class Found:
 def label_of(command: Command) -> str:
     """What meaning and the model step know a command by: its description.
     Commands that describe themselves alike are one choice to them -- the
-    versions of a library command (on this satellite, on a device by name, in
+    versions of a library command (in the satellite's area, on a device by name, in
     an area or floor by name), a copy on a satellite -- and what is heard in
     the sentence picks among them, as it picks a combination. A sentence
     trigger is known by its automation's description, else its name."""

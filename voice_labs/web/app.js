@@ -604,7 +604,7 @@ function fallbackPanel() {
       h("span", { class: "badge" }, count(status.llm_commands)),
       h("span", { class: "badge" }, status.llm_status || "off")),
     h("div", { class: "row" },
-      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks a command itself, or “not a command”, in about a quarter of a second on a Raspberry Pi 5. A command's versions (on this satellite, a device, an area or floor) are one choice to it: what it hears picks the version."),
+      field("Model", model, "GLiNER hears what was said in the command meaning picked, and otherwise picks a command itself, or “not a command”, in about a quarter of a second on a Raspberry Pi 5. A command's versions (in the satellite's area, a device, an area or floor) are one choice to it: what it hears picks the version."),
       field("Choices", topK, "The closest in meaning. GLiNER is given commands that are not chosen too, to tell the chosen ones from, and runs only a chosen one."),
       thresholdField,
       h("button", { class: "primary", onclick: save }, "Save")));
@@ -1590,7 +1590,7 @@ async function duplicateDialog(id) {
 
 // New command: the library's commands to start from -- searched, filtered by
 // group -- and, always there, a custom one. A command with versions is one
-// row that opens to them: on this satellite (nothing named), on a device by
+// row that opens to them: in the satellite's area (nothing named), on a device by
 // name, in an area or floor by name. Each version is added on its own.
 const VARIANT_ICONS = { here: "mdi:crosshairs-gps", device: "mdi:devices", place: "mdi:home-map-marker" };
 
@@ -4903,6 +4903,7 @@ const AT_MOST = { "": "Command default", brief: "Brief", beep: "A beep" };
 // What an area may have its own of (areas.KEYS), by its settings' groups.
 const AREA_GROUPS = [
   ["home", "Home", "What commands use where they have no implied target of their own."],
+  ["music", "Music", null],
   ["voice", "Built-in voice", "Replies here, when no text-to-speech entity is picked. Downloaded the first time it is used."],
   ["responses", "Responses", null],
   ["end", "End of speech", null],
@@ -4945,9 +4946,15 @@ function areaSettingsPanel(area) {
         chosen && chosen.speakers.length && own.voice === value
           ? select(chosen.speakers.map((n) => [n, n]), own.speaker || chosen.speakers[0], (speaker) => save({ speaker })) : null);
     };
-    // Each: its key, label, group, the whole home's value, how a value is
-    // shown, its control (value, onChange), and a hint.
+    const players = (state.areas && state.areas.music_players) || [];
+    const playerName = (id) => (players.find((m) => m.entity_id === id) || {}).name || id;
+    // Each: its key, label, group, the whole home's value (NO_HOME: there is
+    // none), how a value is shown, its control (value, onChange), and a hint.
+    const NO_HOME = {};
     const defs = [
+      ["music_player", "Player", "music", NO_HOME, (v) => (v ? playerName(v) : "Any player here"),
+        (v, onChange) => select([["", "Any player here"], ...players.map((m) => [m.entity_id, `${m.name} (${m.entity_id})`])], v || "", (x) => onChange(x || null)),
+        "Where music asked for here plays, after a satellite's own player: Home Assistant's satellites have none. Pausing and the volume act on it too."],
       ["climate", "Thermostat", "home", home.climate, (v) => v || "not set", entity("climate")],
       ["shopping_list", "Shopping list", "home", home.shopping_list, (v) => v || "not set", entity("todo")],
       ["todo_list", "To-do list", "home", home.todo_list, (v) => v || "not set", entity("todo")],
@@ -4987,10 +4994,13 @@ function areaSettingsPanel(area) {
     function draw() {
       fill(panel, h("div", { class: "settings-groups", style: "margin:0; border-top:none" }, AREA_GROUPS.map(([id, title, help]) => {
         const mine = defs.filter((d) => d[2] === id && own[d[0]] !== undefined);
+        const homeless = defs.filter((d) => d[2] === id && d[3] === NO_HOME);
         const group = settingsGroup(id, title,
-          mine.length ? mine.map(([key, label, , , text]) => `${label}: ${text(own[key])}`).join(" · ") : "Home Default", opened,
+          mine.length ? mine.map(([key, label, , , text]) => `${label}: ${text(own[key])}`).join(" · ")
+            : homeless.length ? homeless.map(([, , , , text]) => text(null)).join(" · ") : "Home Default", opened,
           help ? h("p", { class: "muted small", style: "margin-top:0" }, help) : null,
           defs.filter((d) => d[2] === id).map(([key, label, , whole, text, control, tip]) => {
+            if (whole === NO_HOME) return field(label, control(own[key], (v) => save({ [key]: v })), tip);
             if (own[key] === undefined && !editing.has(key)) {
               return field(label, h("div", { class: "inherit-row" },
                 h("span", { class: "whole-value" }, `Home Default: ${text(whole)}`),

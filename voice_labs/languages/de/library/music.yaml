@@ -1,6 +1,7 @@
 # Music (German), as the English library's music.yaml: on Music Assistant's
-# players, in versions for where it plays (the satellite's own player, a
-# player by name, the players in an area or on a floor).
+# players, in versions for where it plays (the satellite's area: its own
+# player, else its area's; a player by name; the players in an area or on a
+# floor).
 #
 # "Spiel …" searches Music Assistant for what was heard (free text to the end
 # of the sentence, spelled from the transducer's transcript) and plays the
@@ -41,7 +42,7 @@ commands:
     verbosity: specific
     variants:
       here:
-        title: Play music on this satellite
+        title: Play music in this satellite's area
       device:
         <<: *player
         title: Play music on a different device
@@ -62,7 +63,7 @@ commands:
     verbosity: specific
     variants:
       here:
-        title: Add to the queue on this satellite
+        title: Add to the queue in this satellite's area
       device:
         <<: *player
         title: Add to the queue on a different device
@@ -84,7 +85,7 @@ commands:
     # Like what plays there, or like what was said.
     variants:
       here:
-        title: Play music like it on this satellite
+        title: Play music like it in this satellite's area
         examples: ["spiel mehr davon", "spiel [etwas] ähnliches"]
         combinations: [[], [query]]
       device:
@@ -107,7 +108,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Pause the music on this satellite
+        title: Pause the music in this satellite's area
         examples: ["pause", "musik pausieren", "pausiere die musik", "halt die musik an"]
       device:
         <<: *player
@@ -127,7 +128,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Resume the music on this satellite
+        title: Resume the music in this satellite's area
         examples: ["weiter", "spiel weiter", "musik fortsetzen", "setz die musik fort"]
       device:
         <<: *player
@@ -147,7 +148,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Stop the music on this satellite
+        title: Stop the music in this satellite's area
       device:
         <<: *player
         title: Stop the music on a different device
@@ -165,7 +166,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Next track on this satellite
+        title: Next track in this satellite's area
         examples: ["nächstes lied", "nächster titel", "[lied] überspringen"]
       device:
         <<: *player
@@ -184,7 +185,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Previous track on this satellite
+        title: Previous track in this satellite's area
         examples: ["vorheriges lied", "letztes lied", "zurück"]
       device:
         <<: *player
@@ -204,7 +205,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Turn it up on this satellite
+        title: Turn it up in this satellite's area
         examples: [lauter, mach lauter, lautstärke hoch]
       device:
         <<: *player
@@ -224,7 +225,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Turn it down on this satellite
+        title: Turn it down in this satellite's area
         examples: [leiser, mach leiser, lautstärke runter]
       device:
         <<: *player
@@ -244,7 +245,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Set the volume on this satellite
+        title: Set the volume in this satellite's area
       device:
         <<: *player
         title: Set the volume on a different device
@@ -303,7 +304,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Shuffle on this satellite
+        title: Shuffle in this satellite's area
         examples: ["zufallswiedergabe an", "mische die musik", "spiel zufällig"]
       device:
         <<: *player
@@ -322,7 +323,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Stop shuffling on this satellite
+        title: Stop shuffling in this satellite's area
         examples: ["zufallswiedergabe aus", "nicht mehr zufällig"]
       device:
         <<: *player
@@ -341,7 +342,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Repeat this song on this satellite
+        title: Repeat this song in this satellite's area
         examples: [wiederhole dieses lied, spiel das lied nochmal]
       device:
         <<: *player
@@ -361,7 +362,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Repeat on this satellite
+        title: Repeat in this satellite's area
         examples: ["wiederhole alles", "wiederholung an"]
       device:
         <<: *player
@@ -380,7 +381,7 @@ commands:
     verbosity: beep
     variants:
       here:
-        title: Stop repeating on this satellite
+        title: Stop repeating in this satellite's area
         examples: ["wiederholung aus", "nicht mehr wiederholen"]
       device:
         <<: *player
@@ -418,7 +419,7 @@ commands:
     music: status
     variants:
       here:
-        title: What's playing on this satellite
+        title: What's playing in this satellite's area
         examples: ["was läuft [gerade]", "welches lied ist das", "wer singt das"]
       device:
         <<: *player

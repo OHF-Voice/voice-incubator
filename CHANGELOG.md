@@ -228,6 +228,15 @@
   Time from now is "How long until a future time."
 - **A command the library no longer has is kept, not heard**: the others
   still are (before, none were), and the Home page says to delete it.
+- **The music's versions for "here" are "in this satellite's area"**
+  ("Pause the music in this satellite's area", every language): they act on
+  whatever plays there, not only the satellite's player. Their ids are the
+  same; only the titles changed.
+- **An area may have a music player** (its Settings, Music): where music
+  asked for there plays when the satellite has no player of its own -- Home
+  Assistant's satellites, through Wyoming, have none -- and before any other
+  Music Assistant player there for pausing and the volume. The whole home has
+  none.
 - **Adding a device to an area offers the area's first.** Its Names search
   lists the area's devices before those in no area and then the rest, and
   before anything is typed only the area's not added yet (Whole Home's: those
