@@ -40,6 +40,7 @@ import hashlib
 import ipaddress
 import logging
 import re
+import socket
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -82,7 +83,9 @@ SAMPLES_PER_CHUNK = 1024
 
 HOME_ASSISTANT = ("host", "127.0.0.0/8", "::1/128", "172.30.32.0/23")
 """Who may connect, as an app: this machine (``host``: from one of its own
-addresses, where Home Assistant runs) and the Supervisor's network."""
+addresses, where Home Assistant runs -- whichever it connects from: to the
+Supervisor's network's address, it may come from the host's on the LAN) and
+the Supervisor's network."""
 
 SUPERVISOR = "http://supervisor"
 
@@ -253,7 +256,9 @@ class Endpoints:
             return False
         if address.version == 6 and address.ipv4_mapped is not None:
             address = address.ipv4_mapped
-        if "host" in self.allow and local and str(address) == str(local[0]).removeprefix("::ffff:"):
+        if "host" in self.allow and (
+            (local and str(address) == str(local[0]).removeprefix("::ffff:")) or own_address(address)
+        ):
             return True
         return any(address in network for network in self._networks)
 
@@ -289,6 +294,17 @@ class Endpoints:
                 supports_handled_streaming=True, supports_home_control=True,
             )],
         )
+
+
+def own_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Is it one of this machine's addresses? Only those can be bound to."""
+    family = socket.AF_INET if address.version == 4 else socket.AF_INET6
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((str(address), 0))
+        except OSError:
+            return False
+    return True
 
 
 async def announce(token: str, port: int, url: str = SUPERVISOR) -> str:

@@ -80,14 +80,24 @@ def test_what_was_heard_is_kept_a_while_and_only_the_last_few():
     assert cache.take("four", None) is None
 
 
+def _this_machine() -> str:
+    """This machine's address on the network (no packet is sent)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.connect(("192.0.2.1", 9))
+        return sock.getsockname()[0]
+
+
 def test_only_home_assistant_connects_to_the_app():
     endpoints = Endpoints(None, "0.0.0.0", 10800, HOME_ASSISTANT)
     assert endpoints.allows(("127.0.0.1", 50000), ("127.0.0.1", 10800))
     assert endpoints.allows(("172.30.32.1", 50000), ("172.30.32.1", 10800))  # the Supervisor's network
-    assert endpoints.allows(("172.30.33.4", 50000), ("192.168.1.5", 10800))
-    assert endpoints.allows(("192.168.1.5", 50000), ("192.168.1.5", 10800))  # this machine, by its own address
-    assert endpoints.allows(("::ffff:192.168.1.5", 50000, 0, 0), ("::ffff:192.168.1.5", 10800, 0, 0))
-    assert not endpoints.allows(("192.168.1.9", 50000), ("192.168.1.5", 10800))  # another on the network
+    assert endpoints.allows(("172.30.33.4", 50000), ("192.0.2.5", 10800))
+    assert endpoints.allows(("192.0.2.5", 50000), ("192.0.2.5", 10800))  # this machine, by the address asked
+    assert endpoints.allows(("::ffff:192.0.2.5", 50000, 0, 0), ("::ffff:192.0.2.5", 10800, 0, 0))
+    # This machine from another of its addresses: Home Assistant asking the
+    # Supervisor's network's address comes from the host's on the LAN.
+    assert endpoints.allows((_this_machine(), 50000), ("172.30.32.1", 10800))
+    assert not endpoints.allows(("192.0.2.9", 50000), ("192.0.2.5", 10800))  # another on the network
     # Standalone: whoever can reach the address it listens on.
     assert Endpoints(None, "127.0.0.1", 10800).allows(("192.168.1.9", 50000), ("192.168.1.5", 10800))
 
