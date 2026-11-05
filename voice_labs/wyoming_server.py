@@ -17,8 +17,9 @@ Home Assistant, which the Supervisor announces to it:
 * **Speech-to-text** that writes what it heard as the command it heard, with
   the home's names spelled right (voice_labs/corrected.py) -- its words the
   speech-to-text the app uses (the Settings page's: the TDT head, or an STT
-  entity it stands in for), as on its own satellites
-  (VoiceLabsApp.transcribe).
+  entity it stands in for), as on its own satellites: the entity asked when
+  its words are needed, or hearing the audio as it comes ("Always, as you
+  speak": VoiceLabsApp.hear, transcribe).
 
 What speech-to-text gave is kept a little while with its audio
 (``HeardCache``): when the same words come to the conversation agent, from
@@ -142,6 +143,30 @@ class Remembered:
         if key not in self._heard:
             self._heard[key] = self.transcriber.transcribe_words(audio)
         return self._heard[key]
+
+
+@dataclass
+class Hearing:
+    """Speech coming in (VoiceLabsApp.hear): its audio so far, and the STT
+    entity hearing it as it is said, when that always runs."""
+
+    context: dict[str, Any]
+    satellite: Any
+    """Who is speaking (VoiceLabsApp.assist_satellite)."""
+    tdt: Remembered | None
+    stream: Any = None
+    """The STT entity hearing it (voices.StreamingTranscriber), or None."""
+    pcm: bytearray = field(default_factory=bytearray)
+
+    def feed(self, pcm: bytes) -> None:
+        self.pcm += pcm
+        if self.stream is not None:
+            self.stream.feed(pcm)
+
+    def cancel(self) -> None:
+        """It won't be transcribed (the client left)."""
+        if self.stream is not None and not self.stream.closed:
+            self.stream.cancel()
 
 
 @dataclass
@@ -291,7 +316,7 @@ class Handler(AsyncEventHandler):
         self.peer = writer.get_extra_info("peername")
         self.allowed = endpoints.allows(self.peer, writer.get_extra_info("sockname"))
         self._transcribe: Transcribe | None = None
-        self._audio: bytearray | None = None
+        self._hearing: Hearing | None = None
         self._converter = AudioChunkConverter(rate=SAMPLE_RATE, width=2, channels=1)
         self._speaking: Speaking | None = None
 
@@ -316,15 +341,16 @@ class Handler(AsyncEventHandler):
         elif Transcribe.is_type(event.type):
             self._transcribe = Transcribe.from_event(event)
         elif AudioStart.is_type(event.type):
-            self._audio = bytearray()
+            if self._hearing is not None:
+                self._hearing.cancel()
+            self._hearing = await self.app.hear(self._transcribe.context if self._transcribe is not None else None)
         elif AudioChunk.is_type(event.type):
-            if self._audio is not None:
-                self._audio += self._converter.convert(AudioChunk.from_event(event)).audio
+            if self._hearing is not None:
+                self._hearing.feed(self._converter.convert(AudioChunk.from_event(event)).audio)
         elif AudioStop.is_type(event.type):
-            if self._audio is not None:
-                pcm, self._audio = bytes(self._audio), None
-                context = self._transcribe.context if self._transcribe is not None else None
-                text = await self.app.transcribe(pcm, context)
+            if self._hearing is not None:
+                hearing, self._hearing = self._hearing, None
+                text = await self.app.transcribe(hearing)
                 await self.write_event(Transcript(text=text, language=self.app.language.code).event())
         elif Transcript.is_type(event.type):
             await self._reply(Transcript.from_event(event))
@@ -348,6 +374,8 @@ class Handler(AsyncEventHandler):
     async def disconnect(self) -> None:
         if self._speaking is not None:
             self._speaking.cancel()
+        if self._hearing is not None:
+            self._hearing.cancel()
 
     async def _reply(self, transcript: Transcript) -> None:
         """The text said to the conversation agent, done; its answer, an

@@ -443,21 +443,29 @@ async def _pipelines(tmp_path: Path) -> None:
         assert "heard" not in next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
         assert hass.stt_requests == []  # no STT entity chosen
 
-        # With the STT entity the app hears with: asked every time. What
-        # isn't a command is its words ...
+        # With the STT entity the app hears with, "When needed": asked when
+        # nothing here makes out the words ...
         app.store.settings["stt"] = "stt.fake_whisper"
         hass.stt_text = "The quick brown fox."
         assert await transcribe(port, said("the quick brown fox"), KITCHEN) == "The quick brown fox."
         assert hass.stt_requests[-1]["entity_id"] == "stt.fake_whisper"
-        # ... as is a command's, when they read back as it ...
+        # ... and not for a command the audio made out: the TDT head's words.
+        asked = len(hass.stt_requests)
         hass.stt_text = "Turn on Nanoleaf."
+        assert await transcribe(port, command, KITCHEN) == text and len(hass.stt_requests) == asked
+        # "Always, as you speak": it hears every command as it comes, and its
+        # words are tried first -- as they are, when they read back ...
+        app.store.settings["stt_always"] = True
         assert await transcribe(port, command, KITCHEN) == "Turn on Nanoleaf."
+        assert hass.stt_requests[-1]["bytes"] == 2 * len(command) and len(hass.stt_requests) == asked + 1
+        stt = next(s for s in app.calls.recent[-1].stages if s["stage"] == "transcript")["stt"]
+        assert stt["entity"] == "stt.fake_whisper" and stt["streamed"]["seconds"] == pytest.approx(len(command) / 16000, abs=0.01)
         # ... else the TDT head's, with the names written over them.
         hass.stt_text = "Turn on the lamp."
         text = await transcribe(port, command, KITCHEN)
         how = next(s for s in app.calls.recent[-1].stages if s["stage"] == "transcript")
         assert "Nanoleaf" in text and how["as"] == "names" and how["tried"][0]["text"] == "Turn on the lamp."
-        assert how["stt"]["entity"] == "stt.fake_whisper"
+        app.store.settings["stt_always"] = False
 
         # The app's own speech-to-text (an STT entity called Voice Labs) would
         # ask itself: the TDT head hears instead.

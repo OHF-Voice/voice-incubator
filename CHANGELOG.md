@@ -27,14 +27,16 @@
   to Home Assistant, and only Home Assistant may connect (this machine and
   the Supervisor's network).
   - **Speech-to-text** hears as the app's satellites do -- with the TDT head,
-    or the STT entity chosen on the Settings page (always asked here; the TDT
-    head stands in when it fails) -- and writes what it heard as the command
-    it heard: the names and numbers the command was heard with are written
+    or the STT entity chosen on the Settings page: asked when its words are
+    needed, or hearing every command as Home Assistant streams it in
+    ("Always, as you speak"); the TDT head stands in when it fails -- and
+    writes what it heard as the command it heard: the names and numbers the
+    command was heard with are written
     over the TDT words said there ("Turn on the Nanoleaf." for "Turn on the
     Neno leave"), as the Names page has them -- kept only when that reads
     back as the same command, else the words as heard, else the command's
-    own words. An STT entity's words are tried as they are first. What isn't
-    a command is the words as heard. The conversation agent, given the same
+    own words. An STT entity's words, when it heard them, are tried as they
+    are first. What isn't a command is the words as heard. The conversation agent, given the same
     words from the same satellite within 30 seconds, recognizes their audio
     again (in the satellite's area) rather than the words.
   - **Text-to-speech** is Piper with every voice in the catalog, each
