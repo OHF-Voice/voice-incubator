@@ -16,15 +16,16 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import numpy as np
 
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
-from . import actions, alarms, areas, downloads, languages, people, skills, timers, tones
+from . import actions, alarms, areas, corrected, downloads, languages, people, piper_voices, skills, timers, tones
 from .duplex import Duplex
 from .skills import skill_response
-from .agent import KEEP_SECONDS, Agent, Answered, Streamed, conversation_key
+from .agent import HOME_ASSISTANT_AGENT, KEEP_SECONDS, Agent, Answered, Streamed, conversation_key
 from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import HOME_TAKEN, VERBOSITY
@@ -74,6 +75,7 @@ from .wake_recordings import TAKE_SCORE, WakeRecording, WakeTakes
 from .wake_recordings import summary as wake_summary
 from .wake_training import WakeTraining, phrase_of, word_id
 from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
+from .wyoming_server import CONTEXT_KEYS, Endpoints, Heard, HeardCache, Remembered, Spoken, Turn, announce
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,6 +119,9 @@ ANNOUNCE_WAIT = 60.0
 # and how long it lasts, unless a button ends it first (a microphone left open
 # in an empty room).
 INTERCOM_START_WAIT = 30.0
+# Home Assistant's pipelines (Wyoming): how long a question asked back waits
+# for its answer, which comes with the conversation's id.
+ASKED_SECONDS = 60.0
 INTERCOM_BACKLOG = 64 * 1024
 INTERCOM_LIMIT = 30 * 60.0
 
@@ -354,6 +359,15 @@ class Options:
     timer_ring_seconds: float = 900.0
     """How long a finished timer (or an alarm) rings if nobody stops it: 15
     minutes, as on the stock firmware."""
+    wyoming_host: str = "127.0.0.1"
+    wyoming_port: int = 0
+    """Where Home Assistant's pipelines reach the app (voice_labs/wyoming_server.py):
+    its speech-to-text, text-to-speech and conversation agent here, Parakeet's
+    speech-to-text on the next port. 0: nowhere."""
+    wyoming_allow: tuple[str, ...] = ()
+    """Who may connect (wyoming_server.Endpoints); none: whoever can reach it."""
+    supervisor_token: str | None = None
+    """As an app: the Supervisor's, to announce the Wyoming server to Home Assistant."""
 
 
 class Cues:
@@ -684,6 +698,15 @@ class VoiceLabsApp:
         """The satellites discovery found, by key: each served unless its
         device is disabled in Home Assistant."""
         self._web = None
+        self.wyoming: Endpoints | None = None
+        """Home Assistant's pipelines' way in (voice_labs/wyoming_server.py)."""
+        self.heard = HeardCache()
+        """What its speech-to-text heard a moment ago, for its conversation agent."""
+        self._wyoming_asked: dict[str, tuple[FollowUp, float]] = {}
+        """A question asked back in a pipeline's conversation, by its id, and when."""
+        self.voice_uses = piper_voices.Uses(self.store.data_dir / "piper_used.json")
+        """When Home Assistant last asked for each voice."""
+        self._voice_fetches: dict[str, asyncio.Future] = {}
         # Recognition, Piper and the wake verifier's retry share the CPU; two
         # satellites waking at once is rare, so one lock over them is enough.
         self._model_lock = asyncio.Lock()
@@ -744,6 +767,8 @@ class VoiceLabsApp:
         from .web import start_web  # pylint: disable=import-outside-toplevel
 
         self._web = await start_web(self)
+        if self.options.wyoming_port:
+            await self._start_wyoming()
 
     async def _download(self, todo: list) -> None:
         """The models it downloads the first time (voice_labs/downloads.py),
@@ -758,6 +783,9 @@ class VoiceLabsApp:
 
     async def stop(self) -> None:
         await self.wake_training.stop()
+        if self.wyoming is not None:
+            await self.wyoming.stop()
+            self.wyoming = None
         if self._web is not None:
             await self._web.cleanup()
         for task in list(self._sessions.values()):
@@ -3358,6 +3386,234 @@ class VoiceLabsApp:
         if record is not None:
             record.stage("speech", text=text, tts=voice.tts, on=target, voice=voice.tts_voice, **heard)
 
+    # ------------------------------------- Home Assistant's pipelines (Wyoming)
+
+    async def _start_wyoming(self) -> None:
+        """The Wyoming endpoints (voice_labs/wyoming_server.py) -- announced
+        to Home Assistant, as an app -- and the voices it asked for, swept daily."""
+        options = self.options
+        endpoints = Endpoints(self, options.wyoming_host, options.wyoming_port, options.wyoming_allow)
+        try:
+            await endpoints.start()
+        except OSError as err:
+            _LOGGER.error("Wyoming: can't listen on %s:%d (%s)", options.wyoming_host, options.wyoming_port, err)
+            await endpoints.stop()
+            return
+        self.wyoming = endpoints
+        if options.supervisor_token:
+            self._spawn(self._announce_wyoming(options.supervisor_token))
+        self._spawn(self._sweep_voices())
+
+    async def _announce_wyoming(self, token: str) -> None:
+        try:
+            uri = await announce(token, self.options.wyoming_port)
+            _LOGGER.info("Wyoming: announced to Home Assistant at %s", uri)
+        except (aiohttp.ClientError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Wyoming: could not announce the server to Home Assistant: %s", err)
+
+    def kept_voices(self) -> set[str]:
+        """The voices the app speaks with, by key: kept however long Home
+        Assistant hasn't asked for them (piper_voices.Uses)."""
+        settings = self.store.settings
+        kept = {
+            self.language.piper.removesuffix(".onnx"),
+            (self.language.wake_voice or "").removesuffix(".onnx"),
+            str(self.piper_settings().get("voice") or ""),
+            str((settings.get("agent_voice") or {}).get("voice") or ""),
+            *(str(a.get("voice") or "") for a in (settings.get("areas") or {}).values() if isinstance(a, dict)),
+        }
+        return {key for key in kept if key}
+
+    async def _sweep_voices(self) -> None:
+        """Once a day: the voices Home Assistant hasn't asked for in a while, removed."""
+        while True:
+            await asyncio.to_thread(self.voice_uses.sweep, self.piper_dir, self.kept_voices())
+            await asyncio.sleep(24 * 3600)
+
+    def assist_satellite(self, context: dict[str, Any] | None) -> Satellite:
+        """Who asks through Wyoming, as commands see them: Home Assistant's
+        satellite, by its device -- its area, its media player -- or, typed
+        in Assist, nobody in particular, in no area. It can't beep (a command
+        that beeps says its brief response), and it has neither the app's
+        timers nor its night mode: it can't blink."""
+        context = context or {}
+        catalog = self.hass.catalog
+        satellite_id = str(context.get("satellite_id") or "") or None
+        device_id = str(context.get("device_id") or "") or catalog.satellite_devices.get(satellite_id or "")
+        area = catalog.device_areas.get(device_id) if device_id else None
+        return Satellite(
+            satellite_id or device_id or "assist",
+            catalog.device_names.get(device_id or "") or "Assist",
+            **catalog.area_info(area),
+            device_id=device_id,
+            device_media_player=catalog.media_player_of(device_id) if device_id else None,
+            skills=self.satellite_skills(area),
+            settings=areas.effective(self.store.settings, area),
+            beeps=False,
+        )
+
+    async def handle_text(
+        self, text: str, context: dict[str, Any] | None, on_text: Callable[[str], Awaitable[None]] | None = None
+    ) -> Turn:
+        """``text`` said to the app's conversation agent in Home Assistant
+        (Wyoming's handle), done as on a satellite of the app's in the asking
+        one's area (assist_satellite). Words its speech-to-text gave a moment
+        ago are their audio, recognized again here (wyoming_server.HeardCache).
+        An answer to what it asked back in the conversation is that answer;
+        a timer is Home Assistant's own agent's, to ring on its satellite. An
+        LLM's answer goes to ``on_text`` a piece at a time, as it comes."""
+        context = {k: v for k, v in (context or {}).items() if k in CONTEXT_KEYS and v}
+        satellite = self.assist_satellite(context)
+        record = self.calls.begin("wyoming", satellite.as_dict())
+        record.stage("typed", text=text, context=context)
+        now = time.monotonic()
+        self._wyoming_asked = {k: v for k, v in self._wyoming_asked.items() if now - v[1] <= ASKED_SECONDS}
+        conversation = str(context.get("conversation_id") or "")
+        asked = self._wyoming_asked.pop(conversation, (None, 0.0))[0] if conversation else None
+        # An answer is its words; a command, what was heard.
+        heard = self.heard.take(text, context.get("satellite_id")) if asked is None else None
+        assert self.engine is not None
+        engine = self.engine
+        async with self._model_lock:
+            if heard is not None:
+                decision = await asyncio.to_thread(
+                    engine.recognize_command, heard.audio, satellite, heard.transcriber, heard.evidence
+                )
+            else:
+                decision = await asyncio.to_thread(engine.recognize_text, text, satellite)
+        if decision.recognition.get("tdt_transcript") is None:
+            decision.recognition["tdt_transcript"] = text  # what the agent is asked
+        record.stage("recognition", **decision.to_json(), **({"heard": heard.record_id} if heard is not None else {}))
+        who = self.speaking()
+        if asked is not None:
+            speech, outcome, summary = await self._answer(asked, decision, satellite, False, record, _no_cue)
+        elif decision.behavior is not None and decision.behavior.timer is not None and not satellite.timer_list:
+            speech, outcome, summary = await self._hass_timer(text, satellite, record)
+        else:
+            decision = await self._referring(decision, satellite, record)
+            speech, outcome, summary = await self._carry_out(decision, satellite, who.as_dict(), False, record)
+        said = ""
+        try:
+            if isinstance(speech, Streamed):
+                pieces = []
+                async for piece in speech.pieces():
+                    pieces.append(piece)
+                    if on_text is not None:
+                        await on_text(piece)
+                said = "".join(pieces).strip()
+            else:
+                said = str(speech or "")
+        finally:
+            if isinstance(speech, Streamed):
+                speech.cancel()  # the client left before the answer: the agent stops too
+            record.stage("speech", text=said, **({"silent": True} if speech is None else {}))
+            self.calls.finish(record, outcome, summary)
+        if outcome == "asked":
+            asks: FollowUp | None = FollowUp("confirm", said, record.id, who, decision=decision)
+        elif decision.asked is not None and decision.asked.wants_answer:
+            asks = FollowUp("agent", decision.asked.text, record.id, who)
+        else:
+            asks = None
+        if asks is not None and conversation:
+            self._wyoming_asked[conversation] = (asks, time.monotonic())
+        return Turn(said, outcome not in ("not recognized", "error"), asks is not None)
+
+    async def _hass_timer(self, text: str, satellite: Satellite, record: CallRecord) -> tuple[str, str, str]:
+        """A timer asked for on Home Assistant's satellite: Home Assistant's
+        own agent's, which sets it there -- to ring on that satellite -- and
+        says how it went."""
+        try:
+            result = await self.agent.run_trigger(text, satellite.device_id, self.language.code)
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            record.stage("timer", agent=HOME_ASSISTANT_AGENT, error=str(err))
+            return self.language.speech.FAILED, "error", f"{text!r}: {err}"
+        response = (result or {}).get("response") or {}
+        said = str(((response.get("speech") or {}).get("plain") or {}).get("speech") or "").strip()
+        failed = response.get("response_type") == "error"
+        code = (response.get("data") or {}).get("code") if failed else None
+        record.stage("timer", agent=HOME_ASSISTANT_AGENT, said=said, error=code)
+        return said, "not recognized" if failed else "done", f"{text!r}: Home Assistant's timer"
+
+    async def transcribe(self, pcm: bytes, context: dict[str, Any] | None, plain: bool = False) -> str:
+        """What Home Assistant's satellite said (Wyoming's speech-to-text):
+        as the TDT head heard it (``plain``), else written as the command the
+        app heard in it (voice_labs/corrected.py) -- and kept a while, for
+        the conversation agent to recognize again (``heard``)."""
+        context = {k: v for k, v in (context or {}).items() if k in CONTEXT_KEYS and v}
+        satellite = self.assist_satellite(context)
+        record = self.calls.begin("wyoming", satellite.as_dict())
+        record.stage("transcribe", corrected=not plain, seconds=round(len(pcm) / BYTE_RATE, 3), context=context)
+        audio = _pcm_to_float(pcm)
+        assert self.engine is not None
+        engine = self.engine
+        names = self.said_names(satellite.area_id)
+        async with self._model_lock:
+            started = time.perf_counter()
+            if plain:
+                text = await asyncio.to_thread(engine.transcribe, audio)
+                record.stage("transcript", text=text, seconds=_seconds(time.perf_counter() - started))
+            else:
+                transcriber = Remembered(engine.transcriber) if engine.transcriber is not None else None
+                evidence = await asyncio.to_thread(engine.model.log_probs, audio)
+                decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, transcriber, evidence)
+                record.stage("recognition", **decision.to_json())
+                started = time.perf_counter()
+                text, how = await asyncio.to_thread(
+                    self._corrected, decision, audio, transcriber, evidence[1], names, satellite
+                )
+                record.stage("transcript", text=text, **how, seconds=_seconds(time.perf_counter() - started))
+                self.heard.keep(Heard(text, audio, evidence, transcriber, context.get("satellite_id"), record.id))
+        self.calls.finish(record, "transcribed", repr(text), {"command": pcm})
+        return text
+
+    def _corrected(
+        self, decision: Decision, audio: np.ndarray, transcriber: Remembered | None, frame_seconds: float,
+        names: dict[str, dict[str, str]], satellite: Satellite,
+    ) -> tuple[str, dict[str, Any]]:
+        """``transcribe``'s corrected transcript (from the engine's thread)."""
+        engine = self.engine
+        assert engine is not None
+        transcript, words = transcriber.transcribe_words(audio) if transcriber is not None else (decision.transcript, [])
+        return corrected.correct(
+            decision, transcript, words or [], frame_seconds, names, lambda text: engine.recognize_text(text, satellite)
+        )
+
+    async def wyoming_voice(self, name: str | None, speaker: str | None = None) -> Spoken:
+        """The voice Home Assistant asked for (Wyoming's text-to-speech), by
+        Piper's name -- downloaded first, the first time -- with its speaker;
+        none: the one replies are said in, as the Settings page has it. Its
+        use is written down (piper_voices.Uses)."""
+        home = self.piper_voice()
+        voice = piper_catalog().get(name) if name else home
+        if voice is None:
+            raise ValueError(f"Piper has no voice {name!r}")
+        model = await self.speech.other(await self._fetched(voice))
+        settings = self.piper_settings() if voice == home else {}
+        if speaker:
+            settings = {**settings, "speaker": speaker}
+        if name:
+            self.voice_uses.used(voice.key)
+        return Spoken(voice.key, model, settings, model.config.sample_rate)
+
+    async def _fetched(self, voice: Voice) -> Path:
+        """``voice``'s model, downloaded first if it isn't here -- once,
+        however many ask for it at a time."""
+        if voice.missing(self.piper_dir):
+            fetching = self._voice_fetches.get(voice.key)
+            if fetching is None:
+                fetching = asyncio.ensure_future(downloads.Downloader(voice.missing(self.piper_dir)).run())
+                self._voice_fetches[voice.key] = fetching
+                fetching.add_done_callback(lambda _: self._voice_fetches.pop(voice.key, None))
+                _LOGGER.info("Downloading %s for Home Assistant", voice.key)
+            await asyncio.shield(fetching)
+        return voice.model(self.piper_dir)
+
+    async def speak(self, text: str, voice: Spoken) -> bytes:
+        """``text`` (a sentence) in ``voice``: 16-bit PCM at its own rate."""
+        async with self._model_lock:
+            audio, _ = await asyncio.to_thread(self.speech.synthesized, text, voice.settings, voice.model)
+        return (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+
     # ------------------------------------------------- try, replay (web UI)
 
     async def try_text(
@@ -4205,6 +4461,10 @@ class VoiceLabsApp:
         _LOGGER.info(
             "Saved %s/{call,call-aec,command}-%d.wav", out_dir, stamp
         )
+
+
+async def _no_cue(_sound: str) -> None:
+    """No call's sounds: Home Assistant's pipeline plays its own."""
 
 
 def _profile_json(name: str, profile: dict[str, Any]) -> dict[str, Any]:

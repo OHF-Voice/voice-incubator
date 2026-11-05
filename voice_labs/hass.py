@@ -144,6 +144,10 @@ class Catalog:
     """Device id -> (manufacturer, model)."""
     device_macs: dict[str, list[str]] = field(default_factory=dict)
     """MAC (aa:bb:..) -> the devices with it (an ESPHome device, ...)."""
+    device_names: dict[str, str] = field(default_factory=dict)
+    """Device id -> its name (the one given it, else its own)."""
+    satellite_devices: dict[str, str] = field(default_factory=dict)
+    """Home Assistant's satellites (assist_satellite entities) -> their devices."""
     disabled_satellites: dict[str, str] = field(default_factory=dict)
     """Satellite key -> its Voice Labs device, for each one whose device is
     disabled: this app leaves it to another (server.VoiceLabsApp)."""
@@ -165,6 +169,13 @@ class Catalog:
                 for e in self.entities.values()
                 if e.domain == "media_player" and e.platform == "esphome" and e.device_id in devices
             ),
+            None,
+        )
+
+    def media_player_of(self, device_id: str) -> str | None:
+        """The media player of a device in Home Assistant (a satellite's own)."""
+        return next(
+            (e.entity_id for e in self.entities.values() if e.domain == "media_player" and e.device_id == device_id),
             None,
         )
 
@@ -716,6 +727,12 @@ class HomeAssistant:
         device_area = {d["id"]: d.get("area_id") for d in devices or []}
         catalog_device_areas = dict(device_area)
         device_models = {d["id"]: (d.get("manufacturer"), d.get("model")) for d in devices or []}
+        device_names = {d["id"]: d.get("name_by_user") or d.get("name") or d["id"] for d in devices or []}
+        satellite_devices = {
+            e["entity_id"]: e["device_id"]
+            for e in registry or []
+            if e["entity_id"].startswith("assist_satellite.") and e.get("device_id")
+        }
         device_macs: dict[str, list[str]] = {}
         disabled_satellites: dict[str, str] = {}
         for device in devices or []:
@@ -737,7 +754,7 @@ class HomeAssistant:
         }
         catalog = Catalog(
             device_areas=catalog_device_areas, device_models=device_models, device_macs=device_macs,
-            disabled_satellites=disabled_satellites,
+            device_names=device_names, satellite_devices=satellite_devices, disabled_satellites=disabled_satellites,
         )
         for floor in floors or []:
             catalog.floors[floor["floor_id"]] = Floor(

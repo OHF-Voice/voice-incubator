@@ -18,6 +18,12 @@ configuration:
     description: >-
       Seconds of silence after speech that end a command. "Silence to end"
       on the Settings page wins over this.
+  wyoming_port:
+    name: Wyoming port
+    description: >-
+      Home Assistant's voice assistants reach the app's speech-to-text,
+      text-to-speech and conversation agent here, and Parakeet's
+      speech-to-text on the next port. 0: neither.
   debug_logging:
     name: Debug logging
     description: >-

@@ -3703,11 +3703,13 @@ async function pageWakeWords(query) {
 
 // ---------------------------------------------------------------- sessions
 
-const OUTCOME_CLASS = { answered: "ok", asked: "accent", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn" };
+const OUTCOME_CLASS = { answered: "ok", asked: "accent", done: "ok", "dry run": "accent", "not recognized": "warn", "wake rejected": "", error: "bad", timeout: "bad", "in progress": "accent", "timer stopped": "ok", "timer rang out": "warn", transcribed: "ok" };
 
-// What a session was: a call on a satellite, a test, a replay.
+// What a session was: a call on a satellite, a test, a replay, or Home
+// Assistant's (its satellite's, through Wyoming).
 function sessionKind(record, sats) {
   if (record.kind === "call") return (sats && sats[record.satellite.id]) || record.satellite.name || "Session";
+  if (record.kind === "wyoming") return record.satellite.name || "Home Assistant";
   return record.kind === "try" ? "test" : record.kind;
 }
 
@@ -3715,6 +3717,7 @@ function sessionKind(record, sats) {
 function sessionIcon(record) {
   if (record.kind === "try") return "mdi:keyboard-outline";
   if (record.kind === "replay") return "mdi:replay";
+  if (record.kind === "wyoming") return "mdi:home-assistant";
   return satelliteIcon(state.satellites.find((s) => s.key === (record.satellite || {}).id));
 }
 
@@ -4375,6 +4378,9 @@ function speechTime(d) {
   return "";
 }
 
+// How the transcript Home Assistant was given was written (voice_labs/corrected.py).
+const TRANSCRIPT_AS = { names: ", the names written as they are", command: ", in the command's own words" };
+
 // How a speaker was known, when not by their voice.
 const SPEAKER_BY = { wake_word: "their wake word", only_person: "the only person" };
 
@@ -4406,7 +4412,14 @@ function stepGlance(stage) {
     case "split":
       return { title: "Command starts", status: "", line: `at ${num(d.cut, 2)} s${d.phrase ? `, after “${d.phrase}”` : ""}${inTime(d.seconds)}` };
     case "typed":
+      if (d.context) return { title: "From Home Assistant", status: "", line: quoted(d.text || "") };
       return { title: "Typed", status: "", line: `${quoted(d.text || "")}${d.spoken ? ", spoken and heard" : ""}` };
+    case "transcribe":
+      return { title: "From Home Assistant", status: "", line: `${num(d.seconds, 1)} s to ${d.corrected ? "transcribe" : "transcribe with Parakeet"}` };
+    case "transcript":
+      return { title: "Transcript", status: d.unread ? "warn" : "ok", line: `${quoted(d.text || "")}${TRANSCRIPT_AS[d.as] || ""}${d.unread ? ", which doesn't read back as the command" : ""}${inTime(d.seconds)}` };
+    case "timer":
+      return { title: "Timer", status: d.error ? "bad" : "ok", line: `Home Assistant's: ${quoted(d.said || d.error || "")}` };
     case "replay_of":
       return { title: "Replay", status: "", line: `of ${d.call}` };
     case "recognition":

@@ -68,6 +68,10 @@ SENDSPIN_PLAYERS = {"aabbccddeeff": "media_player.fake_vpe"}
 """Satellite -> its Sendspin player, as the Voice Labs integration finds it."""
 # The fake satellite's ESPHome device and its media player (where TTS speaks).
 ESPHOME_DEVICE = {"id": "esphome-fake-vpe", "mac": "aa:bb:cc:dd:ee:ff", "media_player": "media_player.fake_vpe_media_player"}
+# A satellite of Home Assistant's own (its assist_satellite), which reaches
+# the app through Wyoming.
+ASSIST_SATELLITE = {"id": "ha-kitchen-voice", "name": "Kitchen Voice", "entity_id": "assist_satellite.kitchen_voice",
+                    "area_id": "kitchen", "media_player": "media_player.kitchen_voice"}
 INTENT_DOMAINS = {"HassLightSet": ["light"], "HassClimateSetTemperature": ["climate"]}
 """The domain an intent needs, when its slots don't say."""
 STT_ENGINES = [{"engine_id": "stt.fake_whisper", "supported_languages": ["en-US", "en-GB", "de-DE", "fr-FR"]}]
@@ -286,7 +290,15 @@ class FakeHass:
                         "manufacturer": "Espressif",
                         "model": "esp32-s3-devkitc-1",
                         "connections": [["mac", ESPHOME_DEVICE["mac"]]],
-                    }
+                    },
+                    {
+                        "id": ASSIST_SATELLITE["id"],
+                        "name": ASSIST_SATELLITE["name"],
+                        "area_id": ASSIST_SATELLITE["area_id"],
+                        "manufacturer": "Nabu Casa",
+                        "model": "Home Assistant Voice",
+                        "connections": [],
+                    },
                 ]
                 + [
                     {
@@ -327,6 +339,11 @@ class FakeHass:
                         "platform": "esphome",
                         "unique_id": "aabbccddeeff-media_player",
                     }
+                ]
+                + [
+                    {"entity_id": ASSIST_SATELLITE[key], "name": None, "original_name": None, "area_id": None,
+                     "device_id": ASSIST_SATELLITE["id"], "platform": "esphome", "unique_id": f"ha-vpe-{key}"}
+                    for key in ("entity_id", "media_player")
                 ]
             )
         elif kind == "config/entity_registry/get_entries":

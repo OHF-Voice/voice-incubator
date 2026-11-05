@@ -210,18 +210,25 @@ class Speech:
         """``text`` (a sentence of ``sentences_of``) as device PCM, as the
         settings say (``settings``, else the Settings page's), in ``voice``
         (``other``'s; else the one replies are said in)."""
+        audio, rate = self.synthesized(text, settings, voice)
+        return _to_device_pcm(audio, rate) if len(audio) else b""
+
+    def synthesized(
+        self, text: str, settings: dict[str, Any] | None = None, voice: PiperVoice | None = None
+    ) -> tuple[np.ndarray, int]:
+        """``synthesize``'s, as Piper made it: samples (-1 to 1) at the
+        voice's own rate, and that rate."""
         assert self._voice is not None
         voice = voice or self._voice
         chosen = self._synthesis() if settings is None else settings
         config = SynthesisConfig(**synthesis(chosen, voice.config.speaker_id_map or {}))
         chunks = list(voice.synthesize(text, syn_config=config))
         if not chunks:
-            return b""
-        rate = chunks[0].sample_rate
+            return np.zeros(0, dtype=np.float32), voice.config.sample_rate
         audio = np.concatenate(
             [np.frombuffer(c.audio_int16_bytes, dtype="<i2") for c in chunks]
         ).astype(np.float32) / 32768.0
-        return _to_device_pcm(audio, rate)
+        return audio, chunks[0].sample_rate
 
     async def say(self, text: str) -> bytes:
         """Speak ``text`` whole (its ``sentences_of``), or fall back to the

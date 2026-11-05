@@ -22,6 +22,31 @@
     there goes there); Whole Home's list every name heard everywhere, the
     devices in no area, the floors and the value lists.
 
+- **Home Assistant's voice assistants can use the app** (Wyoming 1.11, on
+  port 10800; option `wyoming_port`, 0 for none). The Supervisor announces it
+  to Home Assistant, and only Home Assistant may connect (this machine and
+  the Supervisor's network).
+  - **Speech-to-text** writes what it heard as the command it heard: the
+    names and numbers the command was heard with are written over the TDT
+    words said there ("Turn on the Nanoleaf." for "Turn on the Neno leave"),
+    as the Names page has them -- kept only when that reads back as the same
+    command, else the TDT words, else the command's own words. Nothing heard
+    is the TDT words. The conversation agent, given the same words from the
+    same satellite within 30 seconds, recognizes their audio again (in the
+    satellite's area) rather than the words.
+  - **Text-to-speech** is Piper with every voice in the catalog, each
+    downloaded the first time it is asked for and removed once unused for 30
+    days (never one the app speaks with); text in pieces is said a sentence
+    at a time.
+  - **The conversation agent** is the app's commands, skills, fallback and
+    agent, as on one of its satellites in the asking satellite's area (its
+    Home Assistant device's). An LLM's answer is streamed; a question back (a
+    command's confirm, the agent's) keeps the conversation going, and the
+    answer comes in it. A command that beeps says its brief response, as Home
+    Assistant can't be asked for the sound with Wyoming 1.11; a timer goes to
+    Home Assistant's own agent, to ring on that satellite. Sessions shows
+    each request.
+  - **Parakeet's speech-to-text** alone is on the next port.
 - **"Stop" ends a reply**, said alone while the satellite says it, as on the
   stock firmware. Firmware that says so (HELLO `stop_word`) keeps the "stop"
   model loaded, pushed with the wake words, and runs it only while a reply is

@@ -144,6 +144,10 @@ class Outcome:
     at_most: str | None = None
     """The most it says, in the satellite's area (areas.AT_MOST; None: as much as it would)."""
 
+    beeps: bool = True
+    """The satellite plays the acknowledgement sound (engine.Satellite.beeps);
+    else a beep is the brief response."""
+
     music: dict[str, Any] | None = None
     """For a music command: the players, and what it searched and found."""
 
@@ -439,7 +443,10 @@ async def run(
         values["items"] = found
     if adding is not None:
         values.update(items=adding.items, back=adding.back, added=_joined(adding.items), put_back=_joined(adding.back))
-    outcome = Outcome(values, behavior.sequence(), dry_run, elsewhere=elsewhere, at_most=satellite.settings.get("at_most"))
+    outcome = Outcome(
+        values, behavior.sequence(), dry_run, elsewhere=elsewhere, at_most=satellite.settings.get("at_most"),
+        beeps=satellite.beeps,
+    )
     outcome.confirmed = confirmed
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
@@ -995,7 +1002,7 @@ async def _run_trigger(hass: HomeAssistant, behavior: Behavior, values: dict[str
     """Home Assistant's own agent hears the sentence trigger's sentence and
     runs its automation (voice_labs/triggers.py). What it answers is said,
     but for its "Done" -- the automation set no response -- which is the
-    acknowledgement sound."""
+    acknowledgement sound, on a satellite that beeps."""
     text = outcome.trigger = str(values["slots"].get(triggers.SENTENCE) or values["command"]["text"])
     if outcome.dry_run:
         return await _say(hass, behavior, values, outcome, "done", "")
@@ -1018,7 +1025,7 @@ async def _run_trigger(hass: HomeAssistant, behavior: Behavior, values: dict[str
         # Home Assistant heard no trigger in it after all (one turned off since).
         outcome.error = str((response.get("data") or {}).get("code") or "error")
         return await _say(hass, behavior, values, outcome, "failed", speech or languages.speech().FAILED, {"error": outcome.error})
-    if speech == done:
+    if speech == done and outcome.beeps:
         speech = ""
     return await _say(hass, behavior, values, outcome, "done", speech, {"speech": speech})
 
@@ -1544,9 +1551,11 @@ def _music_players(
     return named, nearby
 
 
-def level_for(behavior: Behavior, here: bool, elsewhere: str = BEEP_ELSEWHERE, at_most: str | None = None) -> tuple[str, str]:
+def level_for(
+    behavior: Behavior, here: bool, elsewhere: str = BEEP_ELSEWHERE, at_most: str | None = None, beeps: bool = True,
+) -> tuple[str, str]:
     """The verbosity a done command says at, and why. ``at_most``: the
-    area's cap (areas.AT_MOST)."""
+    area's cap (areas.AT_MOST); ``beeps``: the satellite can beep."""
     level = behavior.level
     why = "the command's" if behavior.verbosity else "the default for what it does"
     if level in QUIET and behavior.question:
@@ -1557,6 +1566,8 @@ def level_for(behavior: Behavior, here: bool, elsewhere: str = BEEP_ELSEWHERE, a
         level, why = capped(level, at_most), "the most said in the satellite's area"
         if level in QUIET and behavior.question:
             level, why = "brief", "a question always answers"
+    if level == "beep" and not beeps:
+        level, why = "brief", "the satellite can't beep"
     return level, why
 
 
@@ -1576,7 +1587,7 @@ async def _say(
     outcome.name = name
     level = None
     if name == "done":
-        level, why = level_for(behavior, bool(values["place"]["here"]), outcome.elsewhere, outcome.at_most)
+        level, why = level_for(behavior, bool(values["place"]["here"]), outcome.elsewhere, outcome.at_most, outcome.beeps)
         outcome.verbosity = {"level": level, "why": why, "place": values["place"]}
     if isinstance(default, dict):
         default = closest_text(default, level or "specific") or ""

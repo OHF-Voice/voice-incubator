@@ -27,6 +27,25 @@ everything the app does, page by page.
 Then open **Voice Labs** in the sidebar to make commands, name things, set up
 satellites and look at sessions.
 
+## Home Assistant's voice assistants
+
+The app is also a Wyoming service, which Home Assistant finds (**Settings >
+Devices & services**, Discovered). Add it, and its speech-to-text,
+text-to-speech and conversation agent can be picked for any voice assistant
+(**Settings > Voice assistants**): for satellites that aren't the app's, and
+for what's typed in Assist.
+
+- **Speech-to-text** writes what it heard as the command it heard, with your
+  names spelled as on the Names page.
+- **Text-to-speech** is Piper, with every voice it has: each is downloaded
+  the first time it is used, and removed after 30 days unused.
+- **The conversation agent** is your commands, skills and conversation agent,
+  in the satellite's area. A command that would beep says its brief response
+  instead, and a timer is set by Home Assistant's own agent, on the satellite.
+
+Parakeet's speech-to-text alone is on the next port: add the **Wyoming
+Protocol** integration with host `127.0.0.1` and port `10801`.
+
 ## Options
 
 - `wake_cutoff`: the satellite detector's probability cutoff for the
@@ -36,4 +55,7 @@ satellites and look at sessions.
 - `speaker_threshold`: how closely a voice must match to be identified.
 - `silence_seconds`: silence that ends a command. **Silence to end** in
   Settings -- the whole home's, an area's or a satellite's -- wins.
+- `wyoming_port`: where Home Assistant's voice assistants reach the app
+  (default 10800), with Parakeet's speech-to-text on the next port; 0 for
+  neither.
 - `debug_logging`: verbose logs.

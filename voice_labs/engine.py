@@ -117,6 +117,10 @@ class Satellite:
     """Its area's settings over the whole home's (voice_labs/areas.py)."""
     night: bool = False
     """Its area's night mode is on (voice_labs/night.py)."""
+    beeps: bool = True
+    """It plays the acknowledgement sound for a command that beeps. Home
+    Assistant's satellites (voice_labs/wyoming_server.py) can't be told to:
+    there, such a command says its brief response."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -563,10 +567,15 @@ class Engine:
         decision.timings = {"acoustic+placement": placed, **decision.timings}
         return decision, split
 
-    def recognize_command(self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None) -> Decision:
-        """Audio that is only the command (typed and synthesized, or uploaded)."""
+    def recognize_command(
+        self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None,
+        evidence: tuple[np.ndarray, float] | None = None,
+    ) -> Decision:
+        """Audio that is only the command (typed and synthesized, uploaded, or
+        Home Assistant's). ``evidence``: the CTC head's on it (``model.log_probs``),
+        when it was had already."""
         started = time.perf_counter()
-        log_probs, frame_seconds = self.model.log_probs(audio)
+        log_probs, frame_seconds = evidence if evidence is not None else self.model.log_probs(audio)
         decision = self.decide(log_probs, frame_seconds, audio, satellite, transcriber)
         decision.timings = {"acoustic": time.perf_counter() - started, **decision.timings}
         return decision
@@ -582,6 +591,13 @@ class Engine:
             decision.recognition["tdt_transcript"] = reader.transcribe(audio)
             decision.timings["answer_words"] = time.perf_counter() - started
         return decision
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        """What was said, as the TDT head heard it -- else (``--no-tdt``) the CTC head."""
+        transcriber = self.transcriber
+        if transcriber is not None:
+            return transcriber.transcribe(audio)
+        return self._greedy(self.model.log_probs(audio)[0])
 
     def recognize_text(self, text: str, satellite: Satellite, clause: bool = False) -> Decision:
         """Typed text, as if it had been said and heard word for word: the

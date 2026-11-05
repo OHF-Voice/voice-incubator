@@ -14,11 +14,15 @@ vary) and ``volume``. The voice's own defaults are in its .onnx.json.
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
 from .downloads import File
+
+_LOGGER = logging.getLogger(__name__)
 
 CATALOG = Path(__file__).with_name("piper_voices.json")
 REPO = "https://huggingface.co/rhasspy/piper-voices/resolve"
@@ -51,6 +55,11 @@ class Voice:
     def size(self) -> int:
         return sum(size for size, _ in self.files.values())
 
+    def local_files(self, directory: Path) -> list[Path]:
+        """Where its files are in ``directory`` (or would be)."""
+        return [directory / (f"{self.key}.MODEL_CARD" if Path(path).name == "MODEL_CARD" else Path(path).name)
+                for path in self.files]
+
     def model(self, directory: Path) -> Path:
         """Its .onnx in ``directory`` (its .onnx.json beside it)."""
         return directory / f"{self.key}.onnx"
@@ -59,14 +68,10 @@ class Voice:
         """Its files not in ``directory`` yet, each where it goes (through
         the image's link, into the app's data)."""
         out = []
-        for path, (size, md5) in self.files.items():
-            name = Path(path).name
-            if name == "MODEL_CARD":
-                name = f"{self.key}.MODEL_CARD"
-            local = directory / name
+        for (path, (size, md5)), local in zip(self.files.items(), self.local_files(directory)):
             if not local.is_file():
                 url = f"{REPO}/{self.revision}/{path}"
-                out.append((local.parent.resolve() / local.name, File(name, url, md5, size, "md5")))
+                out.append((local.parent.resolve() / local.name, File(local.name, url, md5, size, "md5")))
         return out
 
     def sample(self, speaker: str | None = None) -> str:
@@ -105,3 +110,62 @@ def synthesis(settings: dict[str, object], speakers: dict[str, int]) -> dict[str
     if speaker is not None and str(speaker) in speakers:
         out["speaker_id"] = speakers[str(speaker)]
     return out
+
+
+UNUSED_DAYS = 30
+"""A voice Home Assistant asked for (voice_labs/wyoming_server.py) is
+removed once it has gone unused this long."""
+
+
+class Uses:
+    """When each voice was last asked for by Home Assistant, kept in ``path``
+    (JSON: key -> seconds since the epoch). Those not asked for in
+    UNUSED_DAYS are removed (``sweep``) -- unless the app speaks with them --
+    and only those: a voice the app fetched for itself is its settings' to
+    keep."""
+
+    SAVE_EVERY = 3600.0
+    """A voice's use is written down again only this long after the last."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        try:
+            self.last: dict[str, float] = {
+                str(k): float(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()
+            }
+        except (OSError, ValueError, AttributeError):
+            self.last = {}
+
+    def used(self, key: str, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        if now - self.last.get(key, 0.0) < self.SAVE_EVERY:
+            return
+        self.last[key] = now
+        self._save()
+
+    def _save(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(self.last, indent=1, sort_keys=True), encoding="utf-8")
+        except OSError as err:
+            _LOGGER.warning("Could not write %s: %s", self.path, err)
+
+    def sweep(self, directory: Path, kept: set[str], now: float | None = None) -> list[str]:
+        """Remove from ``directory`` the voices last asked for more than
+        UNUSED_DAYS ago, but those ``kept`` (by key: the app's own). Their
+        keys."""
+        now = time.time() if now is None else now
+        voices = catalog()
+        removed = []
+        for key, last in sorted(self.last.items()):
+            if key in kept or now - last < UNUSED_DAYS * 86400:
+                continue
+            voice = voices.get(key)
+            for path in voice.local_files(directory) if voice is not None else []:
+                path.unlink(missing_ok=True)
+            del self.last[key]
+            removed.append(key)
+        if removed:
+            _LOGGER.info("Removed Piper voices unused for %d days: %s", UNUSED_DAYS, ", ".join(removed))
+            self._save()
+        return removed

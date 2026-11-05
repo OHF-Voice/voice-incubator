@@ -21,5 +21,5 @@ soxr>=0.5
 tflite>=2.18,<3
 tokenizers>=0.20
 websockets>=13
-wyoming>=1.5.4
+wyoming>=1.11,<2
 zeroconf<1

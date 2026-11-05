@@ -159,6 +159,11 @@ class Streamed:
         """Its sentences, each as soon as it is whole (read once)."""
         return stream_sentences(self._pieces())
 
+    def pieces(self) -> AsyncIterator[str]:
+        """Its pieces as the agent makes them, markdown and all (read once,
+        in place of ``sentences``)."""
+        return self._pieces()
+
     async def text(self) -> str:
         """All of it, once it has all come."""
         return " ".join([sentence async for sentence in self.sentences()])

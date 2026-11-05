@@ -17,6 +17,8 @@ from pathlib import Path
 from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL
 
 from .server import Options, VoiceLabsApp
+from .wyoming_server import HOME_ASSISTANT
+from .wyoming_server import PORT as WYOMING_PORT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +57,17 @@ async def main() -> None:
     )
     parser.add_argument("--http-host", default="127.0.0.1", help="web UI address")
     parser.add_argument("--http-port", type=int, default=8099, help="web UI port")
+    parser.add_argument(
+        "--wyoming-port",
+        type=int,
+        default=WYOMING_PORT,
+        help="Home Assistant's pipelines reach the app's speech-to-text, text-to-speech "
+        "and conversation agent here, and Parakeet's speech-to-text on the next port "
+        f"(default {WYOMING_PORT}; 0 for neither)",
+    )
+    parser.add_argument(
+        "--wyoming-host", help="address they listen on (default 127.0.0.1, or every one as an app)"
+    )
     parser.add_argument("--language", default="en", help="what it hears and says (voice_labs/languages)")
     parser.add_argument("--silence", type=float, default=1.0)
     parser.add_argument("--max-command", type=float, default=15.0)
@@ -176,6 +189,8 @@ async def main() -> None:
     ):
         if app_options.get(option) is not None:
             setattr(args, attribute, app_options[option])
+    if supervisor_token:
+        args.wyoming_port = int(app_options.get("wyoming_port", WYOMING_PORT) or 0)
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
@@ -191,6 +206,9 @@ async def main() -> None:
             "http_host": "0.0.0.0",
             "http_port": args.http_port,
             "http_allow": (INGRESS_PROXY,),
+            "wyoming_host": args.wyoming_host or "0.0.0.0",
+            "wyoming_allow": HOME_ASSISTANT,
+            "supervisor_token": supervisor_token,
         }
     else:
         hass = {
@@ -199,6 +217,7 @@ async def main() -> None:
             "data_dir": Path(args.data_dir) if args.data_dir else None,
             "http_host": args.http_host,
             "http_port": args.http_port,
+            "wyoming_host": args.wyoming_host or "127.0.0.1",
         }
     embedding = None if args.embedding_model in ("", "none") else Path(args.embedding_model)
 
@@ -207,6 +226,7 @@ async def main() -> None:
             host=args.host,
             port=args.port,
             **hass,
+            wyoming_port=args.wyoming_port,
             language=args.language,
             silence_seconds=args.silence,
             max_command_seconds=args.max_command,
