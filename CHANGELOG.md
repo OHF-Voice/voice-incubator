@@ -35,8 +35,11 @@
     over the TDT words said there ("Turn on the Nanoleaf." for "Turn on the
     Neno leave"), as the Names page has them -- kept only when that reads
     back as the same command, else the words as heard, else the command's
-    own words. An STT entity's words, when it heard them, are tried as they
-    are first. What isn't a command is the words as heard. The conversation agent, given the same
+    own words. A name is written as it was said ("Unlock Garage Side Door."
+    for the side door by its name in the garage, not its whole house name
+    after "Garage"), and what is written must leave no more words unexplained
+    than the audio did. An STT entity's words, when it heard them, are tried
+    as they are first. What isn't a command is the words as heard. The conversation agent, given the same
     words from the same satellite within 30 seconds, recognizes their audio
     again (in the satellite's area) rather than the words.
   - **Text-to-speech** is Piper with every voice in the catalog, each

@@ -147,17 +147,25 @@ class _Use:
     meaning: _Meaning
 
 
-NAMES = {"entities": {"light.nanoleaf": "Nanoleaf", "light.desk_lamp": "Desk Lamp"}, "areas": {"office": "Office"}}
+NAMES = {
+    "entities": {
+        "light.nanoleaf": ["Nanoleaf"], "light.desk_lamp": ["Desk Lamp"],
+        "lock.garage_side_door": ["Side Door", "Garage Side Door"],
+    },
+    "areas": {"office": ["Office"], "garage": ["Garage"]},
+}
 WORDS = [("Turn", 0.16, 0.32), ("on", 0.4, 0.48), ("the", 0.56, 0.64), ("Neno", 0.64, 0.88), ("leave.", 0.96, 1.28)]
+THE = _Use("filler", _Hit(7, 7), _Meaning("the"))
 NANOLEAF = _Use("name", _Hit(8, 14), _Meaning("nanoleaf", "entity", "light.nanoleaf"))
 
 
 def test_names_and_numbers_are_written_over_the_words_said_where_they_were():
-    assert corrected.written_over(WORDS, [NANOLEAF], 0.08, NAMES) == "Turn on the Nanoleaf."
+    assert corrected.written_over(WORDS, [THE, NANOLEAF], 0.08, NAMES) == "Turn on the Nanoleaf."
     words = [("set", 0.16, 0.24), ("the", 0.48, 0.56), ("desk", 0.56, 0.8), ("lamp", 0.88, 1.04), ("to", 1.2, 1.28),
              ("fifteen", 1.44, 1.68), ("percent.", 1.76, 2.24)]
     spans = [
         _Use("optional", _Hit(2, 2), _Meaning("set")),
+        _Use("filler", _Hit(6, 6), _Meaning("the")),
         _Use("name", _Hit(7, 13), _Meaning("desk lamp", "entity", "light.desk_lamp")),
         _Use("number", _Hit(18, 20), _Meaning("fifty", value=Decimal(50))),
         _Use("require", _Hit(22, 24), _Meaning("percent")),
@@ -169,6 +177,24 @@ def test_names_and_numbers_are_written_over_the_words_said_where_they_were():
     assert corrected.written_over(gap, [NANOLEAF], 0.08, NAMES) == "Turn on the Nanoleaf"
     minutes = _Use("number", _Hit(5, 15), _Meaning("a minute and a half", value=Decimal("1.5"), unit="minute"))
     assert corrected.written_over(WORDS, [minutes], 0.08, NAMES) == "Turn on the Neno leave."
+    # A word a frame before a name, which isn't one of its words and ends
+    # where it starts, isn't the name's ("the", when no filler was heard).
+    assert corrected.written_over(WORDS, [NANOLEAF], 0.08, NAMES) == "Turn on the Nanoleaf."
+
+
+def test_a_name_is_written_as_it_was_said():
+    """The door heard by its name in the garage, after "garage": not its whole
+    house name, which says the garage again -- each word the name's, however
+    the two heads timed it: "side" a frame before the matcher's span, "door"
+    running on into the silence, or after it."""
+    garage = _Use("name", _Hit(21, 24), _Meaning("garage", "area", "garage"))
+    door = _Use("name", _Hit(27, 32), _Meaning("side door", "entity", "lock.garage_side_door"))
+    unlock = _Use("require", _Hit(14, 18), _Meaning("unlock"))
+    for words in (
+        [("Unlock", 1.12, 1.52), ("garage", 1.68, 2.0), ("side", 2.08, 2.16), ("door.", 2.32, 3.68)],
+        [("Unlock", 1.12, 1.52), ("garage", 1.68, 2.0), ("side", 2.16, 2.4), ("door.", 2.64, 3.5)],
+    ):
+        assert corrected.written_over(words, [unlock, garage, door], 0.08, NAMES) == "Unlock Garage Side Door."
 
 
 def test_slots_compare_as_they_run():
@@ -186,8 +212,22 @@ def fixture_engine():
         pytest.skip("needs the models")
     engine = Engine(ctc, tdt, None, threads=2)
     engine.build(compile_store({
-        "names": {"entities": {"light.nanoleaf": {"name": "Nanoleaf"}, "light.govee": {"name": "Govee Strip"}}},
+        "names": {
+            "areas": {"garage": {"name": "Garage"}},
+            "entities": {
+                "light.nanoleaf": {"name": "Nanoleaf"}, "light.govee": {"name": "Govee Strip"},
+                "lock.garage_side_door": {"name": "Side Door", "house": ["Garage Side Door"]},
+            },
+        },
         "commands": {
+            "unlock": {
+                "description": "unlock a lock",
+                "require": [["unlock"]],
+                "optional": [["in"]],
+                "names": {"entity": {"count": 1}, "area": {"count": 1}},
+                "combinations": [["entity"], ["entity", "area"]],
+                "action": {"action": "lock.unlock", "target": "{{ target }}"},
+            },
             "device_on": {
                 "description": "turn on a device",
                 "require": [["turn on", "turn ... on", "switch on"]],
@@ -198,6 +238,7 @@ def fixture_engine():
             "what_time": {"description": "tell the time", "examples": ["what time is it"], "require": [["what time"]]},
         },
     }))
+    engine.entity_area = {"lock.garage_side_door": "garage"}.get
     return engine
 
 
@@ -216,12 +257,29 @@ def test_the_home_s_names_are_spelled_as_they_are(engine, text, name):
     decision = engine.recognize_command(audio, satellite)
     assert decision.command is not None and decision.command.id == "device_on"
     transcript, words = engine.transcriber.transcribe_words(audio)
-    names = {"entities": {"light.nanoleaf": "Nanoleaf", "light.govee": "Govee Strip"}}
+    names = {"entities": {"light.nanoleaf": ["Nanoleaf"], "light.govee": ["Govee Strip"]}}
     text_out, how = corrected.correct(
         decision, transcript, words, engine.model.frame_seconds, names, lambda t: engine.recognize_text(t, satellite)
     )
     assert name in text_out and how["as"] in ("names", "heard")
     assert corrected.same(decision, engine.recognize_text(text_out, satellite))
+
+
+def test_a_name_said_with_its_area(engine):
+    """The door by its name in the garage, the garage said first: written so,
+    not as its whole house name after "Garage" -- which, read back, runs the
+    same, but leaves a word unexplained."""
+    satellite = Satellite("s", "Somewhere")
+    audio = said("unlock garage side door")
+    decision = engine.recognize_command(audio, satellite)
+    assert decision.command.id == "unlock" and decision.slots["entity"] == ["lock.garage_side_door"]
+    transcript, words = engine.transcriber.transcribe_words(audio)
+    names = {"entities": {"lock.garage_side_door": ["Side Door", "Garage Side Door"]}, "areas": {"garage": ["Garage"]}}
+    text, how = corrected.correct(
+        decision, transcript, words, engine.model.frame_seconds, names, lambda t: engine.recognize_text(t, satellite)
+    )
+    assert text.rstrip(".") == "Unlock Garage Side Door" and how["as"] == "names"
+    assert not corrected.same(decision, engine.recognize_text("Unlock Garage Garage Side Door door.", satellite))
 
 
 def test_nothing_recognized_is_what_was_heard(engine):

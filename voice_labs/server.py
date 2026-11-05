@@ -1041,6 +1041,26 @@ class VoiceLabsApp:
         said["entities"] = actions.device_said(self.voice_devices(), self.entity_area, area_id)
         return said
 
+    def heard_names(self) -> dict[str, dict[str, list[str]]]:
+        """Every name of each thing, by kind and id, as the Names page has
+        them -- a device's in its area and in the whole house, an area's or a
+        floor's and its aliases: what a name heard is written as
+        (voice_labs/corrected.py)."""
+        compiled = self.engine.compiled if self.engine is not None else None
+        out: dict[str, dict[str, list[str]]] = {
+            "entities": {entity_id: [*d.here, *d.house] for entity_id, d in self.voice_devices().items()}
+        }
+        for kind, items in ((compiled.data.get("names") if compiled is not None else None) or {}).items():
+            if kind == "entities":
+                continue
+            out[kind] = {}
+            for item_id, entry in (items or {}).items():
+                if isinstance(entry, dict):
+                    out[kind][str(item_id)] = [str(n) for n in (entry.get("name"), *(entry.get("aliases") or [])) if n]
+                elif isinstance(entry, str) and entry:
+                    out[kind][str(item_id)] = [entry]
+        return out
+
     def beep_elsewhere(self) -> str:
         """``settings.json`` ``beep_elsewhere``: what a command that beeps
         says when it acted out of the satellite's area (actions.BEEP_ELSEWHERE
@@ -3573,7 +3593,7 @@ class VoiceLabsApp:
         audio = _pcm_to_float(pcm)
         assert self.engine is not None
         engine = self.engine
-        names = self.said_names(satellite.area_id)
+        names = self.heard_names()
         transcriber = hearing.stream
         if transcriber is None:
             entity = self.stt_entity(satellite)

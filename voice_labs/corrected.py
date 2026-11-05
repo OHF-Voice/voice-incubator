@@ -24,8 +24,10 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from adapt_ctc.numbers import to_python
+from adapt_ctc.text import spoken_words
 
-from .engine import WORD_SECONDS, Decision
+from . import languages
+from .engine import Decision
 
 NAME_KINDS = {"entity": "entities", "area": "areas", "floor": "floors"}
 """A name's type, as the Names page keeps it (actions.said_names)."""
@@ -33,13 +35,17 @@ NAME_KINDS = {"entity": "entities", "area": "areas", "floor": "floors"}
 Words = list[tuple[str, float, float]]
 """The TDT head's words, each with its start and end (seconds)."""
 
+Names = dict[str, dict[str, list[str]]]
+"""Each thing's names, by kind and id, as the Names page has them
+(VoiceLabsApp.heard_names): its name first."""
+
 
 def correct(
     decision: Decision,
     transcript: str,
     words: Words | None,
     frame_seconds: float,
-    names: dict[str, dict[str, str]],
+    names: Names,
     read: Callable[[str], Decision],
     timed: Callable[[], Words] | None = None,
 ) -> tuple[str, dict[str, Any]]:
@@ -48,8 +54,8 @@ def correct(
     None from an STT entity, which has no times: then ``timed`` gives the
     TDT head's, should they be needed) -- and how it was written: ``as``
     (``names``: written over; ``heard``: the words as heard; ``command``: the
-    command's own) and what else was ``tried``. ``names``: what things are
-    called (said_names); ``read``: the command some text reads as."""
+    command's own) and what else was ``tried``. ``names``: every name of
+    each thing (Names); ``read``: the command some text reads as."""
     heard = transcript.strip() or decision.transcript
     if decision.command is None:
         return heard, {"as": "heard"}
@@ -64,7 +70,7 @@ def correct(
 
 def candidates(
     decision: Decision, transcript: str, words: Words | None, frame_seconds: float,
-    names: dict[str, dict[str, str]], timed: Callable[[], Words] | None = None,
+    names: Names, timed: Callable[[], Words] | None = None,
 ) -> Iterator[tuple[str, str]]:
     """What ``decision``'s command may be written as, best first: the TDT
     words with its names and numbers written over them (only when the CTC
@@ -103,46 +109,79 @@ def candidates(
         yield "command", own
 
 
-def proper(use: Any, names: dict[str, dict[str, str]]) -> str | None:
+def proper(use: Any, names: Names) -> str | None:
     """How a name or number the command was heard with is written: the name
-    as the Names page has it (else as it was said), the number in digits --
-    None for one said with its unit ("a minute and a half"), which is
-    written as said."""
+    as the Names page has it -- the one of the thing's names that was said
+    ("Side Door" after "garage", not its whole house "Garage Side Door") --
+    else None (written as it was said); the number in digits, but None for
+    one said with its unit ("a minute and a half"), written as said."""
     meaning = use.meaning
     if use.role == "number":
         return None if meaning.unit or meaning.value is None else str(to_python(meaning.value))
     kind = NAME_KINDS.get(meaning.name_type or "")
-    return (names.get(kind) or {}).get(str(meaning.name_id)) if kind else None
+    if kind is None:
+        return None
+    language = languages.current().code
+    for name in (names.get(kind) or {}).get(str(meaning.name_id)) or []:
+        if any(" ".join(spelling) == meaning.phrase for spelling in spoken_words(name, language)):
+            return name
+    return None
 
 
-def written_over(words: Words, spans: list[Any], frame_seconds: float, names: dict[str, dict[str, str]]) -> str:
+def _word(text: str) -> str:
+    return re.sub(r"^[^\w']+|[^\w']+$", "", text).lower()
+
+
+def written_over(words: Words, spans: list[Any], frame_seconds: float, names: Names) -> str:
     """The TDT ``words`` with each name and number of ``spans`` (the CTC
     matcher's, timed in frames of ``frame_seconds``) written over the words
-    said in its time -- a word is in it when its middle is (engine.within),
-    which takes a frame's difference in where the two heads put it -- or,
-    where the TDT head heard none, put in where it was said. The words' own
-    punctuation stays."""
+    said in its time -- or, where the TDT head heard none, put in where it
+    was said. The words' own punctuation stays.
+
+    A word is the span's that it starts in -- of all the spans, a filler's
+    or a keyword's too ("the" before a name) -- else the one it starts
+    nearest, within a frame: the two heads may put it a frame apart, and the
+    TDT head's ends are no guide (a short word lasts a frame, the last runs
+    on into the silence). A word of the name heard next to its words, left
+    out by that, is its too ("side" in time, "door" beside it)."""
     out = [word for word, _, _ in words]
-    taken = [False] * len(words)
+    timed = sorted(spans, key=lambda u: u.hit.start)
+    owner: list[Any] = []
+    for word, start, end in words:
+        best, nearest = None, frame_seconds + 1e-6
+        for use in timed:
+            low, high = use.hit.start * frame_seconds, (use.hit.end + 1) * frame_seconds
+            # Past its end counts half a frame more: a word starting where
+            # one span ends is the next's.
+            away = low - start if start < low else 0.0 if start < high - 1e-6 else start - high + frame_seconds / 2
+            if away < nearest:
+                best, nearest = use, away
+        if best is not None and start < best.hit.start * frame_seconds and best.role in ("name", "number"):
+            # Starting before a name, it is the name's when it is one of its
+            # words, or runs on into it ("Neno"): not "the" just before it.
+            if _word(word) not in best.meaning.phrase.split() and end <= best.hit.start * frame_seconds + frame_seconds:
+                best = None
+        owner.append(best)
     changes: list[tuple[int, int, str]] = []
-    for use in sorted((u for u in spans if u.role in ("name", "number")), key=lambda u: u.hit.start):
+    for use in (u for u in timed if u.role in ("name", "number")):
         text = proper(use, names) or (use.meaning.phrase if use.role == "name" else None)
         if text is None:
             continue
-        start, end = use.hit.start * frame_seconds, (use.hit.end + 1) * frame_seconds
-        inside = [
-            i for i, (_, s, e) in enumerate(words)
-            if not taken[i] and start <= (s + min(e, s + WORD_SECONDS)) / 2 <= end
-        ]
+        inside = [i for i, o in enumerate(owner) if o is use]
         if inside:
             first, last = inside[0], inside[-1]
-            taken[first : last + 1] = [True] * (last + 1 - first)
+            said = set(use.meaning.phrase.split()) | {_word(w) for w in text.split()}
+            while first > 0 and owner[first - 1] is None and _word(out[first - 1]) in said:
+                first -= 1
+            while last + 1 < len(out) and owner[last + 1] is None and _word(out[last + 1]) in said:
+                last += 1
+            owner[first : last + 1] = [use] * (last + 1 - first)
             changes.append((first, last, text))
         else:
-            said = use.hit.start * frame_seconds
-            at = next((i for i, (_, s, e) in enumerate(words) if (s + e) / 2 > said), len(words))
+            said_at = use.hit.start * frame_seconds
+            at = next((i for i, (_, s, _) in enumerate(words) if s >= said_at), len(words))
             changes.append((at, at - 1, text))
-    for first, last, text in sorted(changes, reverse=True):
+    for first, last, text in sorted(changes, key=lambda c: (c[0], c[1]), reverse=True):
         if last < first:
             out[first:first] = [text]
             continue
@@ -152,7 +191,7 @@ def written_over(words: Words, spans: list[Any], frame_seconds: float, names: di
     return " ".join(out)
 
 
-def own_words(decision: Decision, names: dict[str, dict[str, str]]) -> str:
+def own_words(decision: Decision, names: Names) -> str:
     """The command as its own words: what it was heard with -- keywords,
     names, numbers and free text -- in the order they were heard."""
     assert decision.intent is not None
@@ -170,10 +209,14 @@ def own_words(decision: Decision, names: dict[str, dict[str, str]]) -> str:
 
 def same(heard: Decision, read: Decision) -> bool:
     """Do two decisions run the same: the same command, with the same slots
-    (free text alike but for case and punctuation), and the same after it?"""
+    (free text alike but for case and punctuation), and the same after it --
+    the text read leaving no more words unexplained than the audio did (a
+    name written twice still runs: "Unlock Garage Garage Side Door door")?"""
     if heard.command is None or read.command is None or heard.command.id != read.command.id:
         return False
     if _slots(heard.slots) != _slots(read.slots):
+        return False
+    if heard.intent is not None and read.intent is not None and len(read.intent.unexplained) > len(heard.intent.unexplained):
         return False
     if heard.then is None or read.then is None:
         return heard.then is None and read.then is None
