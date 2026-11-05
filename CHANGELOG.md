@@ -49,8 +49,9 @@
     Assistant can't be asked for the sound with Wyoming 1.11; a timer goes to
     Home Assistant's own agent, to ring on that satellite. Sessions shows
     each request.
-  - **An STT entity called Voice Labs** -- the app's own -- is never used as
-    one: the TDT head hears instead, on every satellite.
+  - **An STT entity called Voice Labs** -- the app's own -- isn't offered in
+    Settings, and one chosen before is never used: the TDT head hears
+    instead, on every satellite.
 - **"Stop" ends a reply**, said alone while the satellite says it, as on the
   stock firmware. Firmware that says so (HELLO `stop_word`) keeps the "stop"
   model loaded, pushed with the wake words, and runs it only while a reply is

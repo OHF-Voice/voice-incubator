@@ -48,7 +48,7 @@ from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
 from .integration import Integration
 from .music import Music
-from .voices import BUILTIN, CLOUD_TAKEN, HassTranscriber, TypedText, Voices, choose
+from .voices import BUILTIN, CLOUD_TAKEN, HassTranscriber, TypedText, Voices, choose, own_stt
 from .mixednet import WakeModel
 from .protocol import (
     BYTE_RATE,
@@ -119,13 +119,11 @@ ANNOUNCE_WAIT = 60.0
 # and how long it lasts, unless a button ends it first (a microphone left open
 # in an empty room).
 INTERCOM_START_WAIT = 30.0
+INTERCOM_BACKLOG = 64 * 1024
+INTERCOM_LIMIT = 30 * 60.0
 # Home Assistant's pipelines (Wyoming): how long a question asked back waits
 # for its answer, which comes with the conversation's id.
 ASKED_SECONDS = 60.0
-OWN_STT = "voice labs"
-"""In an STT entity's name or id: the app's own Wyoming speech-to-text."""
-INTERCOM_BACKLOG = 64 * 1024
-INTERCOM_LIMIT = 30 * 60.0
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -4303,8 +4301,7 @@ class VoiceLabsApp:
         entity = satellite.voice.stt
         if entity is None:
             return None
-        called = f"{entity} {self.hass.catalog.stt_names.get(entity) or ''}".lower().replace("_", " ")
-        if OWN_STT in called:
+        if own_stt(entity, self.hass.catalog.stt_names.get(entity)):
             if entity not in self._own_stt:
                 self._own_stt.add(entity)
                 _LOGGER.warning("%s is this app's own speech-to-text: using the TDT head instead", entity)

@@ -52,6 +52,9 @@ CLOUD_TAKEN = "cloud_taken"
 """settings.json: Home Assistant Cloud was found, and taken for every
 satellite where nothing was chosen -- once, so what is chosen afterwards,
 the built-in models too, stands."""
+OWN_STT = "voice labs"
+"""In an STT entity's id or name: the app's own Wyoming speech-to-text
+(voice_labs/wyoming_server.py), which would ask itself."""
 STT_AUDIO = ("agc", "aec", "aec_boost")
 """What an STT entity hears: the satellite's AGC capture (what commands are
 recognized from), or its AEC capture (the satellite's own playback taken out)
@@ -77,6 +80,11 @@ class VoiceChoice:
     stt_always: bool = False
     """The STT entity hears every command, as it is said, not only when its
     words are needed."""
+
+
+def own_stt(entity_id: str, name: str | None = None) -> bool:
+    """Is the STT entity the app's own -- called Voice Labs?"""
+    return OWN_STT in f"{entity_id} {name or ''}".lower().replace("_", " ")
 
 
 def choose(settings: dict[str, Any], stored: dict[str, Any]) -> VoiceChoice:
@@ -348,12 +356,16 @@ class Voices:
         """Every language, per entity."""
 
     async def engines(self) -> dict[str, list[dict[str, Any]]]:
-        """For the UI: every STT and TTS entity, with every language it
-        supports, and its best match for the app's language (``automatic``)."""
-        names = {e.entity_id: e.name for e in self.hass.catalog.entities.values()}
+        """For the UI: every STT and TTS entity -- but the app's own STT
+        (``own_stt``) -- with every language it supports, and its best match
+        for the app's language (``automatic``)."""
+        names = {e.entity_id: e.name for e in self.hass.catalog.entities.values()} | self.hass.catalog.stt_names
         out: dict[str, list[dict[str, Any]]] = {}
         for kind, listing in (("stt", self.hass.stt_engines), ("tts", self.hass.tts_engines)):
-            every = await listing(None)
+            every = [
+                p for p in await listing(None)
+                if kind != "stt" or not own_stt(p["engine_id"], names.get(p["engine_id"]) or p.get("name"))
+            ]
             automatic = {p["engine_id"]: _first(p) for p in await listing(languages.current().code)}
             out[kind] = [
                 {

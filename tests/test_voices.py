@@ -21,6 +21,7 @@ from voice_labs.voices import (
     _match,
     choose,
     language_code,
+    own_stt,
 )
 
 from . import fake_hass
@@ -189,6 +190,11 @@ def test_always_run_is_chosen_with_an_entity():
     assert not choose({"stt": "stt.whisper", "stt_always": True}, {"stt": "builtin"}).stt_always
 
 
+def test_the_app_s_own_speech_to_text_is_known_by_its_name():
+    assert own_stt("stt.voice_labs") and own_stt("stt.kitchen", "Voice Labs") and own_stt("stt.x", "voice labs 2")
+    assert not own_stt("stt.home_assistant_cloud", "Home Assistant Cloud") and not own_stt("stt.faster_whisper")
+
+
 def test_through_home_assistant():
     async def scenario():
         fake, server = await fake_hass.serve()
@@ -199,6 +205,8 @@ def test_through_home_assistant():
         try:
             assert await hass.wait_connected(5)
             voices = Voices(hass)
+            # The app's own speech-to-text (its Wyoming one) isn't offered: it would ask itself.
+            fake.stt_engines.append({"engine_id": "stt.voice_labs", "supported_languages": ["en"]})
             engines = await voices.engines()
             assert [e["entity_id"] for e in engines["stt"]] == ["stt.fake_whisper"]
             assert engines["stt"][0]["languages"] == ["en-US", "en-GB", "de-DE", "fr-FR"]
