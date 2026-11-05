@@ -936,13 +936,20 @@ class Api:
         """Search Home Assistant's areas, floors and voice-domain entities --
         or get the entities ``ids`` names. Names and aliases come back as
         suggestions only; an entity's ``can``, what it can do of what
-        commands may need (capabilities.CAPABILITIES; None: not known)."""
+        commands may need (capabilities.CAPABILITIES; None: not known).
+
+        Entities to add to an ``area`` ("": none; the Names page's): those
+        there first -- in it for voice, else in Home Assistant -- then those
+        in no area, then the rest; none it has already; and with nothing
+        searched for, only those there."""
         kind = request.query.get("kind", "entity")
         query = request.query.get("q", "").strip().lower()
         domain = request.query.get("domain")
         ids = [i for i in request.query.get("ids", "").split(",") if i]
+        wanted_area = request.query.get("area")
         catalog = self.app.hass.catalog
         results: list[dict[str, Any]] = []
+        rank: dict[str, int] = {}
 
         def matches(*texts: str | None) -> bool:
             return not query or any(query in (t or "").lower() for t in texts)
@@ -964,9 +971,18 @@ class Api:
                 if matches(floor.floor_id, floor.name, *floor.aliases):
                     results.append({"id": floor.floor_id, "name": floor.name, "aliases": floor.aliases})
         else:
+            added = self.app.voice_devices() if wanted_area is not None else {}
             for entity in catalog.entities.values():
                 if domain and entity.domain != domain or ids and entity.entity_id not in ids:
                     continue
+                if wanted_area is not None:
+                    device = added.get(entity.entity_id)
+                    where = (device.area if device is not None and device.area else entity.area_id) or ""
+                    if device is not None and where == wanted_area:
+                        continue  # in the area's list already
+                    if not query and where != wanted_area:
+                        continue  # nothing searched for yet: the area's own
+                    rank[entity.entity_id] = 0 if where == wanted_area else 1 if not where else 2
                 area = catalog.areas.get(entity.area_id) if entity.area_id else None
                 if matches(entity.entity_id, entity.name, *entity.aliases, area.name if area else None):
                     results.append(
@@ -982,7 +998,7 @@ class Api:
                             ],
                         }
                     )
-        results.sort(key=lambda r: (r.get("name") or "").lower())
+        results.sort(key=lambda r: (rank.get(r["id"], 0), (r.get("name") or "").lower()))
         return web.json_response({"results": results[:200], "connected": self.app.hass.connected.is_set()})
 
     # ---------------------------------------------------------------- areas

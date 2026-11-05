@@ -248,10 +248,11 @@ function groupsEditor(groups, onChange, addLabel) {
 
 // Search Home Assistant (areas, floors, voice-domain entities), or get the
 // entities ids names.
-async function catalog(kind, q, domain, ids) {
+async function catalog(kind, q, domain, ids, area) {
   const params = new URLSearchParams({ kind, q: q || "" });
   if (domain) params.set("domain", domain);
   if (ids) params.set("ids", ids.join(","));
+  if (area !== undefined) params.set("area", area);
   return (await api("GET", `hass/catalog?${params}`)).results;
 }
 
@@ -281,7 +282,9 @@ async function cannotSay(ids, needs) {
 const ENTITY_ID = /^[a-z0-9_]+\.[a-z0-9_]+$/;
 
 // Search Home Assistant's areas, floors or entities. Entities are searched in
-// the voice domains only, so any entity id may also be typed in full.
+// the voice domains only, so any entity id may also be typed in full. To add
+// to an area (opts.area; "" for none): its own first, and before anything is
+// typed only those, leaving out what it has already.
 function hassPicker(kind, onPick, opts = {}) {
   const plural = { entity: "entities", area: "areas", floor: "floors" }[kind] || `${kind}s`;
   const hint = kind === "entity" ? `Search Home Assistant ${opts.domain ? `${opts.domain} entities` : plural}, or type an entity id…` : `Search Home Assistant ${plural}…`;
@@ -302,12 +305,14 @@ function hassPicker(kind, onPick, opts = {}) {
       onmousedown: (e) => { e.preventDefault(); pick({ id: typed, name: "" }); },
     }, "Use ", h("code", {}, typed), h("span", { class: "muted small" }, " (not in the list)")) : null);
     try {
-      const items = await catalog(kind, input.value, opts.domain);
+      const items = await catalog(kind, input.value, opts.domain, undefined, opts.area);
       const extra = useTyped(items);
+      const none = opts.area !== undefined && !input.value.trim() ? "Nothing more here. Search for any device."
+        : kind === "entity" ? "Nothing found. Type the whole entity id to use it anyway." : "Nothing found (is Home Assistant connected?)";
       fill(results, extra, ...(items.length ? items.map((item) => h("div", {
         class: "result",
         onmousedown: (e) => { e.preventDefault(); pick(item); },
-      }, h("span", {}, item.name), " ", h("span", { class: "muted small" }, item.id, item.area ? ` · ${item.area}` : "", item.floor ? ` · ${item.floor}` : ""))) : extra ? [] : [h("div", { class: "result muted" }, kind === "entity" ? "Nothing found. Type the whole entity id to use it anyway." : "Nothing found (is Home Assistant connected?)")]));
+      }, h("span", {}, item.name), " ", h("span", { class: "muted small" }, item.id, item.area ? ` · ${item.area}` : "", item.floor ? ` · ${item.floor}` : ""))) : extra ? [] : [h("div", { class: "result muted" }, none)]));
       results.classList.remove("hidden");
     } catch (err) {
       fill(results, useTyped([]), h("div", { class: "result muted" }, String(err.message)));
@@ -3040,7 +3045,7 @@ function devicesPanel(store, areas, only) {
               try { await api("DELETE", `names/entities/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
             } }, "remove")));
       })) : h("p", { class: "muted" }, "None yet."),
-    field("Add", hassPicker("entity", (item) => edit(item.id, item)),
+    field("Add", hassPicker("entity", (item) => edit(item.id, item), { area: only || "" }),
       only ? `Pick from Home Assistant: it is added to the ${name}, with its name and aliases as a starting point.`
         : "Pick from Home Assistant; its name and aliases are offered as a starting point. One in an area is added to that area."),
     form);

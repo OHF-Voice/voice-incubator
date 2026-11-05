@@ -218,6 +218,10 @@
   Time from now is "How long until a future time."
 - **A command the library no longer has is kept, not heard**: the others
   still are (before, none were), and the Home page says to delete it.
+- **Adding a device to an area offers the area's first.** Its Names search
+  lists the area's devices before those in no area and then the rest, and
+  before anything is typed only the area's not added yet (Whole Home's: those
+  in no area). Devices already in its list are left out.
 - **Add a command lists titles only.** A command's description and what it
   needs ("Then: …") are gone from the list; search still finds them, and
   what it needs is said on its page once added.
