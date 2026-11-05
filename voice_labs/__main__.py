@@ -44,11 +44,15 @@ async def main() -> None:
         "useful across subnets and for testing one device in isolation",
     )
     parser.add_argument("--port", type=int, default=6055)
-    parser.add_argument("--hass-url", default="http://localhost:8123")
+    parser.add_argument(
+        "--hass-url",
+        default=os.environ.get("HASS_URL", "http://localhost:8123"),
+        help="Home Assistant's address (default: HASS_URL, else http://localhost:8123)",
+    )
     parser.add_argument(
         "--hass-token-file",
         default="/home/hansenm/opt/homeassistant/token",
-        help="file holding a long-lived access token",
+        help="file holding a long-lived access token, when HASS_TOKEN doesn't",
     )
     parser.add_argument(
         "--data-dir",
@@ -212,7 +216,7 @@ async def main() -> None:
     else:
         hass = {
             "hass_url": args.hass_url,
-            "hass_token": Path(args.hass_token_file).read_text(encoding="utf-8").strip(),
+            "hass_token": os.environ.get("HASS_TOKEN") or Path(args.hass_token_file).read_text(encoding="utf-8").strip(),
             "data_dir": Path(args.data_dir) if args.data_dir else None,
             "http_host": args.http_host,
             "http_port": args.http_port,

@@ -1,0 +1,90 @@
+# Voice Labs' standalone image (voice_labs/Dockerfile, target "standalone"),
+# without wake word training: each architecture built on a runner of its own
+# (aarch64 under emulation would take hours: the image compiles Kaldi's
+# decoder), then published as one image to the GitHub Container Registry,
+# tagged with the app's version (voice_labs/config.yaml) and "latest".
+name: Voice Labs image
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "voice_labs-v*"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/ohf-voice/voice-labs
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: voice_labs
+          target: standalone
+          platforms: ${{ matrix.platform }}
+          build-args: TRAINING=false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=Voice Labs
+            org.opencontainers.image.description=Voice satellites with your own commands, and Home Assistant's speech-to-text, text-to-speech and conversation agent over Wyoming
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=voice-labs-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=voice-labs-${{ matrix.platform }}
+      - name: Keep the digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: voice_labs/config.yaml
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish both architectures as one image
+        working-directory: /tmp/digests
+        run: |
+          version="$(sed -n 's/^version: *//p' "$GITHUB_WORKSPACE/voice_labs/config.yaml")"
+          docker buildx imagetools create -t "$IMAGE:$version" -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools inspect "$IMAGE:$version"

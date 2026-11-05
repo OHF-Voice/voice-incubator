@@ -25,6 +25,23 @@ _LOGGER = logging.getLogger(__name__)
 FRAME_SUBSAMPLING_FACTOR = 3
 FRAME_SHIFT = 0.01 * FRAME_SUBSAMPLING_FACTOR
 
+PROGRAMS = (
+    # Building a wake word's graphs (utils/prepare_lang.sh, utils/mkgraph.sh,
+    # and what they call), as a traced run found them, and those the scripts
+    # name that it didn't reach.
+    "add-self-loops", "ali-to-phones", "am-info", "arpa2fst", "arpa-to-const-arpa",
+    "fstaddselfloops", "fstarcsort", "fstcompile", "fstcompose", "fstcomposecontext",
+    "fstconcat", "fstconvert", "fstdeterminizestar", "fstinfo", "fstinvert",
+    "fstisstochastic", "fstminimizeencoded", "fstprint", "fstproject", "fstpushspecial",
+    "fstrandgen", "fstreplace", "fstrmepsilon", "fstrmepslocal", "fstrmsymbols",
+    "fsttablecompose", "fsttopsort", "make-grammar-fst", "make-h-transducer", "tree-info",
+    # Decoding without the resident decoder (decode_with_graph).
+    "online2-wav-nnet3-latgen-faster", "lattice-1best", "lattice-align-words",
+    "lattice-best-path", "lattice-to-ctm-conf", "nbest-to-ctm",
+)
+"""The Kaldi and OpenFST programs the verifier runs: all of a tool tree's it
+needs (see prune.py)."""
+
 _BEST_COST_RE = re.compile(
     r"For utterance (\S+), best cost ([\d.eE+-]+) \+ ([\d.eE+-]+) = "
     r"([\d.eE+-]+) over (\d+) frames"

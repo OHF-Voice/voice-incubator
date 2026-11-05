@@ -142,10 +142,41 @@ device in the first app's Home Assistant, and run the second with `--host`
 whenever that satellite reboots).
 
 Useful flags: `--host`, `--hass-url`, `--hass-token-file`, `--data-dir`,
-`--http-host`, `--http-port`, `--silence`, `--max-command`, `--wake-model`,
-`--wake-cutoff`, `--no-tdt`, `--embedding-model`, `--debug`, and for speaker
-identification `--speaker-threshold`, `--speaker-channel`,
-`--no-speaker-learn`, `--enroll-commands`, `--no-speaker-id`.
+`--http-host`, `--http-port`, `--wyoming-host`, `--wyoming-port`,
+`--silence`, `--max-command`, `--wake-model`, `--wake-cutoff`, `--no-tdt`,
+`--embedding-model`, `--debug`, and for speaker identification
+`--speaker-threshold`, `--speaker-channel`, `--no-speaker-learn`,
+`--enroll-commands`, `--no-speaker-id`. `HASS_URL` and `HASS_TOKEN` (a
+long-lived access token) stand in for `--hass-url` and the token file.
+
+## Standalone
+
+Without Home Assistant's Supervisor, as a container:
+`ghcr.io/ohf-voice/voice-labs` (amd64 and aarch64), from the Dockerfile's
+`standalone` target -- built and published by the Voice Labs image workflow
+(`.github/workflows/voice-labs-image.yml`), on demand or for a
+`voice_labs-v*` tag. It has no wake word training (TensorFlow, 2 GB).
+
+```bash
+docker run -d --name voice-labs --network host \
+  -e HASS_URL=http://homeassistant.local:8123 -e HASS_TOKEN=... \
+  -v voice-labs:/data ghcr.io/ohf-voice/voice-labs
+```
+
+The web UI (8099) and Wyoming (10800) listen on every address the container
+has, and neither asks who's there: anyone who can reach the web UI can run
+actions in Home Assistant. Without the host network, publish what you want
+reached, and where (`-p 127.0.0.1:8099:8099 -p 10800:10800`). Wyoming needs
+nothing more -- add it to Home Assistant as a Wyoming Protocol integration --
+but finding the satellites does: they're found by mDNS, which a container's
+own network doesn't carry (`--host` reaches one without it). More options go
+after the image name.
+
+The image is the app's without its Supervisor parts, and smaller: what is
+compiled -- adapt-ctc's Viterbi, the wake verifier's decoder, FluidSynth
+without the audio drivers it doesn't use -- is built in a stage of its own,
+and only the Kaldi programs the verifier runs are kept
+(`wyoming_wake_kaldi/prune.py`). The app is built the same way, with training.
 
 ## Commands
 

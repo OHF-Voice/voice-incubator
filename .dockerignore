@@ -18,3 +18,16 @@ adapt_ctc/*.so
 custom_components
 hass_tests
 hacs.json
+.venv-3.14
+.pytest_cache
+.ruff_cache
+local
+wake_words
+firmware
+sound-candidates
+thinking-candidates
+*.png
+*.docx
+*.pdf
+How voice works*
+Voice Labs at home*

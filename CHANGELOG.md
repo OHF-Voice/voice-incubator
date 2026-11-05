@@ -228,6 +228,20 @@
   Time from now is "How long until a future time."
 - **A command the library no longer has is kept, not heard**: the others
   still are (before, none were), and the Home page says to delete it.
+- **A standalone image**, `ghcr.io/ohf-voice/voice-labs` (amd64 and
+  aarch64): the app without Home Assistant's Supervisor, given Home
+  Assistant's address and a long-lived access token (`HASS_URL`,
+  `HASS_TOKEN`), with no wake word training and no login (README.md,
+  "Standalone"). Built and published by a workflow in this repository, on
+  demand or for a `voice_labs-v*` tag, each architecture on its own runner.
+- **The image is a quarter of the size**: 3.8 GB was 2 GB of TensorFlow
+  (the standalone image has none; the app keeps it, for training wake
+  words), 300 MB of compilers -- now only in a build stage, where
+  adapt-ctc's Viterbi and the wake verifier's decoder are compiled -- 200 MB
+  of graphics libraries FluidSynth brought through SDL -- it is built
+  without its audio drivers, which playing the sounds never used -- and 130
+  MB of Kaldi programs the verifier never runs (only its 36 are kept,
+  `wyoming_wake_kaldi/prune.py`). The standalone image is 950 MB.
 - **Sessions say whether the speech-to-text entity ran.** The recognition
   step has a row for it -- not asked (its words weren't needed); asked, what
   it heard and how long it took; heard as you spoke, and how soon after you
