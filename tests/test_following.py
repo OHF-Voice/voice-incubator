@@ -41,6 +41,14 @@ def test_the_librarys_version_with_its_settings():
     assert resolve("v", {"from": "music/own_volume_up"})["library"] == "satellites"
 
 
+def test_a_new_home_tells_the_time_and_the_date(tmp_path):
+    store = Store(tmp_path)
+    assert store.document()["commands"] == {"what_time": {"from": "time/what_time"}, "what_date": {"from": "time/what_date"}}
+    assert set(store.load().commands) == {"what_time", "what_date"}
+    store.delete_command("what_time")
+    assert set(Store(tmp_path).load().commands) == {"what_date"}  # deleted stays deleted
+
+
 def test_one_the_library_no_longer_has_is_kept_not_heard():
     """A version taken out of the library (Set the temperature in an area or
     floor) leaves the command that followed it as saved, unheard; the rest

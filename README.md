@@ -208,7 +208,8 @@ differ and follows the library; the file as it was is kept in
 `commands.before-library.json`. Library commands read their target from the
 implied target (`entity_id: "{{ slots.entity }}"`, `on_list: {item:
 entity}`), which is a setting, so pointing one at your list doesn't take
-control of it.
+control of it. A new home's commands file (`store.new_store`) follows the
+library's time and date (`store.DEFAULT_COMMANDS`).
 
 A command is one adapt-ctc intent (examples, keywords, names, a number, value
 lists, free text) plus where it is available and what it does. All of them

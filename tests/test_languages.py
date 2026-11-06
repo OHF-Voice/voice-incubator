@@ -14,7 +14,7 @@ from adapt_ctc.config import ConfigError
 from voice_labs import languages, skills
 from voice_labs.commands import base_config
 from voice_labs.server import tdt_choice
-from voice_labs.store import Store, compile_store
+from voice_labs.store import Store, compile_store, new_store
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -86,14 +86,16 @@ def test_a_command_is_made_in_the_apps_language(english, tmp_path):
     languages.use("de")
     compiled = store.put_command("vergiss_es", {"description": "nichts tun", "examples": ["vergiss es"]})
     assert store.load().data["commands"]["vergiss_es"]["language"] == "de"  # not the file's: said
-    assert list(compiled.commands) == ["vergiss_es"] and compiled.hidden == {"never_mind": "en"}
+    # A new home's time and date are in its language too.
+    assert list(compiled.commands) == ["vergiss_es"]
+    assert compiled.hidden == {"what_time": "en", "what_date": "en", "never_mind": "en"}
     # Another language's command keeps its id, and is left as it was.
     with pytest.raises(ConfigError, match="taken by a command in English"):
         store.put_command("never_mind", {"description": "nichts tun", "examples": ["egal"]})
     store.put_fallback({"meaning": []})
     assert store.load().data["commands"]["never_mind"]["fallback"] == ["meaning"]
     languages.use("en")
-    assert list(store.load().commands) == ["never_mind"]
+    assert list(store.load().commands) == ["what_time", "what_date", "never_mind"]
 
 
 def test_names_are_in_their_language(english, tmp_path):
@@ -340,6 +342,12 @@ SKILL_GRAMMAR = {
               "FLUID_OUNCE", "plural_of", "key", "read_unit", "forms", "temperature_pattern"),
 }
 """What voice_labs/skills takes from a language's skills/<name>.py."""
+
+
+@pytest.mark.parametrize("code", languages.codes())
+def test_a_new_home_tells_the_time_and_the_date_in_every_language(english, code):
+    languages.use(code)
+    assert set(compile_store(new_store(code)).commands) == {"what_time", "what_date"}
 
 
 @pytest.mark.parametrize("code", languages.codes())

@@ -248,6 +248,10 @@
   removed until its satellite connects again.
 - **An icon**, a flask, for the app and the integration (Home Assistant
   shows the integration's from 2026.3), and the logo in the web UI's header.
+- **A new home tells the time and the date.** It starts with the library's
+  What time is it and What's the date, following it, in the app's language.
+  Deleted, they stay deleted; a home that has commands already is left as
+  it is.
 - **Sessions say whether the speech-to-text entity ran.** The recognition
   step has a row for it -- not asked (its words weren't needed); asked, what
   it heard and how long it took; heard as you spoke, and how soon after you

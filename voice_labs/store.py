@@ -48,8 +48,13 @@ commands from the library follow it (voice_labs/library.py); before, they
 were copies of it, and are made to follow it when read."""
 NAME_KINDS = ("entities", "areas", "floors")
 
+DEFAULT_COMMANDS = ("time/what_time", "time/what_date")
+"""The library commands a new home starts with, following it: the time and
+the date. Deleted, they stay deleted."""
+
+
 def new_store(language: str) -> dict[str, Any]:
-    """A home's commands before it has any.
+    """A new home's commands: DEFAULT_COMMANDS.
 
     ``language``: what the commands are said in (none: English); a command
     made in another language says its own (``language: de``), and only the
@@ -62,7 +67,10 @@ def new_store(language: str) -> dict[str, Any]:
     (``red: {en: [red], de: [rot]}``). ``commands``: what is listened for, and
     what happens. ``unknown``: what is said when nothing understood a
     sentence."""
-    return {"version": VERSION, "language": language, "names": {}, "lists": {}, "commands": {}}
+    from .library import REFERENCE  # pylint: disable=import-outside-toplevel
+
+    commands = {ref.partition("/")[2]: {REFERENCE: ref} for ref in DEFAULT_COMMANDS}
+    return {"version": VERSION, "language": language, "names": {}, "lists": {}, "commands": commands}
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
