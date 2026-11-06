@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Labs caption</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <!-- The last command's words and answer, large, for a screen recording:
+       open it in a window of its own. ?satellite=<id> for one satellite's;
+       ?theme=light for dark text on light. -->
+  <style>
+    :root {
+      --bg: #111418;
+      --text: #e6e9ee;
+      --muted: #97a2b0;
+    }
+    :root[data-theme="light"] {
+      --bg: #f6f7f9;
+      --text: #1c2430;
+      --muted: #5f6b7a;
+    }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.5em;
+      padding: 0 6vw;
+      box-sizing: border-box;
+      font-size: clamp(16px, 5.5vw, 56px);
+      line-height: 1.25;
+    }
+    #heard { color: var(--muted); font-size: 0.8em; }
+    #heard:not(:empty)::before { content: "\201C"; }
+    #heard:not(:empty)::after { content: "\201D"; }
+    #said { font-weight: 600; }
+    .fresh { animation: in 0.4s ease-out; }
+    @keyframes in { from { opacity: 0; transform: translateY(0.3em); } }
+  </style>
+</head>
+<body>
+  <div id="heard"></div>
+  <div id="said"></div>
+  <script>
+    const query = new URLSearchParams(location.search);
+    if (query.get("theme") === "light") document.documentElement.dataset.theme = "light";
+    const url = "../api/calls" + (query.get("satellite") ? `?satellite=${encodeURIComponent(query.get("satellite"))}` : "");
+    const heard = document.getElementById("heard");
+    const said = document.getElementById("said");
+    let shown = null;
+
+    function show(element, text) {
+      element.textContent = text || "";
+      element.classList.remove("fresh");
+      void element.offsetWidth; // restart the animation
+      element.classList.add("fresh");
+    }
+
+    async function poll() {
+      try {
+        const { calls } = await (await fetch(url, { cache: "no-store" })).json();
+        // Newest first; one still going has no answer yet.
+        const last = calls.find((call) => call.finished && (call.heard || call.said));
+        if (last && last.id !== shown) {
+          shown = last.id;
+          show(heard, last.heard);
+          show(said, last.said);
+        }
+      } catch (err) {
+        // The app restarting: try again on the next tick.
+      }
+      setTimeout(poll, 1000);
+    }
+    poll();
+  </script>
+</body>
+</html>
