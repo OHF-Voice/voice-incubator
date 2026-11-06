@@ -247,7 +247,7 @@
   looked up, not registered: a device removed in Home Assistant stays
   removed until its satellite connects again.
 - **An icon**, a flask, for the app and the integration (Home Assistant
-  shows the integration's from 2026.3).
+  shows the integration's from 2026.3), and the logo in the web UI's header.
 - **Sessions say whether the speech-to-text entity ran.** The recognition
   step has a row for it -- not asked (its words weren't needed); asked, what
   it heard and how long it took; heard as you spoke, and how soon after you

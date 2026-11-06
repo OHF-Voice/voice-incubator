@@ -57,7 +57,7 @@ pre { background: var(--code); padding: 10px; border-radius: 6px; overflow: auto
   padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10;
 }
-.brand { font-weight: 650; }
+.brand img { display: block; height: 32px; width: auto; }
 nav { display: flex; gap: 4px; flex-wrap: wrap; }
 nav a { padding: 6px 10px; border-radius: 6px; color: var(--text); }
 nav a.active { background: var(--accent-soft); color: var(--accent); text-decoration: none; }

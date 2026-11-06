@@ -4,11 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voice Labs</title>
+  <link rel="icon" href="static/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="static/app.css">
 </head>
 <body>
   <header class="top">
-    <div class="brand">Voice Labs</div>
+    <picture class="brand">
+      <source srcset="static/logo-dark.svg" media="(prefers-color-scheme: dark)">
+      <img src="static/logo.svg" alt="Voice Labs">
+    </picture>
     <nav id="nav">
       <a href="#/home" data-page="home">Home</a>
       <a href="#/wake" data-page="wake">Wake words</a>
