@@ -114,6 +114,9 @@ class FakeHass:
         """Whether the Voice Labs integration is installed and set up."""
         self.services: list[dict[str, Any]] = []
         self.satellites: dict[str, dict[str, Any]] = {}
+        """The integration's satellites, each with a device."""
+        self.synced: list[list[str]] = []
+        """The satellites each voice_labs/satellites/sync registered."""
         self.device_areas: dict[str, str | None] = {}
         self.disabled_devices: set[str] = set()
         """Devices disabled (by the user): a satellite's, left to another app."""
@@ -461,23 +464,18 @@ class FakeHass:
             if not self.integration:
                 await result(success=False, error="unknown command")
                 return
+            self.synced.append(sorted(item["id"] for item in message["satellites"]))
             out = []
             for item in message["satellites"]:
                 satellite = self.satellites.setdefault(item["id"], {"id": item["id"], "device_id": f"device-{item['id']}"})
                 satellite["name"] = item.get("name")
-                area = self.device_areas.get(satellite["device_id"])
-                # The area's list, every satellite there sharing it; in no area, its own.
-                satellite["timer_list"] = f"voice_timer_list.{area or item['id']}_timers"
-                self.timers.setdefault(satellite["timer_list"], {})
-                out.append(
-                    {
-                        **satellite,
-                        "device_name": item.get("name"),
-                        "area_id": area,
-                        "media_player": SENDSPIN_PLAYERS.get(item["id"]),
-                    }
-                )
+                out.append(self._described(satellite))
             await result({"satellites": out})
+        elif kind == "voice_labs/satellites/list":
+            if not self.integration:
+                await result(success=False, error="unknown command")
+                return
+            await result({"satellites": [self._described(s) for s in self.satellites.values()]})
         elif kind == "voice_labs/do_not_disturb":
             if not self.integration:
                 await result(success=False, error="unknown command")
@@ -654,6 +652,23 @@ class FakeHass:
             {"uid": f"event-{next(self._event_ids)}", "recurrence_id": None, "rrule": None, "description": None, **event}
         )
         await self._push_calendar(entity_id)
+
+    def _described(self, satellite: dict[str, Any]) -> dict[str, Any]:
+        area = self.device_areas.get(satellite["device_id"])
+        # The area's list, every satellite there sharing it; in no area, its own.
+        satellite["timer_list"] = f"voice_timer_list.{area or satellite['id']}_timers"
+        self.timers.setdefault(satellite["timer_list"], {})
+        return {
+            **satellite,
+            "device_name": satellite.get("name"),
+            "area_id": area,
+            "media_player": SENDSPIN_PLAYERS.get(satellite["id"]),
+        }
+
+    async def remove_satellite(self, satellite_id: str) -> None:
+        """Its device removed from the integration, as the user would."""
+        device_id = self.satellites.pop(satellite_id)["device_id"]
+        await self.registry_changed("device_registry_updated", {"action": "remove", "device_id": device_id})
 
     def set_disabled(self, device_id: str, disabled: bool) -> None:
         if disabled:

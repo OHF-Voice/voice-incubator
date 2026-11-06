@@ -734,8 +734,9 @@ class VoiceLabsApp:
             _LOGGER.error("%s", message)
             raise SystemExit(message)
         self.calls.settings = self.store.settings
-        for key, entry in self.store.satellites.items():
-            self.integration.want(key, entry.get("name") or key)
+        # Registered as each connects; a device removed in Home Assistant
+        # isn't made again for one that doesn't (--host names another).
+        self.integration.remember(self.store.satellites)
         await self.hass.start()
 
         try:
@@ -1605,6 +1606,8 @@ class VoiceLabsApp:
                     _cancel_stt(session.call)
                     session.call = None
                     session.writer = None
+                    if session.satellite:
+                        self.integration.unwant(session.satellite)
                     # Whoever listened hears the end: the device stopped streaming.
                     for queue in session.listeners:
                         while not queue.empty():

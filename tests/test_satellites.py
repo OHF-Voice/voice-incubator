@@ -4,6 +4,7 @@ satellites, the app between them."""
 from __future__ import annotations
 
 import asyncio
+import json
 
 import aiohttp
 import numpy as np
@@ -331,4 +332,55 @@ async def _disabled(tmp_path) -> None:
         await app.stop()
         for server in servers:
             server.close()
+        hass_server.close()
+
+
+def test_only_a_satellite_it_serves_gets_a_device(tmp_path):
+    asyncio.run(_served(tmp_path))
+
+
+async def _served(tmp_path) -> None:
+    """Pinned to one satellite (--host), the app registers that one -- which
+    makes its device -- and only looks up another it remembers: that one's
+    device, removed in Home Assistant, stays removed. The one it serves is
+    registered again; once it's gone, it too stays removed."""
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    kitchen = FakeSatellite(name="kitchen", mac=_mac(KITCHEN), speed=8.0)
+    server = await serve(kitchen)
+    (tmp_path / "satellites.json").write_text(json.dumps({
+        KITCHEN: {"name": "kitchen"}, BEDROOM: {"name": "bedroom", "device_id": "bedroom"},
+    }))
+    hass.satellites[BEDROOM] = {"id": BEDROOM, "device_id": f"device-{BEDROOM}", "name": "bedroom"}
+    hass.device_areas[f"device-{BEDROOM}"] = "bedroom"
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await asyncio.wait_for(kitchen.ready.wait(), 30)
+        await wait_for(lambda: KITCHEN in app.integration.links and BEDROOM in app.integration.links)
+        assert all(synced == [KITCHEN] for synced in hass.synced)
+        assert app.integration.links[BEDROOM].device_id == f"device-{BEDROOM}"
+        assert app.integration.links[BEDROOM].timer_list == "voice_timer_list.bedroom_timers"
+
+        await hass.remove_satellite(BEDROOM)
+        await wait_for(lambda: BEDROOM not in app.integration.links)
+        assert BEDROOM not in hass.satellites
+
+        await hass.remove_satellite(KITCHEN)
+        await wait_for(lambda: KITCHEN in hass.satellites)
+
+        runner.cancel()
+        await wait_for(lambda: KITCHEN not in app.integration._wanted)
+        await hass.remove_satellite(KITCHEN)
+        await wait_for(lambda: KITCHEN not in app.integration.links)
+        assert KITCHEN not in hass.satellites
+    finally:
+        runner.cancel()
+        await app.stop()
+        server.close()
         hass_server.close()

@@ -6,8 +6,11 @@ entity for its timers. The app:
 
 * sets the integration up if it is installed but not yet configured (its config
   flow asks nothing);
-* registers every satellite it knows (``voice_labs/satellites/sync``) and
-  learns its device and timer list;
+* registers each satellite it serves (``voice_labs/satellites/sync``), which
+  makes its device, and learns its device and timer list -- for one it only
+  remembers (away, disabled, or not the satellite ``--host`` names), it looks
+  them up (``voice_labs/satellites/list``) and makes none: a device removed
+  in Home Assistant stays removed until its satellite is served again;
 * follows each timer list (``voice_timer_list/item/subscribe``): which timers are
   running, for matching timer commands and for recognizing their names, and
   which finish, to ring the satellites -- every satellite in an area shares
@@ -25,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -80,6 +83,9 @@ class Integration:
         """Timer list -> timer id -> timer, as voice_timer_list reports them."""
 
         self._wanted: dict[str, str] = {}
+        """The satellites it serves now, by name: registered."""
+        self._remembered: set[str] = set()
+        """The satellites it remembers: looked up."""
         self._subscriptions: dict[str, int] = {}
         self._sync_task: asyncio.Task | None = None
         self._said_no_quiet = False
@@ -120,16 +126,26 @@ class Integration:
 
     # ----------------------------------------------------------- satellites
 
+    def remember(self, keys: Iterable[str]) -> None:
+        """Look these satellites' devices up, without making any."""
+        self._remembered = set(keys)
+
     def want(self, key: str, name: str) -> None:
-        """Register this satellite (soon: several connecting at once make one sync)."""
+        """Register this satellite, served now (soon: several connecting at
+        once make one sync)."""
+        self._remembered.add(key)
         if self._wanted.get(key) == name and key in self.links:
             return
         self._wanted[key] = name
         if self._sync_task is None or self._sync_task.done():
             self._sync_task = asyncio.ensure_future(self._sync_soon())
 
+    def unwant(self, key: str) -> None:
+        """No longer served (it disconnected): only looked up."""
+        self._wanted.pop(key, None)
+
     def _catalog_changed(self) -> None:
-        if self.ready and self._wanted and (self._sync_task is None or self._sync_task.done()):
+        if self.ready and self._remembered and (self._sync_task is None or self._sync_task.done()):
             self._sync_task = asyncio.ensure_future(self._sync_soon())
 
     async def _sync_soon(self) -> None:
@@ -137,15 +153,23 @@ class Integration:
         await self.sync()
 
     async def sync(self) -> None:
-        if not self.ready or not self._wanted:
+        if not self.ready or not self._remembered:
             return
+        items: dict[str, dict[str, Any]] = {}
         try:
-            result = await self.hass.call(
-                {
-                    "type": "voice_labs/satellites/sync",
-                    "satellites": [{"id": k, "name": n} for k, n in self._wanted.items()],
-                }
-            )
+            if self._wanted:
+                result = await self.hass.call(
+                    {
+                        "type": "voice_labs/satellites/sync",
+                        "satellites": [{"id": k, "name": n} for k, n in self._wanted.items()],
+                    }
+                )
+                items.update((str(item["id"]), item) for item in result.get("satellites", []))
+            if self._remembered - items.keys():
+                result = await self.hass.call({"type": "voice_labs/satellites/list"})
+                for item in result.get("satellites", []):
+                    if (key := str(item["id"])) in self._remembered:
+                        items.setdefault(key, item)
         except HassError as err:
             # Installed and configured but not loaded yet (or an older version).
             self.status = f"Voice Labs could not register satellites: {err}"
@@ -154,8 +178,10 @@ class Integration:
         except (ConnectionError, OSError, TimeoutError) as err:
             _LOGGER.warning("Could not register satellites: %s", err)
             return
-        for item in result.get("satellites", []):
-            key = item["id"]
+        # One whose device was removed in Home Assistant, while away.
+        for key in self.links.keys() - items.keys():
+            del self.links[key]
+        for key, item in items.items():
             link = self.links.setdefault(key, SatelliteLink(key))
             link.device_id = item.get("device_id")
             link.timer_list = item.get("timer_list")

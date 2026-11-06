@@ -242,6 +242,10 @@
   without its audio drivers, which playing the sounds never used -- and 130
   MB of Kaldi programs the verifier never runs (only its 36 are kept,
   `wyoming_wake_kaldi/prune.py`). The standalone image is 950 MB.
+- **A satellite's device is made only when it connects.** The others the
+  app remembers -- away, disabled, or not the one `--host` names -- are
+  looked up, not registered: a device removed in Home Assistant stays
+  removed until its satellite connects again.
 - **Sessions say whether the speech-to-text entity ran.** The recognition
   step has a row for it -- not asked (its words weren't needed); asked, what
   it heard and how long it took; heard as you spoke, and how soon after you
