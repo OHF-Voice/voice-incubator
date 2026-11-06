@@ -7,6 +7,9 @@ built:
     python3 -m wyoming_wake_kaldi.prune TOOLS_DIR [LINKED ...]
 
 ``LINKED``: other programs whose libraries are kept (the decoder daemon).
+
+The amd64 tree keeps its libraries in lib/; the aarch64 tree keeps them next
+to its programs, in kaldi/bin, which its kaldi/lib and openfst/ link to.
 """
 
 from __future__ import annotations
@@ -21,6 +24,22 @@ from pathlib import Path
 from .kaldi import PROGRAMS, SpeechTools
 
 _LINKED = re.compile(r"=>\s+(\S+)")
+_LIBRARY = re.compile(r"^lib.+\.so(\.[\d.]+)?$")
+
+
+def _place(path: str | Path) -> str:
+    """``path`` with its folder's links followed, not its own: the same file
+    by the same name, whichever linked folder it was reached through."""
+    return os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
+
+
+def _folders(*paths: Path) -> list[Path]:
+    """Each folder once, though several of ``paths`` link to it."""
+    seen: dict[str, Path] = {}
+    for path in paths:
+        if path.is_dir():
+            seen.setdefault(os.path.realpath(path), path)
+    return list(seen.values())
 
 
 def linked_libraries(program: Path, root: Path, env: dict[str, str]) -> set[str]:
@@ -37,7 +56,7 @@ def linked_libraries(program: Path, root: Path, env: dict[str, str]) -> set[str]
         path = os.path.abspath(match.group(1))
         real = os.path.realpath(path)
         if real.startswith(str(root) + os.sep):
-            found |= {path, real}
+            found |= {_place(path), real}
     return found
 
 
@@ -45,8 +64,10 @@ def prune(tools_dir: Path, linked: list[Path]) -> tuple[int, int]:
     """Prune ``tools_dir`` in place. How many programs and libraries remain."""
     root = Path(os.path.realpath(tools_dir))
     programs = []
-    for bin_dir in (root / "kaldi" / "bin", root / "openfst" / "bin"):
+    for bin_dir in _folders(root / "kaldi" / "bin", root / "openfst" / "bin"):
         for path in sorted(bin_dir.iterdir()):
+            if _LIBRARY.match(path.name):
+                continue  # the lib/ pass's to judge
             if path.name in PROGRAMS:
                 programs.append(path)
             else:
@@ -55,20 +76,23 @@ def prune(tools_dir: Path, linked: list[Path]) -> tuple[int, int]:
     if missing:
         raise SystemExit(f"Not in {tools_dir}: {', '.join(sorted(missing))}")
     env = SpeechTools.from_dir(root).extended_env
-    keep: set[str] = set()
+    keep = {_place(program) for program in programs}
     for program in [*programs, *linked]:
         keep |= linked_libraries(program, root, env)
     libraries = 0
-    for lib_dir in (root / "kaldi" / "lib", root / "openfst" / "lib"):
+    for lib_dir in _folders(root / "kaldi" / "lib", root / "openfst" / "lib"):
         for path in sorted(lib_dir.iterdir()):
             if path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path)
-            elif str(path) in keep:
-                libraries += 1
-            else:
+            elif _place(path) not in keep:
                 path.unlink()
+            elif _LIBRARY.match(path.name):
+                libraries += 1
     for headers in (root / "kaldi" / "include", root / "openfst" / "include"):
-        shutil.rmtree(headers, ignore_errors=True)
+        if headers.is_symlink():
+            headers.unlink()
+        else:
+            shutil.rmtree(headers, ignore_errors=True)
     return len(programs), libraries
 
 
