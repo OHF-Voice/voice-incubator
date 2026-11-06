@@ -48,9 +48,9 @@ commands from the library follow it (voice_labs/library.py); before, they
 were copies of it, and are made to follow it when read."""
 NAME_KINDS = ("entities", "areas", "floors")
 
-DEFAULT_COMMANDS = ("time/what_time", "time/what_date")
-"""The library commands a new home starts with, following it: the time and
-the date. Deleted, they stay deleted."""
+DEFAULT_COMMANDS = ("time/what_time", "time/what_date", "satellites/never_mind")
+"""The library commands a new home starts with, following it: the time, the
+date, and never mind. Deleted, they stay deleted."""
 
 
 def new_store(language: str) -> dict[str, Any]:

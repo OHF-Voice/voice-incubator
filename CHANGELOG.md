@@ -252,7 +252,8 @@
   command's area, words and answer, as large as the window allows, for a
   screen recording (`?satellite=<id>` for one satellite's, `?theme=light`).
 - **A new home tells the time and the date.** It starts with the library's
-  What time is it and What's the date, following it, in the app's language.
+  What time is it, What's the date and Never mind, following it, in the
+  app's language.
   Deleted, they stay deleted; a home that has commands already is left as
   it is.
 - **Sessions say whether the speech-to-text entity ran.** The recognition

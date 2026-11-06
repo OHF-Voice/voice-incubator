@@ -86,7 +86,7 @@ def test_a_command_is_made_in_the_apps_language(english, tmp_path):
     languages.use("de")
     compiled = store.put_command("vergiss_es", {"description": "nichts tun", "examples": ["vergiss es"]})
     assert store.load().data["commands"]["vergiss_es"]["language"] == "de"  # not the file's: said
-    # A new home's time and date are in its language too.
+    # A new home's commands are in its language too.
     assert list(compiled.commands) == ["vergiss_es"]
     assert compiled.hidden == {"what_time": "en", "what_date": "en", "never_mind": "en"}
     # Another language's command keeps its id, and is left as it was.
@@ -345,9 +345,9 @@ SKILL_GRAMMAR = {
 
 
 @pytest.mark.parametrize("code", languages.codes())
-def test_a_new_home_tells_the_time_and_the_date_in_every_language(english, code):
+def test_a_new_homes_commands_in_every_language(english, code):
     languages.use(code)
-    assert set(compile_store(new_store(code)).commands) == {"what_time", "what_date"}
+    assert set(compile_store(new_store(code)).commands) == {"what_time", "what_date", "never_mind"}
 
 
 @pytest.mark.parametrize("code", languages.codes())
