@@ -5,59 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Voice Labs caption</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <!-- The last command's words and answer, large, for a screen recording:
-       open it in a window of its own. ?satellite=<id> for one satellite's;
+  <!-- The last command's area, words and answer, for a screen recording:
+       open it in a window of its own. The text fills the window, so it can
+       be sized tightly around it. ?satellite=<id> for one satellite's;
        ?theme=light for dark text on light. -->
   <style>
     :root {
       --bg: #111418;
       --text: #e6e9ee;
       --muted: #97a2b0;
+      --accent: #60a5fa;
     }
     :root[data-theme="light"] {
       --bg: #f6f7f9;
       --text: #1c2430;
       --muted: #5f6b7a;
+      --accent: #2563eb;
     }
-    html, body { height: 100%; margin: 0; }
+    html, body { height: 100%; margin: 0; overflow: hidden; }
     body {
       background: var(--bg);
       color: var(--text);
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 0.5em;
-      padding: 0 6vw;
-      box-sizing: border-box;
-      font-size: clamp(16px, 5.5vw, 56px);
-      line-height: 1.25;
+      align-items: center;
     }
-    #heard { color: var(--muted); font-size: 0.8em; }
+    #box { padding: 0.2em 0.35em; line-height: 1.15; text-wrap: balance; }
+    #area { color: var(--accent); font-size: 0.5em; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    #heard { color: var(--muted); font-size: 0.7em; }
     #heard:not(:empty)::before { content: "\201C"; }
     #heard:not(:empty)::after { content: "\201D"; }
-    #said { font-weight: 600; }
+    #said { font-weight: 650; }
+    #box > :empty { display: none; }
+    #box > * + * { margin-top: 0.15em; }
     .fresh { animation: in 0.4s ease-out; }
-    @keyframes in { from { opacity: 0; transform: translateY(0.3em); } }
+    @keyframes in { from { opacity: 0; } }
   </style>
 </head>
 <body>
-  <div id="heard"></div>
-  <div id="said"></div>
+  <div id="box">
+    <div id="area"></div>
+    <div id="heard"></div>
+    <div id="said"></div>
+  </div>
   <script>
     const query = new URLSearchParams(location.search);
     if (query.get("theme") === "light") document.documentElement.dataset.theme = "light";
     const url = "../api/calls" + (query.get("satellite") ? `?satellite=${encodeURIComponent(query.get("satellite"))}` : "");
-    const heard = document.getElementById("heard");
-    const said = document.getElementById("said");
+    const box = document.getElementById("box");
+    const parts = ["area", "heard", "said"].map((id) => document.getElementById(id));
     let shown = null;
 
-    function show(element, text) {
-      element.textContent = text || "";
-      element.classList.remove("fresh");
-      void element.offsetWidth; // restart the animation
-      element.classList.add("fresh");
+    // The largest text that fits the window, wrapped.
+    function fit() {
+      let low = 6, high = Math.max(innerWidth, innerHeight);
+      while (high - low > 0.5) {
+        const size = (low + high) / 2;
+        box.style.fontSize = `${size}px`;
+        // A word wider than the window makes it smaller, not broken.
+        const fits = Math.max(box.offsetWidth, box.scrollWidth) <= innerWidth && box.offsetHeight <= innerHeight;
+        if (fits) low = size; else high = size;
+      }
+      box.style.fontSize = `${low}px`;
     }
+    addEventListener("resize", fit);
 
     async function poll() {
       try {
@@ -66,8 +77,12 @@
         const last = calls.find((call) => call.finished && (call.heard || call.said));
         if (last && last.id !== shown) {
           shown = last.id;
-          show(heard, last.heard);
-          show(said, last.said);
+          const texts = [last.satellite?.area_name, last.heard, last.said];
+          parts.forEach((part, i) => { part.textContent = texts[i] || ""; });
+          fit();
+          box.classList.remove("fresh");
+          void box.offsetWidth; // restart the animation
+          box.classList.add("fresh");
         }
       } catch (err) {
         // The app restarting: try again on the next tick.

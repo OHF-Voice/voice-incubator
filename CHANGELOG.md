@@ -249,8 +249,8 @@
 - **An icon**, a flask, for the app and the integration (Home Assistant
   shows the integration's from 2026.3), and the logo in the web UI's header.
 - **A caption page**, `static/caption.html` beside the web UI: the last
-  command's words and answer, large, for a screen recording
-  (`?satellite=<id>` for one satellite's, `?theme=light`).
+  command's area, words and answer, as large as the window allows, for a
+  screen recording (`?satellite=<id>` for one satellite's, `?theme=light`).
 - **A new home tells the time and the date.** It starts with the library's
   What time is it and What's the date, following it, in the app's language.
   Deleted, they stay deleted; a home that has commands already is left as
