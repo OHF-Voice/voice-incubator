@@ -1196,6 +1196,15 @@ for this app:
   export is not what holds it back: NeMo's own full-precision model scored
   the same (16.4% against 16.5% on one session's commands), and Parakeet
   TDT 0.6B v3 only a little better (15.4%).
+- **A Kaldi mode was tried, and Parakeet beat it** (`scripts/kaldi_mode.py`):
+  the wake verifier's Kaldi model decoding the whole call against "okay
+  nabu" and the commands' own words. Any of the words: 40.3% of mike-merged's
+  commands right, against the app's 78.9% -- its model hears far-field
+  speech far worse ("shut house you right" for "turn on the ceiling light").
+  Held to whole sentences (the corpus's own, an upper bound) it got 90.6%,
+  but Parakeet's CTC head held to the same sentences got 95.2% (93.6% after
+  the cut). Whole sentences are where the gain is, and the CTC head can
+  search for them already (example sentences).
 - **Examples first.** A command's example sentences are searched for in the
   CTC evidence on every call, not only when no keyword intent matched, and one
   said word for word wins over keyword matches (`settings.examples_first`).
