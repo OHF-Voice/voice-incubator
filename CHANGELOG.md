@@ -279,6 +279,9 @@
   else the home's, as Add to my to-do list does. Before, the home's
   versions took them, and said "That isn't set up yet." without a home
   list.
+- **Sessions call a sentence trigger by its automation's name**
+  ("Good night"), not its command's id (`trigger_1`): in the list, the
+  session's summary and its Recognition step.
 - **Who am I**, in the library's new People section: "who am I", "who's
   speaking" or "what's my name" says "You are Mike." -- who it takes the
   speaker to be, as "my" means them -- or "Sorry, I don't know who's

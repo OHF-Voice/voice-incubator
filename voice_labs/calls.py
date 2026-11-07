@@ -120,6 +120,8 @@ class CallRecord:
                 out["heard"] = heard.get("tdt_transcript") or streamed or heard.get("transcript") or out.get("heard")
                 if stage.get("command"):
                     out["command"] = stage["command"]
+                    if stage.get("title"):
+                        out["command_title"] = stage["title"]  # a sentence trigger's automation
             elif kind == "speech" and stage.get("text"):
                 out["said"] = stage["text"]
         return out

@@ -810,6 +810,10 @@ async def _scenario(tmp_path: Path) -> None:
             assert [t.title for t in app.store.triggers] == ["Good night", "Clock"]
             text, record = await agent_said("good night")
             assert (text, record.outcome) == ("Sleep tight.", "done")
+            # Sessions call it by its automation's name.
+            assert record.summary == "Good night: 'good night'"
+            listed = (await (await http.get("/api/calls")).json())["calls"][0]
+            assert (listed["command"], listed["command_title"]) == ("trigger_1", "Good night")
             asked = hass.conversations[-1]
             assert asked["agent_id"] == "conversation.home_assistant" and asked["text"] == "good night"
             assert asked.get("device_id") == app.satellite(MAC).device_id

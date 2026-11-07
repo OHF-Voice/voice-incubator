@@ -4076,7 +4076,7 @@ async function pageSessions(query) {
     icon(sessionIcon(c), "big", null),
     h("div", { class: "grow" },
       h("div", { class: "heard" }, c.heard ? quoted(c.heard) : c.summary ? c.summary[0].toUpperCase() + c.summary.slice(1) : "…"),
-      c.command || c.said ? h("div", { class: "muted small" }, [c.command, c.said ? quoted(c.said) : null].filter(Boolean).join(" · ")) : null),
+      c.command || c.said ? h("div", { class: "muted small" }, [c.command_title || c.command, c.said ? quoted(c.said) : null].filter(Boolean).join(" · ")) : null),
     h("div", { class: "session-side" },
       h("div", { class: "session-meta muted small" },
         h("span", {}, time(c.started)),
@@ -4219,7 +4219,8 @@ function sessionResult(record) {
   }
   if (rec && rec.command) {
     // Two commands said together: both, in order.
-    const ran = (r) => [h("a", { href: `#/command/${r.command}` }, r.command),
+    // A sentence trigger by its automation's name.
+    const ran = (r) => [h("a", { href: `#/command/${r.command}` }, r.title || r.command),
       r.slots && Object.keys(r.slots).length ? h("span", { class: "muted" }, ` (${slotsText(r.slots)})`) : null];
     return ["mdi:flash-outline", [record.dry_run ? "Would run " : "Ran ", ...ran(rec),
       ...(rec.then && rec.then.command ? [" and ", ...ran(rec.then)] : [])]];
@@ -4456,7 +4457,7 @@ function stepGlance(stage) {
     case "replay_of":
       return { title: "Replay", status: "", line: `of ${d.call}` };
     case "recognition":
-      if (d.command) return { title: "Recognition", status: "ok", line: `${d.command}${d.then && d.then.command ? ` and ${d.then.command}` : ""} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() + recognitionTime(d) };
+      if (d.command) return { title: "Recognition", status: "ok", line: `${d.title || d.command}${d.then && d.then.command ? ` and ${d.then.title || d.then.command}` : ""} ${d.text_source === "typed" && d.matched_by === "ctc" ? "in what was typed" : MATCHED_BY[d.matched_by] || ""}`.trim() + recognitionTime(d) };
       if (d.answer) return { title: "Recognition", status: "ok", line: `a question for the ${d.answer.skill || d.answer.solver || d.answer.kind} skill${recognitionTime(d)}` };
       return { title: "Recognition", status: "warn", line: `no command${recognitionTime(d)}` };
     case "action": {

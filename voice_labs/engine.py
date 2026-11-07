@@ -241,6 +241,8 @@ class Decision:
     def to_json(self) -> dict[str, Any]:
         return {
             "command": self.command.id if self.command else None,
+            # A sentence trigger's automation, by name: its id is no name.
+            **({"title": self.command.title} if self.command and self.command.behavior.trigger and self.command.title else {}),
             "description": self.command.description if self.command else None,
             "does": self.behavior.does if self.behavior else None,
             "slots": self.slots,

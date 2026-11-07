@@ -3053,7 +3053,9 @@ class VoiceLabsApp:
             # What it acted on or asked about, by name: "it", next.
             self.context.remember(conversation_key(satellite), list(decision.slots.get("entity") or []))
         state = "error" if outcome.error else "dry run" if dry_run else "asked" if outcome.name == "confirm" else "done"
-        return None if outcome.silent else outcome.speech, state, f"{decision.command.id}: {decision.transcript!r}"
+        # A sentence trigger by its automation's name.
+        name = decision.command.title if decision.command.behavior.trigger and decision.command.title else decision.command.id
+        return None if outcome.silent else outcome.speech, state, f"{name}: {decision.transcript!r}"
 
     async def _skill_says(
         self, answer: dict[str, Any], satellite: Satellite, speaker: dict[str, Any], record: CallRecord | None,
