@@ -222,3 +222,13 @@ def test_said(engine, text, commands):
     pcm = speech.synthesize(text)
     audio = np.frombuffer(bytes(int(0.3 * 32000)) + pcm, dtype="<i2").astype(np.float32) / 32768
     assert heard(engine.recognize_command(audio, office)) == commands
+
+
+def test_a_name_said_again_from_a_plain_name():
+    """An adapt-ctc config's name may be the name alone ("kitchen: Kitchen"),
+    as scripts/bench_corpus.py's commands have them."""
+    from voice_labs.compound import target  # pylint: disable=import-outside-toplevel
+
+    names = {"areas": {"kitchen": "Kitchen", "bedroom": {"name": "Bedroom"}}, "entities": {"light.lamp": "Lamp"}}
+    assert target({"area": ["kitchen", "bedroom"]}, names, {}) == "in the Kitchen and in the Bedroom"
+    assert target({"entity": ["light.lamp"]}, names, {}) == "the Lamp"

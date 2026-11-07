@@ -103,8 +103,13 @@ def borrowings(first: list[str], second: list[str], which: str) -> list[str]:
 
 def device_names(entity_ids: list[str], names: dict[str, Any], devices: dict[str, Any]) -> list[str]:
     """What each device is called: its first name on the Names page."""
-    said = [devices[e].phrases[0] if e in devices and devices[e].phrases else (names.get("entities", {}).get(e) or {}).get("name") for e in entity_ids]
+    said = [devices[e].phrases[0] if e in devices and devices[e].phrases else _name(names.get("entities", {}).get(e)) for e in entity_ids]
     return [s for s in said if s]
+
+
+def _name(entry: Any) -> str | None:
+    """A name entry's name: ``{name: ...}``, or (an adapt-ctc config's) the name itself."""
+    return entry if isinstance(entry, str) else (entry or {}).get("name")
 
 
 def target(slots: dict[str, Any], names: dict[str, Any], devices: dict[str, Any]) -> str | None:
@@ -115,7 +120,7 @@ def target(slots: dict[str, Any], names: dict[str, Any], devices: dict[str, Any]
         return " and ".join(f"the {s}" for s in device_names(slots["entity"], names, devices)) or None
     for kind, before in (("area", "in the "), ("floor", "")):
         if slots.get(kind):
-            said = [(names.get(f"{kind}s", {}).get(i) or {}).get("name") for i in slots[kind]]
+            said = [_name(names.get(f"{kind}s", {}).get(i)) for i in slots[kind]]
             return " and ".join(f"{before}{s}" for s in said if s) or None
     return None
 
