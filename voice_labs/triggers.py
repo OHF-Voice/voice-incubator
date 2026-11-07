@@ -31,6 +31,14 @@ on the transcript with hassil (``match``), as Home Assistant matches it --
 the CTC head's transcript before anything else is, the TDT head's when
 nothing matched.
 
+**Value lists.** A slot named as one of the home's value lists (``start the
+{program} cycle``, with a list ``program``) is that list's: heard as one of
+its phrases -- in the CTC evidence when the template then stands for at most
+``MAX_SENTENCES`` sentences, else on the transcript -- and Home Assistant,
+which takes every list as free text, is sent the template said with the
+value in its place ("start the economy cycle" as "start the eco cycle"),
+when it reads that back so (``heard_as``, ``said_with``).
+
 **Triggers win.** Home Assistant runs a trigger before its intents, so a
 sentence that is both a trigger and one of the app's commands runs the
 trigger: its example sentences are the trigger's (commands.shared_examples),
@@ -47,18 +55,19 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import functools
+import itertools
 import logging
 import re
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from hassil import Intents, recognize_all
 from hassil.expression import Alternative, Expression, Group, ListReference, Permutation, RuleReference, TextChunk
-from hassil.intents import WildcardSlotList
+from hassil.intents import TextSlotList, WildcardSlotList
 from hassil.parse_expression import parse_sentence
-from hassil.sample import sample_expression
 
 from adapt_ctc.config import ConfigError, parse_config
 from adapt_ctc.template import MAX_SENTENCES
@@ -107,7 +116,15 @@ class Trigger:
     """The slots its free text fills together, one set for each way of
     saying it (its transcript templates, optional parts in or out):
     ``(("album", "artist"),)`` for ``play {album} by {artist}``; ``()`` for
-    one said with none."""
+    one said with none. A value list's slot is not free text."""
+    lists: tuple[str, ...] = ()
+    """The home's value lists its slots take: a slot named as one
+    (``{program}``, the list ``program``) is heard as one of its phrases,
+    and Home Assistant is sent its value."""
+    values: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = ()
+    """Each of its examples said with a value list's phrase: the example,
+    the sentence Home Assistant is sent (the value in its place), and the
+    value each of those slots took."""
     problems: tuple[str, ...] = ()
     """Sentences that couldn't be read, and why: never heard."""
 
@@ -204,19 +221,26 @@ def sentences_in(config: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------- preparing
 
 
-def prepare(triggers: Iterable[Trigger], language: str | None = None) -> list[Trigger]:
+def prepare(
+    triggers: Iterable[Trigger], language: str | None = None, lists: dict[str, Any] | None = None
+) -> list[Trigger]:
     """Each trigger with what it is heard by: its examples (the sentences its
     templates stand for, each once), the templates matched on the
-    transcript, and its description."""
+    transcript, and its description. ``lists``: the home's value lists, as
+    commands have them (``{name: {value: [phrases]}}``), which a slot named
+    as one takes."""
     language = language or languages.current().code
+    lists = lists or {}
     out = []
     for trigger in triggers:
         taken: set[str] = set()
         examples: list[str] = []
+        values: list[tuple[str, str, tuple[tuple[str, str], ...]]] = []
         transcript: list[str] = []
         problems: list[str] = []
         readable: list[str] = []
         free: list[tuple[str, ...]] = []
+        used: list[str] = []
         for template in trigger.sentences:
             try:
                 parsed = parse_sentence(template)
@@ -224,36 +248,74 @@ def prepare(triggers: Iterable[Trigger], language: str | None = None) -> list[Tr
                 problems.append(f"“{template}”: {err}")
                 continue
             readable.append(template)
-            sentences = _sentences(parsed.expression)
-            if sentences is None or not _speakable(sentences, language):
+            valued = {ref.list_name: _phrases(lists[ref.list_name]) for ref in _references(parsed.expression) if ref.list_name in lists}
+            used += [name for name in valued if name not in used]
+            ways = _sentences(parsed.expression, valued)
+            if ways is None or not _speakable([said for said, _sent, _slots in ways], language):
                 transcript.append(template)
                 if not _has_rule(parsed.expression):
-                    free += [s for s in _slot_sets(parsed.expression) if s not in free]
+                    free += [s for s in _slot_sets(parsed.expression, set(valued)) if s not in free]
                 continue
-            for sentence in sentences:
-                key = sentence_key(sentence, language)
+            for said, sent, slots in ways:
+                key = sentence_key(said, language)
                 if key and key not in taken:
                     taken.add(key)
-                    examples.append(sentence)
+                    examples.append(said)
+                    if slots:
+                        values.append((said, sent, slots))
         description = languages.speech().saying(_first_form(readable[0])) if readable else trigger.title
         out.append(dataclasses.replace(
             trigger, examples=tuple(examples), transcript=tuple(transcript), description=description,
-            free=tuple(free), problems=tuple(problems),
+            free=tuple(free), lists=tuple(used), values=tuple(values), problems=tuple(problems),
         ))
     return out
 
 
-def _slot_sets(expression: Expression) -> list[tuple[str, ...]]:
-    """The slots a template's free text fills together, each way of saying
-    it: an alternative is one of its items, an optional part in or out."""
+def with_lists(triggers: Iterable[Trigger], lists: dict[str, Any]) -> list[Trigger]:
+    """The triggers, those with a slot named as one of the home's value
+    ``lists`` prepared again to take it (``prepare``)."""
+    out = []
+    for trigger in triggers:
+        names = {ref.list_name for template in trigger.sentences for ref in _references(_parsed(template))}
+        out.append(prepare([trigger], lists=lists)[0] if names & set(lists) or trigger.lists else trigger)
+    return out
+
+
+def _parsed(template: str) -> Expression | None:
+    try:
+        return parse_sentence(template).expression
+    except Exception:  # noqa: BLE001 - hassil raises a variety
+        return None
+
+
+def _references(expression: Expression) -> list[ListReference]:
+    """Every slot a template has (``{name}``, ``{list:slot}``)."""
     if isinstance(expression, ListReference):
-        return [(expression.slot_name,)]
+        return [expression]
+    if isinstance(expression, Group):
+        return [ref for item in expression.items for ref in _references(item)]
+    return []
+
+
+def _phrases(values: Any) -> dict[str, list[str]]:
+    """A value list's phrases, by value: ``[red, blue]`` is each its own."""
+    if isinstance(values, list):
+        return {str(v): [str(v)] for v in values}
+    return {str(v): [str(p) for p in (said if isinstance(said, list) else [said])] for v, said in (values or {}).items()}
+
+
+def _slot_sets(expression: Expression, valued: set[str] = frozenset()) -> list[tuple[str, ...]]:
+    """The slots a template's free text fills together, each way of saying
+    it: an alternative is one of its items, an optional part in or out. A
+    slot of one of the ``valued`` lists is not free text."""
+    if isinstance(expression, ListReference):
+        return [()] if expression.list_name in valued else [(expression.slot_name,)]
     if isinstance(expression, Alternative):
-        return list(dict.fromkeys(s for item in expression.items for s in _slot_sets(item)))
+        return list(dict.fromkeys(s for item in expression.items for s in _slot_sets(item, valued)))
     if isinstance(expression, Group):
         sets: list[tuple[str, ...]] = [()]
         for item in expression.items:
-            sets = list(dict.fromkeys(tuple(sorted({*a, *b})) for a in sets for b in _slot_sets(item)))
+            sets = list(dict.fromkeys(tuple(sorted({*a, *b})) for a in sets for b in _slot_sets(item, valued)))
         return sets
     return [()]
 
@@ -264,25 +326,60 @@ def _has_rule(expression: Expression) -> bool:
     return isinstance(expression, Group) and any(_has_rule(item) for item in expression.items)
 
 
-def _sentences(expression: Expression) -> list[str] | None:
-    """Every sentence a template stands for; None with free text or a rule
-    in it, or more than MAX_SENTENCES."""
-    if _has_reference(expression):
+def _sentences(
+    expression: Expression, lists: dict[str, dict[str, list[str]]] | None = None
+) -> list[tuple[str, str, tuple[tuple[str, str], ...]]] | None:
+    """Every sentence a template stands for -- as said, as Home Assistant is
+    sent it (a value list's value in place of its phrase), and the value
+    each of those slots took; None with free text or a rule in it, or more
+    than MAX_SENTENCES. ``lists``: the value lists its slots take."""
+    lists = lists or {}
+    if _has_reference(expression, lists):
         return None
-    out: list[str] = []
-    for text in sample_expression(expression):
-        sentence = " ".join(text.split())
+    out: dict[str, tuple[str, str, tuple[tuple[str, str], ...]]] = {}
+    for said, sent, slots in _ways(expression, lists):
+        sentence = " ".join(said.split())
         if sentence and sentence not in out:
-            out.append(sentence)
+            out[sentence] = (sentence, " ".join(sent.split()), slots)
             if len(out) > MAX_SENTENCES:
                 return None
-    return out
+    return list(out.values())
 
 
-def _has_reference(expression: Expression) -> bool:
-    if isinstance(expression, (ListReference, RuleReference)):
+def _ways(expression: Expression, lists: dict[str, dict[str, list[str]]]) -> Iterator[tuple[str, str, tuple]]:
+    """Each way of saying a template with no free text, as hassil samples
+    it: what is said, what is sent, and the values its value lists' slots took."""
+    if isinstance(expression, TextChunk):
+        yield expression.original_text, expression.original_text, ()
+    elif isinstance(expression, ListReference):
+        for value, phrases in lists[expression.list_name].items():
+            for phrase in phrases:
+                yield phrase, value, ((expression.slot_name, value),)
+    elif isinstance(expression, Alternative):
+        for item in expression.items:
+            yield from _ways(item, lists)
+    elif isinstance(expression, Permutation):
+        parts = [list(_ways(item, lists)) for item in expression.items]
+        for order in itertools.permutations(parts):
+            for combination in itertools.product(*order):
+                said, sent, slots = _joined(combination)
+                yield said.strip(), sent.strip(), slots
+    elif isinstance(expression, Group):
+        yield from map(_joined, itertools.product(*(list(_ways(item, lists)) for item in expression.items)))
+
+
+def _joined(parts: Iterable[tuple[str, str, tuple]]) -> tuple[str, str, tuple]:
+    parts = list(parts)
+    return "".join(p[0] for p in parts), "".join(p[1] for p in parts), tuple(s for p in parts for s in p[2])
+
+
+def _has_reference(expression: Expression, lists: dict[str, Any] | None = None) -> bool:
+    """Whether a template has free text (a slot of none of ``lists``) or a rule."""
+    if isinstance(expression, ListReference):
+        return expression.list_name not in (lists or {})
+    if isinstance(expression, RuleReference):
         return True
-    return isinstance(expression, Group) and any(_has_reference(item) for item in expression.items)
+    return isinstance(expression, Group) and any(_has_reference(item, lists) for item in expression.items)
 
 
 def _speakable(sentences: list[str], language: str) -> bool:
@@ -361,9 +458,12 @@ def settings_of(saved: Any) -> dict[str, dict[str, Any]]:
     return out
 
 
-def compile_triggers(triggers: Iterable[Trigger], settings: dict[str, dict[str, Any]], taken: Iterable[str]) -> Compiled:
+def compile_triggers(
+    triggers: Iterable[Trigger], settings: dict[str, dict[str, Any]], taken: Iterable[str], lists: dict[str, Any] | None = None
+) -> Compiled:
     """Commands for the triggers, with their settings; ids clear of ``taken``
-    (the app's own commands')."""
+    (the app's own commands'). ``lists``: the home's value lists, which a
+    slot named as one takes on the transcript (as ``prepare``)."""
     used = set(taken)
     commands: dict[str, Command] = {}
     by_id: dict[str, Trigger] = {}
@@ -400,31 +500,77 @@ def compile_triggers(triggers: Iterable[Trigger], settings: dict[str, dict[str, 
         by_id[command_id] = trigger
         if trigger.transcript and not own.get("disabled"):
             heard[command_id] = list(trigger.transcript)
-    return Compiled(commands, by_id, _intents(heard))
+    return Compiled(commands, by_id, _intents(heard, lists))
 
 
-def _intents(heard: dict[str, list[str]]) -> Intents | None:
+def _intents(heard: dict[str, list[str]], lists: dict[str, Any] | None = None) -> Intents | None:
+    """The templates as hassil matches them, an intent each: Home Assistant
+    takes every list a trigger names as free text; here, a slot named as one
+    of the home's value ``lists`` is one of its phrases, its value what it
+    takes."""
     if not heard:
         return None
     intents = Intents.from_dict({
         "language": languages.current().code,
         "intents": {command_id: {"data": [{"sentences": sentences}]} for command_id, sentences in heard.items()},
     })
-    # Home Assistant takes every list a trigger names as free text.
+    lists = lists or {}
     for intent in intents.intents.values():
         for data in intent.data:
             for sentence in data.sentences:
-                for name in _list_names(sentence.expression):
-                    intents.slot_lists[name] = WildcardSlotList(name)
+                for ref in _references(sentence.expression):
+                    if ref.list_name in lists:
+                        intents.slot_lists[ref.list_name] = TextSlotList.from_tuples(
+                            [(phrase, value) for value, phrases in _phrases(lists[ref.list_name]).items() for phrase in phrases],
+                            allow_template=False, name=ref.list_name,
+                        )
+                        continue
+                    for name in (ref.list_name, ref.slot_name):
+                        intents.slot_lists.setdefault(name, WildcardSlotList(name))
     return intents
 
 
-def _list_names(expression: Expression) -> set[str]:
-    if isinstance(expression, ListReference):
-        return {expression.list_name, expression.slot_name}
-    if isinstance(expression, Group):
-        return set().union(*(_list_names(item) for item in expression.items)) if expression.items else set()
-    return set()
+@functools.lru_cache(maxsize=256)
+def _home_assistants(sentences: tuple[str, ...], language: str) -> Intents | None:
+    """A trigger's templates as Home Assistant reads them: every list free text."""
+    readable = [s for s in sentences if _parsed(s) is not None]
+    return _intents({"trigger": readable}) if readable else None
+
+
+def _reads_back(trigger: Trigger, sentence: str, values: dict[str, Any]) -> bool:
+    """Whether Home Assistant takes ``sentence`` as this trigger's, each slot
+    taking these words."""
+    heard = _home_assistants(trigger.sentences, languages.current().code)
+    wanted = {k: _same(v) for k, v in values.items()}
+    return heard is not None and any(
+        {k: _same(e.value) for k, e in result.entities.items()} == wanted for result in recognize_all(sentence, heard)
+    )
+
+
+def heard_as(trigger: Trigger | None, example: str) -> tuple[str, dict[str, str]]:
+    """What Home Assistant is sent for one of a trigger's examples, and the
+    value each value list's slot took: the example, with each value in place
+    of its phrase when Home Assistant reads that back so."""
+    for said, sent, slots in trigger.values if trigger is not None else ():
+        if said == example:
+            values = dict(slots)
+            return (sent if _reads_back(trigger, sent, values) else example), values
+    return example, {}
+
+
+def said_with(trigger: Trigger | None, text: str, slots: dict[str, Any]) -> str:
+    """What Home Assistant is sent for a trigger matched on the transcript
+    ``text``: for one with value lists, one of its templates said with what
+    each slot took -- a value list's value -- when Home Assistant reads it
+    back so; else ``text``."""
+    if trigger is None or not trigger.lists:
+        return text
+    values = {k: " ".join(str(v).split()) for k, v in slots.items() if k != SENTENCE and v not in (None, "")}
+    for template in trigger.transcript:
+        said = _said_with(template, values)
+        if said is not None and _reads_back(trigger, said, values):
+            return said
+    return text
 
 
 def match(heard: Intents | None, text: str) -> list[tuple[str, dict[str, Any]]]:
@@ -443,28 +589,24 @@ def sentence_for(
     trigger: Trigger | None,
     slots: dict[str, Any],
     closest: str | None = None,
-    heard: Intents | None = None,
 ) -> str | None:
     """What Home Assistant is sent for a trigger the fallback ran -- what was
     said ("kill the party", "put on Kind of Blue by Miles Davis") is no
     sentence of its, and would run nothing there. With free text heard
-    (``slots``), a template of its said with it, when Home Assistant matches
-    that back to this trigger, the same words in each slot (``heard``: as
-    ``match``); else, of its own sentences, the one meaning found closest,
-    else its first. None: nothing to send."""
+    (``slots``), a template of its said with it, when Home Assistant reads
+    that back as this trigger, the same words in each slot; else, of its own
+    sentences, the one meaning found closest, else its first (``heard_as``).
+    None: nothing to send."""
     free = {k: " ".join(str(v).split()) for k, v in slots.items() if k != SENTENCE and v not in (None, "")}
     if free:
         for template in trigger.transcript if trigger is not None else ():
             said = _said_with(template, free)
-            if said is not None and heard is not None and any(
-                result.intent.name == command.id
-                and {k: _same(e.value) for k, e in result.entities.items()} == {k: _same(v) for k, v in free.items()}
-                for result in recognize_all(said, heard)
-            ):
+            if said is not None and _reads_back(trigger, said, free):
                 return said
         return None
     examples = [str(e) for e in command.intent.get("examples") or []]
-    return closest if closest in examples else (examples[0] if examples else None)
+    example = closest if closest in examples else (examples[0] if examples else None)
+    return heard_as(trigger, example)[0] if example is not None else None
 
 
 def _said_with(template: str, values: dict[str, str]) -> str | None:

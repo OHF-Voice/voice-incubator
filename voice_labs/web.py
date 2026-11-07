@@ -56,6 +56,7 @@ from .store import (
     file_language,
     language_name,
     lists_in,
+    lists_off,
     name_clashes,
     names_in,
     phrase_key,
@@ -414,6 +415,7 @@ class Api:
                 # Yours in the app's language, and the language's own (yours by a name take its place).
                 "lists": lists,
                 "builtin_lists": languages.current().lists,
+                "lists_off": lists_off(data.get("lists") or {}),
                 "hidden_lists": [
                     {"code": code, "name": language_name(code), "count": n} for code, n in sorted(hidden_lists.items())
                 ],
@@ -440,6 +442,8 @@ class Api:
         first: dict[str, list[str]] = {}
         for trigger in self.app.store.triggers:
             command_id = heard.get(trigger.key, trigger.command_id)
+            # As heard, with the home's value lists.
+            trigger = (compiled.triggers if compiled else {}).get(command_id, trigger)
             clashes = [
                 command_of(twin) for twin in (compiled.twins.get(command_id, ()) if compiled else ())
                 if command_of(twin) not in (compiled.triggers if compiled else {})
@@ -463,6 +467,7 @@ class Api:
                 # its templates said with the free text it heard.
                 "by_meaning": bool(trigger.examples),
                 "by_model": any(trigger.free),
+                "lists": list(trigger.lists),
                 "about": trigger.about,
                 "clashes": list(dict.fromkeys(clashes)),
             }
@@ -736,7 +741,11 @@ class Api:
         return await self._saved(compiled)
 
     async def put_list(self, request: web.Request) -> web.Response:
+        """A value list's values (``values``), or a built-in one turned off
+        (``off``: true; DELETE turns it back on)."""
         body = _clean(await request.json())
+        if body.get("off"):
+            return await self._saved(self.app.store.turn_off_list(request.match_info["name"]))
         compiled = self.app.store.put_list(request.match_info["name"], body.get("values") or {})
         return await self._saved(compiled)
 
@@ -912,10 +921,12 @@ class Api:
         for entry in found:
             # It follows the library: a fix there reaches it. In an area: its own.
             spec = {following.REFERENCE: f"{entry['file']}/{entry['id']}", **({"area": area} if area else {})}
-            # Shared lists it uses, unless yours already has one by that name.
+            # Shared lists it uses, unless yours already has one by that
+            # name, or it is turned off.
             have = compiled.data.get("lists") or {}
+            off = lists_off(self.app.store.document().get("lists") or {})
             for name, values in entry["lists"].items():
-                if name not in have:
+                if name not in have and name not in off:
                     compiled = self.app.store.put_list(name, copy.deepcopy(values))
             # Every command's id, in any language: another's keeps its own.
             existing = {*compiled.commands, *compiled.hidden}

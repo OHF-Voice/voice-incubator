@@ -132,6 +132,34 @@ def test_command_ids():
     assert trigger("sentence:it's bed time", "x").command_id == "trigger_it_s_bed_time"
 
 
+CYCLE = trigger("automation:3", "Dishwasher", "start the {program} cycle", "run the dishwasher on {program} for {who}")
+PROGRAMS = {"program": {"eco": ["eco", "economy"], "pots": ["pots and pans", "heavy"]}}
+
+
+def test_a_slot_named_as_a_value_list_takes_it():
+    [plain] = triggers.prepare([CYCLE])
+    assert plain.examples == () and plain.lists == () and plain.free == (("program",), ("program", "who"))
+    [cycle] = triggers.prepare([CYCLE], lists=PROGRAMS)
+    # Heard in the audio, as each of its phrases; Home Assistant gets the value.
+    assert cycle.examples == ("start the eco cycle", "start the economy cycle", "start the pots and pans cycle", "start the heavy cycle")
+    assert cycle.lists == ("program",) and cycle.transcript == ("run the dishwasher on {program} for {who}",)
+    assert cycle.free == (("who",),)
+    assert triggers.heard_as(cycle, "start the economy cycle") == ("start the eco cycle", {"program": "eco"})
+    assert triggers.heard_as(cycle, "start the eco cycle") == ("start the eco cycle", {"program": "eco"})
+    assert triggers.heard_as(GOOD_NIGHT, "good night") == ("good night", {})
+    # With free text too: on the transcript, one of its phrases there.
+    compiled = triggers.compile_triggers([cycle], {}, (), PROGRAMS)
+    found = triggers.match(compiled.heard, "Run the dishwasher on economy for the whole family.")
+    assert found == [("trigger_3", {"program": "eco", "who": "the whole family"})]
+    assert triggers.match(compiled.heard, "run the dishwasher on turbo for me") == []
+    said = triggers.said_with(cycle, "Run the dishwasher on economy for the whole family.", found[0][1])
+    assert said == "run the dishwasher on eco for the whole family"
+    # Without one, what was said, as Home Assistant hears it.
+    assert triggers.said_with(plain, "start the turbo cycle", {"program": "turbo"}) == "start the turbo cycle"
+    # Prepared again only where a list is named.
+    assert triggers.with_lists([GOOD_NIGHT, CYCLE], PROGRAMS)[0] is GOOD_NIGHT
+
+
 def test_free_text_is_matched_as_home_assistant_does():
     compiled = triggers.compile_triggers(triggers.prepare([GOOD_NIGHT, PLAY]), {}, ())
     assert triggers.match(compiled.heard, "Play Abbey Road by the Beatles.") == [("trigger_2", {"album": "Abbey Road", "artist": "the Beatles"})]
@@ -192,10 +220,24 @@ def test_meaning_and_the_model_may_run_them():
     assert triggers.sentence_for(good_night, found["trigger_1"], {}, good_night.description) == "good night everyone"
     # ... or its template said with what the model heard, as Home Assistant hears it back.
     heard = {"album": "Kind of Blue", "artist": "Miles Davis"}
-    assert triggers.sentence_for(play, found["trigger_2"], heard, None, compiled.heard_triggers) == "play Kind of Blue by Miles Davis"
-    assert triggers.sentence_for(play, found["trigger_2"], {"album": "Kind of Blue"}, None, compiled.heard_triggers) is None
+    assert triggers.sentence_for(play, found["trigger_2"], heard) == "play Kind of Blue by Miles Davis"
+    assert triggers.sentence_for(play, found["trigger_2"], {"album": "Kind of Blue"}) is None
     # Meaning knows it by its label and its templates, free text said by name.
     assert triggers.meaning_texts(found, compiled.commands, compiled.config["intents"]) == {"trigger_2": ["Plays an album", "play album by artist"]}
+
+
+def test_the_homes_value_lists_and_the_languages():
+    compiled = compile_store({**STORE, "lists": PROGRAMS}, triggers.prepare([CYCLE]))
+    assert compiled.config["intents"]["trigger_3"]["examples"][:2] == ["start the eco cycle", "start the economy cycle"]
+    # Meaning sends one of its sentences, with the value.
+    cycle = compiled.commands["trigger_3"]
+    assert triggers.sentence_for(cycle, compiled.triggers["trigger_3"], {}, "start the heavy cycle") == "start the pots cycle"
+    # A built-in one too, unless it is turned off.
+    fan = trigger("automation:4", "Fan", "set the fan to {fan_modes}")
+    compiled = compile_store(STORE, triggers.prepare([fan]))
+    assert compiled.triggers["trigger_4"].lists == ("fan_modes",) and "set the fan to always on" in compiled.triggers["trigger_4"].examples
+    compiled = compile_store({**STORE, "lists": {"fan_modes": False}}, triggers.prepare([fan]))
+    assert compiled.triggers["trigger_4"].lists == () and compiled.triggers["trigger_4"].transcript == ("set the fan to {fan_modes}",)
 
 
 def test_the_store_keeps_their_choice_for_meaning(tmp_path):
@@ -299,6 +341,20 @@ def test_free_text_is_spelled_by_the_tdt_head(engine):
     decision = decide(engine, "lay abby road my the beetles", OFFICE, Tdt("Play Abbey Road by The Beatles."))
     assert decision.command.id == "trigger_2" and decision.slots["sentence"] == "Play Abbey Road by The Beatles."
     assert engine.recognize_text("play Abbey Road by the Beatles", OFFICE).slots["album"] == "Abbey Road"
+
+
+def test_home_assistant_gets_a_value_lists_value():
+    if not CTC.is_dir():
+        pytest.skip("no CTC model")
+    engine = Engine(CTC, None, None, threads=2)
+    engine.build(compile_store({**STORE, "lists": PROGRAMS}, triggers.prepare([CYCLE])))
+    # Heard in the audio, as an example ...
+    decision = engine.recognize_text("start the economy cycle", KITCHEN)
+    assert decision.command.id == "trigger_3" and decision.slots == {"program": "eco", "sentence": "start the eco cycle"}
+    # ... or on the transcript, with free text.
+    decision = decide(engine, "run the dishwasher on economy for the family", KITCHEN, Tdt("Run the dishwasher on economy for the family."))
+    assert decision.command.id == "trigger_3" and decision.matched_by == "trigger"
+    assert decision.slots == {"program": "eco", "who": "the family", "sentence": "run the dishwasher on eco for the family"}
 
 
 def test_meaning_sends_a_sentence_of_its_own():

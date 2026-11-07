@@ -886,7 +886,7 @@ class Engine:
             step = (decision.fallback or {}).get("meaning" if found.by == "meaning" else "llm")
             sentence = triggers.sentence_for(
                 found.command, (compiled.triggers or {}).get(found.command.id), decision.slots,
-                ((decision.fallback or {}).get("meaning") or {}).get("closest_to"), compiled.heard_triggers,
+                ((decision.fallback or {}).get("meaning") or {}).get("closest_to"),
             )
             if sentence is None:
                 if isinstance(step, dict):
@@ -914,7 +914,8 @@ class Engine:
                     decision.skipped.append({"command": command.id, "why": satellite.why_unavailable(command)})
                     continue
                 decision.command, decision.behavior = command, behavior
-                decision.slots = {**slots, triggers.SENTENCE: text}
+                trigger = (compiled.triggers or {}).get(command_id)
+                decision.slots = {**slots, triggers.SENTENCE: triggers.said_with(trigger, text, slots)}
                 decision.matched_by = "trigger"
                 return True
         return False
@@ -934,7 +935,8 @@ class Engine:
         assert decision.command is not None
         for command_id, slots in triggers.match(compiled.heard_triggers, text):
             if command_id == decision.command.id:
-                decision.slots = {**slots, triggers.SENTENCE: text}
+                trigger = (compiled.triggers or {}).get(command_id)
+                decision.slots = {**slots, triggers.SENTENCE: triggers.said_with(trigger, text, slots)}
                 return
 
     def _take(
@@ -991,8 +993,11 @@ class Engine:
             # is more specific.
             decision.slots = {**decision.behavior.slots, **heard}
             if command.behavior.trigger:
-                # What Home Assistant hears: the sentence, as the trigger has it.
-                decision.slots[triggers.SENTENCE] = result.example or recognition.tdt_transcript or recognition.transcript or ""
+                # What Home Assistant hears: the sentence, as the trigger has
+                # it -- a value list's value in place of what was said.
+                sentence, values = triggers.heard_as((compiled.triggers or {}).get(command.id), result.example or "")
+                decision.slots.update(values)
+                decision.slots[triggers.SENTENCE] = sentence or recognition.tdt_transcript or recognition.transcript or ""
             refused = self.fit_devices(decision, compiled, satellite)
             if refused is not None:
                 refusal = refusal or (result, decision.slots, refused)

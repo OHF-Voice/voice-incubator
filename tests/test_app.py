@@ -626,6 +626,14 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/settings", json={"home": {"todo_list": None, "shopping_list": None}})).status == 200
             assert (await http.delete("/api/commands/todo_add_mine")).status == 200
 
+            # A built-in value list turned off, and on again.
+            assert (await http.put("/api/lists/weather_kinds", json={"off": True})).status == 200
+            listed = await (await http.get("/api/store")).json()
+            assert listed["lists_off"] == ["weather_kinds"] and "weather_kinds" in listed["builtin_lists"]
+            assert (await http.put("/api/lists/nope", json={"off": True})).status == 400
+            assert (await http.delete("/api/lists/weather_kinds")).status == 200
+            assert (await (await http.get("/api/store")).json())["lists_off"] == []
+
             # The Unknown command: what is said when nothing understood it.
             assert await said("blorp the frobnicator") == "Sorry, I didn't understand that."
             template = "Sorry, I couldn't understand the sentence {{ transcript }}."

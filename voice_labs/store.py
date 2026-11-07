@@ -34,7 +34,7 @@ from adapt_ctc.config import ConfigError, parse_config
 
 from . import languages
 from .commands import FALLBACK_STEPS, Command, adapt_config, parse_commands, parse_unknown, shared_examples
-from .triggers import compile_triggers, settings_of
+from .triggers import compile_triggers, settings_of, with_lists
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +61,9 @@ def new_store(language: str) -> dict[str, Any]:
     app's language's are heard and shown. ``names``: what things are called,
     each pointing at one Home Assistant id; in another language than the
     store's under its code (``kitchen: {name: Kitchen, de: {name: Küche}}``).
-    ``lists``: value lists for slots ("red" -> red), shared by commands,
+    ``lists``: value lists for slots ("red" -> red), shared by commands
+    (and a sentence trigger's slot named as one), false for a built-in one
+    turned off,
     besides the language's own (colors, on_off ...); a value's phrases in
     another language than the store's go under its code
     (``red: {en: [red], de: [rot]}``). ``commands``: what is listened for, and
@@ -381,6 +383,8 @@ def lists_in(lists: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
     in other languages but none in ``here``, by language."""
     out, hidden = {}, {}
     for name, values in (lists or {}).items():
+        if values is False:
+            continue  # a built-in list, turned off (lists_off)
         if isinstance(values, dict):
             for value, said in values.items():
                 if isinstance(said, dict):
@@ -394,6 +398,25 @@ def lists_in(lists: dict[str, Any], here: str, default: str) -> tuple[dict[str, 
         for language in sorted(list_languages(values, default)):
             hidden[language] = hidden.get(language, 0) + 1
     return out, hidden
+
+
+def lists_off(lists: dict[str, Any]) -> list[str]:
+    """The built-in value lists turned off (``false``): none of the home's,
+    in any language."""
+    return sorted(str(name) for name, values in (lists or {}).items() if values is False)
+
+
+def _uses_off_list(commands: dict[str, Any], off: Iterable[str]) -> None:
+    """Raise ConfigError for a command that hears a value list turned off."""
+    off = set(off)
+    for command in commands.values():
+        if command.disabled:
+            continue
+        for intent in [command.intent, *command.intents.values()]:
+            for ref in (intent.get("lists") or {}).values():
+                name = ref if isinstance(ref, str) else ref.get("list") if isinstance(ref, dict) else None
+                if name in off:
+                    raise ConfigError(f"{command.title or command.id} uses the value list {name}, which is turned off")
 
 
 def list_languages(values: Any, default: str) -> set[str]:
@@ -454,10 +477,15 @@ def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compile
         _LOGGER.warning("No longer in the library, not heard: %s", ", ".join(gone))
     heard = {str(k): (resolve(str(k), v) if follows(v) else v) for k, v in every.items() if str(k) not in hidden and str(k) not in gone}
     kept = {str(k): heard.get(str(k), v) for k, v in every.items()}  # another language's as saved
-    data = {**data, "names": said, "lists": {**languages.current().lists, **own_lists}, "commands": kept}
+    off = lists_off(data.get("lists") or {})
+    shared = {name: values for name, values in {**languages.current().lists, **own_lists}.items() if name not in off}
+    data = {**data, "names": said, "lists": shared, "commands": kept}
     commands = parse_commands(heard)
+    _uses_off_list(commands, off)
     unknown_response = parse_unknown(data.get("unknown"))
-    found = compile_triggers(triggers, settings_of(data.get("triggers")), {*commands, *map(str, every)})
+    found = compile_triggers(
+        with_lists(triggers, shared), settings_of(data.get("triggers")), {*commands, *map(str, every)}, shared
+    )
     config, trigger_error = None, None
     if found.commands:
         # Theirs first: a sentence both say is the trigger's.
@@ -810,6 +838,20 @@ class Store:
                 lists[name] = kept
             else:
                 lists.pop(name, None)  # no phrases in any language any more
+
+        return self.update(edit)
+
+    def turn_off_list(self, name: str) -> Compiled:
+        """A built-in value list turned off: the home has none by that name,
+        in any language, until it is given values (put_list) or removed
+        (put_list with None)."""
+        if name not in languages.current().lists:
+            raise ConfigError(f"{name} isn't a built-in list: remove it instead")
+
+        def edit(document: dict[str, Any]) -> None:
+            if document["lists"].get(name) not in (None, False):
+                raise ConfigError(f"Your {name} list is in its place: use the built-in one first")
+            document["lists"][name] = False
 
         return self.update(edit)
 

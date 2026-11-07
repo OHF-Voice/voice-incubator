@@ -348,6 +348,17 @@ automation's page.
   transcript with hassil: the CTC head's before anything else is matched
   (re-read from the TDT head's, which spells the free text), the TDT head's
   when nothing matched.
+- **Value lists.** A slot named as one of the home's value lists -- its own
+  or the language's, unless turned off -- is that list's
+  (`triggers.prepare(lists=...)`, from `compile_store`): `start the
+  {program} cycle` with a list `program` stands for each of its phrases, as
+  examples when that keeps it within 512 sentences, else a hassil
+  `TextSlotList` on the transcript, and it is not free text for the model.
+  Home Assistant takes every list as free text, so it is sent the template
+  said with the value in the phrase's place ("start the economy cycle" as
+  "start the eco cycle": `Trigger.values`, `heard_as`, `said_with`) -- when
+  hassil, reading the trigger as Home Assistant does, gives back those
+  values; else what was said.
 - **First.** Home Assistant runs a trigger before its intents, and here a
   trigger's sentence is the trigger's: a command saying it too is its twin
   (`commands.shared_examples` writes a template out and keeps the rest),
@@ -366,7 +377,8 @@ automation's page.
     together, optional parts in or out, are its combinations), and a
     template is said with what GLiNER heard -- of each alternative, the way
     that takes the most -- and sent only when hassil matches it back to the
-    trigger with the same words in each slot. Its label is the automation's
+    trigger with the same words in each slot, every list free text as
+    Home Assistant reads it. Its label is the automation's
     description, else its name (`Command.label`, `fallback.label_of`). A
     trigger with free text only has no adapt-ctc intent, so the recognizer
     is given its label and its templates said with their slots' names

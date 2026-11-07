@@ -1233,7 +1233,9 @@ async function pageCommand(id, prefill, query) {
   function listsEditor() {
     const wrap = h("div");
     const dynamicLists = (state.status && state.status.dynamic_lists) || {};
-    const sharedLists = [...new Set([...Object.keys(state.store.lists || {}), ...Object.keys(state.store.builtin_lists || {})]), ...Object.keys(dynamicLists)];
+    // Yours and the built-in ones, but those turned off.
+    const off = new Set(state.store.lists_off || []);
+    const sharedLists = [...new Set([...Object.keys(state.store.lists || {}), ...Object.keys(state.store.builtin_lists || {}).filter((n) => !off.has(n))]), ...Object.keys(dynamicLists)];
     function render() {
       const lists = spec.lists || {};
       fill(wrap, 
@@ -2011,6 +2013,9 @@ function triggerPage(store, id, query) {
     h("div", { class: "panel" },
       heading("h2", "Sentences", "Home Assistant's sentence trigger, heard before the app's commands. Edited on its automation's page."),
       h("div", { class: "stack" }, t.sentences.map((sentence) => h("div", {}, `“${sentence}”`))),
+      asList(t.lists).length ? h("div", { class: "muted small" }, "From value lists: ",
+        ...asList(t.lists).map((name, i) => [i ? ", " : "", h("a", { href: placeHref("home", "names") }, name)]),
+        hint("A slot named as a value list is heard as one of its phrases, and Home Assistant gets its value.")) : null,
       field("Where", h("div", { class: "stack" }, where,
         !t.disabled && off.length ? h("div", { class: "muted small" }, "Turned off in ",
           ...off.map((a, i) => [i ? (i === off.length - 1 ? " and " : ", ") : "", h("a", { href: placeHref(a) }, areaNameOf(a))]), ".") : null))),
@@ -3202,18 +3207,24 @@ function listsPanel(store) {
           catch (err) { listForm.append(errorBox(err)); }
         } }, "Save"), h("button", { onclick: () => fill(listForm, ) }, "Cancel"))));
   }
-  return h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets. The built-in ones come with the language; editing one makes it yours, and removing yours brings the built-in back."),
+  const off = new Set(store.lists_off || []);
+  const call = (method, name, body) => async () => {
+    try { await api(method, `lists/${encodeURIComponent(name)}`, body); pageNames(); } catch (err) { toast(err.message); }
+  };
+  return h("div", { class: "panel" }, heading("h2", "Value lists", "Shared lists a command's value slots can use: colors, modes, presets. A sentence trigger's slot named as one is heard from it too, and Home Assistant gets its value. The built-in ones come with the language; editing one makes it yours, removing yours brings the built-in back, and one you don't want can be turned off."),
     hiddenNotice(store.hidden_lists, "list", "lists",
       "A list's phrases are in the language they were given in. They come back when the app's Language option is theirs again."),
     h("div", { class: "list" }, ...[...new Set([...Object.keys(store.lists), ...Object.keys(store.builtin_lists || {})])].sort().map((name) => {
       const own = store.lists[name];
       const builtin = (store.builtin_lists || {})[name];
       const values = own || builtin;
+      const isOff = !own && off.has(name);
       return h("div", { class: "item" },
-        h("div", { class: "grow" }, h("b", {}, name), " ", builtin ? h("span", { class: "badge" }, own ? "yours" : "built-in") : null,
+        h("div", { class: "grow" }, h("b", {}, name), " ", builtin ? h("span", { class: isOff ? "badge warn" : "badge" }, isOff ? "off" : own ? "yours" : "built-in") : null,
           h("div", { class: "muted small" }, valuesToText(values).split("\n").join(" · "))),
-        h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
-        own ? h("button", { class: "link", onclick: async () => { try { await api("DELETE", `lists/${encodeURIComponent(name)}`); pageNames(); } catch (err) { toast(err.message); } } }, builtin ? "use built-in" : "remove") : null);
+        isOff ? null : h("button", { class: "link", onclick: () => editList(name, values) }, "edit"),
+        own ? h("button", { class: "link", onclick: call("DELETE", name) }, builtin ? "use built-in" : "remove") : null,
+        builtin && !own ? h("button", { class: "link", onclick: isOff ? call("DELETE", name) : call("PUT", name, { off: true }) }, isOff ? "turn on" : "turn off") : null);
     })),
     h("button", { onclick: () => editList("", null) }, "Add a list"), listForm);
 }

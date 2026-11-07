@@ -250,6 +250,26 @@ def test_lists_are_in_their_language(english, tmp_path):
     assert store.load().data["lists"]["colors"]["green"] == ["grün"]
 
 
+def test_a_built_in_list_can_be_turned_off(english, tmp_path):
+    # Off (false), the home has no list by that name, in any language; a
+    # command that hears it can't be saved, unless it is turned off too.
+    assert "colors" not in compile_store({"lists": {"colors": False}}).data["lists"]
+    color = {"description": "color the lights", "require": [["lights"]], "lists": {"color": {"list": "colors"}}, "response": "OK."}
+    with pytest.raises(ConfigError, match="uses the value list colors, which is turned off"):
+        compile_store({"lists": {"colors": False}, "commands": {"color": color}})
+    compile_store({"lists": {"colors": False}, "commands": {"color": {**color, "disabled": True}}})
+    store = Store(tmp_path)
+    store.turn_off_list("colors")
+    assert plain_lists(store)["colors"] is False and "colors" not in store.load().data["lists"]
+    store.put_list("colors", None)  # on again: the built-in
+    assert "colors" not in plain_lists(store) and store.load().data["lists"]["colors"]["red"] == ["red"]
+    with pytest.raises(ConfigError, match="isn't a built-in list"):
+        store.turn_off_list("modes")
+    store.put_list("colors", {"red": ["red"]})
+    with pytest.raises(ConfigError, match="use the built-in one first"):
+        store.turn_off_list("colors")
+
+
 def plain_lists(store):
     return store.document()["lists"] or {}
 

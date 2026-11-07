@@ -256,6 +256,17 @@
   app's language.
   Deleted, they stay deleted; a home that has commands already is left as
   it is.
+- **A sentence trigger's slot can be a value list's.** One named as a value
+  list (`start the {program} cycle`, with a list `program` on the Names
+  page, or a built-in one) is heard as one of its phrases -- in the audio,
+  as example sentences, when that keeps it within 512 of them, else on the
+  transcript -- and Home Assistant is sent the list's value in its place:
+  "start the economy cycle" as "start the eco cycle". The trigger's page
+  says which lists it hears.
+- **A built-in value list can be turned off** on the Names page (`lists:
+  {colors: false}`): the home has no list by that name, for commands or
+  sentence triggers, until it is turned on again. A command that uses it
+  can't be saved meanwhile, and says which.
 - **Who am I**, in the library's new People section: "who am I", "who's
   speaking" or "what's my name" says "You are Mike." -- who it takes the
   speaker to be, as "my" means them -- or "Sorry, I don't know who's
