@@ -256,9 +256,10 @@
   app's language.
   Deleted, they stay deleted; a home that has commands already is left as
   it is.
-- **The README is the app's front page**: what it does, screenshots, and how
-  to install it. How it works, what was measured and how to work on it moved
-  to DESIGN.md.
+- **The README is the app's front page**: what it does, screenshots and
+  diagrams, how to install it, and how other satellites use it through
+  Wyoming. How it works, what was measured and how to work on it moved to
+  DESIGN.md.
 - **No paths from one machine.** Run from source, the app needs `HASS_TOKEN`
   or `--hass-token-file`: there is no default token file. The scripts take
   their tokens (`HASS_TOKEN` or `--token-file`), datasets and checkouts as
