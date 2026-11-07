@@ -315,3 +315,57 @@ def test_a_last_word_running_into_silence_is_still_the_texts():
     words = [("à", 0.88, 0.96), ("sept", 0.96, 1.04), ("heures", 1.2, 1.28), ("et", 1.44, 1.52), ("demie.", 1.6, 2.72)]
     assert within(words, 0.95, 2.0) == ["sept", "heures", "et", "demie"]
     assert within(words, 0.95, 1.5) == ["sept", "heures", "et"]
+
+
+class TimedHead:
+    """The TDT head's place: timed words, from where it is told to start."""
+
+    def __init__(self, words):
+        self.words = words
+        self.calls = []
+
+    def transcribe_words(self, audio, start=0.0):
+        self.calls.append((len(audio), start))
+        words = [w for w in self.words if w[1] >= start - 0.08]
+        return " ".join(w for w, _, _ in words), words
+
+
+def test_the_tdt_hears_a_call_from_before_the_cut():
+    """Started at the cut, the transducer gets the command's first word wrong;
+    from half a second before it, on the CTC evidence's encoder run, it
+    doesn't -- and what it heard before 0.28 s past the cut is the end of
+    the wake word ("Abu"), not the command's. Its words are timed from the
+    cut, as the command's CTC evidence is."""
+    from voice_labs.engine import TDT_LEAD_IN, CallTdt  # pylint: disable=import-outside-toplevel
+
+    call = np.zeros(48000, dtype=np.float32)
+    command = call[int(1.2 * 16000):]
+    head = TimedHead([("Okay", 0.3, 0.6), ("Abu,", 1.12, 1.4), ("add", 1.52, 1.68), ("get", 1.68, 1.84),
+                      ("groceries", 1.92, 2.4)])
+    heard = CallTdt(head, call, 1.2, command)
+    text, words = heard.transcribe_words(command)
+    assert text == "add get groceries" and head.calls == [(48000, pytest.approx(1.2 - TDT_LEAD_IN))]
+    assert words[0] == ("add", pytest.approx(0.32), pytest.approx(0.48))
+    # Once for the call: the matcher, free text and the transcript ask again.
+    assert heard.transcribe(command) == "add get groceries" and len(head.calls) == 1
+    # A clause of it, on its own audio: the head's own.
+    clause = command[:16000]
+    heard.transcribe_words(clause)
+    assert head.calls[-1] == (16000, 0.0)
+
+
+def test_a_head_of_its_own_encodes_from_before_the_cut():
+    from voice_labs.engine import CallTdt  # pylint: disable=import-outside-toplevel
+
+    call = np.zeros(48000, dtype=np.float32)
+    command = call[int(1.2 * 16000):]
+
+    class Separate(TimedHead):
+        def transcribe_words(self, audio):  # no start: it encodes what it is given
+            self.calls.append((len(audio), None))
+            return "add groceries", [("add", 0.82, 0.98), ("groceries", 1.0, 1.4)]
+
+    head = Separate([])
+    text, words = CallTdt(head, call, 1.2, command, shared=False).transcribe_words(command)
+    assert head.calls == [(48000 - int(0.7 * 16000), None)] and text == "add groceries"
+    assert words[0] == ("add", pytest.approx(0.32), pytest.approx(0.48))

@@ -80,6 +80,22 @@ WORD_SECONDS = 0.5
 """How long a transducer's word is taken to be when it is placed in free
 text: its end may run on through the silence after it."""
 
+TDT_LEAD_IN = 0.5
+"""The TDT head on a call's command starts this long before the cut, on the
+encoder run the CTC evidence came from (``CallTdt``): started at the cut,
+with nothing before it, the first word is the one it gets wrong ("Get
+groceries" for "add get groceries")."""
+TDT_WORDS_AFTER = 0.2
+"""...and its words are those whose middle is at least this long after the
+cut: before that is the end of the wake word ("now we", "Abu"), the cut
+landing a little early -- but later, real first words go too, worse than a
+stray word before them. On the office-multicap corpus (the four VPEs' AGC
+channel, five sessions, 3,664 commands), against the head on the command
+alone: the command words' error rate 19.4% -> 16.7%, the first word right
+70.8% -> 76.2% (no speaker worse), commands word for word 32.7% -> 36.6%,
+and 30 ms rather than 174 ms (one encoder run). 0.28 s takes out more of the
+wake word (41.3% word for word) but loses first words (72.9%)."""
+
 # Naming the closest command by meaning: only when it is this similar, and
 # this much closer than the runner-up (another command or an everyday
 # request). Hints only, so looser than adapt-ctc's acceptance margin.
@@ -287,6 +303,46 @@ class Split:
             "wake_end": None if self.wake_end is None else round(self.wake_end, 3),
             "cost": None if self.cost is None else round(self.cost, 3),
         }
+
+
+class CallTdt:
+    """The TDT head on a call's command (``command``: the audio from the
+    cut) as it is heard best: decoded from ``TDT_LEAD_IN`` before the cut,
+    the encoder having heard ``call`` (the call from where the CTC evidence
+    was decoded) -- with ``shared``, the head's encoder run for the CTC
+    evidence, so one run for both -- its words those from
+    ``TDT_WORDS_AFTER`` past the cut, timed from the cut as the command's CTC
+    evidence is. Other audio (a clause of two commands said together) is
+    the head's own."""
+
+    source = "TDT"
+
+    def __init__(self, head: Any, call: np.ndarray, cut: float, command: np.ndarray, shared: bool = True) -> None:
+        self.head = head
+        self.call = call
+        self.cut = cut
+        """Seconds into ``call``."""
+        self.command = command
+        self.shared = shared
+        self._heard: tuple[str, list[tuple[str, float, float]]] | None = None
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        return self.transcribe_words(audio)[0]
+
+    def transcribe_words(self, audio: np.ndarray) -> tuple[str, list[tuple[str, float, float]]]:
+        if audio is not self.command:
+            return self.head.transcribe_words(audio)
+        if self._heard is None:
+            start = max(0.0, self.cut - TDT_LEAD_IN)
+            if self.shared:
+                _text, words = self.head.transcribe_words(self.call, start=start)
+            else:  # a head of its own: encoded again, from there
+                _text, words = self.head.transcribe_words(self.call[int(start * SAMPLE_RATE) :])
+                words = [(w, s + start, e + start) for w, s, e in words]
+            after = self.cut + TDT_WORDS_AFTER
+            kept = [(w, s - self.cut, e - self.cut) for w, s, e in words if (s + min(e, s + WORD_SECONDS)) / 2 >= after]
+            self._heard = (" ".join(w for w, _, _ in kept), kept)
+        return self._heard
 
 
 class CachedEmbedder:
@@ -565,6 +621,12 @@ class Engine:
         log_probs, frame_seconds, split = self.place_command(audio, wake_start, kaldi_split, wake_phrases)
         placed = time.perf_counter() - started
         command_audio = audio[int(split.cut * SAMPLE_RATE) :]
+        if transcriber is None and self.transcriber is not None:
+            # The TDT head from before the cut, on the CTC evidence's encoder run.
+            transcriber = CallTdt(
+                self.transcriber, audio[int(split.offset * SAMPLE_RATE) :], split.cut - split.offset, command_audio,
+                shared=self.transcriber is self.model,
+            )
         decision = self.decide(log_probs, frame_seconds, command_audio, satellite, transcriber)
         decision.timings = {"acoustic+placement": placed, **decision.timings}
         return decision, split

@@ -135,14 +135,16 @@ class HybridModel:
     def transcribe(self, audio: np.ndarray) -> str:
         return self.transcribe_words(audio)[0]
 
-    def transcribe_words(self, audio: np.ndarray) -> tuple[str, list[tuple[str, float, float]]]:
+    def transcribe_words(self, audio: np.ndarray, start: float = 0.0) -> tuple[str, list[tuple[str, float, float]]]:
         """The transcript, and its words with start and end times in seconds,
-        as TdtTranscriber gives them."""
+        as TdtTranscriber gives them. ``start``: decoded from that many seconds
+        in, the encoder having heard all of ``audio`` -- the CTC evidence's
+        encoder run, when it was this audio's (times still from its start)."""
         encoded, seconds = self._encode(audio)
         zeros = np.zeros((1, 1, self._hidden), dtype=np.float32)
         decoded, state = self._decode(self._blank, (zeros, zeros.copy()))
         tokens: list[tuple[int, float, float]] = []
-        frame, this_frame = 0, 0
+        frame, this_frame = max(0, int(round(start / seconds))), 0
         while frame < encoded.shape[1]:
             logits = self._joiner.run(
                 None, {"encoder_outputs": encoded[np.newaxis, :, frame : frame + 1], "decoder_outputs": decoded}

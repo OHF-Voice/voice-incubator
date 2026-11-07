@@ -1178,6 +1178,24 @@ for this app:
   trace shows both: on `calls/call-15788.wav` the CTC places the end of the
   wake phrase at 1.16 s and Kaldi at 1.44 s. Kaldi still decides whether it was
   the wake word, and its end still starts endpointing.
+- **The TDT head hears the command from before the cut.** Started at the
+  cut, with nothing before it, the transducer gets the first word wrong
+  ("Get groceries" for "add get groceries", "add groceries" from 90 ms
+  later); its output swings with where it starts. So it decodes from 0.5 s
+  before the cut, on the encoder run the CTC evidence came from (the call
+  from half a second before the wake word: one run for both, 30 ms for the
+  TDT rather than 174), and keeps the words whose middle is at least 0.2 s
+  past the cut, timed from the cut (`engine.CallTdt`, `TDT_LEAD_IN`,
+  `TDT_WORDS_AFTER`). Before that is the end of the wake word, the cut
+  landing a little early: "now we", "Abu". On the office-multicap corpus
+  (the four VPEs' AGC channel, five sessions, 3,664 commands) the command
+  words' error rate went from 19.4% to 16.7%, the first word right from
+  70.8% to 76.2% (no speaker worse), commands word for word from 32.7% to
+  36.6%. Later boundaries take out more of the wake word but lose real
+  first words: 0.28 s was 41.3% word for word, 72.9% first words. The int8
+  export is not what holds it back: NeMo's own full-precision model scored
+  the same (16.4% against 16.5% on one session's commands), and Parakeet
+  TDT 0.6B v3 only a little better (15.4%).
 - **Examples first.** A command's example sentences are searched for in the
   CTC evidence on every call, not only when no keyword intent matched, and one
   said word for word wins over keyword matches (`settings.examples_first`).

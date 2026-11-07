@@ -279,6 +279,14 @@
   else the home's, as Add to my to-do list does. Before, the home's
   versions took them, and said "That isn't set up yet." without a home
   list.
+- **The speech model hears a command from before the wake word's end.**
+  Started at the cut, it got the first word wrong ("Get groceries" for "add
+  get groceries"); now it decodes from half a second before, on the same
+  encoder run as the keywords (30 ms rather than 174), and keeps the words
+  from 0.2 s past the cut. On the office-multicap corpus: the command words'
+  error rate 19.4% -> 16.7%, the first word right 70.8% -> 76.2%, commands
+  word for word 32.7% -> 36.6%. A session's transcript no longer starts with
+  the end of the wake word as often ("now we ...").
 - **Sessions call a sentence trigger by its automation's name**
   ("Good night"), not its command's id (`trigger_1`): in the list, the
   session's summary and its Recognition step.

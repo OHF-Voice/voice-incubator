@@ -80,3 +80,19 @@ def test_the_engine_loads_the_encoder_once(tmp_path):
     (tdt / CTC_HEAD).unlink()
     separate = Engine(CTC, tdt, threads=2)
     assert isinstance(separate.model, CtcModel) and separate.transcriber is not separate.model
+
+
+def test_a_transcript_from_partway_on_the_same_encoder_run(tmp_path):
+    """Decoded from ``start``, the encoder having heard all of it -- the CTC
+    evidence's run, so no second one -- its words timed from the audio's start."""
+    tdt = transducer(tmp_path / "tdt")
+    make_head(CTC, tdt)
+    model, x = HybridModel(tdt, num_threads=2), audio()
+    model.log_probs(x)
+    encoded = model._last  # pylint: disable=protected-access
+    _text, whole = model.transcribe_words(x)
+    start = whole[2][1]  # from the third word on
+    text, words = model.transcribe_words(x, start=start)
+    assert model._last is encoded  # pylint: disable=protected-access
+    assert words and words[0][1] >= start - 0.08 and "lights" in text.lower()
+    assert len(words) < len(whole)
