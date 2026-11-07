@@ -96,8 +96,8 @@ satellite Home Assistant has.
 
 Then open **Voice Labs** in Home Assistant's sidebar to make commands, name
 things, set up satellites and look at sessions. The
-[guide](https://github.com/OHF-Voice/voice-labs) has everything it does, page
-by page.
+[guide](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md) has
+everything it does, page by page.
 
 ### Standalone
 
@@ -168,8 +168,8 @@ Only with the Voice Labs firmware:
 
 ## More
 
-- [The guide](https://github.com/OHF-Voice/voice-labs): everything the app
-  does, page by page.
+- [The guide](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md):
+  everything the app does, page by page.
 - [DESIGN.md](https://github.com/OHF-Voice/apps-experimental/blob/main/voice_labs/DESIGN.md): how it works, what was measured to get it there,
   and how to work on it.
 - [CHANGELOG.md](https://github.com/OHF-Voice/apps-experimental/blob/main/voice_labs/CHANGELOG.md): what changed, version by version.

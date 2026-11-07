@@ -2,8 +2,8 @@
 
 The details of the system: how a call goes, what was measured to get it
 there, and how to run and work on it. Installing the app is in the
-[README](README.md); using it, page by page, is in the guide,
-[OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs).
+[README](README.md); using it, page by page, is in the
+[guide](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md) in OHF-Voice/voice-labs.
 
 ## A call
 

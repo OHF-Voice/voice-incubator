@@ -259,7 +259,8 @@
 - **The README is the app's front page**: what it does, screenshots and
   diagrams, how to install it, and how other satellites use it through
   Wyoming. How it works, what was measured and how to work on it moved to
-  DESIGN.md.
+  DESIGN.md. OHF-Voice/voice-labs has the same front page; its guide is
+  GUIDE.md there.
 - **No paths from one machine.** Run from source, the app needs `HASS_TOKEN`
   or `--hass-token-file`: there is no default token file. The scripts take
   their tokens (`HASS_TOKEN` or `--token-file`), datasets and checkouts as

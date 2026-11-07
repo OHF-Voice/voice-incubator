@@ -5,7 +5,7 @@ A command says what to listen for, where, and what happens in Home Assistant:
 speak a response, run a script, activate a scene, or run an action. It hears
 and speaks English.
 
-**The guide is in [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs):**
+**The guide is in [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md):**
 everything the app does, page by page.
 
 ## Getting started
