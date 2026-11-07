@@ -55,6 +55,7 @@ dim the tv: null
 do i need an umbrella: {"command": "will_it_rain"}
 do we need anything from the store: null
 do you know what time it is: null
+do you know who i am: {"command": "who_am_i"}
 don't let me forget to buy eggs: null
 forget the timer: null
 get me up at 5 am: null
@@ -360,9 +361,12 @@ wake me up at six: null
 we don't need apples anymore: null
 we need milk: null
 we're out of coffee: null
+what is my name: {"command": "who_am_i"}
 what is the temperature in the living room: null
 what time is it: {"command": "what_time"}
 what time is it right now: {"command": "what_time"}
+what's my name: {"command": "who_am_i"}
+what's my schedule: {"command": "my_calendar", "slots": {"entity": ["calendar.family"]}}
 what's the capital of france: null
 what's the temperature: null
 what's the thermostat set to: {"command": "thermostat"}
@@ -371,5 +375,11 @@ what's twelve times eight: null
 whats the temperature in the living room: null
 whats the weather like in london: null
 whats the weather tomorrow: {"command": "weather_day", "slots": {"day": "tomorrow"}}
+who am i: {"command": "who_am_i"}
+who is home: null
+who is playing: null
+who is speaking: {"command": "who_am_i"}
+who is this: {"command": "whats_playing_here"}
 who sings this: {"command": "whats_playing_here"}
 who won the game last night: null
+who's talking: {"command": "who_am_i"}

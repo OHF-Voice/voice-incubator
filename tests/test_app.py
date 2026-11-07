@@ -520,9 +520,13 @@ async def _scenario(tmp_path: Path) -> None:
                 "name": "Mike", "score": None, "by": "only_person", "todo_list": "todo.mike", "calendar": None, "playlist": None,
             }
             assert not app.identifies()
+            # The library's Who am I says who that is.
+            assert (await http.post("/api/library/add", json={"file": "people", "id": "who_am_i"})).status == 200
+            assert await said("who am i") == "You are Mike."
             # Two: someone must be known -- by their wake word, here.
             assert (await http.put("/api/people/Anna", json={"own": {"wake_words": ["okay_nabu"]}})).status == 200
             assert await said("add milk to my to do list") == "Who's asking?"
+            assert await said("who am i") == "Sorry, I don't know who's speaking."
             anna = app.speaking(None, "okay_nabu")
             assert (anna.name, anna.by) == ("Anna", "wake_word") and app.speaking(None, "hey_jarvis").name is None
             people = (await (await http.get("/api/speakers")).json())["people"]

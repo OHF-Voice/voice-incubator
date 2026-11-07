@@ -128,10 +128,11 @@ def test_commands_are_listed_by_library_section():
     sections, _ids = library_sections()
     # By title, as the Home page and the library list them.
     assert [s["title"] for s in sections] == [
-        "Climate", "Covers and locks", "Date and time", "Lights and switches", "Lists", "Music",
+        "Climate", "Covers and locks", "Date and time", "Lights and switches", "Lists", "Music", "People",
         "Reminders and calendar", "Satellites", "Scenes and scripts", "Sensors", "Timers and alarms", "Weather"]
     assert [s["file"] for s in sections] == [
-        "climate", "home", "time", "lights", "todo", "music", "reminders", "satellites", "scenes", "sensors", "timers", "weather"]
+        "climate", "home", "time", "lights", "todo", "music", "people", "reminders", "satellites", "scenes", "sensors", "timers",
+        "weather"]
     # Added from the library (library: music), else by id -- a numbered or
     # copied one too; made from scratch: none (Custom).
     assert library_of("anything", {"library": "music"}) == "music"
@@ -344,6 +345,19 @@ def test_every_response_template_renders(language):
                     lights = said
     # What the intent acted on, by name.
     assert lights is not None and "Ceiling" in lights and "Lamp" in lights, lights
+
+
+def test_who_am_i_says_who_is_speaking():
+    """The library's Who am I says who the app takes the speaker to be, as
+    "my" means them; nobody known is the sorry it says for "my"."""
+    import jinja2  # pylint: disable=import-outside-toplevel
+
+    from voice_labs.library import entry  # pylint: disable=import-outside-toplevel
+
+    template = jinja2.Environment(undefined=jinja2.ChainableUndefined).from_string(
+        entry("people/who_am_i")["spec"]["response"])
+    assert template.render(speaker={"name": "Mike", "by": "voice"}) == "You are Mike."
+    assert template.render(speaker={"name": None, "by": None}) == languages.speech().NO_SPEAKER
 
 
 ROUTES = [

@@ -256,6 +256,10 @@
   app's language.
   Deleted, they stay deleted; a home that has commands already is left as
   it is.
+- **Who am I**, in the library's new People section: "who am I", "who's
+  speaking" or "what's my name" says "You are Mike." -- who it takes the
+  speaker to be, as "my" means them -- or "Sorry, I don't know who's
+  speaking."
 - **The README is the app's front page**: what it does, screenshots and
   diagrams, how to install it, and how other satellites use it through
   Wyoming. How it works, what was measured and how to work on it moved to
