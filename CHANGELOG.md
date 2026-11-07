@@ -267,6 +267,12 @@
   {colors: false}`): the home has no list by that name, for commands or
   sentence triggers, until it is turned on again. A command that uses it
   can't be saved meanwhile, and says which.
+- **Free text doesn't start with a keyword the transcript misspelled.** "add
+  pick up groceries to my to-do list" added "and pick up groceries": the TDT
+  head wrote "add" as "and", a few frames late, inside the text's time. A
+  word one letter off the keyword the text follows (or comes before), at
+  that end, is the keyword's -- unless the CTC head heard such a word in the
+  text too ("put pot roast on the list").
 - **Who am I**, in the library's new People section: "who am I", "who's
   speaking" or "what's my name" says "You are Mike." -- who it takes the
   speaker to be, as "my" means them -- or "Sorry, I don't know who's

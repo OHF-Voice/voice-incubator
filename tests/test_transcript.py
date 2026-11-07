@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from adapt_ctc.text import spoken_words
-from voice_labs.engine import Engine, Satellite, trimmed, within
+from voice_labs.engine import Engine, Satellite, misheard_off, trimmed, within
 from voice_labs.store import compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -293,6 +293,20 @@ def test_free_text_keeps_off_its_edges(engine):
     assert trimmed(["the", "pizza", "for"], {"the", "for"}) == ["pizza"]
     assert trimmed(["eggs", "and", "bacon", "to"], {"and", "to"}) == ["eggs", "and", "bacon"]
     assert trimmed(["for"], {"for"}) == ["for"]  # never nothing
+
+
+def test_a_keyword_the_transducer_misspelled_is_no_text():
+    """"add pick up groceries to my to do list": the transducer wrote "add"
+    as "and", a few frames late, its middle inside the text's time -- the
+    keyword's, as the CTC head heard it. One the CTC head heard in the text
+    too stays: "put pot roast on the list"."""
+    wildcard = {"after": ["add", "put"], "before": ["to", "on"]}
+    assert misheard_off(["and", "pick", "up", "groceries"], "pick upp groceries", wildcard) == ["pick", "up", "groceries"]
+    assert misheard_off(["pot", "roast"], "pot roast", wildcard) == ["pot", "roast"]
+    assert misheard_off(["milk", "too"], "milk", wildcard) == ["milk"]
+    assert misheard_off(["and"], "and", wildcard) == ["and"]  # never nothing
+    assert misheard_off(["bread", "and", "milk"], "bread and milk", wildcard) == ["bread", "and", "milk"]
+    assert misheard_off(["ant", "traps"], "and traps", {"after": ["add"]}) == ["ant", "traps"]
 
 
 def test_a_last_word_running_into_silence_is_still_the_texts():

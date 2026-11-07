@@ -1266,8 +1266,13 @@ class Engine:
             # end a frame late -- and at the text's edge, a keyword, filler or
             # what says a place follows is no text, as the CTC matcher reads
             # it ("pizza for", "jazz in").
-            inside = within(words, start, end)
-            text = " ".join(trimmed(inside, self._edge_words(decision.intent.intent, wildcard))).strip()
+            edges = self._edge_words(decision.intent.intent, wildcard)
+            inside = trimmed(within(words, start, end), edges)
+            # A keyword it misspelled is the keyword's, not the text's: "and
+            # pick up groceries" for "add pick up groceries", the transducer's
+            # "and" a few frames late.
+            inside = trimmed(misheard_off(inside, str(decision.slots.get(slot) or ""), wildcard), edges)
+            text = " ".join(inside).strip()
         if text and slot in decision.slots and text != str(decision.slots[slot]):
             # The transcript's words, and its case ("Kind of Blue").
             if text.lower() != str(decision.slots[slot]).lower():
@@ -1417,6 +1422,37 @@ def within(words: list[tuple[str, float, float]], start: float, end: float) -> l
     end may run on through the silence after it ("et demie." to the end of
     the audio)."""
     return [_strip(w) for w, s, e in words if start <= (s + min(e, s + WORD_SECONDS)) / 2 <= end]
+
+
+def misheard_off(words: list[str], heard: str, wildcard: dict[str, Any]) -> list[str]:
+    """Timed free text without a misspelling of the keyword it follows (the
+    wildcard's ``after``) or comes before (``before``) at that end -- "and"
+    for "add", one letter off and the same first letter -- unless the CTC
+    head's own spelling of the text (``heard``), which heard the keyword
+    there, has such a word at that end too; never none of them."""
+    theirs = heard.lower().split()
+
+    def misheard(word: str, keywords: Any, edge: str | None) -> bool:
+        word = word.lower()
+        keys = {str(k).lower() for k in keywords or ()}
+        return word not in keys and any(_one_off(word, k) for k in keys) and not (edge and (edge == word or _one_off(word, edge)))
+
+    start, end = 0, len(words)
+    while end - start > 1 and misheard(words[start], [str(k).split()[-1] for k in wildcard.get("after") or []], theirs[0] if theirs else None):
+        start += 1
+    while end - start > 1 and misheard(words[end - 1], [str(k).split()[0] for k in wildcard.get("before") or []], theirs[-1] if theirs else None):
+        end -= 1
+    return words[start:end]
+
+
+def _one_off(a: str, b: str) -> bool:
+    """One letter added, dropped or changed, the first letter the same."""
+    if not a or not b or a == b or a[0] != b[0] or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    short, long = sorted((a, b), key=len)
+    return any(long[:i] + long[i + 1:] == short for i in range(len(long)))
 
 
 def trimmed(words: list[str], edges: set[str]) -> list[str]:
