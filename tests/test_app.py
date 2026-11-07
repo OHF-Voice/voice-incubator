@@ -523,6 +523,12 @@ async def _scenario(tmp_path: Path) -> None:
             # The library's Who am I says who that is.
             assert (await http.post("/api/library/add", json={"file": "people", "id": "who_am_i"})).status == 200
             assert await said("who am i") == "You are Mike."
+            # Checked off and taken off their own list, each item as it has it.
+            hass.todo_items["todo.mike"] = [{"summary": "Fix the gate", "status": "needs_action"}]
+            mine = [{"file": "todo", "id": "todo_check_mine"}, {"file": "todo", "id": "todo_remove_mine"}]
+            assert (await http.post("/api/library/add", json={"entries": mine})).status == 200
+            assert await said("check off fix the gate on my to do list") == "Checked Fix the gate off your to-do list."
+            assert await said("take fix the gate off my to do list") == "Took Fix the gate off your to-do list."
             # Two: someone must be known -- by their wake word, here.
             assert (await http.put("/api/people/Anna", json={"own": {"wake_words": ["okay_nabu"]}})).status == 200
             assert await said("add milk to my to do list") == "Who's asking?"

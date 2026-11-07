@@ -273,6 +273,12 @@
   word one letter off the keyword the text follows (or comes before), at
   that end, is the keyword's -- unless the CTC head heard such a word in the
   text too ("put pot roast on the list").
+- **Take off my to-do list** and **Check off my to-do list**, in the
+  library's Lists: "take fix the gate off my to-do list", "check off call
+  the plumber on my to-do list" act on the speaker's own list (People),
+  else the home's, as Add to my to-do list does. Before, the home's
+  versions took them, and said "That isn't set up yet." without a home
+  list.
 - **Who am I**, in the library's new People section: "who am I", "who's
   speaking" or "what's my name" says "You are Mike." -- who it takes the
   speaker to be, as "my" means them -- or "Sorry, I don't know who's

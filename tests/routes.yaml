@@ -10,6 +10,7 @@
 # sentences that set a number, turn something up or down, or step the heat.
 add 1 hour to the pizza timer: null
 add bananas to the shopping list: {"command": "shopping_list_add", "slots": {"item": "bananas"}}
+add pick up groceries to my to do list: {"command": "todo_add_mine", "slots": {"item": "pick up groceries"}}
 add renew my passport to my to do list: {"command": "todo_add_mine", "slots": {"item": "renew my passport"}}
 alarm at noon: null
 all the doors are locked: {"command": "all_locked", "slots": {"asked": "locked"}}
@@ -31,6 +32,10 @@ cancel all timers: null
 cancel the 30 minute timer: null
 change the bedroom lamp to 14 percent: null
 change the bedroom lamp to 40 percent: null
+check fix the gate off my to do list: {"command": "todo_check_mine", "slots": {"item": "fix the gate"}}
+check off call my mom on the to do list: {"command": "todo_check", "slots": {"item": "call my mom"}}
+check off call the plumber on the to do list: {"command": "todo_check", "slots": {"item": "call the plumber"}}
+check off fix the gate on my to do list: {"command": "todo_check_mine", "slots": {"item": "fix the gate"}}
 close the curtains to 15 percent: {"command": "cover_position_here", "slots": {"device_class": "curtain", "percentage": 15}}
 close the curtains to 50 percent: {"command": "cover_position_here", "slots": {"device_class": "curtain", "percentage": 50}}
 could you turn on the lights for me please: null
@@ -39,6 +44,7 @@ crank it up: null
 decrease the brightness to 20: {"command": "set_brightness_here", "slots": {"percentage": 20}}
 decrease the kitchen timer by 5 minutes: null
 decrease the temperature: {"command": "heat_down", "slots": {"step": -1}}
+delete renew the car registration from my to do list: {"command": "todo_remove_mine", "slots": {"item": "renew the car registration"}}
 dim the desk lamp to 10: {"command": "set_brightness_device", "slots": {"entity": ["light.desk_lamp"], "percentage": 10}}
 dim the desk lamp to 10 percent: {"command": "set_brightness_device", "slots": {"entity": ["light.desk_lamp"], "percentage": 10}}
 dim the lights: {"command": "dimmer_here", "slots": {"step": -30}}
@@ -104,6 +110,7 @@ make it warmer: null
 make the kitchen brighter: null
 make the kitchen lights warmer: null
 make the lights 50 percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
+mark call the plumber as done on my to do list: {"command": "todo_check_mine", "slots": {"item": "call the plumber"}}
 mute: {"command": "mute_music_here"}
 mute the tv: {"command": "mute_music_here", "slots": {"kind": "tv"}}
 mute tv: {"command": "mute_music_here", "slots": {"kind": "tv"}}
@@ -134,6 +141,7 @@ raise the temperature: {"command": "heat_up", "slots": {"step": 1}}
 raise the volume to 40: {"command": "set_volume_here", "slots": {"percentage": 40}}
 remind me in 3 hours to pick up the kids: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "3 hours to pick up the kids"}}
 remind me to water the plants: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "water the plants"}}
+remove call the plumber from my to do list: {"command": "todo_remove_mine", "slots": {"item": "call the plumber"}}
 resume: {"command": "resume_music_here"}
 resume the music: {"command": "resume_music_here", "slots": {"kind": "music"}}
 scratch the butter from my shopping list: null
@@ -211,7 +219,10 @@ stop playing: {"command": "stop_music_here"}
 switch off the lights: {"command": "turn_off_here"}
 switch on the lights: {"command": "turn_on_here"}
 switch on the lights to 50 percent: {"command": "set_brightness_here", "slots": {"percentage": 50}}
+take call the plumber off the to do list: {"command": "todo_remove", "slots": {"item": "call the plumber"}}
+take fix the gate off my to do list: {"command": "todo_remove_mine", "slots": {"item": "fix the gate"}}
 take milk off the list: {"command": "shopping_list_remove", "slots": {"item": "milk"}}
+take my passport off my to do list: {"command": "todo_remove_mine", "slots": {"item": "passport"}}
 tell me a joke: null
 tell me about the date: {"command": "what_date"}
 tell me the date: {"command": "what_date"}

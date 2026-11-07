@@ -336,3 +336,73 @@ commands:
     needs:
       - Give each person their to-do list (People page). Where nobody has one,
         it adds to the home's (Settings).
+
+  todo_remove_mine:
+    title: Take off my to-do list
+    topic: todo_list
+    icon: mdi:account-remove-outline
+    description: take something off my to-do list
+    # The speaker's own (People page); where nobody has one, this one. The
+    # items said are ones on it, as for the to-do list's.
+    require: [[remove, take, delete], [my to do list, my to do]]
+    optional: [[from, off]]
+    wildcard:
+      slot: item
+      after: [remove, take, delete]
+      before: [from, off]
+      bounded: true
+      max_words: 8
+    on_list: {item: entity}
+    home: todo_list
+    mine: todo_list
+    action:
+      action: todo.remove_item
+      target:
+        entity_id: "{{ slots.entity }}"
+      data:
+        item: "{{ items }}"
+    verbosity: specific
+    response:
+      done:
+        brief: "{{ 'Took it off your to-do list.' if items | count < 2 else 'Took them off your to-do list.' }}"
+        specific: "Took {{ slots.item }} off your to-do list."
+    needs:
+      - Give each person their to-do list (People page). Where nobody has one,
+        it takes off the home's (Settings).
+
+  todo_check_mine:
+    title: Check off my to-do list
+    topic: todo_list
+    icon: mdi:account-check
+    description: check something off my to-do list as done
+    # The speaker's own (People page); where nobody has one, this one. Done,
+    # and kept on the list as such.
+    require: [[check, cross, tick, mark], [my to do list, my to do]]
+    optional: [[off], [from, on], [as done, as complete]]
+    wildcard:
+      slot: item
+      after: [check, cross, tick, mark]
+      before: [off, from, on, as done, as complete]
+      bounded: true
+      max_words: 8
+    on_list: {item: entity}
+    home: todo_list
+    mine: todo_list
+    action:
+      repeat:
+        for_each: "{{ items }}"
+        sequence:
+          - action: todo.update_item
+            target:
+              entity_id: "{{ slots.entity }}"
+            data:
+              item: "{{ repeat.item }}"
+              status: completed
+    verbosity: specific
+    response:
+      done:
+        brief: "{{ 'Checked it off.' if items | count < 2 else 'Checked them off.' }}"
+        specific: "Checked {{ slots.item }} off your to-do list."
+    needs:
+      - Give each person their to-do list (People page). Where nobody has one,
+        it checks off the home's (Settings).
