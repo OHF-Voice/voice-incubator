@@ -57,7 +57,7 @@ PHRASES: dict[str, tuple[str, ...]] = {
 
 VERIFIED_CUTOFF: dict[str, float] = {
     # The first stage's cutoff when the verifier stands behind it, per word
-    # (README "Wake words"): low enough to keep the wake words the manifest's
+    # (DESIGN.md "Wake words"): low enough to keep the wake words the manifest's
     # cutoff refuses, high enough that the detector rarely fires on ordinary
     # speech and music -- every firing lights the ring and ducks the music
     # until the verifier refuses it. Firings per hour over 12 hours of speech

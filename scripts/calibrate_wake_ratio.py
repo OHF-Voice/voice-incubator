@@ -19,12 +19,12 @@ Against those, everything that should stay rejected:
                detector fires on
 
 Every window gets Kaldi's verdict and is scored by the new ratio, by the
-variants of it in VARIANTS (the README's table of what carries the
+variants of it in VARIANTS (DESIGN.md's table of what carries the
 separation), and -- when speech_to_phrase is installed -- by the
 grammar-vs-free-loop ratio it replaced, all on the same log-probabilities.
 
 The detector binary is mixednet-executor's host harness (see "Multi-microphone
-corpus" in the README for how to build run_okay_nabu). The TTS confusables are
+corpus" in DESIGN.md for how to build run_okay_nabu). The TTS confusables are
 <phrase>/*.wav directories (--confusables; skipped if missing).
 
     .venv/bin/python scripts/calibrate_wake_ratio.py \\
@@ -142,7 +142,7 @@ VARIANTS = (
 
 
 class Variants:
-    """The score with each of its choices made differently, for the README's
+    """The score with each of its choices made differently, for DESIGN.md's
     table of what carries the separation. "lowercase, whole words" against
     "255-piece words" is the shipped score."""
 

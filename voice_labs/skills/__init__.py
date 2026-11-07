@@ -2,7 +2,7 @@
 
 One module each (``SKILL`` in it: what it is, and ``answer``); ``common`` is
 what they share. Ported from the smart-home quick-questions benchmark
-(llama.cpp's smart-home-qa-bench: router.py; README "Skills and
+(llama.cpp's smart-home-qa-bench: router.py; DESIGN.md "Skills and
 questions"): each parses the whole question *and* computes an answer, or
 lets it fall through -- on 180 held-out questions none of their answers was
 wrong.

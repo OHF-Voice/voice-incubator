@@ -184,7 +184,7 @@ def _pcm_to_float(pcm: bytes) -> np.ndarray:
 
 AEC_LEAD_SAMPLES = 905
 """How far the AEC capture runs ahead of the AGC one: the pipeline between
-the XMOS's two taps (README "Two captures per call", 56.5 ms)."""
+the XMOS's two taps (DESIGN.md "Two captures per call", 56.5 ms)."""
 STT_PEAK = 10 ** (-3 / 20)
 STT_MAX_GAIN = 10 ** (30 / 20)
 
@@ -207,7 +207,7 @@ def stt_audio_for(
 ) -> Any:
     """What an STT entity hears of a call: from ``start`` (samples into the
     AGC capture: Kaldi's split, where it ended the wake phrase) to the end --
-    not the engine's cut, which keeps the end of "Nabu" more often (README
+    not the engine's cut, which keeps the end of "Nabu" more often (DESIGN.md
     "Always run") -- of the AGC capture, or (``capture`` "aec") the AEC one.
     The two are lined up on the detection, which ends both pre-rolls (each
     its own length), less the 56.5 ms the AEC tap runs ahead of AGC's: AGC
@@ -1416,7 +1416,7 @@ class VoiceLabsApp:
     def _wake_models_for(self, session: Session) -> list[WakeModel]:
         """The satellite's wake words, as many as fit beside "stop" in the
         device's model slots. No VAD gate: microWakeWord's VAD dropped ~2% of
-        wake words in the TV study and stopped no false accepts (README "No VAD
+        wake words in the TV study and stopped no false accepts (DESIGN.md "No VAD
         gate"), and the host verifies every wake word anyway.
 
         The device has no TFLite interpreter and no flatbuffer parser, so each

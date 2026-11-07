@@ -19,8 +19,8 @@ CTC log-probabilities:
 
 Low means "okay nabu" explains the window nearly as well as ordinary speech
 does. Three choices carry the separation, all measured
-(scripts/calibrate_wake_ratio.py, README "A second opinion on a rejected wake
-word"):
+(scripts/calibrate_wake_ratio.py, DESIGN.md "A second opinion on a rejected
+wake word"):
 
 * The wake phrase is spelled in **lowercase pieces only**, each word whole
   (first piece starts the word, no break inside). Allowing the capitalised

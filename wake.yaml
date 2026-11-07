@@ -57,7 +57,7 @@ resident_decoders: true
 #
 # max_active is NOT applied to the confusable graph, whatever you set here --
 # capping it prunes the rival hypothesis that graph exists to find and
-# silently accepts false positives. See README "Performance".
+# silently accepts false positives. See wyoming_wake_kaldi/README.md, "Performance".
 #
 # Set beam: 12.0 and max_active: 2147483647 to restore Kaldi's unnarrowed
 # search; it was measured to give identical costs, alignments, split points
@@ -269,8 +269,8 @@ wake_words:
     phrases:
       - hey jarvis
     # Neighbours of "jarvis", plus what the detector fired on and Kaldi still
-    # accepted in synthetic speech (scripts/synth_wake_words.py, README "Wake
-    # words"): "janice", "jealous", "drivers", "darkness", "jockey", "jar",
+    # accepted in synthetic speech (scripts/synth_wake_words.py, DESIGN.md
+    # "Wake words"): "janice", "jealous", "drivers", "darkness", "jockey", "jar",
     # "jarred" and "guys".
     confusables:
       - hey artist
@@ -326,7 +326,7 @@ wake_words:
         - m ˈaɪ k ɹ ɔ f t
         - m ˈaɪ k ɹ æ f t
         - m ˈaɪ k ɹ ɑ f t
-    # Measured on the Mycroft community recordings (README "Wake words"):
+    # Measured on the Mycroft community recordings (DESIGN.md "Wake words"):
     # "micro", "my crop", "my cough", "mike", "macro", "my car", "my cat",
     # "my boss", "my raft", "my craft", "my clock" and "my crush" were each
     # the closest rival of three or more times as many real wake words as of

@@ -12,8 +12,8 @@ two tasks the fallback needs, entities (with descriptions) and one
 classification: the prompt and its marker positions, word splitting, and
 decoding (thresholds, abstention, flat overlap resolution). Against the
 gliner2 package on 131 of the fallback benchmark's inputs: identical tokens,
-positions and entities, probabilities within 3e-6 (README "When nothing
-matches").
+positions and entities, probabilities within 3e-6 (DESIGN.md "When
+nothing matches").
 
 Ported from fastino-ai/GLiNER2 (Apache-2.0): processor.py
 (_format_input_with_mapping, _transform_schema, _normalize_text),

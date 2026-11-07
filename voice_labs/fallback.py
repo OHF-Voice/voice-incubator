@@ -406,7 +406,7 @@ GLINER_THRESHOLD = 0.3
 """The least probability GLiNER's pick may have; it must also beat "not a
 command". Small, 8-bit, on the fallback benchmark with eight commands chosen
 and the closest eight in meaning to tell them from: 17 of 34 right and none
-wrong at 0.3, 13 at 0.5, 18 at 0.2 (README "When nothing matches")."""
+wrong at 0.3, 13 at 0.5, 18 at 0.2 (DESIGN.md "When nothing matches")."""
 GLINER_ENTITY_MIN = 0.5
 """The least probability an argument GLiNER finds may have."""
 NOT_A_COMMAND_LABEL = "something else: a question, small talk or thanks"

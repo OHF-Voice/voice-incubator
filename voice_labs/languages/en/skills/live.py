@@ -16,7 +16,7 @@ LIVE_PATTERNS = [
     r"\b(today|today's)\b",
     r"\bcurrent (price|rate|president|prime minister|ceo|leader|population|champion|mayor|governor|status|time|date|exchange)",
     r"\bwho(?: is|'s|s) (the )?(current |now )?(president|prime minister|chancellor|king|queen|pope|ceo|mayor|governor|speaker)\b",
-    # Spoken, and found missing on the held-out questions (README "Skills and questions").
+    # Spoken, and found missing on the held-out questions (DESIGN.md "Skills and questions").
     r"\b(won|win|winner|champions?|happened)\b.*\blast (year|season|week|month)\b",
     r"\bdid (the )?[a-z ]+ (win|lose)\b",
     r"\bwhat time (?:does|do|is) .+ (open|close|closing)\b",
