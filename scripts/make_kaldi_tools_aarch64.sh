@@ -13,10 +13,10 @@
 # gfortran 3, which Debian no longer has and nothing in them calls (their
 # LAPACK is OpenBLAS's, Debian's libopenblas0 in the image): that is taken out.
 #
-#   scripts/make_kaldi_tools_aarch64.sh [KALDI_MANYLINUX_DIR]   # default ~/opt/kaldi-manylinux
+#   scripts/make_kaldi_tools_aarch64.sh KALDI_MANYLINUX_DIR
 set -euo pipefail
 cd "$(dirname "$0")/.."
-SRC="${1:-$HOME/opt/kaldi-manylinux}"
+SRC="${1:?usage: $0 KALDI_MANYLINUX_DIR}"
 OUT=models/wake-kaldi-tools-aarch64
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

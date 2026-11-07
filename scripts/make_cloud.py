@@ -8,6 +8,7 @@ micro_wake_word firing.
 import argparse
 import io
 import json
+import os
 import subprocess
 import urllib.request
 import wave
@@ -17,12 +18,7 @@ import numpy as np
 import soundfile as sf
 import soxr
 
-HASS = "http://localhost:8123"
-TOKEN = Path("/home/hansenm/opt/homeassistant/token").read_text().strip()
-REFERENCE = Path(
-    "/home/hansenm/opt/ohf-apps-experimental/voice_labs/tests/"
-    "okay_nabu_turn_on_the_lights.wav"
-)
+REFERENCE = Path(__file__).resolve().parent.parent / "tests/okay_nabu_turn_on_the_lights.wav"
 
 
 def reference_peak() -> float:
@@ -33,9 +29,9 @@ def reference_peak() -> float:
     return float(np.abs(audio).max())
 
 
-def synth(message: str, voice: str) -> np.ndarray:
+def synth(message: str, voice: str, hass: str, token: str) -> np.ndarray:
     request = urllib.request.Request(
-        f"{HASS}/api/tts_get_url",
+        f"{hass}/api/tts_get_url",
         data=json.dumps(
             {
                 "engine_id": "tts.home_assistant_cloud",
@@ -45,7 +41,7 @@ def synth(message: str, voice: str) -> np.ndarray:
             }
         ).encode(),
         headers={
-            "Authorization": f"Bearer {TOKEN}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         },
     )
@@ -73,14 +69,20 @@ def main() -> None:
     parser.add_argument("--voices", nargs="+", required=True)
     parser.add_argument("--commands", nargs="+", required=True)
     parser.add_argument("--gain", type=float, default=1.0)
+    parser.add_argument("--hass", default=os.environ.get("HASS_URL", "http://localhost:8123"))
+    parser.add_argument("--token-file", type=Path, help="a long-lived access token, when HASS_TOKEN doesn't")
     args = parser.parse_args()
+    token = os.environ.get("HASS_TOKEN")
+    if not token and not args.token_file:
+        parser.error("Home Assistant needs a long-lived access token: HASS_TOKEN or --token-file")
+    token = token or args.token_file.expanduser().read_text().strip()
 
     args.out.mkdir(parents=True, exist_ok=True)
     peak = reference_peak() * args.gain
 
     for command in args.commands:
         for voice in args.voices:
-            audio = synth(f"okay nabu, {command}", voice)
+            audio = synth(f"okay nabu, {command}", voice, args.hass, token)
             audio = audio / max(float(np.abs(audio).max()), 1e-9) * peak
             audio = np.concatenate([audio, np.zeros(8000, dtype=np.float32)])
             slug = command.replace(" ", "_").replace("'", "")

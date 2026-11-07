@@ -7,9 +7,10 @@ some of the time and under some noise. One second of quiet either side lets the
 on-device detector warm up and fire after the phrase, as it would live.
 
     scripts/synth_wake_words.py --phrase "hey jarvis" --count 600 \\
+        --voices <piper-voices>/en --rirs <impulse-responses> --noises <noises> \\
         --out /tmp/hey_jarvis/positives
     scripts/synth_wake_words.py --phrases-file confusables.txt --count 12 \\
-        --out /tmp/hey_jarvis/confusables
+        --voices <piper-voices>/en --out /tmp/hey_jarvis/confusables
 
 ``--count`` is per phrase. File names carry the phrase, voice and speaker.
 """
@@ -28,9 +29,6 @@ from pathlib import Path
 import numpy as np
 
 RATE = 16000
-VOICES = Path("/media/cache/piper-voices/en")
-RIRS = Path("/media/cache/ww_datasets/MIT_environmental_impulse_responses/16khz")
-NOISES = Path("/media/cache/ww_datasets/ambient_noises")
 
 _W: dict = {}
 
@@ -45,10 +43,10 @@ def _voices(root: Path) -> list[tuple[Path, int]]:
     return out
 
 
-def _init(seed: int) -> None:
+def _init(seed: int, rirs: Path | None, noises: Path | None) -> None:
     _W["voices"] = {}
-    _W["rirs"] = sorted(RIRS.glob("*.wav")) if RIRS.is_dir() else []
-    _W["noises"] = sorted(NOISES.rglob("*.wav")) if NOISES.is_dir() else []
+    _W["rirs"] = sorted(rirs.glob("*.wav")) if rirs and rirs.is_dir() else []
+    _W["noises"] = sorted(noises.rglob("*.wav")) if noises and noises.is_dir() else []
     _W["seed"] = seed
 
 
@@ -121,7 +119,9 @@ def main() -> int:
     parser.add_argument("--phrases-file", type=Path)
     parser.add_argument("--count", type=int, default=100, help="clips per phrase")
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--voices", type=Path, default=VOICES)
+    parser.add_argument("--voices", type=Path, required=True, help="Piper voices: <voice>/*.onnx")
+    parser.add_argument("--rirs", type=Path, help="room impulse responses, 16 kHz *.wav (none: no room)")
+    parser.add_argument("--noises", type=Path, help="noise, *.wav (none: no noise)")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -143,7 +143,7 @@ def main() -> int:
     # Grouped by voice so each worker loads few models.
     jobs.sort(key=lambda j: (str(j[2]), j[3] or 0))
     done = 0
-    with ProcessPoolExecutor(args.workers, initializer=_init, initargs=(args.seed,)) as pool:
+    with ProcessPoolExecutor(args.workers, initializer=_init, initargs=(args.seed, args.rirs, args.noises)) as pool:
         for name in pool.map(_synthesize, jobs, chunksize=8):
             done += name is not None
     print(f"{done} clips in {args.out} ({len(phrases)} phrases, {len(voices)} voices)", file=sys.stderr)

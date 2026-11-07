@@ -28,7 +28,7 @@ corpus" in the README for how to build run_okay_nabu). The TTS confusables are
 <phrase>/*.wav directories (--confusables; skipped if missing).
 
     .venv/bin/python scripts/calibrate_wake_ratio.py \\
-        --wake-binary ~/opt/mixednet-executor/run_okay_nabu \\
+        --wake-binary <mixednet-executor>/run_okay_nabu --sessions <office-multicap> \\
         --out /tmp/wake_ratio.jsonl --workers 8
     .venv/bin/python scripts/calibrate_wake_ratio.py --report /tmp/wake_ratio.jsonl
 
@@ -583,7 +583,7 @@ def main() -> int:
     parser.add_argument("--wake-manifest", type=Path, default=ROOT / "models/wake/okay_nabu.json")
     parser.add_argument("--cutoff", type=float, default=0.2, help="detector cutoff (the app's default)")
     parser.add_argument("--tail", type=float, default=0.3, help="adaptive tail in seconds (the app's default)")
-    parser.add_argument("--sessions", type=Path, default=Path("/media/cache/12tb/en-us/office-multicap"))
+    parser.add_argument("--sessions", type=Path, help="the office-multicap recordings: <speaker>-merged/...")
     parser.add_argument("--speakers", nargs="+", default=["jenn", "mike", "natalie", "oliver", "mike-old"])
     parser.add_argument("--negatives", nargs="*", default=["neg-noise01", "neg-background"])
     parser.add_argument("--hop", type=float, default=3.0, help="seconds between speech windows")
@@ -591,10 +591,7 @@ def main() -> int:
         "--confusables",
         type=Path,
         nargs="*",
-        default=[
-            Path("/media/cache/12tb/en-us/okay_nabu-hard-negatives"),
-            Path.home() / "opt/micro-wake-word/notebooks/synthetic-negatives-de",
-        ],
+        default=[],
         help="directories of <phrase>/*.wav TTS clips",
     )
     parser.add_argument("--per-confusable", type=int, default=300)
@@ -615,8 +612,8 @@ def main() -> int:
         rows = [json.loads(line) for line in args.report.read_text().splitlines() if line]
         report(rows, sweep, old_sweep, args.threshold)
         return 0
-    if args.out is None or args.wake_binary is None:
-        parser.error("--out and --wake-binary are needed to collect (or --report FILE)")
+    if args.out is None or args.wake_binary is None or args.sessions is None:
+        parser.error("--out, --wake-binary and --sessions are needed to collect (or --report FILE)")
 
     old = not args.no_old
     if old:

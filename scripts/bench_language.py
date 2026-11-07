@@ -20,6 +20,7 @@ import argparse
 import asyncio
 import io
 import json
+import os
 import re
 import sys
 import wave
@@ -174,7 +175,7 @@ async def hass_tts(texts: list[str], folder: Path, args, voice: str) -> None:
     import aiohttp  # pylint: disable=import-outside-toplevel
     import soundfile as sf  # pylint: disable=import-outside-toplevel
 
-    token = Path(args.token_file).expanduser().read_text().strip()
+    token = os.environ.get("HASS_TOKEN") or Path(args.token_file).expanduser().read_text().strip()
     code = languages.current().code
     language = args.tts_language or TTS_LOCALES.get(code, f"{code}-{code.upper()}")
     async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {token}"}) as http:
@@ -199,13 +200,15 @@ def main() -> int:
     parser.add_argument("--bench", type=Path, help="other sentences than the pack's bench.yaml")
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--hass", help="Home Assistant's URL, for its TTS voices")
-    parser.add_argument("--token-file", default="~/opt/homeassistant/token-main")
+    parser.add_argument("--token-file", help="a long-lived access token, when HASS_TOKEN doesn't")
     parser.add_argument("--tts", default="tts.home_assistant_cloud", help="the TTS entity")
     parser.add_argument("--voice", action="append", default=[], help="a voice of it (repeat)")
     parser.add_argument("--tts-language")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--json", type=Path, help="write every result here")
     args = parser.parse_args()
+    if args.hass and args.voice and not (os.environ.get("HASS_TOKEN") or args.token_file):
+        parser.error("Home Assistant needs a long-lived access token: HASS_TOKEN or --token-file")
 
     pack = languages.use(args.language)
     data = bench(pack.code, args.bench)

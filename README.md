@@ -147,7 +147,8 @@ Useful flags: `--host`, `--hass-url`, `--hass-token-file`, `--data-dir`,
 `--embedding-model`, `--debug`, and for speaker identification
 `--speaker-threshold`, `--speaker-channel`, `--no-speaker-learn`,
 `--enroll-commands`, `--no-speaker-id`. `HASS_URL` and `HASS_TOKEN` (a
-long-lived access token) stand in for `--hass-url` and the token file.
+long-lived access token) stand in for `--hass-url` and the token file; one of
+`HASS_TOKEN` and `--hass-token-file` is needed.
 
 ## Standalone
 

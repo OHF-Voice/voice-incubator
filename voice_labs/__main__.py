@@ -51,7 +51,6 @@ async def main() -> None:
     )
     parser.add_argument(
         "--hass-token-file",
-        default="/home/hansenm/opt/homeassistant/token",
         help="file holding a long-lived access token, when HASS_TOKEN doesn't",
     )
     parser.add_argument(
@@ -214,9 +213,12 @@ async def main() -> None:
             "supervisor_token": supervisor_token,
         }
     else:
+        token = os.environ.get("HASS_TOKEN")
+        if not token and not args.hass_token_file:
+            parser.error("Home Assistant needs a long-lived access token: HASS_TOKEN or --hass-token-file")
         hass = {
             "hass_url": args.hass_url,
-            "hass_token": os.environ.get("HASS_TOKEN") or Path(args.hass_token_file).read_text(encoding="utf-8").strip(),
+            "hass_token": token or Path(args.hass_token_file).expanduser().read_text(encoding="utf-8").strip(),
             "data_dir": Path(args.data_dir) if args.data_dir else None,
             "http_host": args.http_host,
             "http_port": args.http_port,

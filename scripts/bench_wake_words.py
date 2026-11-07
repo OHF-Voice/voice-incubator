@@ -15,8 +15,8 @@ afterwards without decoding again (``--report``).
 
     scripts/bench_wake_words.py --wake-word hey_mycroft \\
         --binary /tmp/run_hey_mycroft \\
-        --set positive=/media/cache/12tb/en-us/hey-mycroft/wake-word \\
-        --set negative=/media/cache/12tb/en-us/hey-mycroft/not-wake-word \\
+        --set positive=<hey-mycroft>/wake-word \\
+        --set negative=<hey-mycroft>/not-wake-word \\
         --limit 1500 --out /tmp/hey_mycroft.jsonl
     scripts/bench_wake_words.py --report /tmp/hey_mycroft.jsonl
 

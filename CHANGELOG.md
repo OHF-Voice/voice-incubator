@@ -256,6 +256,11 @@
   app's language.
   Deleted, they stay deleted; a home that has commands already is left as
   it is.
+- **No paths from one machine.** Run from source, the app needs `HASS_TOKEN`
+  or `--hass-token-file`: there is no default token file. The scripts take
+  their tokens (`HASS_TOKEN` or `--token-file`), datasets and checkouts as
+  arguments, and the embedding model is looked for in Hugging Face's cache
+  where `HF_HUB_CACHE` or `HF_HOME` puts it.
 - **Sessions say whether the speech-to-text entity ran.** The recognition
   step has a row for it -- not asked (its words weren't needed); asked, what
   it heard and how long it took; heard as you spoke, and how soon after you

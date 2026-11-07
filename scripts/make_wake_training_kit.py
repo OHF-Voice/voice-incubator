@@ -15,8 +15,8 @@ the whole 54.5 GB pool, in about 2.9 GB; 1,250 cost about 13
 default, with the pool's two roots, is::
 
     .venv/bin/python scripts/make_wake_training_kit.py --out models/wake-training \\
-        --features /media/cache/mww-v30/negative_features \\
-        --datasets /media/cache/mww-v30/negative_datasets
+        --features <mww-v30>/negative_features \\
+        --datasets <mww-v30>/negative_datasets
 
 or name each set (``--set name=dir:sampling_weight:penalty_weight``). Put the
 kit at models/wake-training (a working copy's) or in the app's config

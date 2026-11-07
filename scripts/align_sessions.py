@@ -189,7 +189,8 @@ async def main() -> int:
     parser.add_argument(
         "--sessions",
         type=Path,
-        default=Path("/media/cache/12tb/en-us/office-multicap"),
+        required=True,
+        help="the office-multicap recordings: <session>/channels/...",
     )
     parser.add_argument("--session", action="append", help="default: all of them")
     parser.add_argument("--channel", default="mark2-sj201.ch1")

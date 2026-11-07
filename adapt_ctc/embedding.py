@@ -17,6 +17,7 @@ intent still has something to beat. Requires the ``embedding`` extra
 
 from __future__ import annotations
 
+import os
 import sys
 from importlib import resources
 from pathlib import Path
@@ -25,7 +26,16 @@ import numpy as np
 
 from .runtime import session_options
 
-_HUB = Path.home() / ".cache/huggingface/hub/models--onnx-community--embeddinggemma-2-ONNX/snapshots"
+
+def _hub_cache() -> Path:
+    """Hugging Face's cache, where ``hf download`` puts the model."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return Path(os.environ["HF_HUB_CACHE"])
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return Path(os.environ.get("HF_HOME") or cache / "huggingface") / "hub"
+
+
+_HUB = _hub_cache() / "models--onnx-community--embeddinggemma-2-ONNX/snapshots"
 
 
 def _default_model() -> Path:

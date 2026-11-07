@@ -18,10 +18,12 @@ catalog, an ESPHome model repository, the app's wake_words/), three checks:
    on and some names are spoken oddly, so this is a sanity check, not a
    recall figure: a model that hears none of them is suspect.
 
-    scripts/check_wake_words.py ~/opt/Tater-Wake-Words --out /tmp/tater.jsonl
+    scripts/check_wake_words.py <Tater-Wake-Words> --out /tmp/tater.jsonl \\
+        --upstream <mixednet-executor> --voices <piper-voices>/en
     scripts/check_wake_words.py --report /tmp/tater.jsonl
 
-Needs mixednet-executor (``--upstream``) and a Python with ai_edge_litert
+Needs mixednet-executor (``--upstream``), Piper voices for check 3
+(``--voices``, unless ``--clips 0``) and a Python with ai_edge_litert
 (``--tflite-python``) for check 2.
 """
 
@@ -50,8 +52,6 @@ from voice_labs.mixednet import pack  # noqa: E402
 from voice_labs.wake_words import MAX_CUTOFF, read_manifest, spoken  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-UPSTREAM = Path.home() / "opt/mixednet-executor"
-TFLITE_PYTHON = Path.home() / ".pyenv/versions/micro-wake-word/bin/python"
 SPEECH = ROOT / "tests/okay_nabu_turn_on_the_lights.wav"
 
 REFERENCE = """
@@ -196,15 +196,18 @@ def main() -> int:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--clips", type=int, default=6, help="synthetic clips of each wake word (0: skip)")
-    parser.add_argument("--upstream", type=Path, default=UPSTREAM)
-    parser.add_argument("--tflite-python", type=Path, default=TFLITE_PYTHON)
+    parser.add_argument("--upstream", type=Path, help="a mixednet-executor checkout")
+    parser.add_argument("--tflite-python", type=Path, help="a Python with ai_edge_litert (check 2)")
+    parser.add_argument("--voices", type=Path, help="Piper voices, for the synthetic clips")
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 4)
     args = parser.parse_args()
     if args.report:
         report(args.report)
         return 0
-    if not args.roots or not args.out:
-        parser.error("directories and --out are needed")
+    if not args.roots or not args.out or not args.upstream:
+        parser.error("directories, --out and --upstream are needed")
+    if args.clips and not args.voices:
+        parser.error("--voices is needed for the synthetic clips (or --clips 0)")
 
     found = manifests(args.roots)
     print(f"{len(found)} wake words", file=sys.stderr)
@@ -226,7 +229,8 @@ def main() -> int:
         phrases.write_text("\n".join(texts.values()) + "\n")
         subprocess.run(
             [sys.executable, str(Path(__file__).parent / "synth_wake_words.py"), "--phrases-file", str(phrases),
-             "--count", str(args.clips), "--out", str(clips_dir), "--workers", str(args.workers)],
+             "--count", str(args.clips), "--out", str(clips_dir), "--workers", str(args.workers),
+             "--voices", str(args.voices)],
             check=True,
         )
         # Rename clips from the phrase's slug to every id that says it.
