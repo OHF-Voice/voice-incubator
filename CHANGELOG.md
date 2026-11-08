@@ -296,7 +296,8 @@
 - **A question after a stray word is answered**: "group what's twelve
   times eight" -- the end of "Naboo" heard after the cut -- is "It's 96."
   A skill may leave out a heard transcript's first word or two when the rest
-  is a whole question.
+  is a whole question. And "twelve times a" -- "eight" misheard across the
+  room -- is no longer "It's 12.": a bare "a" is no number to reckon with.
 - **Never mind instead of "It looks like you're trying to never mind"**:
   when Never mind is the closest to what was said, it runs. And when not a
   word was heard after the wake word -- woken by mistake, most likely -- it

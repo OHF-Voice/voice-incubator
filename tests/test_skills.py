@@ -67,6 +67,15 @@ def test_every_level(question, brief, verbose):
     assert (levels["brief"], levels["verbose"]) == (brief, verbose)
 
 
+def test_a_bare_a_is_no_number_to_reckon_with():
+    """"Twelve times a" is "twelve times eight" misheard across a room more
+    often than twelve times one: no answer. "A hundred", "a half" and "in an
+    hour" still count."""
+    assert skills.answer("twelve times a") is None and skills.answer("what is a times a") is None
+    assert skills.answer("a hundred times two").text == "It's 200."
+    assert skills.answer("twelve plus a half").text == "It's 12.5."
+
+
 @pytest.mark.parametrize(
     "question",
     ["what's the weather like tomorrow", "who won the game last night?", "what are the top news headlines",
