@@ -293,6 +293,12 @@
   In talk overheard after a false wake, a command ran 6 times in 400, as
   before. Sessions show the sentence and its cost, taken or not. Answers to
   a question aren't searched for.
+- **After "okay now" the command starts where Kaldi ends the wake word.**
+  The CTC head writes "okay Naboo" as "okay now" in about half of all calls,
+  and then the rest of "Naboo" came before the command ("group what's twelve
+  times eight"). Starting at the later of the two ends, a stray first word is
+  rarer (the CTC transcript's 70% -> 40% of those calls), and 87.2% -> 88.6%
+  of them came out right on the office-multicap corpus, none worse.
 - **A question after a stray word is answered**: "group what's twelve
   times eight" -- the end of "Naboo" heard after the cut -- is "It's 96."
   A skill may leave out a heard transcript's first word or two when the rest

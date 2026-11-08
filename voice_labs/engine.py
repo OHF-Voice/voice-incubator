@@ -78,6 +78,12 @@ SAMPLE_RATE = 16000
 WAKE_PHRASES = ("okay nabu", "okay naboo", "ok nabu", "ok naboo", "okay now")
 SPLIT_BOUND = 0.3
 """Seconds past Kaldi's wake word end that the wake phrase may still end."""
+PARTIAL_WAKE_PHRASES = ("okay now",)
+"""Wake phrases the CTC head may have heard in only part of the wake word
+("okay now" of "okay Na|boo"): the command starts at the later of where it
+ends and Kaldi's end. Half the corpus's woken calls place "okay now", Kaldi's
+end a median 0.29 s later; starting there, 88.6% of them came out right
+rather than 87.2%, none worse (DESIGN.md)."""
 
 WORD_SECONDS = 0.5
 """How long a transducer's word is taken to be when it is placed in free
@@ -643,6 +649,10 @@ class Engine:
             split.wake_start = offset + wake.start * frame_seconds
             split.wake_end = offset + (wake.end + 1) * frame_seconds
             split.cost = wake.cost
+            if wake.phrase in PARTIAL_WAKE_PHRASES:
+                # Only the start of the wake word's last word: what follows it
+                # may be the rest ("-boo"), which Kaldi's end takes in.
+                end = max(end, int((kaldi_split - offset) / frame_seconds) - 1)
         else:
             end = int((kaldi_split - offset) / frame_seconds) - 1
         split.cut = offset + (end + 1) * frame_seconds

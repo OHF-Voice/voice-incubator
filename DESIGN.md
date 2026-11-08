@@ -1182,6 +1182,16 @@ for this app:
   trace shows both: on `calls/call-15788.wav` the CTC places the end of the
   wake phrase at 1.16 s and Kaldi at 1.44 s. Kaldi still decides whether it was
   the wake word, and its end still starts endpointing.
+  But one of the CTC head's phrases is often only part of the wake word:
+  "okay now" is "okay Na|boo", the "-boo" left for the command ("group what's
+  twelve times eight"). Placed in 49% of the corpus's woken calls (four
+  speakers, the VPEs' AGC, the bench's whole chain), Kaldi's end was then a
+  median 0.29 s later (later in 89%); for the other phrases it was 0.04 s
+  earlier. So after "okay now" the command starts at the later of the two
+  (`PARTIAL_WAKE_PHRASES`): its CTC transcript began with a stray word in
+  39.9% of those calls rather than 70.1% (the TDT's, 17.9% rather than
+  25.5%), and 88.6% of them came out right rather than 87.2% -- 10 better, none
+  worse; 91.3% -> 91.9% of all calls, oliver's 76.4% -> 80.2%.
 - **The TDT head hears the command from before the cut.** Started at the
   cut, with nothing before it, the transducer gets the first word wrong
   ("Get groceries" for "add get groceries", "add groceries" from 90 ms

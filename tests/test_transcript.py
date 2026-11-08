@@ -450,3 +450,18 @@ def test_a_question_after_the_end_of_the_wake_word(engine):
     # Three words before it are no wake word's tail.
     decision = decide(engine, "group the gp what's twelve times eight", CloudStt("group the gp what's twelve times eight"))
     assert decision.answer is None
+
+
+def test_a_partial_wake_phrase_ends_where_kaldi_does(engine, monkeypatch):
+    """"Okay now" is the CTC head's "okay Na|boo" as often as not: the command
+    starts at the later of its end and Kaldi's, not on the "-boo"."""
+    from voice_labs import engine as engine_module  # pylint: disable=import-outside-toplevel
+
+    evidence, _ = engine.model.vocab.text_log_probs(["okay", "now", "boo", "turn", "on", "the", "lights"])
+    seconds = engine.model.frame_seconds
+    monkeypatch.setattr(engine.model, "log_probs", lambda audio: (evidence, seconds))
+    _, _, split, _ = engine._place(np.zeros(16000 * 3, dtype=np.float32), None, 1.2, None)  # pylint: disable=protected-access
+    assert split.phrase == "okay now" and split.wake_end < 1.0 and split.cut == pytest.approx(1.2, abs=0.08)
+    monkeypatch.setattr(engine_module, "PARTIAL_WAKE_PHRASES", ())
+    _, _, split, _ = engine._place(np.zeros(16000 * 3, dtype=np.float32), None, 1.2, None)  # pylint: disable=protected-access
+    assert split.cut == pytest.approx(split.wake_end)
