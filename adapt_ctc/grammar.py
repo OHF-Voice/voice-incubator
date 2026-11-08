@@ -22,9 +22,7 @@ sentences, and the transcript matched as typed text.
 
 from __future__ import annotations
 
-import os
 import random
-import subprocess
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -37,6 +35,15 @@ from .config import NAME_TYPES, Config, Intent, NameEntry, phrase_parts
 from .graph import PhraseGraph
 from .numbers import spoken_forms, unit_forms, unit_words, value_grid
 from .text import name_units, spoken_words
+
+try:
+    from . import _grammar
+except ImportError:  # pragma: no cover - without a compiler
+    _grammar = None
+
+NATIVE = _grammar is not None
+"""Whether the native search is built (setup.py): without it, ``decode`` is
+Python's, a second or so a call."""
 
 FILLER_COST = 1.0
 """Each filler word, in nats: dearer than none, so fillers don't explain
@@ -413,77 +420,99 @@ def _add_keywords(
                     graph.add_phrases(here, to((counts, (index, alternative, 1))), parts[0])
 
 
-# ------------------------------------------------------------------ the FST
+# ------------------------------------------------------------------ the pieces
 
 
-def write_fst(graph: WordGraph, vocab: Vocabulary, directory: Path, fst_bin: Path | None = None) -> Path:
-    """The graph as sherpa-onnx's CTC decoding graph: each word spelled with
-    every sequence of the model's pieces that spells it (graph.PhraseGraph's
-    lattices), composed with a CTC topology in which punctuation is blank.
-    Input labels are piece ids + 1, output labels word ids (``words.txt``:
-    id, text, mode).
-    Needs OpenFst's fstcompile, fstarcsort and fstcompose (``fst_bin``)."""
-    directory.mkdir(parents=True, exist_ok=True)
+@dataclass
+class TokenGraph:
+    """A word graph spelled in the acoustic model's pieces, for ``decode``:
+    each state's arcs together (``out_ptr``), each arc a piece (-1: none), a
+    cost, and the word it starts (index into ``words``, + 1; 0: none; one
+    past the words: anything after the sentence, which ends its last word)."""
+
+    out_ptr: np.ndarray
+    arc_dst: np.ndarray
+    arc_token: np.ndarray
+    arc_cost: np.ndarray
+    arc_label: np.ndarray
+    final: np.ndarray
+    words: list[Word]
+    unspeakable: list[str]
+
+    @property
+    def num_states(self) -> int:
+        return int(self.final.shape[0])
+
+    @property
+    def num_arcs(self) -> int:
+        return int(self.arc_dst.shape[0])
+
+    @property
+    def nbytes(self) -> int:
+        return sum(a.nbytes for a in (self.out_ptr, self.arc_dst, self.arc_token, self.arc_cost, self.arc_label, self.final))
+
+
+def compile_graph(graph: WordGraph, vocab: Vocabulary) -> TokenGraph:
+    """Each word spelled with every sequence of the model's pieces that spells
+    it, in any case (graph.PhraseGraph's lattices), the word's arc and cost
+    on the first piece; ``ANY`` as one arc for each piece -- after a sentence
+    (from a final state), each with the label that ends its last word."""
     spelling = PhraseGraph(vocab)
     words = graph.words
-    word_ids = {w: i + 1 for i, w in enumerate(words)}
-    (directory / "words.txt").write_text(
-        "".join(f"{i}\t{w.text}\t{w.mode}\n" for w, i in word_ids.items()), encoding="utf-8"
-    )
+    ids = {w: i + 1 for i, w in enumerate(words)}
+    by_word: dict[Word, list[tuple[int, int, float]]] = defaultdict(list)
+    eps: list[tuple[int, int, float]] = []
+    anys: list[tuple[int, int, float]] = []
+    for src, dst, word, cost in graph.arcs:
+        if word is None:
+            eps.append((src, dst, cost))
+        elif word == ANY:
+            anys.append((src, dst, cost))
+        else:
+            by_word[word].append((src, dst, cost))
+    i32 = np.int32
+    parts: list[tuple[np.ndarray, ...]] = []
+
+    def add(src, dst, token, cost, label) -> None:
+        parts.append(tuple(np.asarray(x).ravel() for x in (src, dst, token, cost, label)))
+
+    if eps:
+        e = np.array(eps)
+        add(e[:, 0], e[:, 1], np.full(len(eps), -1), e[:, 2], np.zeros(len(eps)))
+    if anys:
+        tokens = np.array([t for t in sorted(vocab.id2piece) if t != vocab.blank_id and not vocab.is_punctuation(t)])
+        e = np.array(anys)
+        after = np.array([len(words) + 1 if int(src) in graph.finals else 0 for src in e[:, 0]])
+        add(np.repeat(e[:, 0], len(tokens)), np.repeat(e[:, 1], len(tokens)), np.tile(tokens, len(anys)),
+            np.repeat(e[:, 2], len(tokens)), np.repeat(after, len(tokens)))
     next_state = graph.num_states
-    unspeakable = set()
-    with open(directory / "G.txt", "w", encoding="utf-8") as out:
-        anything = [t for t in sorted(vocab.id2piece) if t != vocab.blank_id and not vocab.is_punctuation(t)]
-        for src, dst, word, cost in graph.arcs:
-            if word is None:
-                out.write(f"{src} {dst} 0 0 {cost:g}\n")
-                continue
-            if word == ANY:
-                out.write("".join(f"{src} {dst} {t + 1} 0 {cost:g}\n" for t in anything))
-                continue
-            lattice = spelling._lattice((word.text, _spelled(word.mode)))  # pylint: disable=protected-access
-            if lattice is None:
-                unspeakable.add(word.text)
-                continue
-            num_nodes, edges = lattice
-            mapping = {0: src, 1: dst}
-            for node in range(2, num_nodes):
-                mapping[node] = next_state
-                next_state += 1
-            for a, b, token in edges:
-                label = word_ids[word] if a == 0 else 0
-                out.write(f"{mapping[a]} {mapping[b]} {token + 1} {label} {cost if a == 0 else 0:g}\n")
-        for state in sorted(graph.finals):
-            out.write(f"{state}\n")
-    skip = sorted({vocab.blank_id, *vocab.punctuation_ids})
-    tokens = [t for t in sorted(vocab.id2piece) if t not in skip]
-    with open(directory / "H.txt", "w", encoding="utf-8") as out:
-        # State 0 is blank (or punctuation); each piece a state of its own,
-        # held for as many frames as it lasts, then back to blank.
-        for token in skip:
-            out.write(f"0 0 {token + 1} 0\n")
-        for index, token in enumerate(tokens, 1):
-            out.write(f"0 {index} {token + 1} {token + 1}\n{index} {index} {token + 1} 0\n{index} 0 0 0\n")
-        out.write("0\n" + "".join(f"{index}\n" for index in range(1, len(tokens) + 1)))
-    tools = Path(fst_bin).resolve() if fst_bin else None
-    env = dict(os.environ)
-    if tools is not None and (tools.parent / "lib").is_dir():
-        env["LD_LIBRARY_PATH"] = f"{tools.parent / 'lib'}:{env.get('LD_LIBRARY_PATH', '')}"
-
-    def tool(name: str) -> str:
-        return str(tools / name) if tools else name
-
-    def run(command: str) -> None:
-        subprocess.run(["bash", "-o", "pipefail", "-c", command], check=True, cwd=directory, env=env)
-
-    run(f"{tool('fstcompile')} H.txt | {tool('fstarcsort')} --sort_type=olabel > H.fst")
-    run(f"{tool('fstcompile')} G.txt | {tool('fstarcsort')} --sort_type=ilabel > G.fst")
-    run(f"{tool('fstcompose')} H.fst G.fst > HG.fst")
-    for name in ("H.txt", "G.txt", "H.fst", "G.fst"):
-        (directory / name).unlink()
-    if unspeakable:
-        (directory / "unspeakable.txt").write_text("\n".join(sorted(unspeakable)) + "\n", encoding="utf-8")
-    return directory / "HG.fst"
+    unspeakable = []
+    for word, arcs in by_word.items():
+        lattice = spelling._lattice((word.text, _spelled(word.mode)))  # pylint: disable=protected-access
+        if lattice is None:
+            unspeakable.append(word.text)
+            continue
+        size, edges = lattice
+        e = np.array(edges)
+        a = np.array(arcs)
+        # Lattice node 0 is the arc's source, 1 its end; the rest are new.
+        mapping = np.empty((len(arcs), size), dtype=np.int64)
+        mapping[:, 0], mapping[:, 1] = a[:, 0], a[:, 1]
+        mapping[:, 2:] = next_state + np.arange(len(arcs) * (size - 2)).reshape(len(arcs), size - 2)
+        next_state += len(arcs) * (size - 2)
+        first = e[:, 0] == 0
+        add(mapping[:, e[:, 0]], mapping[:, e[:, 1]], np.broadcast_to(e[:, 2], (len(arcs), len(e))),
+            a[:, 2:3] * first, np.broadcast_to(np.where(first, ids[word], 0), (len(arcs), len(e))))
+    src, dst, token, cost, label = (np.concatenate([p[i] for p in parts]) for i in range(5))
+    order = np.argsort(src, kind="stable")
+    out_ptr = np.zeros(next_state + 1, dtype=i32)
+    np.cumsum(np.bincount(src.astype(np.int64), minlength=next_state), out=out_ptr[1:])
+    final = np.zeros(next_state, dtype=np.uint8)
+    final[sorted(graph.finals)] = 1
+    return TokenGraph(
+        out_ptr, dst[order].astype(i32), token[order].astype(i32), cost[order].astype(np.float32),
+        label[order].astype(i32), final, words, sorted(unspeakable),
+    )
 
 
 def _spelled(mode: str) -> str:
@@ -492,57 +521,193 @@ def _spelled(mode: str) -> str:
 
 # ------------------------------------------------------------------ decoding
 
+BEAM = 16.0
+"""Paths further than this, in nats, behind the best at a frame are dropped."""
 
-class GrammarDecoder:
-    """Parakeet's CTC head held to a ``write_fst`` graph (sherpa-onnx's FST
-    decoder): a call transcribed as one of the sentences, or None when no
-    sentence reaches its end."""
+MAX_ACTIVE = 4000
+"""The most paths kept at a frame."""
 
-    def __init__(self, model_dir: Path, graph_dir: Path, threads: int = 1, max_active: int = 3000) -> None:
-        import sherpa_onnx  # pylint: disable=import-outside-toplevel
-        from sherpa_onnx.offline_recognizer import _Recognizer  # pylint: disable=import-outside-toplevel
 
-        config = sherpa_onnx.OfflineRecognizerConfig(
-            feat_config=sherpa_onnx.FeatureExtractorConfig(sampling_rate=16000, feature_dim=80),
-            model_config=sherpa_onnx.OfflineModelConfig(
-                nemo_ctc=sherpa_onnx.OfflineNemoEncDecCtcModelConfig(model=str(model_dir / "model.onnx")),
-                tokens=str(model_dir / "tokens.txt"), num_threads=threads, model_type="nemo_ctc",
-            ),
-            ctc_fst_decoder_config=sherpa_onnx.OfflineCtcFstDecoderConfig(
-                graph=str(graph_dir / "HG.fst"), max_active=max_active,
-            ),
-            decoding_method="greedy_search",
+@dataclass
+class Heard:
+    """The sentence the call was heard as, and its score (log-probability,
+    less the graph's costs)."""
+
+    words: list[Word]
+    score: float
+    frames: list[tuple[int, int]] = field(default_factory=list)
+    """Each word's first and last frame (blank after it counts as its)."""
+
+    @property
+    def said(self) -> list[Word]:
+        """Its words, without the wake phrase."""
+        return [w for w in self.words if w.mode != "wake"]
+
+    @property
+    def said_frames(self) -> list[tuple[int, int]]:
+        return [f for w, f in zip(self.words, self.frames) if w.mode != "wake"]
+
+    @property
+    def text(self) -> str:
+        return " ".join(w.text for w in self.said)
+
+
+def blank_of(log_probs: np.ndarray, vocab: Vocabulary) -> np.ndarray:
+    """Each frame's blank, punctuation counted as blank."""
+    blank = log_probs[:, vocab.blank_id]
+    if vocab.punctuation_ids:
+        blank = np.maximum(blank, log_probs[:, vocab.punctuation_ids].max(axis=1))
+    return np.ascontiguousarray(blank, dtype=np.float32)
+
+
+def decode(
+    graph: TokenGraph, log_probs: np.ndarray, vocab: Vocabulary, beam: float = BEAM, max_active: int = MAX_ACTIVE,
+    native: bool = True,
+) -> Heard | None:
+    """The best path through ``graph`` over ``log_probs`` (``[T, V]``): CTC's
+    pieces, each held for as many frames as it lasts, blank between them and
+    before and after, the same piece twice only with a blank between. None
+    when no path reaches a final state."""
+    log_probs = np.ascontiguousarray(log_probs, dtype=np.float32)
+    blank = blank_of(log_probs, vocab)
+    if native and _grammar is not None:
+        result = _grammar.decode(
+            graph.out_ptr, graph.arc_dst, graph.arc_token, graph.arc_cost, graph.arc_label, graph.final,
+            log_probs, blank, graph.num_states, graph.num_arcs, log_probs.shape[0], log_probs.shape[1],
+            float(beam), int(max_active),
         )
-        self._recognizer = _Recognizer(config)
-        self.words: dict[int, tuple[str, str]] = {}
-        for line in (graph_dir / "words.txt").read_text(encoding="utf-8").splitlines():
-            index, text, mode = line.split("\t")
-            self.words[int(index)] = (text, mode)
+    else:
+        result = _decode_python(graph, log_probs, blank, beam, max_active)
+    if result is None:
+        return None
+    score, labels, starts = result
+    # A word lasts until the next begins, or anything after the sentence.
+    ends = [start - 1 for start in starts[1:]] + [log_probs.shape[0] - 1]
+    kept = [(label, start, end) for label, start, end in zip(labels, starts, ends)]
+    words = [(graph.words[label - 1], (start, end)) for label, start, end in kept if label <= len(graph.words)]
+    return Heard([w for w, _ in words], float(score), [f for _, f in words])
 
-    def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> list[tuple[str, str]] | None:
-        """The sentence's words, each ``(text, mode)``."""
-        stream = self._recognizer.create_stream()
-        stream.accept_waveform(sample_rate, np.ascontiguousarray(audio, dtype=np.float32))
-        self._recognizer.decode_stream(stream)
-        ids = list(stream.result.words)
-        if not ids and not stream.result.tokens:
+
+def _decode_python(
+    graph: TokenGraph, log_probs: np.ndarray, blank: np.ndarray, beam: float, max_active: int,
+) -> tuple[float, list[int], list[int]] | None:
+    """``decode``'s search, as _grammar.c has it, for tests and for want of
+    a compiler (much slower)."""
+    out_ptr, dst, token, cost, label = (
+        graph.out_ptr.tolist(), graph.arc_dst.tolist(), graph.arc_token.tolist(),
+        graph.arc_cost.tolist(), graph.arc_label.tolist(),
+    )
+    history: list[tuple[int, int, int]] = []  # (label, parent, frame)
+
+    def arrivals(paths_e: dict, paths_b: dict, first: bool) -> dict[int, list[tuple[float, int, int]]]:
+        """Where paths are between frames, each state's best path and its best
+        that last said another piece (the next may not repeat it): (score,
+        history, last piece or -1), through arcs without pieces too."""
+        arrived: dict[int, list[tuple[float, int, int]]] = {}
+        stack: list[int] = []
+
+        def arrive(state: int, score: float, hist: int, last: int) -> None:
+            best = arrived.get(state)
+            if best is None:
+                arrived[state] = [(score, hist, last)]
+            else:
+                updated = _top_two(best, (score, hist, last))
+                if updated is None:
+                    return
+                arrived[state] = updated
+            stack.append(state)
+
+        if first:
+            arrive(0, 0.0, -1, -1)
+        for arc, (score, hist) in paths_e.items():
+            arrive(dst[arc], score, hist, token[arc])
+        for state, (score, hist) in paths_b.items():
+            arrive(state, score, hist, -1)
+        while stack:
+            state = stack.pop()
+            for arc in range(out_ptr[state], out_ptr[state + 1]):
+                if token[arc] < 0:
+                    for score, hist, last in list(arrived[state]):
+                        arrive(dst[arc], score - cost[arc], hist, last)
+        return arrived
+
+    paths_e: dict[int, tuple[float, int]] = {}
+    paths_b: dict[int, tuple[float, int]] = {}
+    for t in range(log_probs.shape[0]):
+        frame = log_probs[t].tolist()
+        arrived = arrivals(paths_e, paths_b, t == 0)
+        new_e: dict[int, tuple[float, int, int]] = {}
+        new_b: dict[int, tuple[float, int]] = {}
+        for arc, (score, hist) in paths_e.items():
+            new_e[arc] = (score + frame[token[arc]], hist, 0)
+        for state, best in arrived.items():
+            score, hist, _ = best[0]
+            if score + blank[t] > new_b.get(state, (-np.inf,))[0]:
+                new_b[state] = (score + float(blank[t]), hist)
+            for arc in range(out_ptr[state], out_ptr[state + 1]):
+                piece = token[arc]
+                if piece < 0:
+                    continue
+                base = next((b for b in best if b[2] != piece), None)
+                if base is None:
+                    continue
+                score = base[0] - cost[arc] + frame[piece]
+                if score > new_e.get(arc, (-np.inf,))[0]:
+                    new_e[arc] = (score, base[1], label[arc])
+        scores = sorted([v[0] for v in new_e.values()] + [v[0] for v in new_b.values()], reverse=True)
+        if not scores:
             return None
-        return [self.words[i] for i in ids]
+        bound = scores[0] - beam
+        if len(scores) > max_active:
+            bound = max(bound, scores[max_active - 1])
+        paths_e = {}
+        for arc, (score, hist, said) in new_e.items():
+            if score >= bound:
+                if said:
+                    history.append((said, hist, t))
+                    hist = len(history) - 1
+                paths_e[arc] = (score, hist)
+        paths_b = {state: v for state, v in new_b.items() if v[0] >= bound}
+    arrived = arrivals(paths_e, paths_b, log_probs.shape[0] == 0)
+    ends = [(best[0][0], best[0][1]) for state, best in arrived.items() if graph.final[state]]
+    if not ends:
+        return None
+    score, hist = max(ends)
+    labels, frames = [], []
+    while hist >= 0:
+        said, hist, t = history[hist]
+        labels.append(said)
+        frames.append(t)
+    return score, labels[::-1], frames[::-1]
+
+
+def _top_two(best: list, new: tuple) -> list | None:
+    """``best`` (the best, and the best with another last piece) with ``new``
+    in it, or None when it is no better."""
+    first = best[0]
+    second = best[1] if len(best) > 1 else None
+    if new[2] == first[2]:
+        if new[0] <= first[0]:
+            return None
+        return [new, second] if second is not None else [new]
+    if new[0] > first[0]:
+        return [new, first]
+    if second is None or new[0] > second[0]:
+        return [first, new]
+    return None
 
 
 def path_cost(
-    log_probs: np.ndarray, vocab: Vocabulary, words: list[tuple[str, str]], free: int = 0, any_cost: float = ANY_COST,
+    log_probs: np.ndarray, vocab: Vocabulary, words: list[Word], free: int = 0, any_cost: float = ANY_COST,
 ) -> float:
     """How much likelier, in nats, the model's own best reading of the frames
-    is than ``words`` (each ``(text, mode)``) said in them: 0 when the words
+    is than ``words`` said in them: 0 when the words
     are what the model heard, more the further from it. Before them and after
     them is anything, as the graph has it, at ``any_cost`` a frame that isn't
     blank -- but the first ``free`` frames (the wake word) are free.
     Punctuation counts as blank."""
     spelling = PhraseGraph(vocab)
-    blank = log_probs[:, vocab.blank_id]
-    if vocab.punctuation_ids:
-        blank = np.maximum(blank, log_probs[:, vocab.punctuation_ids].max(axis=1))
+    blank = blank_of(log_probs, vocab)
     # Each frame's best, whatever it is; and as anything around the words.
     piece = np.delete(log_probs, [vocab.blank_id, *vocab.punctuation_ids], axis=1).max(axis=1)
     best = np.maximum(blank, piece)
@@ -552,8 +717,8 @@ def path_cost(
     # The words' lattices end to end: arcs between nodes.
     arcs: list[tuple[int, int, int]] = []
     node, num_nodes = 0, 1
-    for text, mode in words:
-        lattice = spelling._lattice((text, _spelled(mode)))  # pylint: disable=protected-access
+    for word in words:
+        lattice = spelling._lattice((word.text, _spelled(word.mode)))  # pylint: disable=protected-access
         if lattice is None:
             continue
         size, edges = lattice
@@ -584,4 +749,4 @@ def path_cost(
     into = blank_at.copy()
     np.maximum.at(into, dst, piece_at)
     ended = max(ended, into[node])
-    return float(best.sum() - ended)
+    return max(0.0, float(best.sum() - ended))

@@ -1,12 +1,13 @@
 """A home's sentences as one word graph (adapt_ctc/grammar.py)."""
 
-import shutil
-from pathlib import Path
-
+import numpy as np
 import pytest
 
 from adapt_ctc.config import parse_config
-from adapt_ctc.grammar import ANY, PhraseSet, Word, build, keyword_phrases, path_cost, write_fst
+from adapt_ctc.grammar import (
+    ANY, PhraseSet, Word, WordGraph, _grammar, build, compile_graph, decode, keyword_phrases, path_cost,
+)
+from adapt_ctc.matcher import Recognizer
 
 from .conftest import toy_vocab
 
@@ -118,25 +119,89 @@ def test_a_phrase_set_shares_its_starts_and_ends():
     assert sum(len(arcs) for arcs in alone.children.values()) == 4
 
 
+def words(text: str) -> list[Word]:
+    return [Word(w) for w in text.split()]
+
+
 def test_the_path_cost_is_how_far_from_what_was_heard():
     vocab = toy_vocab()
     log_probs, _ = vocab.text_log_probs("turn on the kitchen lights".split())
-    said = [(w, "strict") for w in "turn on the kitchen lights".split()]
-    assert path_cost(log_probs, vocab, said) == pytest.approx(0.0, abs=1e-3)
-    other = [(w, "strict") for w in "turn on the bedroom lights".split()]
-    assert path_cost(log_probs, vocab, other) > 10
+    assert path_cost(log_probs, vocab, words("turn on the kitchen lights")) == pytest.approx(0.0, abs=1e-3)
+    assert path_cost(log_probs, vocab, words("turn on the bedroom lights")) > 10
     # A word left out is heard as anything, at a cost -- free in the wake word.
-    shorter = [(w, "strict") for w in "turn on the lights".split()]
-    assert path_cost(log_probs, vocab, shorter) > 0.5
-    assert path_cost(log_probs, vocab, said[2:], free=12) == pytest.approx(0.0, abs=1e-3)
+    assert path_cost(log_probs, vocab, words("turn on the lights")) > 0.5
+    assert path_cost(log_probs, vocab, words("the kitchen lights"), free=12) == pytest.approx(0.0, abs=1e-3)
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "models/wake-kaldi-tools/openfst/bin"
+SEARCHES = [True, False] if _grammar is not None else [False]
 
 
-@pytest.mark.skipif(shutil.which("fstcompile") is None and not TOOLS.is_dir(), reason="needs OpenFst")
-def test_the_graph_is_written_for_sherpa(tmp_path):
-    fst = write_fst(graph(intents=["Nevermind"]), toy_vocab(), tmp_path, TOOLS if TOOLS.is_dir() else None)
-    assert fst.exists() and fst.stat().st_size > 0
-    words = [line.split("\t") for line in (tmp_path / "words.txt").read_text().splitlines()]
-    assert {(text, mode) for _, text, mode in words} >= {("never", "strict"), ("mind", "strict")}
+@pytest.mark.parametrize("native", SEARCHES)
+def test_the_search_hears_the_sentence_said(native):
+    vocab = toy_vocab()
+    g = compile_graph(build(parse_config(HOME), intents=["TurnOnLights", "SetBrightness"]), vocab)
+    assert g.num_arcs and "kitchen" not in g.unspeakable  # the toy pieces spell few numbers
+    for said in ["turn on the kitchen lights", "turn the den lights on", "set the brightness to fifty percent"]:
+        log_probs = vocab.text_log_probs(said.split())[0]
+        heard = decode(g, log_probs, vocab, native=native)
+        assert heard is not None and heard.text == said
+        # Each word from where it begins to where the next does.
+        starts = [start for start, _ in heard.frames]
+        assert starts == sorted(starts) and heard.frames[-1][1] == len(log_probs) - 1
+        assert all(end + 1 == start for (_, end), (start, _) in zip(heard.frames, heard.frames[1:]))
+    # Nothing heard, nothing said.
+    assert decode(g, np.zeros((0, vocab.size), dtype=np.float32), vocab, native=native) is None
+
+
+def frames(vocab, pieces: list[str]) -> np.ndarray:
+    """A frame for each piece, sure of it."""
+    ids = {p: i for i, p in vocab.id2piece.items()}
+    out = np.full((len(pieces), vocab.size), np.log(0.01 / vocab.size), dtype=np.float32)
+    for t, piece in enumerate(pieces):
+        out[t, ids[piece]] = np.log(0.99)
+    return out
+
+
+@pytest.mark.parametrize("native", SEARCHES)
+def test_a_piece_twice_needs_a_blank_between(native):
+    vocab = toy_vocab()
+    g = WordGraph()
+    end, middle = g.state(), g.state()
+    g.finals.add(end)
+    g.add(0, end, Word("a"))
+    g.add(0, middle, Word("a"))
+    g.add(middle, end, Word("a"))
+    tokens = compile_graph(g, vocab)
+    once = decode(tokens, frames(vocab, ["<blk>", "▁a", "▁a", "<blk>"]), vocab, native=native)
+    twice = decode(tokens, frames(vocab, ["<blk>", "▁a", "<blk>", "▁a", "<blk>"]), vocab, native=native)
+    assert [w.text for w in once.words] == ["a"] and [w.text for w in twice.words] == ["a", "a"]
+
+
+@pytest.mark.skipif(_grammar is None, reason="needs the native search")
+@pytest.mark.parametrize(("beam", "max_active"), [(16.0, 4000), (4.0, 8)])
+def test_the_native_search_is_the_python_one(beam, max_active):
+    vocab = toy_vocab()
+    g = compile_graph(build(parse_config(HOME), wake=["okay nabu"]), vocab)
+    rng = np.random.default_rng(0)
+    for said in ["okay nabu turn on the kitchen lights", "set the brightness to fifteen percent",
+                 "turn on the bedroom lights", "play music"]:
+        log_probs, _ = vocab.text_log_probs(said.split())
+        noisy = log_probs + rng.normal(0, 2.0, log_probs.shape).astype(np.float32)
+        noisy -= np.logaddexp.reduce(noisy, axis=1, keepdims=True)
+        native = decode(g, noisy, vocab, beam, max_active)
+        python = decode(g, noisy, vocab, beam, max_active, native=False)
+        assert (native is None) == (python is None)
+        if native is not None:
+            assert native.words == python.words and native.score == pytest.approx(python.score, abs=1e-3)
+            assert native.frames == python.frames
+
+
+@pytest.mark.skipif(_grammar is None, reason="needs the native search")
+def test_the_recognizer_hears_its_config_as_sentences():
+    vocab = toy_vocab()
+    recognizer = Recognizer(parse_config({**HOME, "settings": {"grammar": True}}), vocab=vocab)
+    heard, cost = recognizer.hear_sentence(vocab.text_log_probs("turn on the kitchen lights".split())[0])
+    assert heard.text == "turn on the kitchen lights" and cost == pytest.approx(0.0, abs=1e-3)
+    _, cost = recognizer.hear_sentence(vocab.text_log_probs("turn on the bedroom lights".split())[0])
+    assert cost > recognizer.config.settings.grammar_max_cost
+    assert Recognizer(parse_config(HOME), vocab=vocab).grammar is None  # not asked for

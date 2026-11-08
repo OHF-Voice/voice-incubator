@@ -4245,8 +4245,10 @@ function sessionGlance(record) {
   const rec = stageOf(record, "recognition");
   const typed = stageOf(record, "typed");
   const r = (rec && rec.recognition) || {};
-  // An STT entity that always runs heard it, needed or not.
-  const heard = r.tdt_transcript || (rec && rec.stt && rec.stt.text) || r.transcript || (typed && typed.text) || "";
+  // An STT entity that always runs heard it, needed or not -- its words
+  // before the home's sentence they were heard as.
+  const streamed = rec && rec.stt && rec.stt.text;
+  const heard = (streamed && rec.text_source === "sentence" ? streamed : r.tdt_transcript) || streamed || r.transcript || (typed && typed.text) || "";
   const speech = (record.stages || []).filter((s) => s.stage === "speech").pop();
   const errors = (record.stages || []).filter((s) => s.error && ["action", "error", "speech_failed", "agent"].includes(s.stage)).map((s) => s.error);
   const [resultIcon, result] = sessionResult(record);
@@ -4288,6 +4290,7 @@ function intentSlots(text) {
 function heardLabels(rec) {
   const sent = rec.from_home_assistant ? "From Home Assistant" : null;
   if (rec.text_source === "typed") return { ctc: "Read as", text: sent || "Typed" };
+  if (rec.text_source === "sentence") return { ctc: "CTC heard", text: "Heard as" };
   if (rec.text_source === "home_assistant") return { ctc: "CTC heard", text: "From Home Assistant" };
   return { ctc: "CTC heard", text: `${rec.text_source && rec.text_source !== "TDT" ? rec.text_source : "TDT"} heard` };
 }
@@ -4322,6 +4325,9 @@ function renderRecognition(rec) {
     h("div", { class: "kv" },
       h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
       r.tdt_transcript || !rec.stt ? [h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run"))] : null,
+      rec.sentence && (!rec.sentence.taken || rec.text_source !== "sentence") ? [h("div", {}, "Sentence"), h("div", {}, rec.sentence.text ? quoted(rec.sentence.text) : h("span", { class: "muted" }, "none"),
+        rec.sentence.text ? h("span", { class: "muted" }, ` · cost ${num(rec.sentence.cost, 1)}${rec.sentence.taken ? "" : ", not taken"}`) : null)] : null,
+      rec.sentence && rec.sentence.taken && rec.text_source === "sentence" ? [h("div", {}, "Sentence cost"), h("div", {}, num(rec.sentence.cost, 1))] : null,
       rec.stt ? [h("div", {}, rec.stt.entity), h("div", {}, sttStatus(rec.stt))] : null,
       rec.stt && (rec.stt.asked || rec.stt.streamed) && rec.stt.audio ? [h("div", {}, "Sent"), h("div", {}, rec.stt.audio.channel === "aec" ? (rec.stt.audio.gain_db !== undefined ? `AEC, boosted ${num(rec.stt.audio.gain_db, 1)} dB` : "AEC") : `AGC${rec.stt.audio.why ? ` (${rec.stt.audio.why})` : ""}`,
         rec.stt.audio.from !== undefined ? h("span", { class: "muted" }, ` · from ${num(rec.stt.audio.from, 2)} s, where Kaldi ended the wake word`) : null)] : null,
@@ -4342,7 +4348,7 @@ function renderRecognition(rec) {
     !rec.command && rec.transcript_pass && !rec.doubt ? h("div", { class: "small muted" }, `Keywords on the transcript (“${rec.transcript_pass.text}”): `,
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
     rec.matched_by === "trigger" ? h("div", { class: "notice info" }, "Home Assistant's sentence trigger, matched on the transcript as Home Assistant matches it.") : null,
-    rec.matched_by && !["ctc", "transcript", "trigger"].includes(rec.matched_by) ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
+    rec.matched_by && !["ctc", "sentence", "transcript", "trigger"].includes(rec.matched_by) ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning && rec.fallback.meaning.skipped ? h("div", { class: "small" }, `By meaning: skipped (${rec.fallback.meaning.skipped})`) : null,
       rec.fallback.meaning && !rec.fallback.meaning.skipped ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.closest_to ? `, closest to “${rec.fallback.meaning.closest_to}”` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
@@ -4382,7 +4388,7 @@ const STEP_ICONS = {
   follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline", context: "mdi:link-variant",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
-const MATCHED_BY = { ctc: "in the audio", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
+const MATCHED_BY = { ctc: "in the audio", sentence: "as a sentence", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
 
 // How long something took: "85 ms", "1.24 s"; "" when it isn't known.
 function took(seconds) {

@@ -115,9 +115,11 @@ class CallRecord:
                 out["heard"] = stage["text"]
             elif kind == "recognition":
                 heard = stage.get("recognition") or {}
-                # An STT entity that always runs heard it, needed or not.
+                # An STT entity that always runs heard it, needed or not --
+                # its words before the home's sentence they were heard as.
                 streamed = (stage.get("stt") or {}).get("text")
-                out["heard"] = heard.get("tdt_transcript") or streamed or heard.get("transcript") or out.get("heard")
+                said = None if streamed and stage.get("text_source") == "sentence" else heard.get("tdt_transcript")
+                out["heard"] = said or streamed or heard.get("transcript") or out.get("heard")
                 if stage.get("command"):
                     out["command"] = stage["command"]
                     if stage.get("title"):

@@ -3515,8 +3515,9 @@ class VoiceLabsApp:
                 )
             else:
                 decision = await asyncio.to_thread(engine.recognize_text, text, satellite)
-        if decision.recognition.get("tdt_transcript") is None:
-            # What the agent is asked: Home Assistant's words, not an STT entity's.
+        if decision.recognition.get("tdt_transcript") is None or decision.text_source == "sentence":
+            # What the agent is asked: Home Assistant's words, not an STT
+            # entity's, nor the sentence they were heard as (decision.sentence).
             decision.recognition["tdt_transcript"] = text
             decision.text_source = FROM_HOME_ASSISTANT
         record.stage(

@@ -31,6 +31,8 @@ import numpy as np
 from .acoustic import CtcModel, Vocabulary
 from .config import NAME_TYPES, Config, Contrast, Intent, Wildcard, phrase_parts
 from .embedding import distractors
+from .grammar import NATIVE, Heard, TokenGraph, compile_graph, decode, path_cost
+from .grammar import build as build_grammar
 from .graph import CompiledGraph, Meaning, PhraseGraph
 from .morphology import alternated, alternations, elided, elisions, singled, split_at_prefix, word_forms
 from .numbers import (
@@ -309,6 +311,13 @@ class Recognizer:
         self.graph, self.unspeakable, self.graph_stats = self._build_graph()
         self._contrast_graphs = self._build_contrasts()
         self.build_seconds = time.perf_counter() - started
+        self.grammar: TokenGraph | None = None
+        """The config's sentences in the model's pieces (``settings.grammar``),
+        when the native search is built."""
+        if config.settings.grammar and not one_phrase and NATIVE:
+            started = time.perf_counter()
+            self.grammar = compile_graph(build_grammar(config), self.vocab)
+            self.build_seconds += time.perf_counter() - started
 
         self._terminals_by_meaning: dict[tuple, list[int]] = defaultdict(list)
         self._names_by_type: dict[str, list[Meaning]] = defaultdict(list)
@@ -608,6 +617,18 @@ class Recognizer:
         if self.embedder is not None and self.config.settings.embedding_accept:
             self._match_embedding(recognition, with_examples)
         return recognition
+
+    def hear_sentence(self, log_probs: np.ndarray, free: int = 0) -> tuple[Heard | None, float | None]:
+        """The audio as one of the config's sentences (``settings.grammar``),
+        and how far its words are from what the model heard (nats,
+        ``grammar.path_cost``; the first ``free`` frames, the end of the wake
+        word, cost nothing). (None, None) without a grammar or a sentence."""
+        if self.grammar is None:
+            return None, None
+        heard = decode(self.grammar, log_probs, self.vocab)
+        if heard is None or not heard.said:
+            return None, None
+        return heard, path_cost(log_probs, self.vocab, heard.said, free)
 
     def example_first(self, recognition: Recognition, text: str, source: str = "typed") -> bool:
         """``text`` (typed, or a transcript) is one of the example sentences,

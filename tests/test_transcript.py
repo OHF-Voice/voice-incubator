@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from adapt_ctc.grammar import NATIVE
 from adapt_ctc.text import spoken_words
 from voice_labs.engine import Engine, Satellite, misheard_off, trimmed, within
 from voice_labs.store import compile_store
@@ -369,3 +370,26 @@ def test_a_head_of_its_own_encodes_from_before_the_cut():
     text, words = CallTdt(head, call, 1.2, command, shared=False).transcribe_words(command)
     assert head.calls == [(48000 - int(0.7 * 16000), None)] and text == "add groceries"
     assert words[0] == ("add", pytest.approx(0.32), pytest.approx(0.48))
+
+
+@pytest.mark.skipif(not NATIVE, reason="needs the native search")
+def test_a_command_is_heard_as_one_of_the_homes_sentences(engine):
+    """The home's sentences first: one said is taken as typed; what isn't one
+    of them goes to the passes after it."""
+
+    def heard(text: str, **kwargs):
+        log_probs, _ = engine.model.vocab.text_log_probs(spoken_words(text, "en")[0])
+        return engine.recognize_command(
+            np.zeros(16000, dtype=np.float32), OFFICE, evidence=(log_probs, engine.model.frame_seconds), **kwargs
+        )
+
+    decision = heard("unlock the front door")
+    assert decision.command.id == "unlock" and decision.matched_by == "sentence" and decision.text_source == "sentence"
+    assert decision.sentence == {"text": "unlock the front door", "cost": 0.0, "taken": True, "timed": True}
+    assert decision.recognition["transcript"] == "unlock the front door" and "sentence" in decision.timings
+    # The home has no back door: no sentence is near enough to be taken (here,
+    # none outlasts the beam).
+    decision = heard("unlock the back door")
+    assert decision.sentence["taken"] is False and decision.matched_by != "sentence"
+    # An answer to a question is seldom a command: not asked.
+    assert heard("unlock the front door", sentences=False).sentence is None

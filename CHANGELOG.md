@@ -279,6 +279,19 @@
   else the home's, as Add to my to-do list does. Before, the home's
   versions took them, and said "That isn't set up yet." without a home
   list.
+- **A command is heard as one of the home's sentences first.** Every
+  sentence the commands say -- a command's words in any order, its names and
+  numbers, fillers between, its examples as written -- is one graph, and the
+  CTC output is searched for the best of them from just before the wake
+  word's end (a native search, ~40 ms on a Pi 5; the graph 13 MB for 41
+  commands). One close enough to what was heard is read as typed; anything
+  else -- free text, two commands together, a sentence too far from the
+  audio -- goes to the keywords, examples and transcript as before. On the
+  office-multicap corpus (four speakers, 3,244 commands): 79.4% -> 86.2%
+  right, the wrong thing done 3.3% -> 4.7% of the time (adapt-ctc's
+  `grammar_max_cost`, 8: 5 is 83.7% and 3.4%, 10 is 87.8% and 5.8%).
+  Sessions show the sentence and its cost, taken or not. Answers to a
+  question aren't searched for.
 - **The speech model hears a command from before the wake word's end.**
   Started at the cut, it got the first word wrong ("Get groceries" for "add
   get groceries"); now it decodes from half a second before, on the same

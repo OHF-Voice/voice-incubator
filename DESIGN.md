@@ -42,7 +42,8 @@ one call at a time on each:
 4. **recognition** — the app's own commands (made in its web UI, kept in
    `commands.json`) are recognized with [adapt-ctc](adapt_ctc/README.md) on
    Parakeet's CTC output, after the wake phrase as that same output places it
-   (below). A command that matches nothing is answered with what it looks like
+   (below): first as one of the home's sentences, then by keywords, examples
+   and the transcript. A command that matches nothing is answered with what it looks like
    it was trying to do: "…set the brightness, but I didn't hear the
    percentage";
 5. **action** — the command's script, scene or action runs in Home Assistant
@@ -472,7 +473,8 @@ automation's page.
 | `tests/routes.yaml` | where 365 sentences go as text with English's library (command and slots, or none), so a library change that moves one shows; `UPDATE_ROUTES=1` writes it over when that's meant |
 | `scripts/bench_corpus.py` | runs the whole chain over a mic_tap corpus |
 | `scripts/kaldi_mode.py` | prototype: the wake verifier's Kaldi model decoding the call against the commands' words or given sentences, scored against the app |
-| `adapt_ctc/grammar.py`, `scripts/grammar_mode.py` | prototype: the home's sentences as one graph for Parakeet's CTC head (sherpa-onnx's FST decoder), scored against the app |
+| `adapt_ctc/grammar.py`, `adapt_ctc/_grammar.c` | the home's sentences as one graph, and the native search for the best of them in the CTC output |
+| `scripts/grammar_mode.py` | the app with and without the sentences, on office-multicap sessions |
 | `scripts/report_corpus.py` | per channel, per prompt, per failure |
 | `models/` | everything needed to run offline (~770 MB) |
 | `models/speaker/` | `redimnet_b2_vox2.onnx` from `OpenVoiceOS/redimnet-b2-vox2-onnx` |
@@ -1207,27 +1209,49 @@ for this app:
   but Parakeet's CTC head held to the same sentences got 95.2% (93.6% after
   the cut). Whole sentences are where the gain is, and the CTC head can
   search for them already (example sentences).
-- **A grammar mode was tried: the home's own sentences**
-  (`adapt_ctc/grammar.py`, `scripts/grammar_mode.py`). Every sentence the
-  commands say is one word graph: a keyword command's words in any order (its
-  required ones, any of its optional ones, its names and numbers, fillers
-  between), its examples as written, the wake phrase -- or anything, 3 nats a
-  piece -- before, anything after. Spelled with Parakeet's pieces and composed
-  with a CTC topology (the wake verifier's OpenFst tools), sherpa-onnx's FST
-  decoder transcribes the whole call as one of them, and the matcher reads the
-  transcript as typed text -- refused when its words cost over 10 nats more
-  than what the model heard freely (`grammar.path_cost`, free up to the wake
-  word's end). With adapt-ctc's home-extras config (41k word arcs, a 59 MB
-  graph built in 2 s): 84.6% of mike-merged right against the app's 79.2%,
-  and on the sessions held out from that threshold 86.4% against 79.5%
-  (commands right 76.7% → 84.5%, 89.9% before refusing; commands it has none
-  of refused 95.4% → 96.7%). The corpus's own sentences got 95.2%: the
-  home's grammar is much looser, but word order can't be had from keyword
-  commands without blowing it up (each optional word at most once was 713k
-  arcs). On the Pi 5 the search took ~130 ms on top of sherpa-onnx's own
-  encoder run, and the graph ~136 MB. Not in the app: it would want the
-  search on the app's own CTC evidence (no second encoder run) and a smaller
-  graph (fewer spellings per word).
+- **Heard as one of the home's sentences first** (`settings.grammar`,
+  `adapt_ctc/grammar.py`, `Engine.hear_sentence`). Every sentence the
+  commands say is one word graph: a keyword command's words in any order and
+  any of them again (its required ones, any optional ones, its names and
+  numbers), fillers between, its examples as written, and anything -- 3 nats
+  a piece -- before and after. Spelled with every sequence of Parakeet's
+  pieces that spells each word, it is searched for the best path over the
+  CTC output (`adapt_ctc/_grammar.c`: frame by frame with a beam of 16 nats
+  and 4,000 paths, CTC's blanks and repeats in the search itself) from 0.3 s
+  before the cut (`SENTENCE_LEAD_IN`, free). A sentence whose words cost no
+  more than 8 nats against what the model heard on its own
+  (`grammar.path_cost`, `grammar_max_cost`) is read as typed text; a command,
+  or one refused as said, is the decision, with its names and numbers put
+  where the sentence's words were said, so the transcript Home Assistant gets
+  is written as it is for the CTC matcher's (`Engine._timed`). Anything else
+  goes to the passes after it: free text and two commands together have no
+  sentence. Answers to a question aren't searched for. Sessions show the
+  sentence and its cost.
+  - On the office-multicap corpus (four speakers, 3,244 commands, the VPEs'
+    AGC channel; `scripts/grammar_mode.py`), against the app without it:
+
+    | `grammar_max_cost` | right | the wrong thing done | missed |
+    |---|---|---|---|
+    | (off) | 79.4% | 3.3% | 17.2% |
+    | 5 | 83.7% | 3.4% | 12.9% |
+    | **8** | **86.2%** | **4.7%** | **9.2%** |
+    | 10 | 87.8% | 5.8% | 6.4% |
+
+    By speaker at 8: jenn 95.6% -> 97.9%, mike 79.2% -> 85.0%, natalie
+    80.4% -> 88.1%, oliver 62.6% -> 73.5%. The corpus's own sentences as the
+    graph got 95.2% on mike: the home's graph is much looser, but word order
+    can't be had from keyword commands without blowing it up (each optional
+    word at most once was 713k word arcs, against 41k).
+  - Where the wake word is: from just before the cut, without it in the
+    graph, did as well as the whole call with "okay nabu" in it (86.0% and
+    85.9% on mike at 10), which a custom wake word wouldn't have, and is
+    faster; the whole call without it was 81.4%.
+  - On a Pi 5 (one thread): the search a median 42 ms, a call 278 -> 313 ms
+    (a sentence taken skips the keyword passes; on x86, 17 ms and 93 -> 107
+    ms); the graph for the corpus's 41 commands 13 MB, built with the
+    recognizer in 0.83 s (0.34 s on x86).
+    sherpa-onnx's FST decoder, tried first, needed its own encoder run and
+    136 MB for the same graph.
 - **Examples first.** A command's example sentences are searched for in the
   CTC evidence on every call, not only when no keyword intent matched, and one
   said word for word wins over keyword matches (`settings.examples_first`).

@@ -91,7 +91,8 @@ def candidates(
         if fresh(transcript):
             yield "heard", transcript
         return
-    ctc = decision.matched_by == "ctc"
+    # Timed in the audio: the CTC matcher's, or a sentence's put where it was said.
+    ctc = decision.matched_by == "ctc" or bool((decision.sentence or {}).get("timed"))
     if words:
         written = written_over(words, intent.spans, frame_seconds, names) if ctc else ""
         if written != " ".join(word for word, _, _ in words) and fresh(written):

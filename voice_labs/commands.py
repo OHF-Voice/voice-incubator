@@ -271,12 +271,13 @@ was chosen (VoiceLabsApp._take_home), or found chosen already -- each once,
 so what is chosen afterwards stands, none too."""
 
 # Shared settings for every home, whatever its language: examples that win
-# when said word for word. The embedding names the closest command when
-# nothing matched; it never accepts one. The language's own -- its filler
+# when said word for word, and the call heard as one of the home's sentences
+# first. The embedding names the closest command when nothing matched; it
+# never accepts one. The language's own -- its filler
 # words, name cues, compounds -- come from its pack (base_config).
 BASE_CONFIG: dict[str, Any] = {
     "numbers": {"detect": {"min": 0, "max": 200}},
-    "settings": {"examples_first": True, "examples_whole": True, "embedding_accept": False},
+    "settings": {"examples_first": True, "examples_whole": True, "embedding_accept": False, "grammar": True},
 }
 
 

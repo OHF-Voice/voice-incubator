@@ -44,7 +44,7 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +95,14 @@ alone: the command words' error rate 19.4% -> 16.7%, the first word right
 70.8% -> 76.2% (no speaker worse), commands word for word 32.7% -> 36.6%,
 and 30 ms rather than 174 ms (one encoder run). 0.28 s takes out more of the
 wake word (41.3% word for word) but loses first words (72.9%)."""
+
+SENTENCE_LEAD_IN = 0.3
+"""The call is heard as one of the home's sentences (``settings.grammar``)
+from this long before the cut, which is free: the end of the wake word, the
+cut landing a little early. On the office-multicap corpus's mike-merged, as
+good as the wake phrase in the graph and the whole call (86.0% against 85.9%
+of the commands right at 10 nats), which a custom wake word wouldn't have, and
+faster; the whole call without the wake phrase was 81.4%."""
 
 # Naming the closest command by meaning: only when it is this similar, and
 # this much closer than the runner-up (another command or an everyday
@@ -229,6 +237,12 @@ class Decision:
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_labs/fallback.py)."""
 
+    sentence: dict[str, Any] | None = None
+    """The home's sentence the audio was heard as (``settings.grammar``):
+    its ``text``, its ``cost`` against what the model heard, and whether it
+    was ``taken`` -- matched as typed -- or the passes after it decided
+    (too costly, or nothing that runs here)."""
+
     answer: dict[str, Any] | None = None
     """No command: a question, answered by a skill (voice_labs/skills/)."""
 
@@ -265,6 +279,7 @@ class Decision:
             "skipped": self.skipped,
             "matched_by": self.matched_by if self.command else None,
             "fallback": self.fallback,
+            **({"sentence": self.sentence} if self.sentence is not None else {}),
             "transcript_pass": self.transcript_pass,
             "doubt": self.doubt,
             "answer": self.answer,
@@ -587,6 +602,15 @@ class Engine:
         """Log-probabilities of the command, their frame length, and where it
         starts: after the wake phrase (``phrases``, default "okay nabu") as the
         CTC evidence places it."""
+        log_probs, frame_seconds, split, cut = self._place(audio, wake_start, kaldi_split, phrases)
+        return log_probs[cut:], frame_seconds, split
+
+    def _place(
+        self, audio: np.ndarray, wake_start: float | None, kaldi_split: float, phrases: tuple[str, ...] | None,
+    ) -> tuple[np.ndarray, float, Split, int]:
+        """``place_command``'s, but the log-probabilities from the call's
+        offset (``split.offset``), the wake word in them, and the frame the
+        command starts at."""
         anchor = wake_start if wake_start is not None else max(0.0, kaldi_split - 1.0)
         offset = max(0.0, anchor - LEAD)
         log_probs, frame_seconds = self.model.log_probs(audio[int(offset * SAMPLE_RATE) :])
@@ -603,7 +627,7 @@ class Engine:
         else:
             end = int((kaldi_split - offset) / frame_seconds) - 1
         split.cut = offset + (end + 1) * frame_seconds
-        return log_probs[end + 1 :], frame_seconds, split
+        return log_probs, frame_seconds, split, end + 1
 
     def recognize_call(
         self,
@@ -618,8 +642,14 @@ class Engine:
         the wake word. ``transcriber`` stands in for the TDT head (an STT
         entity, see voice_labs/voices.py)."""
         started = time.perf_counter()
-        log_probs, frame_seconds, split = self.place_command(audio, wake_start, kaldi_split, wake_phrases)
+        evidence, frame_seconds, split, cut = self._place(audio, wake_start, kaldi_split, wake_phrases)
+        log_probs = evidence[cut:]
         placed = time.perf_counter() - started
+        lead = min(cut, round(SENTENCE_LEAD_IN / frame_seconds))
+        heard, sentence = self.hear_sentence(evidence[cut - lead :], lead, log_probs, satellite)
+        if heard is not None:
+            heard.timings = {"acoustic+placement": placed, **heard.timings}
+            return heard, split
         command_audio = audio[int(split.cut * SAMPLE_RATE) :]
         if transcriber is None and self.transcriber is not None:
             # The TDT head from before the cut, on the CTC evidence's encoder run.
@@ -628,27 +658,71 @@ class Engine:
                 shared=self.transcriber is self.model,
             )
         decision = self.decide(log_probs, frame_seconds, command_audio, satellite, transcriber)
-        decision.timings = {"acoustic+placement": placed, **decision.timings}
+        decision.sentence = sentence
+        decision.timings = {"acoustic+placement": placed, **sentence_time(sentence), **decision.timings}
         return decision, split
 
     def recognize_command(
         self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None,
-        evidence: tuple[np.ndarray, float] | None = None,
+        evidence: tuple[np.ndarray, float] | None = None, sentences: bool = True,
     ) -> Decision:
         """Audio that is only the command (typed and synthesized, uploaded, or
         Home Assistant's). ``evidence``: the CTC head's on it (``model.log_probs``),
-        when it was had already."""
+        when it was had already. ``sentences``: heard as one of the home's
+        sentences first (``hear_sentence``)."""
         started = time.perf_counter()
         log_probs, frame_seconds = evidence if evidence is not None else self.model.log_probs(audio)
+        acoustic = time.perf_counter() - started
+        heard, sentence = self.hear_sentence(log_probs, 0, log_probs, satellite) if sentences else (None, None)
+        if heard is not None:
+            heard.timings = {"acoustic": acoustic, **heard.timings}
+            return heard
         decision = self.decide(log_probs, frame_seconds, audio, satellite, transcriber)
-        decision.timings = {"acoustic": time.perf_counter() - started, **decision.timings}
+        decision.sentence = sentence
+        decision.timings = {"acoustic": acoustic, **sentence_time(sentence), **decision.timings}
         return decision
+
+    def hear_sentence(
+        self, evidence: np.ndarray, free: int, command: np.ndarray, satellite: Satellite,
+    ) -> tuple[Decision | None, dict[str, Any] | None]:
+        """The audio as one of the home's sentences (``settings.grammar``),
+        matched as typed when it costs no more than ``grammar_max_cost``: the
+        decision, when it is a command or one refused as said -- else None,
+        for the passes after it. And what it was heard as, for the record.
+        ``evidence``: the CTC head's on the audio, the first ``free`` frames
+        the end of the wake word; ``command``: on the command alone."""
+        with self._lock:
+            recognizer = self.recognizer
+        if recognizer is None or recognizer.grammar is None:
+            return None, None
+        started = time.perf_counter()
+        heard, cost = recognizer.hear_sentence(evidence, free)
+        if heard is None or cost is None:
+            return None, {"text": None, "taken": False, "seconds": time.perf_counter() - started}
+        sentence = {"text": heard.text, "cost": round(cost, 2), "taken": False}
+        if cost > recognizer.config.settings.grammar_max_cost:
+            return None, {**sentence, "seconds": time.perf_counter() - started}
+        searched = time.perf_counter() - started
+        decision = self.recognize_text(heard.text, satellite)
+        if decision.command is None and decision.refused is None:
+            return None, {**sentence, "seconds": time.perf_counter() - started}
+        sentence["taken"] = True
+        sentence["timed"] = self._timed(decision, heard, free)
+        decision.sentence = sentence
+        decision.text_source = "sentence"
+        if decision.command is not None:
+            decision.matched_by = "sentence"
+        # What the CTC head heard on its own, beside the sentence it was heard as.
+        decision.recognition["transcript"] = self._greedy(command)
+        decision.timings = {"sentence": searched, **decision.timings}
+        return decision, sentence
 
     def recognize_answer(self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None) -> Decision:
         """An answer to what the app asked (voice_labs/follow_up.py): as a
         command, and always with its words -- the transcriber's, which
-        whoever asked reads -- even when the command needed none."""
-        decision = self.recognize_command(audio, satellite, transcriber)
+        whoever asked reads -- even when the command needed none. Not as one
+        of the home's sentences: an answer is seldom one."""
+        decision = self.recognize_command(audio, satellite, transcriber, sentences=False)
         reader = transcriber or self.transcriber
         if decision.recognition.get("tdt_transcript") is None and reader is not None and len(audio):
             started = time.perf_counter()
@@ -791,6 +865,35 @@ class Engine:
         # in for an STT entity that failed or heard nothing.
         decision.text_source = getattr(transcriber, "source", decision.text_source)
         return decision
+
+    @staticmethod
+    def _timed(decision: Decision, heard: Any, lead: int) -> bool:
+        """The decision's names, numbers and keywords -- from the sentence as
+        typed -- put where its words were said: in the command's frames (the
+        sentence's less ``lead``), as the CTC matcher's own are, so the
+        transcript can write them over the words heard there
+        (voice_labs/corrected.py). False when a word can't be found."""
+        intent = decision.intent
+        if intent is None:
+            return False
+        words = [w.text for w in heard.said]
+        frames = heard.said_frames
+        at, timed = 0, {}
+        for use in sorted(intent.spans, key=lambda u: u.hit.start):
+            phrase = use.meaning.phrase.split()
+            start = next((i for i in range(at, len(words) - len(phrase) + 1) if words[i : i + len(phrase)] == phrase), None)
+            if start is None:
+                return False
+            first, last = frames[start][0] - lead, frames[start + len(phrase) - 1][1] - lead
+            timed[id(use)] = replace(use, hit=replace(use.hit, start=max(0, first), end=max(0, last)))
+            at = start + len(phrase)
+        intent.spans = [timed[id(u)] for u in intent.spans]
+        seconds = decision.recognition.get("frame_seconds")
+        for match in decision.recognition.get("matches") or []:
+            if match.get("intent") == intent.intent and seconds and len(match.get("spans") or []) == len(intent.spans):
+                for shown, use in zip(match["spans"], intent.spans):
+                    shown["start"], shown["end"] = round(use.hit.start * seconds, 3), round((use.hit.end + 1) * seconds, 3)
+        return True
 
     @staticmethod
     def _joined_said(recognition: Recognition, command_audio: np.ndarray, transcriber: Any, typed: bool) -> bool:
@@ -1574,6 +1677,11 @@ def _named(decision: Decision) -> bool:
     command implies)."""
     fixed = decision.behavior.slots if decision.behavior is not None else {}
     return any(decision.slots.get(slot) and decision.slots.get(slot) != fixed.get(slot) for slot in NAME_SLOTS)
+
+
+def sentence_time(sentence: dict[str, Any] | None) -> dict[str, float]:
+    """The time the home's sentence took, for a decision's timings."""
+    return {"sentence": sentence.pop("seconds")} if sentence and "seconds" in sentence else {}
 
 
 def _took(timings: dict[str, float], key: str, started: float) -> None:

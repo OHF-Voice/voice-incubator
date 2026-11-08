@@ -254,9 +254,10 @@ async def _scenario(tmp_path: Path) -> None:
             assert recognition["recognition"]["transcript"] == "turn on the lights" and not tried["audio"]
             record = await app.try_text("What is 50°F in Celsius?", MAC)
             assert next(s for s in record.stages if s["stage"] == "speech")["text"] == "It's 10 degrees Celsius."
-            # Said, when asked to be.
+            # Said, when asked to be: heard as one of the home's sentences.
             spoken_try = await (await http.post("/api/try", json={"text": "turn on the lights", "satellite": MAC, "speak": True})).json()
-            assert next(s for s in spoken_try["stages"] if s["stage"] == "recognition")["text_source"] == "TDT"
+            spoken = next(s for s in spoken_try["stages"] if s["stage"] == "recognition")
+            assert spoken["text_source"] == "sentence" and spoken["sentence"]["text"] == "turn on the lights"
             assert tried["dry_run"]
             assert len(hass.scripts) == scripts  # nothing ran since the debug session started
 

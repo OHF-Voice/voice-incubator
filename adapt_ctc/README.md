@@ -714,7 +714,7 @@ and x86 round the int8 maths differently.
 | `test_spotter.py` | graph Viterbi vs a brute-force CTC reference over every accepted piece sequence. Native vs numpy parity in both search modes. The live search keeps everything within the gate exactly. Name word-break variants |
 | `test_matcher.py` | scripted log-probs on a toy vocabulary: hedged frames, relative exclusion, aliases, two areas, id subsets, optional names and numbers, domains, free-text wildcards, includes, compound durations, out-of-range numbers, priors on 15/50, unexplained limits, the global threshold, unknown and unusable names, split phrases, numbers with units, config errors |
 | `test_score.py` | manifests, globs, mic_tap corpora (prompts, alignments, corrections), and outcome classification |
-| `test_grammar.py` | a config's sentences as one word graph: words in any order, split phrases in order, names a command takes, numbers and durations, examples, no free text, the wake phrase and anything around it; the path cost of words over CTC evidence; the graph written for sherpa-onnx (with OpenFst) |
+| `test_grammar.py` | a config's sentences as one word graph: words in any order, split phrases in order, names a command takes, numbers and durations, examples, no free text, the wake phrase and anything around it; the search for the best sentence (native and Python alike, pruned or not; a piece twice only with a blank between; each word's frames); the path cost of words over CTC evidence |
 | `test_end_to_end.py` | the real model on two Voice PE captures and 17 Piper commands (`tests/fixtures/make_fixtures.py`). Live and full search give the same hits and ranking on every one. Skipped if the model is absent |
 
 ## Known limits
@@ -749,6 +749,7 @@ All are off unless a config uses them; upstream configs behave as before, and
 | `wildcard.exclude_inside` | the intent's `exclude` keywords rule out free text holding them too: a verb that both plays music and sets things (Spanish "pon", Italian "metti") plays no song called "temporizador" |
 | `wildcard.required` | the intent matches only with its free text |
 | `settings.examples_first` | search the CTC evidence for example sentences on every command, and let a sentence said word for word win over keyword matches |
+| `settings.grammar`, `grammar_max_cost` | the config's sentences as one graph (`grammar.py`: each intent's words in any order, its examples as written), searched for in the CTC evidence by `Recognizer.hear_sentence()` (native, `_grammar.c`), with how far the sentence is from what was heard (nats); a caller takes one within `grammar_max_cost` as typed |
 | `settings.embedding_accept` | `false`: the embedding never matches an intent; `Recognizer.closest_by_meaning()` names the closest by examples *and* descriptions, for hints |
 | `IntentResult.missing`, `heard_groups` | what a rejected intent lacked, as data (`require`, `name`, `number`, `text`, `unexplained`, `unknown_name`, `excluded`, `cost`), and how many required groups were heard |
 | `TdtTranscriber.transcribe_words()` | the TDT transcript with word times, to re-read free text over the frames it was found in |

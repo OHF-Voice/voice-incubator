@@ -131,6 +131,21 @@ class Settings:
     to name the closest intent (``Recognizer.closest_by_meaning``), never to
     match one."""
 
+    grammar: bool = False
+    """Hear the audio as one of the config's sentences first (adapt_ctc/grammar.py:
+    each intent's words in any order, its examples as written), the whole call
+    with the wake word: ``Recognizer.hear_sentence``. The caller takes the
+    sentence as typed when it costs no more than ``grammar_max_cost``. Only
+    with the native search built (setup.py)."""
+
+    grammar_max_cost: float = 8.0
+    """Nats: how much likelier the model's own best reading of the frames may
+    be than the sentence's words (``grammar.path_cost``) for it to be taken.
+    On the office-multicap corpus (four speakers, 3,244 commands) the app got
+    86.2% right at 8 against 79.4% without sentences, doing the wrong thing
+    4.7% of the time against 3.3%; 5 was 83.7% and 3.4%, 10 was 87.8% and
+    5.8%."""
+
 
 @dataclass(frozen=True)
 class NameEntry:
