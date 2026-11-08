@@ -2826,6 +2826,7 @@ class VoiceLabsApp:
             )
         else:
             decision = await self._referring(decision, satellite, record)
+            decision = await self._listed(decision, satellite, record)
             # Firmware that can't hear an answer isn't asked a question first.
             speech, outcome, summary = await self._carry_out(
                 decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
@@ -3159,6 +3160,31 @@ class VoiceLabsApp:
         _LOGGER.info("Heard %r as %r: %s on %s", decision.transcript, heard[0], again.command.id, again.slots["entity"])
         again.recognition["referred"] = {"heard": decision.transcript, "as": heard}
         return again
+
+    async def _listed(self, decision: Decision, satellite: Satellite, record: CallRecord | None) -> Decision:
+        """A doubtful match its transcript didn't confirm runs after all when
+        what it heard names items on the list it acts on (actions.named_on_list):
+        "check cffee filters off the shopping list", a word left over before
+        it, is the Coffee Filters there. The list says the words were heard
+        right."""
+        doubted = decision.doubted
+        if decision.command is not None or doubted is None or doubted.behavior is None or not doubted.behavior.on_list:
+            return decision
+        slot = next(iter(doubted.behavior.on_list))
+        heard = list(dict.fromkeys(str(v) for v in (doubted.slots.get(slot), doubted.text_from_tdt.get(slot)) if v))
+        said = await actions.named_on_list(
+            self.hass, doubted.behavior, doubted.slots, self.speaking().as_dict(), self.store.people,
+            satellite.settings.get("home"), heard,
+        )
+        if record is not None:
+            record.stage("on_list", command=doubted.command.id if doubted.command else None, heard=heard, named=said)
+        if said is None:
+            return decision
+        decision.command, decision.behavior, decision.intent = doubted.command, doubted.behavior, doubted.intent
+        decision.slots = {**doubted.slots, slot: said}
+        decision.doubt = {**(decision.doubt or {}), "outcome": "on_list"}
+        decision.hint = decision.message = None
+        return decision
 
     async def _confirmed(
         self,
@@ -3531,6 +3557,7 @@ class VoiceLabsApp:
             speech, outcome, summary = await self._hass_timer(text, satellite, record)
         else:
             decision = await self._referring(decision, satellite, record)
+            decision = await self._listed(decision, satellite, record)
             speech, outcome, summary = await self._carry_out(decision, satellite, who.as_dict(), False, record)
         said = ""
         try:
@@ -3727,6 +3754,7 @@ class VoiceLabsApp:
         record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
         who = self.speaking()
         decision = await self._referring(decision, satellite, record)
+        decision = await self._listed(decision, satellite, record)
         speech, outcome, summary = await self._carry_out(decision, self.voice_for(satellite, who), who.as_dict(), not run_actions, record)
         if isinstance(speech, Streamed):
             speech = await speech.text()

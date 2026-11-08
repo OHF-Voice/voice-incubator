@@ -533,17 +533,50 @@ async def run(
     )
 
 
-async def _items_on(hass: HomeAssistant, entity_id: str, said: str) -> tuple[list[str], list[str]]:
+async def named_on_list(
+    hass: HomeAssistant, behavior: Behavior, slots: dict[str, Any], speaker: dict[str, Any] | None,
+    people: dict[str, Any] | None, home: dict[str, Any] | None, heard: list[str],
+) -> str | None:
+    """Which of ``heard`` -- what was said, as each head heard it -- names
+    only items on the list a command acts on the items of (``on_list``), the
+    list found as carrying it out finds it (the speaker's, the home's, the
+    one named); None when none does, or the list can't be read."""
+    if not behavior.on_list:
+        return None
+    slots = dict(slots)
+    if behavior.mine:
+        known, theirs = people_ops.mine(behavior.mine, speaker, people or {})
+        if not known:
+            return None
+        slots.update(theirs)
+    if behavior.home and not slots.get("entity") and (home or {}).get(behavior.home):
+        slots["entity"] = [home[behavior.home]]
+    for entity_id in behavior.on_list.values():
+        if entity_id == "entity":
+            entity_id = str((slots.get("entity") or [""])[0])
+        if not entity_id:
+            return None
+        for said in heard:
+            found, missing = await _items_on(hass, entity_id, said, unread_named=False)
+            if found and not missing:
+                return said
+    return None
+
+
+async def _items_on(
+    hass: HomeAssistant, entity_id: str, said: str, unread_named: bool = True,
+) -> tuple[list[str], list[str]]:
     """The items on a to-do list that ``said`` names (``closest_item``), and
     what names none: the whole of it ("macaroni and cheese"), else each part
-    ("apples and bananas"). When the list can't be read, each part as it is."""
+    ("apples and bananas"). When the list can't be read, each part as it is
+    (``unread_named``), else none."""
     try:
         response = await hass.call_service(
             "todo", "get_items", {"status": ["needs_action", "completed"]}, {"entity_id": entity_id}, return_response=True
         )
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         _LOGGER.warning("Could not read %s: %s", entity_id, err)
-        return split_items(said) or [said], []
+        return (split_items(said) or [said], []) if unread_named else ([], [said])
     listed = (((response or {}).get(entity_id) or {}).get("items")) or []
     names = [str(i.get("summary") or "") for i in listed if isinstance(i, dict)]
     whole = closest_item(said, names)

@@ -1337,6 +1337,12 @@ for this app:
   (below that cost): "what day is Christmas" is the date's "what day" with
   "is Christmas" left over in the audio and the transcript alike, and so
   goes on to the dates skill (`transcript_cost` in the trace).
+  One on a list's items (`on_list`) the transcript didn't confirm runs
+  after all when what either head heard there names items on that list,
+  as carrying it out reads them (`VoiceLabsApp._listed`,
+  `actions.named_on_list`; `on_list` in the trace): "to check cffee filters
+  off the shopping list" -- "to" the end of the wake word, in the
+  transcript too -- is the Coffee filters there.
 - **A name is stronger evidence than none** (`Engine._may_name`). A match
   that named nothing, with a word left over, of a command with a version
   here that takes a device, area or floor (the same description: a library

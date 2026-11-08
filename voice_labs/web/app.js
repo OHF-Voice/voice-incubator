@@ -4343,7 +4343,7 @@ function renderRecognition(rec) {
         : `The transcript${rec.doubt.transcript ? `, “${rec.doubt.transcript}”,` : ""} names nothing for it either.`) : null,
     rec.doubt && rec.doubt.why !== "unnamed" ? h("div", { class: `notice ${rec.doubt.outcome === "agrees" ? "info" : "warn"}` }, `Doubtful in the audio: ${rec.doubt.command} (cost ${rec.doubt.cost}). `,
       rec.doubt.transcript ? `The transcript, “${rec.doubt.transcript}”, ` : "The transcript was empty, so it ",
-      { agrees: "agrees.", replaced: `is ${rec.command}, which ran instead.`, refused: "says something that can't be done as said.", unconfirmed: rec.doubt.transcript ? "doesn't say it: nothing ran." : "couldn't confirm it: nothing ran." }[rec.doubt.outcome] || rec.doubt.outcome) : null,
+      { agrees: "agrees.", replaced: `is ${rec.command}, which ran instead.`, refused: "says something that can't be done as said.", on_list: "is as unsure, but what was heard is on the list: it ran.", unconfirmed: rec.doubt.transcript ? "doesn't say it: nothing ran." : "couldn't confirm it: nothing ran." }[rec.doubt.outcome] || rec.doubt.outcome) : null,
     rec.matched_by === "transcript" && !rec.doubt ? h("div", { class: "notice info" }, `Found by keywords in the ${rec.text_source && rec.text_source !== "TDT" ? `transcript from ${rec.text_source}` : "TDT transcript"}: the audio's own evidence wasn't enough.`) : null,
     !rec.command && rec.transcript_pass && !rec.doubt ? h("div", { class: "small muted" }, `Keywords on the transcript (“${rec.transcript_pass.text}”): `,
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
@@ -4387,6 +4387,7 @@ const STEP_ICONS = {
   unknown: "mdi:help-circle-outline", speech: "mdi:volume-high", speech_failed: "mdi:volume-off", timer_ringing: "mdi:bell-ring-outline",
   timer_stopped: "mdi:timer-off-outline", error: "mdi:alert-circle-outline", timeout: "mdi:alert-circle-outline",
   follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline", context: "mdi:link-variant",
+  on_list: "mdi:format-list-checks",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
 const MATCHED_BY = { ctc: "in the audio", sentence: "as a sentence", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", never_mind: "instead" };
@@ -4434,6 +4435,8 @@ const SPEAKER_BY = { wake_word: "their wake word", only_person: "the only person
 function stepGlance(stage) {
   const d = stage;
   switch (stage.stage) {
+    case "on_list":
+      return { title: "On the list", status: d.named ? "ok" : "", line: d.named ? `${quoted(d.named)} is on the list: ${d.command} ran` : `${(d.heard || []).map(quoted).join(" or ")}: not on the list` };
     case "context":
       return { title: "What it means", status: d.command ? "ok" : "", line: d.command ? `heard as ${(d.heard || []).map(quoted).join(", ")}: ${d.command}` : "not about what was last spoken of" };
     case "follow_up":

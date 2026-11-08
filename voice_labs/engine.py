@@ -256,6 +256,10 @@ class Decision:
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_labs/fallback.py)."""
 
+    doubted: "Decision | None" = None
+    """A doubtful match its transcript didn't confirm (``doubt``), kept for
+    what may still confirm it: the list it acts on (server.VoiceLabsApp._listed)."""
+
     instead: dict[str, Any] | None = None
     """Never mind ran instead of saying it wasn't understood (``why``): it
     was the ``closest`` command, or ``nothing_heard`` -- not a word in either
@@ -1303,6 +1307,10 @@ class Engine:
             decision.matched_by = "transcript"
         else:
             doubt["outcome"] = "unconfirmed"
+            decision.doubted = Decision(
+                recognition={}, command=decision.command, behavior=decision.behavior, intent=decision.intent,
+                slots=dict(decision.slots), text_from_tdt=dict(decision.text_from_tdt),
+            )
             decision.command, decision.behavior, decision.intent, decision.slots = None, None, None, {}
 
     @staticmethod

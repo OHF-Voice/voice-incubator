@@ -584,6 +584,22 @@ async def _scenario(tmp_path: Path) -> None:
             assert await said("remove apples bananas from the shopping list") == "Took Apples and Bananas off."
             assert await said("remove apples and kiwis from the shopping list") == "Took Apples off. Kiwis isn't on the list."
             assert await said("remove kiwis and figs from the shopping list") == "Kiwis and figs aren't on the list."
+            # A doubtful match the transcript didn't confirm (the end of the
+            # wake word left over before it, in both): the list does, when
+            # what either head heard is on it -- the CTC head's "cffee filters".
+            from voice_labs.engine import Decision  # pylint: disable=import-outside-toplevel
+
+            hass.todo_items["todo.shopping_list"] += [{"summary": "Coffee filters", "status": "needs_action"}]
+            command = app.engine.compiled.commands["shopping_remove"]
+            doubted = Decision(recognition={}, command=command, behavior=command.behavior,
+                               slots={"item": "copy filters"}, text_from_tdt={"item": "cffee filters"})
+            unsure = Decision(recognition={}, doubt={"why": "cost", "outcome": "unconfirmed"}, doubted=doubted)
+            listed = await app._listed(unsure, kitchen, None)  # pylint: disable=protected-access
+            assert listed.command.id == "shopping_remove" and listed.slots["item"] == "cffee filters"
+            assert listed.doubt["outcome"] == "on_list"
+            # Heard as nothing on it: still nothing.
+            doubted.slots, doubted.text_from_tdt = {"item": "copy filler"}, {}
+            assert (await app._listed(Decision(recognition={}, doubted=doubted), kitchen, None)).command is None  # pylint: disable=protected-access
             assert (await http.delete("/api/commands/shopping_remove")).status == 200
 
             # The home's weather (Settings): what a command on it uses without

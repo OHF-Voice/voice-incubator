@@ -293,6 +293,11 @@
   In talk overheard after a false wake, a command ran 6 times in 400, as
   before. Sessions show the sentence and its cost, taken or not. Answers to
   a question aren't searched for.
+- **What's on the list confirms a doubtful command on it.** "Check coffee
+  filters off the shopping list", heard as "to check cffee filters off the
+  shopping list" -- a word left over, in the transcript too -- did nothing.
+  When what either head heard names something on the list it acts on, it
+  runs (Coffee filters, checked off). Sessions show the step.
 - **After "okay now" the command starts where Kaldi ends the wake word.**
   The CTC head writes "okay Naboo" as "okay now" in about half of all calls,
   and then the rest of "Naboo" came before the command ("group what's twelve
