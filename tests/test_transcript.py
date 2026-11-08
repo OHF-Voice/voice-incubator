@@ -437,3 +437,16 @@ def test_never_mind_runs_when_nothing_was_heard(minding, engine):
     # A home without Never mind: said so, as before.
     decision = engine.decide(silence, engine.model.frame_seconds, np.zeros(16000, dtype=np.float32), OFFICE, None)
     assert decision.command is None and decision.message
+
+
+def test_a_question_after_the_end_of_the_wake_word(engine):
+    """The wake word's tail heard as a word or two before a question ("group"
+    for "...boo"): the skill answers the question without them -- heard, not
+    typed."""
+    decision = decide(engine, "group what's twelve times eight", CloudStt("group what's twelve times eight"))
+    assert decision.answer["text"] == "It's 96." and decision.answer["question"] == "what's twelve times eight"
+    decision = decide(engine, "the gp what's twelve times eight", CloudStt("the gp what's twelve times eight"))
+    assert decision.answer["text"] == "It's 96."
+    # Three words before it are no wake word's tail.
+    decision = decide(engine, "group the gp what's twelve times eight", CloudStt("group the gp what's twelve times eight"))
+    assert decision.answer is None

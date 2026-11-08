@@ -293,6 +293,10 @@
   In talk overheard after a false wake, a command ran 6 times in 400, as
   before. Sessions show the sentence and its cost, taken or not. Answers to
   a question aren't searched for.
+- **A question after a stray word is answered**: "group what's twelve
+  times eight" -- the end of "Naboo" heard after the cut -- is "It's 96."
+  A skill may leave out a heard transcript's first word or two when the rest
+  is a whole question.
 - **Never mind instead of "It looks like you're trying to never mind"**:
   when Never mind is the closest to what was said, it runs. And when not a
   word was heard after the wake word -- woken by mistake, most likely -- it

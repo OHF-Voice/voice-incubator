@@ -1924,7 +1924,11 @@ command fallback -- a question still gets an answer:
 1. **Skills** (`voice_labs/skills/`, one module each, Questions on the Home
    page): spelling, dates, time from now, unit conversions, arithmetic --
    grammars that must parse the whole question *and* compute an answer, or
-   let it fall through. Before the command fallback: they are instant and
+   let it fall through -- heard, a transcript may first lose one or two words
+   (`engine.without_lead`): the end of the wake word heard after the cut,
+   "group what's twelve times eight" for "... Naboo, what's twelve times
+   eight", where the cut landed on "okay now" and "-boo" came after it.
+   Before the command fallback: they are instant and
    never wrong when they answer. Spelling first ("how do you spell weather"
    is not about the weather); the others only for a question that is not
    about now or here (`skills/live.py` `is_live`: weather, news, scores,

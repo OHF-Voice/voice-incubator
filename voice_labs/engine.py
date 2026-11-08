@@ -44,6 +44,7 @@ import logging
 import re
 import threading
 import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -854,6 +855,14 @@ class Engine:
             # Celsius" where the other heard "FN Celsius".
             transcripts = dict.fromkeys(t for t in (recognition.tdt_transcript, recognition.transcript) if t)
             exact = next(filter(None, (skills.answer(t, satellite.skills, self.skill_settings) for t in transcripts)), None)
+            if exact is None and not typed:
+                # The wake word's tail heard as a word or two before the
+                # question: "group what's twelve times eight" for "... Naboo,
+                # what's twelve times eight". The question without them, if it
+                # is one whole.
+                exact = next(filter(None, (
+                    skills.answer(t, satellite.skills, self.skill_settings) for t in without_lead(transcripts)
+                )), None)
             if exact is not None:
                 # Spelling, dates, units, arithmetic: exact, and instant.
                 decision.answer = exact.to_json()
@@ -1721,6 +1730,23 @@ def _named(decision: Decision) -> bool:
     command implies)."""
     fixed = decision.behavior.slots if decision.behavior is not None else {}
     return any(decision.slots.get(slot) and decision.slots.get(slot) != fixed.get(slot) for slot in NAME_SLOTS)
+
+
+SKILL_LEAD_WORDS = 2
+"""The most words before a question that a skill's answer may leave out
+(``without_lead``): the end of the wake word heard after the cut ("group"
+for "...boo", "the gp"), or an "um"."""
+
+
+def without_lead(transcripts: Iterable[str], most: int = SKILL_LEAD_WORDS) -> Iterator[str]:
+    """Each transcript without its first word, then its first two (up to
+    ``most``), while two words or more are left."""
+    texts = list(transcripts)
+    for drop in range(1, most + 1):
+        for text in texts:
+            words = text.split()
+            if len(words) >= drop + 2:
+                yield " ".join(words[drop:])
 
 
 def _has_words(text: str | None) -> bool:
