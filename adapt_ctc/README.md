@@ -714,6 +714,7 @@ and x86 round the int8 maths differently.
 | `test_spotter.py` | graph Viterbi vs a brute-force CTC reference over every accepted piece sequence. Native vs numpy parity in both search modes. The live search keeps everything within the gate exactly. Name word-break variants |
 | `test_matcher.py` | scripted log-probs on a toy vocabulary: hedged frames, relative exclusion, aliases, two areas, id subsets, optional names and numbers, domains, free-text wildcards, includes, compound durations, out-of-range numbers, priors on 15/50, unexplained limits, the global threshold, unknown and unusable names, split phrases, numbers with units, config errors |
 | `test_score.py` | manifests, globs, mic_tap corpora (prompts, alignments, corrections), and outcome classification |
+| `test_grammar.py` | a config's sentences as one word graph: words in any order, split phrases in order, names a command takes, numbers and durations, examples, no free text, the wake phrase and anything around it; the path cost of words over CTC evidence; the graph written for sherpa-onnx (with OpenFst) |
 | `test_end_to_end.py` | the real model on two Voice PE captures and 17 Piper commands (`tests/fixtures/make_fixtures.py`). Live and full search give the same hits and ranking on every one. Skipped if the model is absent |
 
 ## Known limits
