@@ -887,6 +887,18 @@ def test_free_text_stops_before_a_place_it_ends_on():
     assert "Play" in [m.intent for m in result.matches]
 
 
+def test_free_text_starts_after_a_place_said_before_it():
+    """"Play in the kitchen music": the place between the keyword and the
+    text, said with a word that says one is coming, is the place; without
+    that word ("play the kitchen music") the room is the text's."""
+    config = {**PLAY, "intents": {**CONFIG["intents"], **PLAY["intents"]}}
+    result = recognize(["play", "in", "the", "kitchen", "music"], config)
+    assert result.best.intent == "PlayIn"
+    assert result.best.slots == {"area": ["kitchen"], "query": "music"}
+    result = recognize(["play", "the", "kitchen", "music"], config)
+    assert result.best.intent == "Play" and result.best.slots == {"query": "kitchen music"}
+
+
 def test_free_text_stops_before_a_device_it_ends_on():
     config = {
         "names": {

@@ -584,6 +584,8 @@ class Command:
     """The sets of slots that may be heard together, each required whole."""
     intents: dict[str, dict[str, Any]] = field(default_factory=dict)
     """One adapt-ctc intent for each combination, by name (``command_of``)."""
+    library: str = ""
+    """The library command it follows ("satellites/never_mind"), if any."""
 
     @property
     def takes_something(self) -> bool:
@@ -683,6 +685,16 @@ def parse_command(command_id: str, spec: Any) -> Command:
         combinations=combinations,
         intents=intents,
     )
+
+
+NEVER_MIND = "satellites/never_mind"
+"""The library's Never mind: what is done when nothing should be."""
+
+
+def never_mind(command: Command) -> bool:
+    """Whether it is the home's Never mind: the library's, followed or taken
+    control of (its id kept)."""
+    return command.library == NEVER_MIND or command.id == NEVER_MIND.rsplit("/", 1)[1]
 
 
 COMBINATION_SEPARATOR = ":"

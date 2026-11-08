@@ -385,7 +385,7 @@ def test_a_command_is_heard_as_one_of_the_homes_sentences(engine):
 
     decision = heard("unlock the front door")
     assert decision.command.id == "unlock" and decision.matched_by == "sentence" and decision.text_source == "sentence"
-    assert decision.sentence == {"text": "unlock the front door", "cost": 0.0, "taken": True, "timed": True}
+    assert decision.sentence == {"text": "unlock the front door", "cost": 0.0, "agrees": 1.0, "taken": True, "timed": True}
     assert decision.recognition["transcript"] == "unlock the front door" and "sentence" in decision.timings
     # The home has no back door: no sentence is near enough to be taken (here,
     # none outlasts the beam).
@@ -393,3 +393,47 @@ def test_a_command_is_heard_as_one_of_the_homes_sentences(engine):
     assert decision.sentence["taken"] is False and decision.matched_by != "sentence"
     # An answer to a question is seldom a command: not asked.
     assert heard("unlock the front door", sentences=False).sentence is None
+
+
+class NearNeverMind:
+    """Meaning by hand: anything about forgetting is Never mind's."""
+
+    def embed(self, texts, document=False):
+        return np.array([[1.0, 0.0] if "forget" in t.lower() or "never" in t.lower() else [0.0, 1.0] for t in texts])
+
+
+@pytest.fixture(name="minding", scope="module")
+def fixture_minding():
+    """The unlock home with the library's Never mind, and meaning by hand."""
+    if not CTC.is_dir():
+        pytest.skip("no CTC model")
+    engine = Engine(CTC, None, None, threads=2)
+    engine.embedder = NearNeverMind()
+    engine.build(compile_store({**STORE, "commands": {**STORE["commands"], "never_mind": {"from": "satellites/never_mind"}}}))
+    return engine
+
+
+def test_never_mind_runs_when_it_is_the_closest(minding):
+    """"It looks like you're trying to never mind": then it never minds."""
+    engine = minding
+    decision = decide(engine, "oh just forget about it", None)
+    assert decision.command.id == "never_mind" and decision.matched_by == "never_mind"
+    assert decision.instead["why"] == "closest" and decision.instead["hint"]["command"] == "never_mind"
+    assert decision.message is None and decision.hint is None
+    # Another command closest: its hint, as before.
+    decision = decide(engine, "the porch is cold", None)
+    assert decision.command is None and decision.instead is None and decision.message
+
+
+def test_never_mind_runs_when_nothing_was_heard(minding, engine):
+    """Not a word heard after the wake word: woken by mistake, most likely --
+    nothing said back, rather than "Sorry, I didn't understand that."."""
+    silence, _ = minding.model.vocab.text_log_probs([])
+    decision = minding.decide(silence, minding.model.frame_seconds, np.zeros(16000, dtype=np.float32), OFFICE, None)
+    assert decision.command.id == "never_mind" and decision.instead["why"] == "nothing_heard" and decision.message is None
+    # Words heard, though none understood: said so, as before.
+    decision = decide(minding, "the porch is cold", None)
+    assert decision.command is None and decision.message
+    # A home without Never mind: said so, as before.
+    decision = engine.decide(silence, engine.model.frame_seconds, np.zeros(16000, dtype=np.float32), OFFICE, None)
+    assert decision.command is None and decision.message

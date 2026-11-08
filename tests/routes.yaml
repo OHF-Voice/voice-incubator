@@ -14,6 +14,10 @@ add pick up groceries to my to do list: {"command": "todo_add_mine", "slots": {"
 add renew my passport to my to do list: {"command": "todo_add_mine", "slots": {"item": "renew my passport"}}
 alarm at noon: null
 all the doors are locked: {"command": "all_locked", "slots": {"asked": "locked"}}
+announce dinner is ready in the kitchen: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
+announce in the kitchen dinner is ready: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
+announce the kitchen is clean: {"command": "announce", "slots": {"message": "kitchen is clean"}}
+announce to the office that the pizza is here: {"command": "announce", "slots": {"area": ["office"], "message": "pizza is here"}}
 are all the doors locked: {"command": "all_locked", "slots": {"asked": "locked"}}
 are all the fans off in the kitchen: null
 are the lights on: {"command": "any_lights_on_here"}
@@ -83,7 +87,7 @@ i need to call the plumber: null
 i need to get up at seven thirty tomorrow: null
 i want to be woken at half past eight: null
 i want to listen to taylor swift: {"command": "play_music_here", "slots": {"query": "taylor swift"}}
-i'd like some classical music: {"command": "play_similar_here", "slots": {"query": "some classical"}}
+i'd like some classical music: null
 i'm cold: null
 increase the brightness: {"command": "brighter_here", "slots": {"step": 30}}
 increase the heat: {"command": "heat_up", "slots": {"step": 1}}
@@ -122,6 +126,7 @@ open the curtains to 50 percent: {"command": "cover_position_here", "slots": {"d
 pause: {"command": "pause_music_here"}
 pause my timer: null
 pause the music: {"command": "pause_music_here", "slots": {"kind": "music"}}
+play in the kitchen some jazz: {"command": "play_music_place", "slots": {"area": ["kitchen"], "query": "some jazz"}}
 play party playlist: {"command": "play_music_here", "slots": {"query": "party playlist"}}
 play some classical music in the bedroom: {"command": "play_music_here", "slots": {"query": "some classical music in the bedroom"}}
 play some jazz in the kitchen: {"command": "play_music_place", "slots": {"area": ["kitchen"], "query": "some jazz"}}

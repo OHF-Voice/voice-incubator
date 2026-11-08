@@ -61,7 +61,9 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 from adapt_ctc.config import ConfigError, _phrase
 
 from . import compound, context, languages, skills, triggers
-from .commands import DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots, says
+from .commands import (
+    DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots, never_mind, says,
+)
 from .fallback import kin, label_of
 from .store import Compiled, Device, phrase_key
 from .voices import TypedText, VoiceChoice
@@ -103,6 +105,15 @@ cut landing a little early. On the office-multicap corpus's mike-merged, as
 good as the wake phrase in the graph and the whole call (86.0% against 85.9%
 of the commands right at 10 nats), which a custom wake word wouldn't have, and
 faster; the whole call without the wake phrase was 81.4%."""
+
+SENTENCE_AGREEMENT = 0.5
+"""...and taken only when its letters are at least this alike to what the
+CTC head heard on its own (difflib's ratio). Far-off talk leaves the model
+unsure of every frame, so a short sentence fits it cheaply: in conversation
+played into the office-multicap room, 43 of 400 false wakes ran a command
+as a sentence -- "like" heard as "more like this" over a transcript of
+nothing at all -- and 9 with this. On the corpus's commands it cost 0.2
+points (86.2% -> 86.0% right, 4.7% -> 4.6% the wrong thing done)."""
 
 # Naming the closest command by meaning: only when it is this similar, and
 # this much closer than the runner-up (another command or an everyday
@@ -221,8 +232,9 @@ class Decision:
     matched_by: str = "ctc"
     """What found the command: the CTC matcher on the audio (``ctc``), the
     same matcher on the TDT or STT transcript (``transcript``), hassil on a
-    transcript (``trigger``: Home Assistant's trigger with free text), or the
-    fallback (``meaning``, ``gliner``)."""
+    transcript (``trigger``: Home Assistant's trigger with free text), the
+    fallback (``meaning``, ``gliner``), or nothing: Never mind instead
+    (``never_mind``, ``instead`` says why)."""
     transcript_pass: dict[str, Any] | None = None
     """Nothing matched in the audio, or what did was doubtful: what the
     keyword matcher made of the transcript."""
@@ -236,6 +248,11 @@ class Decision:
     transcript."""
     fallback: dict[str, Any] | None = None
     """What the fallback tried, when nothing matched (voice_labs/fallback.py)."""
+
+    instead: dict[str, Any] | None = None
+    """Never mind ran instead of saying it wasn't understood (``why``): it
+    was the ``closest`` command, or ``nothing_heard`` -- not a word in either
+    transcript. With the ``hint`` it would have been."""
 
     sentence: dict[str, Any] | None = None
     """The home's sentence the audio was heard as (``settings.grammar``):
@@ -280,6 +297,7 @@ class Decision:
             "matched_by": self.matched_by if self.command else None,
             "fallback": self.fallback,
             **({"sentence": self.sentence} if self.sentence is not None else {}),
+            **({"instead": self.instead} if self.instead is not None else {}),
             "transcript_pass": self.transcript_pass,
             "doubt": self.doubt,
             "answer": self.answer,
@@ -702,6 +720,10 @@ class Engine:
         sentence = {"text": heard.text, "cost": round(cost, 2), "taken": False}
         if cost > recognizer.config.settings.grammar_max_cost:
             return None, {**sentence, "seconds": time.perf_counter() - started}
+        greedy = self._greedy(command)
+        sentence["agrees"] = round(agreement(heard.text, greedy), 2)
+        if sentence["agrees"] < SENTENCE_AGREEMENT:
+            return None, {**sentence, "seconds": time.perf_counter() - started}
         searched = time.perf_counter() - started
         decision = self.recognize_text(heard.text, satellite)
         if decision.command is None and decision.refused is None:
@@ -713,7 +735,7 @@ class Engine:
         if decision.command is not None:
             decision.matched_by = "sentence"
         # What the CTC head heard on its own, beside the sentence it was heard as.
-        decision.recognition["transcript"] = self._greedy(command)
+        decision.recognition["transcript"] = greedy
         decision.timings = {"sentence": searched, **decision.timings}
         return decision, sentence
 
@@ -858,6 +880,14 @@ class Engine:
                 # Only the app's own commands are listened for.
                 decision.hint = {"source": None, "text": say.NO_COMMANDS}
             decision.message = decision.hint["text"]
+            hinted = compiled.commands.get(str(decision.hint.get("command") or ""))
+            if hinted is not None and never_mind(hinted):
+                # "It looks like you're trying to never mind": then never mind.
+                self._never_mind(decision, compiled, satellite, {"why": "closest", "hint": decision.hint})
+            elif not typed and not any(_has_words(t) for t in (recognition.transcript, recognition.tdt_transcript)):
+                # Not a word heard after the wake word: woken by mistake, most
+                # likely -- never a command said to it, in the corpus's 900.
+                self._never_mind(decision, compiled, satellite, {"why": "nothing_heard", "hint": decision.hint})
 
         decision.recognition = to_json(recognition)
         decision.timings = dict(recognition.timings)
@@ -1065,6 +1095,20 @@ class Engine:
         refused = self.fit_devices(decision, compiled, satellite)
         if refused is not None:
             decision.command, decision.behavior, decision.refused = None, None, refused
+
+    @staticmethod
+    def _never_mind(decision: Decision, compiled: Compiled, satellite: Satellite, why: dict[str, Any]) -> bool:
+        """The home's Never mind instead of what wasn't understood
+        (commands.never_mind), when it has one heard here; ``why`` goes in
+        ``decision.instead``."""
+        for command in compiled.commands.values():
+            behavior = satellite.available(command) if never_mind(command) and not command.disabled else None
+            if behavior is not None:
+                decision.command, decision.behavior, decision.slots = command, behavior, dict(behavior.slots)
+                decision.matched_by, decision.instead = "never_mind", why
+                decision.hint = decision.message = None
+                return True
+        return False
 
     @staticmethod
     def _said_trigger(decision: Decision, texts: list[str], compiled: Compiled, satellite: Satellite) -> bool:
@@ -1679,6 +1723,18 @@ def _named(decision: Decision) -> bool:
     return any(decision.slots.get(slot) and decision.slots.get(slot) != fixed.get(slot) for slot in NAME_SLOTS)
 
 
+def _has_words(text: str | None) -> bool:
+    """Whether a transcript has a word in it, not only punctuation."""
+    return bool(re.search(r"[^\W\d_]", text or ""))
+
+
+def agreement(a: str, b: str) -> float:
+    """How alike two transcripts' letters are, 0 to 1 (difflib's ratio):
+    spaces, case and punctuation aside."""
+    letters = [re.sub(r"[\W\d_]", "", text.lower()) for text in (a, b)]
+    return difflib.SequenceMatcher(None, *letters).ratio() if all(letters) else 0.0
+
+
 def sentence_time(sentence: dict[str, Any] | None) -> dict[str, float]:
     """The time the home's sentence took, for a decision's timings."""
     return {"sentence": sentence.pop("seconds")} if sentence and "seconds" in sentence else {}
@@ -1701,8 +1757,10 @@ def without_place(text: str, places: list[str], filler: list[str] | None = None,
     a floor, a device -- compared as spoken: "jazz in the kitchen" -> "jazz",
     "jazz upstairs please" -> "jazz", "jazz on the Mark 2" -> "jazz" (the
     name "Mark two"), "джаз на кухне" -> "джаз" (the Кухня, in the case it
-    was said: the language's endings). What may come before it is the
-    language's reading (PLACE_BEFORE, ARTICLES)."""
+    was said: the language's endings). Or one it starts with, said with what
+    comes before a place: "in the kitchen dinner is ready" -> "dinner is
+    ready", as the matcher reads it ("announce in the kitchen ..."). What may
+    come before it is the language's reading (PLACE_BEFORE, ARTICLES)."""
     read = languages.reading()
     language = language or languages.current().code
     articles = set(read.ARTICLES)
@@ -1723,6 +1781,16 @@ def without_place(text: str, places: list[str], filler: list[str] | None = None,
         heard = sentence_key(text, language).split()
         return any(len(heard) == len(shape) and all(w in forms for w, forms in zip(heard, shape)) for shape in shapes)
 
+    # A head that is the place, "in the" before it; some text stays.
+    if words and _strip(words[0]).lower() in read.PLACE_BEFORE:
+        skip = 2 if len(words) > 1 and _strip(words[1]).lower() in articles else 1
+        for stop in range(len(words) - 1, skip, -1):
+            if said(" ".join(words[skip:stop])) and not all(_strip(w).lower() in fill | articles for w in words[stop:end]):
+                words = words[stop:]
+                end = len(words)
+                while end > 0 and _strip(words[end - 1]).lower() in fill:
+                    end -= 1
+                break
     # The longest tail that is the place, with "in the" before it; some text stays.
     for start in range(1, end):
         tail = [_strip(w).lower() for w in words[start:end]]
@@ -1734,7 +1802,7 @@ def without_place(text: str, places: list[str], filler: list[str] | None = None,
             if all(_strip(w).lower() in fill | articles for w in kept):
                 break  # nothing but "the" before it: the place is the text
             return " ".join(kept).strip()
-    return text
+    return " ".join(words)
 
 
 def free_text(transcript: str, wildcard: dict[str, Any], heard: str = "") -> str | None:

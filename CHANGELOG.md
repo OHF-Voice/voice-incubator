@@ -284,14 +284,29 @@
   numbers, fillers between, its examples as written -- is one graph, and the
   CTC output is searched for the best of them from just before the wake
   word's end (a native search, ~40 ms on a Pi 5; the graph 13 MB for 41
-  commands). One close enough to what was heard is read as typed; anything
-  else -- free text, two commands together, a sentence too far from the
-  audio -- goes to the keywords, examples and transcript as before. On the
-  office-multicap corpus (four speakers, 3,244 commands): 79.4% -> 86.2%
-  right, the wrong thing done 3.3% -> 4.7% of the time (adapt-ctc's
-  `grammar_max_cost`, 8: 5 is 83.7% and 3.4%, 10 is 87.8% and 5.8%).
-  Sessions show the sentence and its cost, taken or not. Answers to a
-  question aren't searched for.
+  commands). One close enough to what was heard, and like what the model
+  heard on its own, is read as typed; anything else -- free text, two
+  commands together, a sentence too far from the audio -- goes to the
+  keywords, examples and transcript as before. On the office-multicap
+  corpus (four speakers, 3,244 commands): 79.4% -> 86.0% right, the wrong
+  thing done 3.3% -> 4.6% of the time (adapt-ctc's `grammar_max_cost`, 8).
+  In talk overheard after a false wake, a command ran 6 times in 400, as
+  before. Sessions show the sentence and its cost, taken or not. Answers to
+  a question aren't searched for.
+- **Never mind instead of "It looks like you're trying to never mind"**:
+  when Never mind is the closest to what was said, it runs. And when not a
+  word was heard after the wake word -- woken by mistake, most likely -- it
+  runs rather than "Sorry, I didn't understand that.": in talk played into
+  the room, that was 222 of 400 false wakes, and no command said to a
+  satellite (of 900). Sessions say why.
+- **"Announce in the kitchen dinner is ready"**, as well as "announce
+  dinner is ready in the kitchen" and "... in the kitchen that dinner is
+  ready": free text to the end may come after a place said with "in", "on"
+  or "to" ("play in the kitchen some jazz" too). "Announce the kitchen is
+  clean" is still the message.
+- **Play music like it needs "play" or "more"** with "like" or "similar":
+  "more like this", "play something similar", "play songs like Adele".
+  "Like" alone -- "something like that", overheard -- played music.
 - **The speech model hears a command from before the wake word's end.**
   Started at the cut, it got the first word wrong ("Get groceries" for "add
   get groceries"); now it decodes from half a second before, on the same

@@ -22,7 +22,8 @@ commands:
     icon: mdi:bullhorn
     description: announce something on the other satellites
     # "Announce dinner is ready", "tell everyone dinner is ready", "announce
-    # dinner is ready upstairs", "announce in the kitchen that dinner is ready".
+    # dinner is ready upstairs", "announce in the kitchen that dinner is
+    # ready", "announce in the kitchen dinner is ready".
     require: [[announce, broadcast, tell everyone, tell everybody]]
     optional: [[that], [in, on, to], [the]]
     names:

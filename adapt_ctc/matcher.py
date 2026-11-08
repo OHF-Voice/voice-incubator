@@ -1237,8 +1237,18 @@ class Recognizer:
                         taken = "waiting"
                     else:
                         return None
-                elif taken == "after" and free_edges and use.role == "filler":
+                elif taken in ("after", "place") and free_edges and use.role == "filler":
                     pass
+                elif (
+                    taken in ("after", "place") and wild.to_end and cue
+                    and use.meaning.phrase not in wild.after and use.meaning.phrase not in stop
+                ):
+                    # Text to the end may come after a place the intent takes,
+                    # said between its keyword and it: "announce | in the
+                    # kitchen | dinner is ready".
+                    taken = "place"
+                elif taken == "place" and use.role == "name":
+                    taken = "after"
                 elif taken != "done":
                     taken = "after" if cue and use.meaning.phrase in wild.after else ""
             if use.role == "require" and use.part is None:

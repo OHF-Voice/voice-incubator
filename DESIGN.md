@@ -1220,7 +1220,9 @@ for this app:
   and 4,000 paths, CTC's blanks and repeats in the search itself) from 0.3 s
   before the cut (`SENTENCE_LEAD_IN`, free). A sentence whose words cost no
   more than 8 nats against what the model heard on its own
-  (`grammar.path_cost`, `grammar_max_cost`) is read as typed text; a command,
+  (`grammar.path_cost`, `grammar_max_cost`), and whose letters are at least
+  half like what the model heard on its own (`SENTENCE_AGREEMENT`, below), is
+  read as typed text; a command,
   or one refused as said, is the decision, with its names and numbers put
   where the sentence's words were said, so the transcript Home Assistant gets
   is written as it is for the CTC matcher's (`Engine._timed`). Anything else
@@ -1237,11 +1239,17 @@ for this app:
     | **8** | **86.2%** | **4.7%** | **9.2%** |
     | 10 | 87.8% | 5.8% | 6.4% |
 
+    (Before `SENTENCE_AGREEMENT`; with it, at 8: 86.0%, 4.6%, 9.4%.)
+
     By speaker at 8: jenn 95.6% -> 97.9%, mike 79.2% -> 85.0%, natalie
     80.4% -> 88.1%, oliver 62.6% -> 73.5%. The corpus's own sentences as the
     graph got 95.2% on mike: the home's graph is much looser, but word order
     can't be had from keyword commands without blowing it up (each optional
     word at most once was 713k word arcs, against 41k).
+  - Talk overheard after a false wake (400 calls cut from `neg-noise01`,
+    above): before `SENTENCE_AGREEMENT`, 43 ran a command as a sentence --
+    32 of them Play music like it, whose "like" alone was enough (it needs
+    "play" or "more" now) -- against 6 without sentences; with both, 6.
   - Where the wake word is: from just before the cut, without it in the
     graph, did as well as the whole call with "okay nabu" in it (86.0% and
     85.9% on mike at 10), which a custom wake word wouldn't have, and is
@@ -1377,6 +1385,24 @@ Synthesized commands (Piper, `en_GB-jenny_dioco`) against the library, on x86:
 | "what is the time" | ... tell the time, but I didn't understand all of it. (by meaning: 0.92 against 0.85) |
 | "set a timer for five minutes" (no timer command) | Sorry, I didn't understand that. |
 | "blah blah blah" | Sorry, I didn't understand that. |
+
+Two answers are **Never mind** instead, when the home has it here
+(`commands.never_mind`: the library's, followed or taken control of;
+`Engine._never_mind`, `Decision.instead`), which by default says nothing:
+
+- **the closest is Never mind** -- "It looks like you're trying to never
+  mind…" -- so it never minds;
+- **not a word heard** in either transcript, CTC or TDT (or the STT
+  entity's): woken by mistake, most likely. Talk played into the
+  office-multicap room (DiPCo's dinner parties, `neg-noise01`), a call cut
+  at 400 of its utterances, left no word heard in 205 of the 351 that
+  matched nothing; none of 900 commands said to a satellite, the corpus's
+  484 not understood included, was heard as nothing. Nothing else told the
+  two apart: what was heard was as close in meaning to a command or an
+  everyday request (EmbeddingGemma: a median 0.70 against 0.82 for commands
+  misheard, overlapping) and as near to a sentence of the home's (the
+  overheard talk nearer: far-off speech leaves the model unsure of every
+  frame).
 
 Recognizing a command, acoustic pass included, took 40-210 ms there (4
 threads). The TDT pass is paid only for free text and for calls that matched

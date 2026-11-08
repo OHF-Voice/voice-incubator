@@ -4348,7 +4348,8 @@ function renderRecognition(rec) {
     !rec.command && rec.transcript_pass && !rec.doubt ? h("div", { class: "small muted" }, `Keywords on the transcript (“${rec.transcript_pass.text}”): `,
       rec.transcript_pass.matches && rec.transcript_pass.matches.length ? `${rec.transcript_pass.matches[0].intent} (cost ${rec.transcript_pass.matches[0].cost}), not runnable here` : "nothing matched") : null,
     rec.matched_by === "trigger" ? h("div", { class: "notice info" }, "Home Assistant's sentence trigger, matched on the transcript as Home Assistant matches it.") : null,
-    rec.matched_by && !["ctc", "sentence", "transcript", "trigger"].includes(rec.matched_by) ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
+    rec.instead ? h("div", { class: "notice info" }, INSTEAD[rec.instead.why] || "Never mind ran instead.") : null,
+    rec.matched_by && !["ctc", "sentence", "transcript", "trigger", "never_mind"].includes(rec.matched_by) ? h("div", { class: "notice info" }, rec.matched_by === "gliner" ? "Found by GLiNER: nothing matched on keywords or examples." : `Found by meaning: nothing matched on keywords or examples, and this command was very close${rec.fallback && rec.fallback.meaning && rec.fallback.meaning.heard_by ? `; ${rec.fallback.meaning.heard_by} heard what was said in it` : ""}.`) : null,
     rec.fallback ? h("details", { open: !!(rec.fallback.llm && !rec.fallback.llm.skipped && !rec.command) }, h("summary", {}, "When nothing matched"),
       rec.fallback.meaning && rec.fallback.meaning.skipped ? h("div", { class: "small" }, `By meaning: skipped (${rec.fallback.meaning.skipped})`) : null,
       rec.fallback.meaning && !rec.fallback.meaning.skipped ? h("div", { class: "small" }, "By meaning: ", rec.fallback.meaning.command || "nothing", rec.fallback.meaning.similarity !== undefined ? ` (similarity ${rec.fallback.meaning.similarity}, ahead by ${rec.fallback.meaning.margin})` : "", rec.fallback.meaning.closest_to ? `, closest to “${rec.fallback.meaning.closest_to}”` : "", rec.fallback.meaning.why ? ` — ${rec.fallback.meaning.why}` : "",
@@ -4388,7 +4389,13 @@ const STEP_ICONS = {
   follow_up: "mdi:message-reply-outline", answer: "mdi:message-reply-text-outline", context: "mdi:link-variant",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
-const MATCHED_BY = { ctc: "in the audio", sentence: "as a sentence", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER" };
+const MATCHED_BY = { ctc: "in the audio", sentence: "as a sentence", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", never_mind: "instead" };
+
+// Why Never mind ran instead of saying it wasn't understood.
+const INSTEAD = {
+  closest: "Never mind ran: it was the closest command in meaning.",
+  nothing_heard: "Never mind ran: not a word was heard after the wake word, so it was most likely woken by mistake.",
+};
 
 // How long something took: "85 ms", "1.24 s"; "" when it isn't known.
 function took(seconds) {

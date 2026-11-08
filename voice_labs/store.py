@@ -23,7 +23,7 @@ import os
 import re
 import tempfile
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -481,6 +481,9 @@ def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compile
     shared = {name: values for name, values in {**languages.current().lists, **own_lists}.items() if name not in off}
     data = {**data, "names": said, "lists": shared, "commands": kept}
     commands = parse_commands(heard)
+    for command_id, spec in every.items():
+        if str(command_id) in commands and follows(spec):
+            commands[str(command_id)] = replace(commands[str(command_id)], library=str(spec[REFERENCE]))
     _uses_off_list(commands, off)
     unknown_response = parse_unknown(data.get("unknown"))
     found = compile_triggers(

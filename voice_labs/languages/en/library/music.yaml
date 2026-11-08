@@ -116,8 +116,10 @@ commands:
     topic: play
     icon: mdi:radio
     description: "play more music like what's playing"
-    require: [[like, similar]]
-    optional: [[play], [more, music, songs, something, stuff], [in, on], [the]]
+    # "Like" alone is too common a word: "something like that" in a
+    # conversation the satellite overheard played music like it.
+    require: [[like, similar], [play, more]]
+    optional: [[more, music, songs, something, stuff], [in, on], [the]]
     wildcard: {slot: query, after: [like], to_end: true, max_words: 6}
     music: radio
     verbosity: specific

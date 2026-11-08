@@ -144,7 +144,8 @@ class Settings:
     On the office-multicap corpus (four speakers, 3,244 commands) the app got
     86.2% right at 8 against 79.4% without sentences, doing the wrong thing
     4.7% of the time against 3.3%; 5 was 83.7% and 3.4%, 10 was 87.8% and
-    5.8%."""
+    5.8% (voice_labs' own check on top, engine.SENTENCE_AGREEMENT: 86.0%
+    and 4.6% at 8)."""
 
 
 @dataclass(frozen=True)
