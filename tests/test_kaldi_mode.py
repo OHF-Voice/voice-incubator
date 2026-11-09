@@ -322,3 +322,40 @@ def test_every_library_template_reads_back_as_its_command():
     engine._misread(engine.recognizer, heard)
     assert sum(len(t) for t in heard.templates.values()) > 200
     assert heard.misread == {}
+
+
+def test_kaldi_is_built_after_a_save_not_during_it():
+    """A save returns at once; Kaldi's graphs are built after, in the
+    background, once more for every change made meanwhile -- not once each."""
+    import asyncio  # pylint: disable=import-outside-toplevel
+    import threading  # pylint: disable=import-outside-toplevel
+    import time  # pylint: disable=import-outside-toplevel
+    from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
+
+    from voice_labs.server import VoiceLabsApp  # pylint: disable=import-outside-toplevel
+
+    builds = []
+    started = threading.Event()
+
+    def build_kaldi():
+        builds.append(time.monotonic())
+        started.set()
+        time.sleep(0.2)
+
+    async def run():
+        app = SimpleNamespace(engine=SimpleNamespace(kaldi=object(), recognizer_choice="kaldi", build_kaldi=build_kaldi),
+                              _kaldi_dirty=False, _kaldi_task=None, kaldi_building=False)
+        app._spawn = asyncio.ensure_future
+        app._kaldi_builds = lambda: VoiceLabsApp._kaldi_builds(app)
+        VoiceLabsApp.kaldi_outdated(app)
+        await asyncio.to_thread(started.wait, 2)
+        assert app.kaldi_building
+        for _ in range(3):  # three saves while it builds
+            VoiceLabsApp.kaldi_outdated(app)
+        await app._kaldi_task
+        assert len(builds) == 2 and not app.kaldi_building
+        app.engine.recognizer_choice = "parakeet"
+        VoiceLabsApp.kaldi_outdated(app)
+        assert app._kaldi_task.done()
+
+    asyncio.run(run())

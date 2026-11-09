@@ -1350,6 +1350,14 @@ for this app:
     explained "okay nabu" with everyday words, and added that to every
     margin). Two 10,000-word backgrounds made a 3.5 s call's decode 256 ms
     on a desktop, against about 100 ms with one.
+  - On a Pi 5 (one thread), a home of 40 commands (462 sentences, the
+    library's templates): the first build 21.6 s (both backgrounds), again
+    after one more sentence 8.9 s, so it is built after a save, in the
+    background (`VoiceLabsApp.kaldi_outdated`: the graphs before hear
+    meanwhile, and changes made meanwhile build once more, after); the
+    decoder 93 MB; a call a median 1.2 s for 4.5 s of audio (0.29x real
+    time), the two 10,000-word backgrounds most of it -- Parakeet's whole
+    call was about 0.3 s there.
   - Kaldi normalizes the level: a call 28 dB quieter than the corpus's
     (-47 dBFS) heard the same at +25 dB. Such a call's background was
     silence, no word in it.

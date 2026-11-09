@@ -137,6 +137,12 @@ h2.row { gap: 8px; align-items: center; }
 .chips input:focus { outline: none; }
 .group { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 .group .chips { flex: 1; }
+.chip-text { cursor: text; }
+.sentence-list { display: flex; flex-direction: column; gap: 4px; }
+.sentence { display: flex; gap: 6px; align-items: center; }
+.sentence input { flex: 1; min-width: 0; }
+.sentence input[readonly] { background: transparent; border-color: transparent; color: var(--muted); }
+.sentence .link { padding: 0 6px; }
 
 
 .picker { position: relative; }

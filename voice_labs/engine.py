@@ -508,6 +508,10 @@ class Engine:
         """The person's own pronunciations, for Kaldi (pronunciations.json)."""
         self.kaldi_sentences: kaldi_mode.Sentences | None = None
         """What Kaldi was last built to hear, and which commands it doesn't."""
+        self.on_built: Any = None
+        """Called (from the building thread) once the commands are built: what
+        builds Kaldi's graphs for them, after -- Parakeet's recognizer is
+        ready at once, Kaldi's when they are."""
         self.kaldi_wake: tuple[list[tuple[str, ...]], dict[str, list[str]]] = ([], {})
         """The wake phrases in use, as words, and the wake word verifier's
         pronunciations of them: what Kaldi hears a call start with."""
@@ -583,8 +587,8 @@ class Engine:
             self.compiled = compiled
             self.recognizer = recognizer
             self.unspeakable = list(recognizer.unspeakable) if recognizer else []
-        if self.recognizer_choice == "kaldi":
-            self.build_kaldi()
+        if self.on_built is not None:
+            self.on_built()  # Kaldi's graphs, built after (seconds on a Pi): not here
         if isinstance(self.embedder, CachedEmbedder):
             try:
                 self.embedder.save()

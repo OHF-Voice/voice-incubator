@@ -623,6 +623,10 @@ class VoiceLabsApp:
         self._wake_lock = asyncio.Lock()
         """One wake word change at a time: each may rebuild a verifier."""
         self.tdt_status: str | None = None
+        self.kaldi_building = False
+        """Kaldi's graphs are being built again (kaldi_outdated)."""
+        self._kaldi_dirty = False
+        self._kaldi_task: asyncio.Task | None = None
         """What became of the last change of TDT model, for the UI."""
         self._model_status: str | None = None
         """Why the model step has no model, when it is not the fallback's to say."""
@@ -759,6 +763,8 @@ class VoiceLabsApp:
         self.engine.entity_area = self.entity_area
         self.engine.dynamic["running_timers"] = self.integration.running_names()  # heard of while it loaded
         self.engine.kaldi = kaldi_mode.KaldiMode(self.root, self.store.data_dir / "kaldi")
+        loop = asyncio.get_running_loop()
+        self.engine.on_built = lambda: loop.call_soon_threadsafe(self.kaldi_outdated)
         self.configure_recognizer()
         self.configure_skills()
         await self.reload_commands()
@@ -1224,6 +1230,7 @@ class VoiceLabsApp:
             **engine.kaldi.status(),
             "chosen": engine.recognizer_choice == "kaldi",
             "on": engine.kaldi_on,
+            "building": self.kaldi_building,
             "notes": self.kaldi_notes() if engine.recognizer_choice == "kaldi" else {},
         }
 
@@ -1267,10 +1274,32 @@ class VoiceLabsApp:
             return
         self.configure_recognizer()
         if engine.recognizer_choice == "kaldi":
-            async with self._build_lock:
-                await asyncio.to_thread(engine.build_kaldi)
+            self.kaldi_outdated()
         else:
             engine.kaldi.close()
+
+    def kaldi_outdated(self) -> None:
+        """The commands, names or pronunciations changed: Kaldi's graphs are
+        built again, in the background -- seconds on a Pi -- while the
+        graphs before hear (``kaldi_building``, for the pages). Changes
+        meanwhile build once more, after."""
+        engine = self.engine
+        if engine is None or engine.kaldi is None or engine.recognizer_choice != "kaldi":
+            return
+        self._kaldi_dirty = True
+        if self._kaldi_task is None or self._kaldi_task.done():
+            self._kaldi_task = self._spawn(self._kaldi_builds())
+
+    async def _kaldi_builds(self) -> None:
+        engine = self.engine
+        assert engine is not None
+        try:
+            while self._kaldi_dirty:
+                self._kaldi_dirty = False
+                self.kaldi_building = True
+                await asyncio.to_thread(engine.build_kaldi)
+        finally:
+            self.kaldi_building = False
 
     def configure_skills(self) -> None:
         """The skills' settings, as their pages set them

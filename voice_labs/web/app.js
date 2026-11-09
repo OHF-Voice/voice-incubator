@@ -206,7 +206,13 @@ function chipsInput(values, onChange, placeholder) {
   const input = h("input", { type: "text", placeholder: placeholder || "type and press Enter" });
   function render() {
     fill(wrap, 
-      ...list.map((v, i) => h("span", { class: "chip" }, v, h("button", { type: "button", title: "remove", onclick: () => { list.splice(i, 1); render(); onChange(list.slice()); } }, "×"))),
+      ...list.map((v, i) => h("span", { class: "chip" },
+        // Clicked, it is back in the box to change.
+        h("span", { class: "chip-text", title: "Click to change", onclick: () => {
+          if (input.value.trim()) add();
+          list.splice(list.indexOf(v), 1); input.value = v; render(); onChange(list.slice()); input.focus();
+        } }, v),
+        h("button", { type: "button", title: "remove", onclick: () => { list.splice(i, 1); render(); onChange(list.slice()); } }, "×"))),
       input,
     );
   }
@@ -225,6 +231,35 @@ function chipsInput(values, onChange, placeholder) {
     else if (e.key === "Backspace" && !input.value && list.length) { list.pop(); render(); onChange(list.slice()); }
   });
   input.addEventListener("blur", () => { if (input.value.trim()) add(); });
+  render();
+  return wrap;
+}
+
+// Sentences, one a line, each changed in place: × removes one, the last
+// line adds one (Enter, or leaving it). `readOnly`: shown, not changed.
+function sentenceList(values, onChange, placeholder, readOnly = false) {
+  const list = asList(values).map(String);
+  const wrap = h("div", { class: "sentence-list" });
+  const emit = () => onChange(list.map((v) => v.trim()).filter(Boolean));
+  function render(focusAdder) {
+    const adder = h("input", { type: "text", placeholder: placeholder || "add a sentence, then Enter", "aria-label": "Add a sentence" });
+    const add = () => {
+      const v = adder.value.trim();
+      adder.value = "";
+      if (v && !list.includes(v)) { list.push(v); emit(); render(true); }
+    };
+    adder.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+    adder.addEventListener("blur", () => { if (adder.value.trim()) add(); });
+    fill(wrap,
+      ...list.map((v, i) => h("div", { class: "sentence" },
+        h("input", { type: "text", value: v, readonly: readOnly, "aria-label": `Sentence ${i + 1}`,
+          onchange: (e) => { list[i] = e.target.value; if (!list[i].trim()) { list.splice(i, 1); render(); } emit(); },
+          onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } } }),
+        readOnly ? null : h("button", { type: "button", class: "link", title: "remove", "aria-label": `Remove “${v}”`,
+          onclick: () => { list.splice(i, 1); emit(); render(); } }, "×"))),
+      readOnly ? null : h("div", { class: "sentence" }, adder));
+    if (focusAdder) adder.focus();
+  }
   render();
   return wrap;
 }
@@ -357,6 +392,11 @@ async function refreshStatus() {
   const debugging = Object.keys(s.debug_sessions || {});
   if (debugging.length) badges.push(h("a", { class: "badge warn", href: `#/satellite/${debugging[0]}` }, "debugging a satellite"));
   if (s.settings && s.settings.keep_audio) badges.push(h("span", { class: "badge warn" }, "keeping audio"));
+  const building = !!(s.kaldi && s.kaldi.chosen && s.kaldi.building);
+  if (building) badges.push(h("span", { class: "badge warn", title: "Kaldi hears what it heard before meanwhile." }, "Kaldi updating…"));
+  // Until it's done, every second.
+  clearTimeout(refreshStatus.soon);
+  if (building) refreshStatus.soon = setTimeout(refreshStatus, 1000);
   document.getElementById("status").replaceChildren(...badges);
   const banner = document.getElementById("banner");
   const notes = [];
@@ -903,10 +943,10 @@ async function pageCommand(id, prefill, query) {
     return h("div", {},
       heading("h3", "Kaldi sentences", help),
       following
-        ? [theirs.length ? locked(chipsInput(theirs, () => {}, "")) : null,
-          ((info) => field("Your own", h("div", {}, chipsInput(ownSentences, (v) => { ownSentences = v; info.show(v); }, "turn on [the] {entity}"), info.box),
+        ? [theirs.length ? sentenceList(theirs, () => {}, "", true) : null,
+          ((info) => field("Your own", h("div", {}, sentenceList(ownSentences, (v) => { ownSentences = v; info.show(v); }, "turn on [the] {entity}"), info.box),
             "Heard as well as the library's."))(examplesInfo(ownSentences, true))]
-        : ((info) => h("div", {}, chipsInput(spec.sentences || [], (v) => { spec.sentences = v; info.show(v); }, "turn on [the] {entity}"), info.box))(
+        : ((info) => h("div", {}, sentenceList(spec.sentences || [], (v) => { spec.sentences = v; info.show(v); }, "turn on [the] {entity}"), info.box))(
           examplesInfo(spec.sentences || [], true)));
   }
 
@@ -1483,12 +1523,12 @@ async function pageCommand(id, prefill, query) {
         following
           ? [
             asList(spec.examples).filter((e) => !extras.includes(e)).length
-              ? locked(chipsInput(asList(spec.examples).filter((e) => !extras.includes(e)), () => {}, "")) : null,
-            ((info) => field("Your own", h("div", {}, chipsInput(extras, (v) => { extras = v; info.show(v); }, "type a whole sentence and press Enter"), info.box),
+              ? sentenceList(asList(spec.examples).filter((e) => !extras.includes(e)), () => {}, "", true) : null,
+            ((info) => field("Your own", h("div", {}, sentenceList(extras, (v) => { extras = v; info.show(v); }, "a whole sentence, then Enter"), info.box),
               "Said as well as the library's."))(examplesInfo(extras)),
           ]
           : ((info) => h("div", {},
-            chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box))(examplesInfo(spec.examples || [])),
+            sentenceList(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "a whole sentence, then Enter"), info.box))(examplesInfo(spec.examples || [])),
         h("div", { class: "wake-list" }, fallbackBox("meaning", "Also sentences that mean the same",
           "When nothing else matched, a sentence very close in meaning to one of these, or to the description, runs it: “got the time?” for “what time is it”. Example sentences match far better than the description.")),
         kaldiSentences()),
@@ -2894,6 +2934,7 @@ function fillSpeechPanel(panel, voices) {
 function kaldiState(kaldi) {
   if (kaldi.error) return null;  // the banner says it
   if (!kaldi.on) return h("div", { class: "notice info" }, "Building Kaldi's graphs. Parakeet hears meanwhile.");
+  if (kaldi.building) return h("div", { class: "notice info" }, "Updating Kaldi's sentences. It hears the ones before meanwhile.");
   const guessed = asList(kaldi.guessed).length;
   return h("div", { class: "notice info" }, `Kaldi hears ${kaldi.sentences} sentence${kaldi.sentences === 1 ? "" : "s"}.`,
     guessed ? [" ", h("a", { href: "#/pronunciations" }, `${guessed} pronunciation${guessed === 1 ? " is" : "s are"} guessed`), "."] : null,
@@ -3510,7 +3551,7 @@ function wakeWordEditor(word, wake, reload) {
     thresholdBox.style.display = !word.custom || confusables.length ? "" : "none";
   }
   function renderChips() {
-    fill(chipsBox, chipsInput(confusables, (list) => { confusables = list; changed(); }, "a phrase that sounds like it, then Enter"));
+    fill(chipsBox, sentenceList(confusables, (list) => { confusables = list; changed(); }, "a phrase that sounds like it, then Enter"));
     shown();
   }
   restore.addEventListener("click", () => { confusables = defaults.confusables.slice(); renderChips(); changed(); });
