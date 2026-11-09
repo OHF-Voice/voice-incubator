@@ -2,8 +2,9 @@
 
 The web UI's own files, as JSON: ``commands.json`` (the voice commands,
 shared names and lists), ``satellites.json``, ``settings.json``,
-``wake_words.json`` (what the Wake words page changed, per wake word) and
-``people.json`` (each person's own things: voice_labs/people.py). Only
+``wake_words.json`` (what the Wake words page changed, per wake word),
+``people.json`` (each person's own things: voice_labs/people.py) and
+``pronunciations.json`` (Kaldi mode's: voice_labs/kaldi_mode.py). Only
 the UI edits them: each is read once and written whole when it changes. (They
 were YAML, read and written round-trip so that a hand edit's comments
 survived: 386 ms to read the commands and 218 ms to write them on an HA Green,
@@ -524,6 +525,8 @@ class Store:
     where the Wake words page changed them."""
     people: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Each person's own things, by name (voice_labs/people.py)."""
+    pronunciations: dict[str, list[str]] = field(default_factory=dict)
+    """The person's own pronunciations, for Kaldi mode (pronunciations.json)."""
     triggers: list[Any] = field(default_factory=list)
     """Home Assistant's sentence triggers, prepared (voice_labs/triggers.py):
     heard with the commands, first."""
@@ -552,6 +555,12 @@ class Store:
     @property
     def people_path(self) -> Path:
         return self.data_dir / "people.json"
+
+    @property
+    def pronunciations_path(self) -> Path:
+        """The person's own pronunciations, for Kaldi mode (voice_labs/kaldi_mode.py):
+        word -> pronunciations, in the model's phones."""
+        return self.data_dir / "pronunciations.json"
 
     @property
     def calls_dir(self) -> Path:
@@ -870,6 +879,7 @@ class Store:
         self.settings = {**DEFAULT_SETTINGS, **(_read(self.settings_path) or {})}
         self.wake_tuning = _read(self.wake_tuning_path) or {}
         self.people = _read(self.people_path) or {}
+        self.pronunciations = _read(self.pronunciations_path) or {}
 
     def save_satellites(self) -> None:
         _write_atomic(self.satellites_path, _dumps(self.satellites))
@@ -882,6 +892,9 @@ class Store:
 
     def save_people(self) -> None:
         _write_atomic(self.people_path, _dumps(self.people))
+
+    def save_pronunciations(self) -> None:
+        _write_atomic(self.pronunciations_path, _dumps(self.pronunciations))
 
     def satellite(self, key: str) -> dict[str, Any]:
         return self.satellites.get(key) or {}

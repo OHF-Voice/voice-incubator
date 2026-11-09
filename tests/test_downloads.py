@@ -140,3 +140,24 @@ def test_the_model_folders_are_as_the_download_left_them(tmp_path):
     (tmp_path / "data/ctc").mkdir(parents=True)
     (tmp_path / "data/ctc/tokens.txt").write_text("<blk> 0\n", encoding="utf-8")
     assert VoiceLabsApp._ctc_dir.fget(app) == ctc  # pylint: disable=protected-access
+
+
+def test_one_file_of_an_archive_is_kept(tmp_path):
+    """Kaldi mode's G2P model and phonetisaurus: one file each of
+    Speech-to-Phrase's archives, an executable kept one."""
+    import io  # pylint: disable=import-outside-toplevel
+    import tarfile  # pylint: disable=import-outside-toplevel
+
+    archive = tmp_path / "tools.tar.gz"
+    with tarfile.open(archive, "w:gz") as out:
+        for name, data, mode in (("./phonetisaurus", b"#!/bin/sh\n", 0o755), ("./kaldi/bin/x", b"x", 0o755), ("model/g2p.fst", b"fst", 0o644)):
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), mode
+            out.addfile(info, io.BytesIO(data))
+    downloads._extract(archive, "phonetisaurus", tmp_path / "phonetisaurus")  # pylint: disable=protected-access
+    assert (tmp_path / "phonetisaurus").read_bytes() == b"#!/bin/sh\n" and (tmp_path / "phonetisaurus").stat().st_mode & 0o111
+    downloads._extract(archive, "model/g2p.fst", tmp_path / "g2p.fst")  # pylint: disable=protected-access
+    assert (tmp_path / "g2p.fst").read_bytes() == b"fst" and not (tmp_path / "g2p.fst").stat().st_mode & 0o111
+    with pytest.raises(SystemExit):
+        downloads._extract(archive, "missing", tmp_path / "missing")  # pylint: disable=protected-access
+    assert downloads.PHONETISAURUS.keys() == downloads.KALDI_TOOLS.keys()

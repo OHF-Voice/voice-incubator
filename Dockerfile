@@ -70,14 +70,15 @@ COPY voice_labs/__init__.py voice_labs/downloads.py ./voice_labs/
 RUN python3 -m voice_labs.downloads fetch models --arch "${BUILD_ARCH:-$(dpkg --print-architecture | sed 's/arm64/aarch64/')}"
 
 # The wake verifier's resident decoder, compiled against those tools; then
-# only what the verifier uses of them is kept (wyoming_wake_kaldi/prune.py).
+# only what the verifier, the decoder and phonetisaurus (Kaldi mode's guessed
+# pronunciations) use of them is kept (wyoming_wake_kaldi/prune.py).
 COPY wyoming_wake_kaldi/__init__.py wyoming_wake_kaldi/kaldi.py wyoming_wake_kaldi/prune.py ./wyoming_wake_kaldi/
 COPY wyoming_wake_kaldi/decoderd ./wyoming_wake_kaldi/decoderd
 RUN \
     mkdir -p models/wake-kaldi-decoderd \
     && bash wyoming_wake_kaldi/decoderd/build.sh "$PWD/models/wake-kaldi-tools" "$PWD/models/wake-kaldi-decoderd/verify_decoderd" \
     && rm -rf models/wake-kaldi-decoderd/.fst_shadow_include \
-    && python3 -m wyoming_wake_kaldi.prune models/wake-kaldi-tools models/wake-kaldi-decoderd/verify_decoderd
+    && python3 -m wyoming_wake_kaldi.prune models/wake-kaldi-tools models/wake-kaldi-decoderd/verify_decoderd models/wake-kaldi-tools/phonetisaurus
 
 # adapt-ctc's native Viterbi (several times faster than the numpy fallback).
 COPY setup.py ./

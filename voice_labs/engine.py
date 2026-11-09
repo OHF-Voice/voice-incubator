@@ -61,7 +61,7 @@ from adapt_ctc.wake import LEAD, WakeVerifier
 
 from adapt_ctc.config import ConfigError, _phrase
 
-from . import compound, context, languages, skills, triggers
+from . import compound, context, kaldi_mode, languages, skills, triggers
 from .commands import (
     DYNAMIC_LISTS, NAME_SLOTS, Behavior, Command, base_config, command_of, match_slots, never_mind, says,
 )
@@ -498,6 +498,17 @@ class Engine:
         self.build_seconds = 0.0
         self._lock = threading.Lock()
 
+        self.kaldi: kaldi_mode.KaldiMode | None = None
+        """Kaldi mode's graphs and decoder (voice_labs/kaldi_mode.py), when
+        the app has the model and tools for it."""
+        self.recognizer_choice = "parakeet"
+        """What hears commands: ``parakeet``, or ``kaldi`` (settings.json
+        ``recognizer``)."""
+        self.pronunciations: dict[str, list[str]] = {}
+        """The person's own pronunciations, for Kaldi (pronunciations.json)."""
+        self.kaldi_sentences: kaldi_mode.Sentences | None = None
+        """What Kaldi was last built to hear, and which commands it doesn't."""
+
     def _shared(self, model_dir: Path, tdt_dir: Path | None):
         """The CTC model and the transducer as one, with one encoder, when the
         transducer has the CTC model's head beside it (adapt_ctc.hybrid):
@@ -569,6 +580,8 @@ class Engine:
             self.compiled = compiled
             self.recognizer = recognizer
             self.unspeakable = list(recognizer.unspeakable) if recognizer else []
+        if self.recognizer_choice == "kaldi":
+            self.build_kaldi()
         if isinstance(self.embedder, CachedEmbedder):
             try:
                 self.embedder.save()
@@ -581,6 +594,80 @@ class Engine:
             self.build_seconds * 1000,
             f"; cannot spell {self.unspeakable}" if self.unspeakable else "",
         )
+
+    @property
+    def kaldi_on(self) -> bool:
+        """Whether Kaldi hears commands now: chosen, and its decoder runs."""
+        return self.recognizer_choice == "kaldi" and self.kaldi is not None and self.kaldi.ready
+
+    def build_kaldi(self) -> None:
+        """Kaldi mode's graphs for the commands recognized now (slow: from a
+        thread). A failure is kept in ``kaldi.error``; Parakeet hears
+        meanwhile."""
+        if self.kaldi is None:
+            return
+        with self._lock:
+            recognizer = self.recognizer
+        if recognizer is None:
+            return
+        language = recognizer.config.language
+        try:
+            if language.split("-")[0].split("_")[0] not in kaldi_mode.LANGUAGES:
+                raise RuntimeError(f"Kaldi has no model for {language}")
+            heard = kaldi_mode.sentences(
+                recognizer.config, lambda intent, text: self._free_text(recognizer, intent, text)
+            )
+            reading = languages.current().reading
+            answers = sorted({*reading.ANSWER_ENDS, *reading.YES_SAID, *reading.NO_SAID})
+            self.kaldi.build(heard, language, self.pronunciations, answers)
+            self.kaldi_sentences = heard
+        except Exception as err:  # noqa: BLE001 - Parakeet hears instead
+            _LOGGER.exception("Kaldi mode can't be built")
+            self.kaldi.error = str(err) or type(err).__name__
+
+    def _free_text(self, recognizer: Recognizer, intent: str, text: str) -> str | None:
+        """The free text the matcher reads in ``text``, one of ``intent``'s
+        example sentences."""
+        spellings = spoken_words(text, recognizer.config.language)
+        log_probs, _ = self.model.vocab.text_log_probs(spellings[0] if spellings else [])
+        recognition = recognizer.recognize_log_probs(log_probs, self.model.frame_seconds, examples=False)
+        wildcard = recognizer.config.intents[intent].wildcard
+        for result in recognition.matches:
+            if result.intent == intent and wildcard is not None:
+                value = result.slots.get(wildcard.slot)
+                return str(value) if value else None
+        return None
+
+    def _kaldi_decode(self, audio: np.ndarray) -> kaldi_mode.Heard | None:
+        """Kaldi's decode of ``audio``; None when its decoder failed (being
+        replaced, or gone): Parakeet hears that call."""
+        assert self.kaldi is not None
+        try:
+            return self.kaldi.decode(audio)
+        except RuntimeError as err:
+            _LOGGER.warning("Kaldi couldn't hear it, so Parakeet does: %s", err)
+            return None
+
+    def _kaldi_heard(self, heard: kaldi_mode.Heard, satellite: Satellite, answer: bool = False) -> Decision:
+        """What Kaldi heard, as a decision: its sentence matched as typed,
+        when it was one of the home's; else nothing -- Never mind when not a
+        word was said (the background heard none)."""
+        text = heard.answer_text if answer else heard.text
+        taken = heard.answer_taken if answer else heard.taken
+        decision = self.recognize_text(text if taken else "", satellite)
+        if taken and decision.command is not None:
+            decision.matched_by = "kaldi"
+        decision.text_source = "kaldi"
+        decision.recognition["transcript"] = text if taken else ""
+        decision.recognition["tdt_transcript"] = text if taken else ""
+        decision.sentence = heard.to_json(answer)
+        if not taken and not answer and not heard.background_words:
+            with self._lock:
+                compiled = self.compiled
+            if compiled is not None:
+                self._never_mind(decision, compiled, satellite, {"why": "nothing_heard"})
+        decision.timings = {"kaldi": heard.seconds, **decision.timings}
+        return decision
 
     def _fill_dynamic(self, config: dict[str, Any]) -> None:
         """Put the app's own lists in, or take out the intents (combinations)
@@ -675,6 +762,13 @@ class Engine:
         the wake word. ``transcriber`` stands in for the TDT head (an STT
         entity, see voice_labs/voices.py)."""
         started = time.perf_counter()
+        if self.kaldi_on:
+            # From just before Kaldi's split: the grammar's noise takes a
+            # first word the wake verifier took in.
+            offset = max(0.0, kaldi_split - kaldi_mode.LEAD)
+            heard = self._kaldi_decode(audio[int(offset * SAMPLE_RATE):])
+            if heard is not None:
+                return self._kaldi_heard(heard, satellite), Split(offset, kaldi_split, kaldi_split)
         evidence, frame_seconds, split, cut = self._place(audio, wake_start, kaldi_split, wake_phrases)
         log_probs = evidence[cut:]
         placed = time.perf_counter() - started
@@ -704,6 +798,8 @@ class Engine:
         when it was had already. ``sentences``: heard as one of the home's
         sentences first (``hear_sentence``)."""
         started = time.perf_counter()
+        if self.kaldi_on and sentences and (heard := self._kaldi_decode(audio)) is not None:
+            return self._kaldi_heard(heard, satellite)
         log_probs, frame_seconds = evidence if evidence is not None else self.model.log_probs(audio)
         acoustic = time.perf_counter() - started
         heard, sentence = self.hear_sentence(log_probs, 0, log_probs, satellite) if sentences else (None, None)
@@ -758,7 +854,10 @@ class Engine:
         """An answer to what the app asked (voice_labs/follow_up.py): as a
         command, and always with its words -- the transcriber's, which
         whoever asked reads -- even when the command needed none. Not as one
-        of the home's sentences: an answer is seldom one."""
+        of the home's sentences: an answer is seldom one. With Kaldi, the
+        home's sentences and the language's ways of answering."""
+        if self.kaldi_on and (heard := self._kaldi_decode(audio)) is not None:
+            return self._kaldi_heard(heard, satellite, answer=True)
         decision = self.recognize_command(audio, satellite, transcriber, sentences=False)
         reader = transcriber or self.transcriber
         if decision.recognition.get("tdt_transcript") is None and reader is not None and len(audio):

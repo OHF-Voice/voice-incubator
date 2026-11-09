@@ -72,6 +72,7 @@ from .instruments import HIGHEST, INSTRUMENT, LOWEST, RING, SOUNDS, note_name
 from .protocol import SAMPLE_RATE
 from .speaker import PALETTE
 from .voices import AUTO, BUILTIN, DEFAULT_VOICE, language_code
+from .kaldi_mode import validate as kaldi_validate
 from .pronounce import guess, model_phones
 from .wake import THRESHOLDS
 from .wake import ConfigError as WakeConfigError
@@ -157,6 +158,8 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.post("/api/satellites/{key}/debug", api.debug_session),
             web.get("/api/satellites/{key}/live", api.live),
             web.get("/api/settings", api.get_settings),
+            web.get("/api/pronunciations", api.pronunciations),
+            web.put("/api/pronunciations/{word}", api.put_pronunciation),
             web.get("/api/wake_words", api.wake_words),
             web.post("/api/wake_words", api.add_wake_word),
             web.put("/api/wake_words/{id}", api.put_wake_word),
@@ -273,6 +276,7 @@ class Api:
                 "fallback": app.fallback_status(),
                 "agent": app.agent_status(),
                 "tdt_status": app.tdt_status,
+                "kaldi": app.kaldi_status(),
                 "wake_ratio": sorted(app.wake_ratios),
                 "integration": app.integration.status,
                 "calendar": app.alarms.status if app.alarms is not None else None,
@@ -1599,6 +1603,17 @@ class Api:
                 settings.pop("agent_voice", None)
         if "agent" in body or "agent_keep_minutes" in body:
             self.app.configure_agent()
+        if "recognizer" in body:
+            choice = str(body["recognizer"] or "parakeet")
+            if choice not in ("parakeet", "kaldi"):
+                raise ConfigError("recognizer: parakeet or kaldi")
+            if choice == "kaldi":
+                settings["recognizer"] = "kaldi"
+            else:
+                settings.pop("recognizer", None)
+            self.app.store.save_settings()
+            # Building takes seconds; Parakeet hears meanwhile.
+            asyncio.ensure_future(self.app.change_recognizer())
         if "tdt_model" in body:
             from .server import DEFAULT_TDT, TDT_ALIASES, TDT_MODELS  # pylint: disable=import-outside-toplevel
 
@@ -1619,6 +1634,54 @@ class Api:
             self.app.wake_words_changed()
         self.app.store.save_settings()
         return web.json_response(settings)
+
+    # -------------------------------------------------------- pronunciations
+
+    async def pronunciations(self, request: web.Request) -> web.Response:
+        """Kaldi mode's words: each one's pronunciations and where they came
+        from (``yours``, ``dictionary``, ``guessed``, ``none``), the model's
+        phones, and whether it guesses (phonetisaurus)."""
+        app = self.app
+        engine = app.engine
+        kaldi = engine.kaldi if engine is not None else None
+        if kaldi is None:
+            return web.json_response({"words": [], "phones": [], "kaldi": None})
+        built = kaldi.built
+        words = sorted(built.words.values(), key=lambda w: (w.source not in ("none", "guessed"), w.word)) if built else []
+        return web.json_response({
+            "words": [{"word": w.word, "pronunciations": w.pronunciations, "source": w.source} for w in words],
+            "phones": model_phones(kaldi.model_dir),
+            "kaldi": app.kaldi_status(),
+        })
+
+    async def put_pronunciation(self, request: web.Request) -> web.Response:
+        """A word's own pronunciations (``pronunciations``: none, the
+        dictionary's or the guess again), in the model's phones; Kaldi's
+        graphs rebuilt."""
+        app = self.app
+        engine = app.engine
+        if engine is None or engine.kaldi is None:
+            raise web.HTTPServiceUnavailable(text="Kaldi isn't here")
+        word = request.match_info["word"].strip().lower()
+        if not word or any(c.isspace() for c in word):
+            raise ConfigError("a word")
+        body = await request.json()
+        given = body.get("pronunciations") or []
+        if not isinstance(given, list):
+            raise ConfigError("pronunciations: a list")
+        phones = await asyncio.to_thread(engine.kaldi.phones)
+        try:
+            said = list(dict.fromkeys(kaldi_validate(str(p), phones) for p in given if str(p).strip()))
+        except ValueError as err:
+            raise ConfigError(f"{word}: {err}") from err
+        own = app.store.pronunciations
+        if said:
+            own[word] = said
+        else:
+            own.pop(word, None)
+        app.store.save_pronunciations()
+        asyncio.ensure_future(app.change_recognizer())
+        return web.json_response({"word": word, "pronunciations": said})
 
     # ----------------------------------------------------------- wake words
 

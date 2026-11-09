@@ -364,7 +364,28 @@ async function refreshStatus() {
   if (s.integration && s.integration !== "ready" && s.integration !== "connecting") notes.push(h("div", { class: "notice warn" }, s.integration));
   if (s.calendar && s.calendar !== "ready" && s.calendar !== "connecting") notes.push(h("div", { class: "notice warn" }, "Alarms and reminders won't work: ", s.calendar));
   if (s.unspeakable && s.unspeakable.length) notes.push(h("div", { class: "notice warn" }, "These phrases can't be spelled in the speech model's pieces and will never be heard: ", s.unspeakable.join(", ")));
+  const kaldi = s.kaldi || {};
+  if (kaldi.chosen && kaldi.error) notes.push(h("div", { class: "notice bad" }, "Kaldi can't hear commands, so Parakeet does: ", kaldi.error));
+  const pronunciations = document.getElementById("nav-pronunciations");
+  if (pronunciations) pronunciations.hidden = !kaldi.chosen;
   fill(banner, ...notes.map((n) => h("div", {}, n)));
+}
+
+// What Kaldi doesn't hear of a command (Kaldi mode), as a sentence, or null.
+function kaldiNote(id) {
+  const kaldi = (state.status && state.status.kaldi) || {};
+  const note = kaldi.chosen ? (kaldi.notes || {})[id] : null;
+  if (!note) return null;
+  if (note.why === "examples") return { text: "Kaldi hears only example sentences, and it has none.", partly: false };
+  const lists = andList(asList(note.lists).map((l) => `“${l}”`));
+  return note.partly
+    ? { text: `Kaldi hears only the free text its example sentences say: add a value list named ${lists} for more.`, partly: true }
+    : { text: `Kaldi hears its free text only from a value list named ${lists}.`, partly: false };
+}
+
+function kaldiBadge(id) {
+  const note = kaldiNote(id);
+  return note ? h("span", { class: `badge ${note.partly ? "warn" : "bad"}`, title: note.text }, note.partly ? "partly heard" : "not heard") : null;
 }
 
 async function loadStore() {
@@ -1502,7 +1523,8 @@ async function pageCommand(id, prefill, query) {
         h("span", { class: "grow" }, "Follows the library.",
           hint("The library's changes reach this command. Where it runs, how much it says, the steps when nothing matches, example sentences of your own and its implied target are yours to set. To change anything else, take control of it: it becomes yours, and the library's changes no longer reach it.")),
         h("button", { onclick: takeControl }, "Take control")) : null,
-      needs.length ? h("div", { class: "notice info" }, needs.join(" ")) : null);
+      needs.length ? h("div", { class: "notice info" }, needs.join(" ")) : null,
+      isNew || !kaldiNote(id) ? null : h("div", { class: "notice warn" }, kaldiNote(id).text));
   }
 
   renderHead();
@@ -1923,6 +1945,7 @@ function commandItem(store, id, from, extra) {
       h("div", { class: "title" }, spec.title || spec.description || id)),
     from ? null : offBadge(detail.off, spec.disabled),
     asList(spec.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(spec.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
+    kaldiBadge(id),
     detail.error ? h("span", { class: "badge bad", title: detail.error }, "error") : h("span", { class: "badge accent" }, detail.does || ""),
     extra || null);
 }
@@ -1950,6 +1973,7 @@ function triggerItem(store, id, from, extra) {
     from ? null : offBadge(t.off, t.disabled),
     asList(t.fallback).length ? h("span", { class: "badge", title: "may be run when nothing else matches" }, asList(t.fallback).map((f) => (f === "llm" ? "model" : f)).join(" + ")) : null,
     clashes.length ? h("span", { class: "badge warn", title: `${andList(clashes)} says it too. The trigger goes first.` }, "goes first") : null,
+    unheard ? null : kaldiBadge(id),
     unheard ? h("span", { class: "badge bad", title: unheard }, "not heard") : h("span", { class: "badge accent" }, "trigger"),
     extra || toggle);
 }
@@ -2809,6 +2833,11 @@ function fillSpeechPanel(panel, voices) {
   const models = (state.status && state.status.tdt_models) || [];
   const tdtModel = h("select", {}, models.map((m) => h("option", { value: m.id, selected: ((state.status && state.status.tdt_choice) || "own") === m.id, disabled: !m.available },
     `${m.name} — ${m.detail}${m.available ? "" : " (not installed)"}`)));
+  const kaldi = (state.status && state.status.kaldi) || null;
+  const recognizer = h("select", {},
+    h("option", { value: "parakeet", selected: !(kaldi && kaldi.chosen) }, "Parakeet"),
+    h("option", { value: "kaldi", selected: !!(kaldi && kaldi.chosen), disabled: !(kaldi && kaldi.available) },
+      `Kaldi — example sentences only${kaldi && kaldi.available ? "" : " (not installed)"}`));
   fill(panel,
     heading("h2", "Listening and speaking", "Home Assistant's speech-to-text and text-to-speech, in place of the built-in models, for every satellite (each can choose its own on its page). Commands are always matched on the device's audio first; the speech-to-text entity writes what is otherwise read by the TDT model: example sentences, free text (“play …”), and hints. A text-to-speech entity speaks on the satellite's own media player, or on another one picked per satellite."),
     voices.error ? h("div", { class: "notice warn" }, voices.error) : null,
@@ -2817,6 +2846,8 @@ function fillSpeechPanel(panel, voices) {
       ? field("Built-in speech model", tdtModel, "What writes example sentences, free text and hints when no speech-to-text entity is picked. The multilingual model understands 25 European languages and finds the language itself, at about three times the time and 600 MB more memory. Commands are matched first by the English model either way.")
       : null,
     state.status && state.status.tdt_status ? h("div", { class: "notice info" }, state.status.tdt_status) : null,
+    kaldi ? field("Commands heard by", recognizer, "Parakeet hears every way of saying a command. Kaldi hears only example sentences and Home Assistant's sentence triggers, word for word: free text only from a value list named as its slot, no questions, nothing when not one of them. Commands it can't hear say so on their pages.") : null,
+    kaldi && kaldi.chosen ? kaldiState(kaldi) : null,
     h("div", { class: "row" },
       field("Speech-to-text", globalStt), field("Language", globalSttLanguage),
       ...withSttEntity(globalStt, null, field("Audio", globalSttAudio, STT_AUDIO_HINT), field("Runs", globalSttRuns, STT_RUNS_HINT)),
@@ -2828,10 +2859,65 @@ function fillSpeechPanel(panel, voices) {
             stt_language: languageValue(globalSttLanguage), tts_language: languageValue(globalTtsLanguage), tdt_model: tdtModel.value,
             stt_audio: globalSttAudio.value === "agc" ? null : globalSttAudio.value,
             stt_always: sttRunsValue(globalSttRuns),
+            ...(kaldi ? { recognizer: recognizer.value } : {}),
           });
           await refreshStatus(); toast("Saved"); pageSettings();
         } catch (err) { toast(err.message); }
       } }, "Save")));
+}
+
+// Kaldi mode as it is now: building, hearing how many sentences, or why not.
+function kaldiState(kaldi) {
+  if (kaldi.error) return null;  // the banner says it
+  if (!kaldi.on) return h("div", { class: "notice info" }, "Building Kaldi's graphs. Parakeet hears meanwhile.");
+  const guessed = asList(kaldi.guessed).length;
+  return h("div", { class: "notice info" }, `Kaldi hears ${kaldi.sentences} sentence${kaldi.sentences === 1 ? "" : "s"}.`,
+    guessed ? [" ", h("a", { href: "#/pronunciations" }, `${guessed} pronunciation${guessed === 1 ? " is" : "s are"} guessed`), "."] : null,
+    asList(kaldi.unspeakable).length ? ` No pronunciation for ${andList(kaldi.unspeakable.map((w) => `“${w}”`))}: its sentences aren't heard.` : null);
+}
+
+// Kaldi mode's words: each one's pronunciations, the guessed ones first,
+// with the person's own in place of any.
+async function pagePronunciations() {
+  const data = await api("GET", "pronunciations");
+  const kaldi = data.kaldi || {};
+  const filter = h("input", { type: "search", placeholder: "Find a word", style: "width:220px" });
+  const list = h("div", { class: "pron-list" });
+  const SOURCES = { yours: ["ok", "yours"], dictionary: ["", "dictionary"], guessed: ["warn", "guessed"], none: ["bad", "none"] };
+  function row(w) {
+    const input = h("input", { type: "text", value: w.pronunciations.join(", "), style: "width:100%", spellcheck: false });
+    const [cls, label] = SOURCES[w.source] || ["", w.source];
+    const save = async (prons) => {
+      try {
+        await api("PUT", `pronunciations/${encodeURIComponent(w.word)}`, { pronunciations: prons });
+        toast("Saved: Kaldi's graphs are being built again");
+        await refreshStatus();
+        pagePronunciations();
+      } catch (err) { toast(err.message); }
+    };
+    return h("div", { class: "item" },
+      h("div", { style: "width:160px" }, h("b", {}, w.word)),
+      h("div", { class: "grow" }, input),
+      h("span", { class: `badge ${cls}` }, label),
+      h("button", { onclick: () => save(input.value.split(",").map((p) => p.trim()).filter(Boolean)) }, "Save"),
+      w.source === "yours" ? h("button", { class: "link", onclick: () => save([]) }, "Use the dictionary's") : null);
+  }
+  function draw() {
+    const wanted = filter.value.trim().toLowerCase();
+    const words = data.words.filter((w) => !wanted || w.word.includes(wanted));
+    fill(list, words.length ? words.slice(0, 300).map(row) : h("p", { class: "muted" }, kaldi.chosen ? "No words yet." : "Choose Kaldi on the Settings page first."));
+  }
+  filter.addEventListener("input", draw);
+  draw();
+  fill($main,
+    h("div", { class: "panel" },
+      heading("h2", "Pronunciations", "How Kaldi says each word of the home's sentences, in the model's phones (below), the stress mark before the vowel it falls on. A word the dictionary lacks is guessed: check those first. Several pronunciations are separated by commas."),
+      kaldi.chosen && !kaldi.guessing ? h("div", { class: "notice warn" }, "Nothing can be guessed here (no phonetisaurus): a word the dictionary lacks needs yours.") : null,
+      h("div", { class: "row" }, filter),
+      list,
+      h("details", { class: "small" }, h("summary", {}, "The model's phones"),
+        h("div", { class: "phones" }, (data.phones || []).map(([phone, example, said]) =>
+          h("span", { class: "chip", title: `${example}: ${said}` }, h("b", {}, phone), ` ${example}`))))));
 }
 
 // The built-in voice: Piper's, downloaded the first time it is used. What a
@@ -4291,8 +4377,19 @@ function heardLabels(rec) {
   const sent = rec.from_home_assistant ? "From Home Assistant" : null;
   if (rec.text_source === "typed") return { ctc: "Read as", text: sent || "Typed" };
   if (rec.text_source === "sentence") return { ctc: "CTC heard", text: "Heard as" };
+  if (rec.text_source === "kaldi") return { ctc: "Kaldi heard", text: "Read as" };
   if (rec.text_source === "home_assistant") return { ctc: "CTC heard", text: "From Home Assistant" };
   return { ctc: "CTC heard", text: `${rec.text_source && rec.text_source !== "TDT" ? rec.text_source : "TDT"} heard` };
+}
+
+// What Kaldi heard (Kaldi mode): the home's sentence it came closest to, and
+// how far from the background, which says whether it was one.
+function kaldiRows(sentence) {
+  return [
+    h("div", {}, "Sentence"), h("div", {}, sentence.text ? quoted(sentence.text) : h("span", { class: "muted" }, "none"),
+      h("span", { class: "muted" }, ` · ${num(sentence.cost, 3)} a frame from the background (at most ${num(sentence.max_cost, 2)})${sentence.taken ? "" : ", not taken"}`)),
+    h("div", {}, "Background"), h("div", {}, sentence.background ? quoted(sentence.background) : h("span", { class: "muted" }, "nothing: not a word said")),
+  ];
 }
 
 // What the STT entity did: asked or not, and what came of it.
@@ -4325,7 +4422,8 @@ function renderRecognition(rec) {
     h("div", { class: "kv" },
       h("div", {}, heardLabels(rec).ctc), h("div", {}, r.transcript || "—"),
       r.tdt_transcript || !rec.stt ? [h("div", {}, heardLabels(rec).text), h("div", {}, r.tdt_transcript || h("span", { class: "muted" }, "not run"))] : null,
-      rec.sentence && (!rec.sentence.taken || rec.text_source !== "sentence") ? [h("div", {}, "Sentence"), h("div", {}, rec.sentence.text ? quoted(rec.sentence.text) : h("span", { class: "muted" }, "none"),
+      rec.sentence && rec.sentence.recognizer === "kaldi" ? kaldiRows(rec.sentence) : null,
+      rec.sentence && rec.sentence.recognizer !== "kaldi" && (!rec.sentence.taken || rec.text_source !== "sentence") ? [h("div", {}, "Sentence"), h("div", {}, rec.sentence.text ? quoted(rec.sentence.text) : h("span", { class: "muted" }, "none"),
         rec.sentence.text ? h("span", { class: "muted" }, ` · cost ${num(rec.sentence.cost, 1)}${rec.sentence.taken ? "" : ", not taken"}`) : null)] : null,
       rec.sentence && rec.sentence.taken && rec.text_source === "sentence" ? [h("div", {}, "Sentence cost"), h("div", {}, num(rec.sentence.cost, 1))] : null,
       rec.stt ? [h("div", {}, rec.stt.entity), h("div", {}, sttStatus(rec.stt))] : null,
@@ -4390,7 +4488,7 @@ const STEP_ICONS = {
   on_list: "mdi:format-list-checks",
 };
 const STATUS = { ok: ["mdi:check-circle", "Succeeded"], bad: ["mdi:close-circle", "Failed"], warn: ["mdi:alert-circle", "Partly"] };
-const MATCHED_BY = { ctc: "in the audio", sentence: "as a sentence", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", never_mind: "instead" };
+const MATCHED_BY = { ctc: "in the audio", kaldi: "by Kaldi", sentence: "as a sentence", transcript: "in the transcript", trigger: "in the transcript", meaning: "by meaning", gliner: "by GLiNER", never_mind: "instead" };
 
 // Why Never mind ran instead of saying it wasn't understood.
 const INSTEAD = {
@@ -5103,6 +5201,7 @@ async function route() {
     else if (page === "library") await pageLibrary();
     else if (page === "names") location.hash = placeHref("home", "names");
     else if (page === "wake") await pageWakeWords(query);
+    else if (page === "pronunciations") await pagePronunciations();
     else if (page === "people") await pagePeople(new URLSearchParams(query || "").get("enroll"));
     else if (page === "person") await pagePerson(decodeURIComponent(arg));
     else if (page === "speakers") location.hash = "#/people";

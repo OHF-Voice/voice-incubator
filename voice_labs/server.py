@@ -22,13 +22,13 @@ import numpy as np
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
 
-from . import actions, alarms, areas, corrected, downloads, languages, people, piper_voices, skills, timers, tones
+from . import actions, alarms, areas, corrected, downloads, kaldi_mode, languages, people, piper_voices, skills, timers, tones
 from .duplex import Duplex
 from .skills import skill_response
 from .agent import HOME_ASSISTANT_AGENT, KEEP_SECONDS, Agent, Answered, Streamed, conversation_key
 from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
-from .commands import HOME_TAKEN, VERBOSITY
+from .commands import HOME_TAKEN, VERBOSITY, command_of
 from .discover import Device, Discovery
 from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain
 from .endpoint import parse as parse_end_of_speech
@@ -758,6 +758,8 @@ class VoiceLabsApp:
         )
         self.engine.entity_area = self.entity_area
         self.engine.dynamic["running_timers"] = self.integration.running_names()  # heard of while it loaded
+        self.engine.kaldi = kaldi_mode.KaldiMode(self.root, self.store.data_dir / "kaldi")
+        self.configure_recognizer()
         self.configure_skills()
         await self.reload_commands()
         self._spawn(self.configure_fallback())
@@ -1179,6 +1181,74 @@ class VoiceLabsApp:
         async with self._model_lock:
             loaded = await asyncio.to_thread(self.engine.use_tdt, wanted)
         self.tdt_status = None if loaded else f"could not load {wanted.name}; kept {self.engine.tdt_dir}"
+
+    def configure_recognizer(self) -> None:
+        """What hears commands (``settings.json`` ``recognizer``: Parakeet,
+        or ``kaldi``: voice_labs/kaldi_mode.py), the person's own
+        pronunciations, and how far from the background Kaldi's sentence may
+        be (``kaldi_max_cost``)."""
+        engine = self.engine
+        if engine is None:
+            return
+        settings = self.store.settings
+        engine.recognizer_choice = "kaldi" if settings.get("recognizer") == "kaldi" else "parakeet"
+        engine.pronunciations = {str(w): [str(p) for p in prons] for w, prons in (self.store.pronunciations or {}).items() if prons}
+        if engine.kaldi is not None:
+            engine.kaldi.max_cost = float(settings.get("kaldi_max_cost", kaldi_mode.MAX_COST))
+
+    def kaldi_status(self) -> dict[str, Any] | None:
+        """Kaldi mode for the Settings and Pronunciations pages: chosen, on,
+        built, and which commands it doesn't hear (``kaldi_notes``)."""
+        engine = self.engine
+        if engine is None or engine.kaldi is None:
+            return None
+        return {
+            **engine.kaldi.status(),
+            "chosen": engine.recognizer_choice == "kaldi",
+            "on": engine.kaldi_on,
+            "notes": self.kaldi_notes() if engine.recognizer_choice == "kaldi" else {},
+        }
+
+    def kaldi_notes(self) -> dict[str, dict[str, Any]]:
+        """By command: what Kaldi doesn't hear of it -- nothing, with no
+        example sentences (``why``: ``examples``), or its free text but for
+        the examples' own, with no value list named as its slot (``list``:
+        ``lists``; ``partly``: its examples are heard)."""
+        engine = self.engine
+        heard = engine.kaldi_sentences if engine is not None else None
+        compiled = engine.compiled if engine is not None else None
+        if heard is None or compiled is None:
+            return {}
+        said = {command_of(intent) for intent, sentences in heard.by_intent.items() if sentences}
+        notes: dict[str, dict[str, Any]] = {}
+        for intent, note in heard.notes.items():
+            command = command_of(intent)
+            if note["why"] == "list":
+                listed = notes.setdefault(command, {"why": "list", "lists": []})
+                listed["lists"] = sorted({*listed.get("lists", []), note["list"]})
+            elif command not in said:
+                notes.setdefault(command, {"why": "examples"})
+        for trigger in (compiled.triggers or {}).values():
+            if trigger.transcript:
+                slots = sorted({slot for group in trigger.free for slot in group})
+                notes[trigger.command_id] = {"why": "list", "lists": slots} if slots else {"why": "examples"}
+        for command, note in notes.items():
+            if note["why"] == "list":
+                note["partly"] = command in said
+        return {c: n for c, n in notes.items() if c in compiled.commands and not (n["why"] == "examples" and c in said)}
+
+    async def change_recognizer(self) -> None:
+        """Kaldi's graphs built (or its decoder stopped) for what the
+        settings say now. Parakeet hears meanwhile."""
+        engine = self.engine
+        if engine is None or engine.kaldi is None:
+            return
+        self.configure_recognizer()
+        if engine.recognizer_choice == "kaldi":
+            async with self._build_lock:
+                await asyncio.to_thread(engine.build_kaldi)
+        else:
+            engine.kaldi.close()
 
     def configure_skills(self) -> None:
         """The skills' settings, as their pages set them
@@ -3541,7 +3611,7 @@ class VoiceLabsApp:
                 )
             else:
                 decision = await asyncio.to_thread(engine.recognize_text, text, satellite)
-        if decision.recognition.get("tdt_transcript") is None or decision.text_source == "sentence":
+        if decision.recognition.get("tdt_transcript") is None or decision.text_source in ("sentence", "kaldi"):
             # What the agent is asked: Home Assistant's words, not an STT
             # entity's, nor the sentence they were heard as (decision.sentence).
             decision.recognition["tdt_transcript"] = text
@@ -3640,12 +3710,19 @@ class VoiceLabsApp:
             entity = self.stt_entity(satellite)
             transcriber = (await self.voices.transcriber(entity, tdt, satellite.voice.stt_language) if entity else None) or tdt
         async with self._model_lock:
-            evidence = await asyncio.to_thread(engine.model.log_probs, audio)
-            decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, transcriber, evidence)
-            started = time.perf_counter()
-            text, how = await asyncio.to_thread(
-                self._corrected, decision, audio, transcriber, tdt, evidence[1], names, satellite
-            )
+            if engine.kaldi_on:
+                # One of the home's sentences, as written, or nothing.
+                evidence = (np.zeros((0, 0), dtype=np.float32), engine.model.frame_seconds)
+                decision = await asyncio.to_thread(engine.recognize_command, audio, satellite)
+                started = time.perf_counter()
+                text, how = decision.recognition.get("transcript") or "", {"as": "kaldi"}
+            else:
+                evidence = await asyncio.to_thread(engine.model.log_probs, audio)
+                decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, transcriber, evidence)
+                started = time.perf_counter()
+                text, how = await asyncio.to_thread(
+                    self._corrected, decision, audio, transcriber, tdt, evidence[1], names, satellite
+                )
             # The STT entity as it is now: asked for the transcript, if not before.
             record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
             record.stage("transcript", text=text, **how, seconds=_seconds(time.perf_counter() - started))

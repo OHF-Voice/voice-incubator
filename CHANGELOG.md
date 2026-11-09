@@ -293,6 +293,19 @@
   In talk overheard after a false wake, a command ran 6 times in 400, as
   before. Sessions show the sentence and its cost, taken or not. Answers to
   a question aren't searched for.
+- **Kaldi can hear commands instead of Parakeet** (Settings, **Commands
+  heard by**; Parakeet stays the default), as Speech-to-Phrase did, with its
+  English model. It hears only example sentences and Home Assistant's
+  sentence triggers, word for word -- free text only from a value list named
+  as its slot -- and refuses what is too far from a background of everyday
+  words. A command it can't hear says so on the Commands list and its page.
+  The **Pronunciations** page (in Kaldi mode) has every word's, guessed by
+  phonetisaurus where the dictionary lacks one, and yours in place of any.
+  On the office-multicap corpus, its own sentences the examples: 79.3% of
+  commands right, 8.1% wrong, 81.4% of the rest refused; talk overheard ran
+  a command 7 times in 400. Wyoming speech-to-text and answers to a question
+  are heard the same way. The image carries the model's G2P and
+  phonetisaurus (43 MB).
 - **What's on the list confirms a doubtful command on it.** "Check coffee
   filters off the shopping list", heard as "to check cffee filters off the
   shopping list" -- a word left over, in the transcript too -- did nothing.

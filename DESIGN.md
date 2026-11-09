@@ -407,6 +407,7 @@ automation's page.
 | `voice_labs/mixednet.py` | lowers a wake word `.tflite` into the device's blob |
 | `voice_labs/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
 | `voice_labs/wake.py` | Kaldi wake verification and split point |
+| `voice_labs/kaldi_mode.py` | Kaldi mode: commands heard by Kaldi, held to the home's example sentences, with a background to refuse the rest; pronunciations (dictionary, yours, phonetisaurus's guesses) |
 | `voice_labs/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
 | `voice_labs/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), with speakers' recordings of it, `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
 | `voice_labs/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
@@ -472,7 +473,7 @@ automation's page.
 | `tests/corpus_expected.tsv` | the sentence each prompt was meant to be, for the take audits (`scripts/audit_*.py`) |
 | `tests/routes.yaml` | where 365 sentences go as text with English's library (command and slots, or none), so a library change that moves one shows; `UPDATE_ROUTES=1` writes it over when that's meant |
 | `scripts/bench_corpus.py` | runs the whole chain over a mic_tap corpus |
-| `scripts/kaldi_mode.py` | prototype: the wake verifier's Kaldi model decoding the call against the commands' words or given sentences, scored against the app |
+| `scripts/kaldi_mode.py` | Kaldi mode on office-multicap sessions, the corpus's own sentences the examples, with talk overheard (`neg-noise01`); what another `kaldi_max_cost` would do |
 | `adapt_ctc/grammar.py`, `adapt_ctc/_grammar.c` | the home's sentences as one graph, and the native search for the best of them in the CTC output |
 | `scripts/grammar_mode.py` | the app with and without the sentences, on office-multicap sessions |
 | `scripts/report_corpus.py` | per channel, per prompt, per failure |
@@ -1210,7 +1211,8 @@ for this app:
   export is not what holds it back: NeMo's own full-precision model scored
   the same (16.4% against 16.5% on one session's commands), and Parakeet
   TDT 0.6B v3 only a little better (15.4%).
-- **A Kaldi mode was tried, and Parakeet beat it** (`scripts/kaldi_mode.py`):
+- **A Kaldi mode was tried, and Parakeet beat it** (a prototype, before
+  Kaldi mode below):
   the wake verifier's Kaldi model decoding the whole call against "okay
   nabu" and the commands' own words. Any of the words: 40.3% of mike-merged's
   commands right, against the app's 78.9% -- its model hears far-field
@@ -1270,6 +1272,66 @@ for this app:
     recognizer in 0.83 s (0.34 s on x86).
     sherpa-onnx's FST decoder, tried first, needed its own encoder run and
     136 MB for the same graph.
+- **Kaldi mode** (`settings.json` `recognizer: kaldi`, the Settings page;
+  `voice_labs/kaldi_mode.py`): Kaldi hears commands instead of Parakeet, as
+  Speech-to-Phrase did, with its English model (en_US-rhasspy, the wake
+  verifier's). Parakeet stays the default; some of Speech-to-Phrase's users
+  found Kaldi heard them better.
+  - **What it hears** is the home's example sentences, word for word -- its
+    commands' and Home Assistant's sentence triggers', as compiled -- with
+    one of the language's extras before or after ("um", "please": their
+    words' twins in the lexicon, `__um`, left out of what was said) and
+    noise (`<unk>`) around them. A command with no example isn't heard (its
+    page and the Commands list say so), nor are keywords. Free text is
+    heard only from the value list named as its slot: its every phrase takes
+    the place of each example's free text -- what the matcher reads in it --
+    and a trigger's `{slot}` is that list's already (triggers.py).
+  - **Whether it was said**: the same audio decoded as any of the model's
+    10,000 frequent words, in any order (the background). A sentence that
+    costs more than `kaldi_max_cost` (0) a frame more than the background is
+    refused: "Sorry, I didn't understand that", or Never mind when the
+    background heard no word. Speech-to-Phrase decoded with a trigram of its
+    sentences and snapped the three best to the sentences; a fixed grammar
+    and the background does without either.
+  - **The graphs**: the word pronunciations -- yours (the Pronunciations
+    page, `pronunciations.json`), the model's dictionary, phonetisaurus's
+    guess with the model's G2P model (kept in `kaldi/guesses.json`) --
+    through prepare_lang and mkgraph (the wake verifier's tools); one
+    resident decoder (`verify_decoderd`) holds the home's, the same with
+    the answers to a question, and the background's, and decodes all three
+    in one acoustic pass. The background is the same for every home, built
+    once (1.9 s); the home's after each change took 0.7 s for 14 sentences
+    on a desktop. The dictionary has no index: a word a query was 4 ms, so
+    they go 500 a query.
+  - A call is decoded from 0.3 s before Kaldi's split (the noise takes a
+    wake word's tail); Wyoming STT's audio whole, and Home Assistant gets the
+    sentence as written, or nothing. Parakeet's model is still loaded: the
+    matcher reads the sentence as typed text.
+  - On the office-multicap corpus (four speakers, the VPEs' AGC channels,
+    each whole call, "okay nabu" in it), the corpus's own command sentences
+    the examples (`scripts/kaldi_mode.py`):
+
+    | `kaldi_max_cost` | commands right | wrong | refused (of 488) | overheard ran (of 400) |
+    |---|---|---|---|---|
+    | -0.04 | 65.6% | 4.7% | 91.6% | 0 |
+    | -0.02 | 73.6% | 6.0% | 88.3% | 2 |
+    | **0** | **79.3%** | **8.1%** | **81.4%** | **7** |
+    | 0.02 | 83.0% | 10.6% | 67.0% | 40 |
+    | 0.05 | 85.3% | 12.9% | 47.7% | 392 |
+
+    By speaker at 0: jenn 89.9%, mike 84.8%, natalie 71.0%, oliver 71.2%.
+    Overheard talk sits just above 0, so the setting moves from few false
+    wakes to nearly all of them within 0.05. Decoding took a median 0.135 s
+    a second of audio (12 at once on a desktop).
+  - What didn't work first: Parakeet's sentence graph (keywords in any
+    order) as Kaldi's grammar wouldn't determinize (mkgraph ran past ten
+    minutes); built without determinizing it was 78 MB, 7 s a call, and 47%
+    right. A trigram of sentences made with keywords in random order was
+    45.5% right, 20.7% wrong. Speech-to-Phrase's own lean sentences
+    (intents' `speech_to_phrase` blocks) with the corpus home's names covered
+    93 of 242 calls; on those, 69% right. Order is what Kaldi needs, and only
+    example sentences have it.
+
 - **Examples first.** A command's example sentences are searched for in the
   CTC evidence on every call, not only when no keyword intent matched, and one
   said word for word wins over keyword matches (`settings.examples_first`).

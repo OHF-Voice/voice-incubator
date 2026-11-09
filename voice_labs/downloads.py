@@ -15,7 +15,9 @@ The image itself carries the rest (``IMAGE``, fetched as it is built): the
 speaker model, the microWakeWord models pushed to satellites, and the wake
 word verifier's Kaldi -- its model, and its tools for the image's
 architecture, which the resident decoder is compiled against -- about 160
-MB, from rhasspy/voice-labs-models and OpenVoiceOS/redimnet-b2-vox2-onnx.
+MB, from rhasspy/voice-labs-models and OpenVoiceOS/redimnet-b2-vox2-onnx; and
+for Kaldi mode, the model's G2P and phonetisaurus (43 MB, of Speech-to-Phrase's
+archives in rhasspy/rhasspy-speech).
 
     python3 -m voice_labs.downloads fetch models          # in the image's build, or a working copy's
     python3 -m voice_labs.downloads link /data/models    # in the image's build
@@ -46,6 +48,11 @@ MODELS_REPO = "https://huggingface.co/rhasspy/voice-labs-models/resolve/de2ae006
 EMBEDDING_REPO = (
     "https://huggingface.co/onnx-community/embeddinggemma-2-ONNX/resolve/daa72c51243991dfcaf9f9137d2c573d8f7790c0"
 )
+SPEECH_REPO = (
+    "https://huggingface.co/datasets/rhasspy/rhasspy-speech/resolve/9e6bcf3af07909f39f71674f62372508d00dd4a9"
+)
+"""Speech-to-Phrase's models and tools: Kaldi mode's G2P model and
+phonetisaurus (voice_labs/kaldi_mode.py)."""
 REDIMNET_REPO = (
     "https://huggingface.co/OpenVoiceOS/redimnet-b2-vox2-onnx/resolve/5127cc45350579cafea037f82634c2be04ca712d"
 )
@@ -66,6 +73,9 @@ class File:
     unpack: str | None = None
     """An archive's (.tar.gz): what it unpacks to in its model's folder,
     where it is unpacked and not kept."""
+    member: str | None = None
+    """An archive's (.tar.gz) one file that is kept, as ``name``: its path in
+    the archive."""
 
 
 @dataclass(frozen=True)
@@ -143,6 +153,9 @@ IMAGE = (
     Model("wake-kaldi-models", (
         File("en_US-rhasspy.tar.gz", f"{KALDI}/en_US-rhasspy.tar.gz",
              "3aeada11a4ba0d38653e933ce706089d3d83f14cf6f414adcdf6adcbf3f93ad3", 69505380, unpack="en_US-rhasspy"),
+        # The same model's G2P, which the app's copy leaves out: Kaldi mode's guesses.
+        File("en_US-rhasspy/g2p.fst", f"{SPEECH_REPO}/models/en_US-rhasspy.tar.gz",
+             "3dbf8c16b2d08767eba4866a444f075d0a5b1304c73ca366d2c60346b28759e7", 83094313, member="en_US-rhasspy/g2p.fst"),
     )),
 )
 """What the image carries, fetched as it is built (``fetch``)."""
@@ -154,6 +167,14 @@ KALDI_TOOLS = {
 }
 """Kaldi's and OpenFst's binaries, libraries, headers and scripts, for each
 architecture (Home Assistant's names): unpacked into models/."""
+PHONETISAURUS = {
+    "amd64": File("phonetisaurus", f"{SPEECH_REPO}/tools/rhasspy-speech_amd64.tar.gz",
+                  "003a2e992c20bb96f5f7ad0774a66998f4da7c4b58ad79eafd958f831df1d680", 55926921, member="phonetisaurus"),
+    "aarch64": File("phonetisaurus", f"{SPEECH_REPO}/tools/rhasspy-speech_arm64.tar.gz",
+                    "5d3fab4d3773434dabdad5140b3cc2b1b6f59b56034636a8bf6b73fc4fff74ea", 54577372, member="phonetisaurus"),
+}
+"""Phonetisaurus for each architecture, from Speech-to-Phrase's tools: Kaldi
+mode's guessed pronunciations, linked against the tools' OpenFst."""
 ARCHES = {"x86_64": "amd64", "aarch64": "aarch64", "arm64": "aarch64"}
 """This machine's architecture (``platform.machine``), as KALDI_TOOLS names it."""
 
@@ -162,7 +183,7 @@ def fetch(models: Path, arch: str) -> None:
     """What the image carries (IMAGE, and the Kaldi tools for ``arch``) into
     ``models``, each checked against its SHA-256. What is there already is
     left as it is."""
-    for model in (*IMAGE, Model("", (KALDI_TOOLS[arch],))):
+    for model in (*IMAGE, Model("", (KALDI_TOOLS[arch],)), Model("wake-kaldi-tools", (PHONETISAURUS[arch],))):
         folder = models / model.folder
         for file in model.files:
             target = folder / (file.unpack or file.name)
@@ -172,13 +193,31 @@ def fetch(models: Path, arch: str) -> None:
             with tempfile.TemporaryDirectory(dir=folder) as work:
                 path = Path(work) / file.name
                 _fetch_file(file, path)
-                if file.unpack:
+                if file.member:
+                    _extract(path, file.member, target)
+                elif file.unpack:
                     with tarfile.open(path) as archive:
                         archive.extractall(work, filter="tar")
                     (Path(work) / file.unpack).replace(target)
                 else:
                     path.replace(target)
             print(f"{target} ({file.size / 1e6:.1f} MB)")
+
+
+def _extract(archive_path: Path, member: str, target: Path) -> None:
+    """One file of an archive, as ``target`` (an executable stays one)."""
+    with tarfile.open(archive_path) as archive:
+        info = next((m for m in archive.getmembers() if m.isfile() and m.name.removeprefix("./") == member), None)
+        if info is None:
+            raise SystemExit(f"{archive_path.name} has no {member}")
+        source = archive.extractfile(info)
+        assert source is not None
+        partial = target.with_name(target.name + ".part")
+        with source, partial.open("wb") as out:
+            while chunk := source.read(CHUNK):
+                out.write(chunk)
+    partial.chmod(0o755 if info.mode & 0o111 else 0o644)
+    partial.replace(target)
 
 
 def _fetch_file(file: File, path: Path, tries: int = 3) -> None:
