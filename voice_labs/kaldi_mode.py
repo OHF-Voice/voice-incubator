@@ -58,6 +58,7 @@ from typing import Any
 import numpy as np
 
 from adapt_ctc.config import Config
+from adapt_ctc.template import TemplateError, expand
 from adapt_ctc.text import spoken_words
 from wyoming_wake_kaldi.kaldi import FRAME_SHIFT, SpeechTools
 from wyoming_wake_kaldi.lexicon import ModelLexicon
@@ -111,7 +112,7 @@ were decoded whole after their wake phrase: scripts/kaldi_mode.py's
 
 SEARCH = ("--beam=13.0", "--max-active=7000", "--lattice-beam=2.0")
 
-BUILD_VERSION = 5
+BUILD_VERSION = 6
 """Bumped when the graphs change for the same sentences."""
 
 EXTRAS = {
@@ -133,12 +134,24 @@ _DECODE_TIMEOUT = 30.0
 
 @dataclass
 class Sentences:
-    """What Kaldi hears: each intent's sentences, as words."""
+    """What Kaldi hears: each intent's sentences, as words -- a template's
+    slot as a token (``SLOT_TOKEN``) that stands for every one of its
+    phrases (``slots``)."""
 
     by_intent: dict[str, list[tuple[str, ...]]] = field(default_factory=dict)
     notes: dict[str, dict[str, Any]] = field(default_factory=dict)
-    """Intents not heard (``why``: ``examples``, none) or heard with only the
-    free text their examples say (``list``: the value list it needs)."""
+    """Intents not heard (``why``: ``examples``, none; ``names``, none its
+    ``slot`` may take) or heard with only the free text their examples say
+    (``list``: the value list it needs)."""
+    slots: dict[str, list[tuple[str, ...]]] = field(default_factory=dict)
+    """Each slot token's phrases: the names, numbers or values it may be."""
+    templates: dict[str, list[tuple[str, tuple[str, ...]]]] = field(default_factory=dict)
+    """Each command's templates and, for each, a sentence it stands for (the
+    slots' first phrases): what ``Engine.build_kaldi`` checks reads back as
+    the command."""
+    misread: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    """By command: its templates whose sentence the matcher reads as another
+    command (``as``), or as none."""
 
     @property
     def all(self) -> list[tuple[str, ...]]:
@@ -152,17 +165,30 @@ def words_of(text: str, language: str) -> list[tuple[str, ...]]:
     return [tuple(w) for w in spoken_words(text, language)[:1] if w]
 
 
-def sentences(config: Config, free_text: Callable[[str, str], str | None]) -> Sentences:
+SLOT_TOKEN = "zzslot"
+"""Before a slot's letters in a template's sentences: one word to the
+template's expansion and spelling (letters only: digits would be spelled)."""
+
+
+def sentences(
+    config: Config, free_text: Callable[[str, str], str | None], commands: Iterable[Any] = (),
+) -> Sentences:
     """Every intent's example sentences, as words; its free text, when it
-    needs one, each phrase of the value list named as its slot.
+    needs one, each phrase of the value list named as its slot. And each of
+    ``commands``' sentence templates (Command.sentences), its slots each a
+    token standing for the phrases the slot may be in its combination's
+    intent: the names it may take, its numbers, its value list's phrases.
     ``free_text(intent, sentence)``: the free text the matcher reads in an
     example of the intent."""
     language = config.language
     out = Sentences()
+    templated = _templates(out, config, commands)
     for intent in config.intents.values():
+        if intent.name in templated and not intent.examples:
+            continue
         if not intent.examples:
             if intent.keywords or intent.wildcard is not None:
-                out.notes[intent.name] = {"why": "examples"}
+                out.notes.setdefault(intent.name, {"why": "examples"})  # a template's own note goes first
             continue
         said = [s for example in intent.examples for s in words_of(example, language)]
         wildcard = intent.wildcard
@@ -173,8 +199,102 @@ def sentences(config: Config, free_text: Callable[[str, str], str | None]) -> Se
             else:
                 phrases = [w for _, texts in values for text in texts for w in words_of(text, language)]
                 said = [s for example in intent.examples for s in _with_values(example, intent.name, phrases, language, free_text)]
-        out.by_intent[intent.name] = list(dict.fromkeys(said))
+        out.by_intent[intent.name] = list(dict.fromkeys([*out.by_intent.get(intent.name, []), *said]))
     return out
+
+
+def _templates(out: Sentences, config: Config, commands: Iterable[Any]) -> set[str]:
+    """``commands``' sentence templates into ``out``: the intents they are
+    sentences of."""
+    from decimal import Decimal  # pylint: disable=import-outside-toplevel
+
+    from adapt_ctc.grammar import allowed_names, name_phrases, number_phrases  # pylint: disable=import-outside-toplevel
+    from adapt_ctc.numbers import spoken_forms  # pylint: disable=import-outside-toplevel
+
+    from .commands import SLOT  # pylint: disable=import-outside-toplevel
+
+    language = config.language
+    tokens: dict[tuple[str, str], str] = {}
+    templated: set[str] = set()
+
+    def phrases(intent: Any, slot: str) -> list[tuple[str, ...]]:
+        if slot in intent.names:
+            entries = allowed_names(intent, config, slot)
+            return [tuple(w.text for w in p) for p in name_phrases(entries, language)]
+        listed = next((lst for lst in intent.lists if lst.slot == slot), None)
+        if listed is not None:
+            return [w for _, texts in listed.values for text in texts for w in words_of(text, language)]
+        if intent.wildcard is not None and intent.wildcard.slot == slot:
+            return [w for _, texts in config.lists.get(slot) or () for text in texts for w in words_of(text, language)]
+        if intent.number is not None:
+            return [tuple(w.text for w in p) for p in number_phrases(intent, config)]
+        return []
+
+    samples: dict[str, tuple[str, ...]] = {}
+
+    def sample(intent: Any, slot: str, said: list[tuple[str, ...]]) -> tuple[str, ...]:
+        """A phrase the slot may be that the command takes: a number in its
+        range (the slot also hears those the matcher refuses), else the first."""
+        number = intent.number
+        heard_as_number = number is not None and slot not in intent.names and not any(
+            lst.slot == slot for lst in intent.lists) and not (intent.wildcard is not None and intent.wildcard.slot == slot)
+        if heard_as_number and number.minimum is not None and number.maximum is not None:
+            middle = ((Decimal(number.minimum) + Decimal(number.maximum)) / 2).to_integral_value()
+            for value in (middle, Decimal(number.minimum)):
+                for form in spoken_forms(value, language):
+                    want = tuple(form.split())
+                    found = next((q for q in said if q[:len(want)] == want), None)
+                    if found is not None:
+                        return found
+        return said[0]
+
+    def token(intent: Any, slot: str) -> str | None:
+        key = (intent.name, slot)
+        if key not in tokens:
+            said = list(dict.fromkeys(p for p in phrases(intent, slot) if p))
+            if not said:
+                return None
+            index, letters = len(tokens), ""
+            while True:
+                index, rest = divmod(index, 26)
+                letters = chr(97 + rest) + letters
+                if index == 0:
+                    break
+                index -= 1
+            tokens[key] = f"{SLOT_TOKEN}{letters}"
+            out.slots[tokens[key]] = said
+            samples[tokens[key]] = sample(intent, slot, said)
+        return tokens[key]
+
+    for command in commands:
+        for template in getattr(command, "sentences", ()) or ():
+            slots = SLOT.findall(template)
+            name = next((n for n, c in zip(command.intents, command.combinations) if set(c) == set(slots)), None)
+            intent = config.intents.get(name) if name else None
+            if intent is None:
+                continue  # not heard here: turned off, or an empty list
+            said = {slot: token(intent, slot) for slot in slots}
+            missing = [slot for slot, t in said.items() if t is None]
+            if missing:
+                wildcard = intent.wildcard is not None and intent.wildcard.slot in missing
+                named = [slot for slot in missing if slot in intent.names]
+                out.notes.setdefault(intent.name, {"why": "list", "list": missing[0]} if wildcard
+                                     else {"why": "names", "slot": named[0]} if named else {"why": "examples"})
+                continue
+            text = SLOT.sub(lambda m, said=said: f" {said[m.group(1)]} ", template)
+            try:
+                expanded = expand(text)
+            except TemplateError:
+                continue  # checked when the command was read
+            sentences_ = [w for sentence in expanded for w in words_of(sentence, language)]
+            if not sentences_:
+                continue
+            out.by_intent.setdefault(intent.name, []).extend(sentences_)
+            out.by_intent[intent.name] = list(dict.fromkeys(out.by_intent[intent.name]))
+            first = tuple(w for word in sentences_[0] for w in (samples[word] if word in out.slots else (word,)))
+            out.templates.setdefault(command.id, []).append((template, first))
+            templated.add(intent.name)
+    return templated
 
 
 def _with_values(
@@ -352,16 +472,18 @@ class Built:
 
 def _grammar(
     sentences: list[tuple[str, ...]], extras: tuple[list[tuple[str, ...]], list[tuple[str, ...]]],
-    wake: list[tuple[str, ...]] | None = None,
+    wake: list[tuple[str, ...]] | None = None, slots: dict[str, list[tuple[str, ...]]] | None = None,
 ) -> list[str]:
     """``sentences`` as an OpenFST text grammar: noise, one of the ``wake``
     phrases when given, an extra, a sentence (their shared-prefix tree), an
     extra, noise. Epsilons are ``#0`` in and nothing out, as Kaldi's
     grammars have them. An extra is its word's twin (``EXTRA``), and a wake
     phrase's word its own (``WAKE``): heard, and left out of what was said,
-    as noise is."""
+    as noise is. A word of ``slots`` (a template's slot token) is a tree of
+    its phrases, one for each place it is said."""
     lines: list[str] = []
     states = 6
+    slots = slots or {}
 
     def arc(src: int, dst: int, word: str | None = None, cost: float = 0.0, prefix: str = "") -> None:
         label = "#0 <eps>" if word is None else f"{prefix}{word} {prefix}{word}"
@@ -377,8 +499,11 @@ def _grammar(
                 key = (at, word)
                 if key not in children:
                     children[key] = states
-                    arc(at, states, word, cost if at == src else 0.0, prefix)
                     states += 1
+                    if word in slots:
+                        tree(at, children[key], slots[word])
+                    else:
+                        arc(at, children[key], word, cost if at == src else 0.0, prefix)
                 at = children[key]
             ends.add(at)
         for end in sorted(ends):
@@ -466,19 +591,24 @@ class KaldiMode:
             after = [w for p in EXTRAS.get(language, ((), ()))[1] for w in words_of(p, language)]
             said = heard.all
             answered = [w for text in answers for w in words_of(text, language)]
-            vocabulary = sorted({w for s in [*said, *answered, *before, *after] for w in s})
+            vocabulary = sorted(
+                {w for s in [*said, *answered, *before, *after] for w in s if w not in heard.slots}
+                | {w for phrases in heard.slots.values() for p in phrases for w in p}
+            )
             words = self.pronouncer.words(vocabulary, own)
             speakable = {w for w, entry in words.items() if entry.pronunciations}
             unspeakable = sorted(w for w in vocabulary if w not in speakable)
+            # A slot's phrases the model can say; a slot with none leaves out its sentences.
+            slots = {t: kept for t, phrases in heard.slots.items() if (kept := [p for p in phrases if all(w in speakable for w in p)])}
 
             def sayable(phrases: list[tuple[str, ...]]) -> list[tuple[str, ...]]:
-                return [p for p in phrases if all(w in speakable for w in p)]
+                return [p for p in phrases if all(w in speakable or w in slots for w in p)]
 
             keep, answer_keep, extras = sayable(said), sayable(answered), (sayable(before), sayable(after))
             wakes = self._wake_words(wake, wake_lexicon or {}, own)
             wake_keep = [p for p in dict.fromkeys(tuple(w.lower() for w in p) for p in wake) if all(f"{WAKE}{w}" in wakes for w in p)]
             signature = _signature({
-                "sentences": keep, "answers": answer_keep, "extras": extras, "wake": wake_keep,
+                "sentences": keep, "slots": slots, "answers": answer_keep, "extras": extras, "wake": wake_keep,
                 "words": {w: words[w].pronunciations for w in sorted(speakable)},
                 "wake_words": {w: e.pronunciations for w, e in sorted(wakes.items())}, "costs": [UNK_COST, EXTRA_COST],
             })
@@ -492,9 +622,9 @@ class KaldiMode:
                 twins = {f"{EXTRA}{w}": Word(f"{EXTRA}{w}", words[w].pronunciations, words[w].source)
                          for phrase in [*extras[0], *extras[1]] for w in phrase}
                 self._build_graphs(directory, {
-                    "home": _grammar(keep, extras),
-                    "answer": _grammar(list(dict.fromkeys([*keep, *answer_keep])), extras),
-                    "call": _grammar(keep, extras, wake_keep or None),
+                    "home": _grammar(keep, extras, slots=slots),
+                    "answer": _grammar(list(dict.fromkeys([*keep, *answer_keep])), extras, slots=slots),
+                    "call": _grammar(keep, extras, wake_keep or None, slots=slots),
                 }, {**{w: words[w] for w in speakable}, **twins, **{w: wakes[w] for w in {f"{WAKE}{x}" for p in wake_keep for x in p}}})
                 (directory / "done").write_text("", "utf-8")
             decoder = _Decoder(self.daemon, self.model(), {

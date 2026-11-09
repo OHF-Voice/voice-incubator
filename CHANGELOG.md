@@ -299,6 +299,11 @@
   sentence triggers, word for word -- free text only from a value list named
   as its slot -- and refuses what is too far from a background of everyday
   words. A command it can't hear says so on the Commands list and its page.
+  **Kaldi sentences** (on a command's page in Kaldi mode): templates with
+  the slots they hear in braces -- `turn on [the] {entity}`, `set the
+  {area} lights to {percentage} percent` -- heard with every name, number
+  or value the slot may be. The English library has them for 128 commands.
+  Parakeet doesn't use them: what it hears is unchanged.
   The **Pronunciations** page (in Kaldi mode) has every word's, guessed by
   phonetisaurus where the dictionary lacks one, and yours in place of any.
   A call is heard whole, after its wake phrase, and so is the background.

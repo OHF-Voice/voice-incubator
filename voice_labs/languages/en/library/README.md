@@ -17,6 +17,10 @@ Each entry is a command (see voice_labs/commands.py) plus:
              lists a command added then)
 ```
 
+Kaldi mode's sentences for these commands are in `../sentences.yaml`, by
+`file/id` (a version's id with its variant): templates with the slots they
+hear in braces, each read back as its own command (tests/test_kaldi_mode.py).
+
 Keywords follow adapt-ctc's core intents (adapt_ctc/examples/intents/core.yaml),
 which were tuned on the office-multicap corpus.
 

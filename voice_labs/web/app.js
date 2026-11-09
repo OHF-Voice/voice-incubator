@@ -183,13 +183,13 @@ function poll(fn, ms) {
 // Chips: a list of short phrases. Enter or comma adds; × removes.
 // What each example template stands for -- its sentences, or what's wrong
 // with it -- under the example sentences.
-function examplesInfo(values) {
+function examplesInfo(values, slots = false) {
   const box = h("div", { class: "small examples-info" });
   async function show(list) {
     const templates = asList(list).map(String).filter((v) => /[()[\]|{}<>]/.test(v));
     if (!templates.length) { fill(box); return; }
     try {
-      const data = await api("POST", "examples", { examples: templates });
+      const data = await api("POST", "examples", { examples: templates, slots });
       fill(box, data.examples.map((e) => (e.error
         ? h("div", { class: "notice bad" }, `“${e.example}”: ${e.error}`)
         : h("div", { class: "muted", title: e.sentences.join("\n") },
@@ -376,7 +376,11 @@ function kaldiNote(id) {
   const kaldi = (state.status && state.status.kaldi) || {};
   const note = kaldi.chosen ? (kaldi.notes || {})[id] : null;
   if (!note) return null;
-  if (note.why === "examples") return { text: "Kaldi hears only example sentences, and it has none.", partly: false };
+  const misread = asList(note.misread)[0];
+  const misreadText = misread ? `Kaldi hears “${misread.sentence}”, which reads as ${misread.as ? `“${misread.as}”` : "no command"}.` : "";
+  if (note.why === "misread") return { text: misreadText, partly: true };
+  if (note.why === "examples") return { text: "Kaldi hears only example sentences and Kaldi sentences, and it has neither.", partly: false };
+  if (note.why === "names") return { text: `Kaldi hears it with ${{ entity: "a device's", area: "an area's", floor: "a floor's" }[note.slot] || "a"} name, and none it may take is on the Names page.`, partly: false };
   const lists = andList(asList(note.lists).map((l) => `“${l}”`));
   return note.partly
     ? { text: `Kaldi hears only the free text its example sentences say: add a value list named ${lists} for more.`, partly: true }
@@ -827,8 +831,9 @@ async function pageCommand(id, prefill, query) {
   if (isNew && params.get("area")) spec.area = params.get("area");
   const reference = isNew ? null : ((state.store.references || {})[id] || null);
   let following = Boolean(reference);
-  // Example sentences of your own, beside the library's.
+  // Example sentences of your own, beside the library's; and Kaldi sentences.
   let extras = following ? asList(reference.examples) : [];
+  let ownSentences = following ? asList(reference.sentences) : [];
   const locked = (...children) => (following ? h("fieldset", { class: "locked", disabled: true }, ...children) : children);
   const back = () => placeHref(params.get("from") || spec.area || "home");
   // A new command's id, from its description: unique, never shown.
@@ -847,7 +852,7 @@ async function pageCommand(id, prefill, query) {
   function formSpec() {
     if (following) {
       // What it may set itself: the library's version is the rest.
-      const out = { from: reference.from, examples: extras, slots: spec.slots || {} };
+      const out = { from: reference.from, examples: extras, sentences: ownSentences, slots: spec.slots || {} };
       for (const key of ["area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon"]) out[key] = spec[key] === undefined ? null : spec[key];
       if (reference.language) out.language = reference.language;
       return out;
@@ -885,6 +890,24 @@ async function pageCommand(id, prefill, query) {
     await api("DELETE", `commands/${id}`);
     toast("Deleted");
     location.hash = back();
+  }
+
+  // Kaldi mode's sentences: shown in Kaldi mode, or when it has some. The
+  // library's locked, yours beside them, as example sentences are.
+  function kaldiSentences() {
+    const kaldi = (state.status && state.status.kaldi) || {};
+    const theirs = following ? asList(spec.sentences).filter((e) => !ownSentences.includes(e)) : [];
+    if (!kaldi.chosen && !asList(spec.sentences).length) return null;
+    const slots = heardSlots();
+    const help = `Heard only by Kaldi, word for word, with every name, number or value a slot in braces may be${slots.length ? ` (${slots.map((x) => `{${x}}`).join(", ")})` : ""}. Each is one way to say it whole. Parakeet doesn't use them.`;
+    return h("div", {},
+      heading("h3", "Kaldi sentences", help),
+      following
+        ? [theirs.length ? locked(chipsInput(theirs, () => {}, "")) : null,
+          ((info) => field("Your own", h("div", {}, chipsInput(ownSentences, (v) => { ownSentences = v; info.show(v); }, "turn on [the] {entity}"), info.box),
+            "Heard as well as the library's."))(examplesInfo(ownSentences, true))]
+        : ((info) => h("div", {}, chipsInput(spec.sentences || [], (v) => { spec.sentences = v; info.show(v); }, "turn on [the] {entity}"), info.box))(
+          examplesInfo(spec.sentences || [], true)));
   }
 
   // Fixed slots: the entity, area or floor the command targets.
@@ -1467,7 +1490,8 @@ async function pageCommand(id, prefill, query) {
           : ((info) => h("div", {},
             chipsInput(spec.examples || [], (v) => { spec.examples = v; info.show(v); }, "type a whole sentence and press Enter"), info.box))(examplesInfo(spec.examples || [])),
         h("div", { class: "wake-list" }, fallbackBox("meaning", "Also sentences that mean the same",
-          "When nothing else matched, a sentence very close in meaning to one of these, or to the description, runs it: “got the time?” for “what time is it”. Example sentences match far better than the description."))),
+          "When nothing else matched, a sentence very close in meaning to one of these, or to the description, runs it: “got the time?” for “what time is it”. Example sentences match far better than the description.")),
+        kaldiSentences()),
       h("div", { class: "panel" }, h("h2", {}, "What happens"), behaviorEditor(spec, actionYaml)),
       h("div", { class: "panel" },
         heading("h2", "Keywords", "Every required group must be heard, by any one of its alternatives, in any order. Write “turn … on” for words that may be split (“turn the lights on”)."),

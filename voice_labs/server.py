@@ -1245,7 +1245,7 @@ class VoiceLabsApp:
                 listed = notes.setdefault(command, {"why": "list", "lists": []})
                 listed["lists"] = sorted({*listed.get("lists", []), note["list"]})
             elif command not in said:
-                notes.setdefault(command, {"why": "examples"})
+                notes.setdefault(command, dict(note) if note["why"] == "names" else {"why": "examples"})
         for trigger in (compiled.triggers or {}).values():
             if trigger.transcript:
                 slots = sorted({slot for group in trigger.free for slot in group})
@@ -1253,7 +1253,11 @@ class VoiceLabsApp:
         for command, note in notes.items():
             if note["why"] == "list":
                 note["partly"] = command in said
-        return {c: n for c, n in notes.items() if c in compiled.commands and not (n["why"] == "examples" and c in said)}
+        notes = {c: n for c, n in notes.items() if c in compiled.commands and not (n["why"] in ("examples", "names") and c in said)}
+        for command, misread in heard.misread.items():
+            if command in compiled.commands:
+                notes.setdefault(command, {"why": "misread"})["misread"] = misread
+        return notes
 
     async def change_recognizer(self) -> None:
         """Kaldi's graphs built (or its decoder stopped) for what the

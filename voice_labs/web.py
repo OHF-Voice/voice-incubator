@@ -38,6 +38,7 @@ from .commands import (
     HOME_THINGS,
     ICON,
     NUMBER_PRESETS,
+    SLOT,
     VERBOSITY,
     area_ids,
     command_of,
@@ -559,16 +560,22 @@ class Api:
 
     async def examples(self, request: web.Request) -> web.Response:
         """What example sentences stand for: each template's sentences (the
-        first few), or what is wrong with it."""
+        first few), or what is wrong with it. ``slots``: Kaldi sentences,
+        their slots in braces kept as they are (commands.SLOT)."""
         body = await request.json()
+        slots = bool(body.get("slots"))
         out = []
         for text in body.get("examples") or []:
             text = str(text)
+            marked = SLOT.sub(lambda m: f" zzslot{m.group(1).replace('_', '')}zz ", text) if slots else text
             try:
-                sentences = expand(text)
+                sentences = expand(marked)
             except TemplateError as err:
                 out.append({"example": text, "error": str(err)})
                 continue
+            if slots:
+                found = {f"zzslot{s.replace('_', '')}zz": s for s in SLOT.findall(text)}
+                sentences = [" ".join(f"{{{found[w]}}}" if w in found else w for w in sentence.split()) for sentence in sentences]
             out.append({"example": text, "count": len(sentences), "sentences": sentences[:20]})
         return web.json_response({"examples": out})
 

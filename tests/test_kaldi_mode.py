@@ -47,7 +47,8 @@ def fixture_engine():
 
 def _sentences(engine: Engine) -> Sentences:
     recognizer = engine.recognizer
-    return kaldi_mode.sentences(recognizer.config, lambda intent, text: engine._free_text(recognizer, intent, text))
+    return kaldi_mode.sentences(recognizer.config, lambda intent, text: engine._free_text(recognizer, intent, text),
+                                engine.compiled.commands.values())
 
 
 def test_only_example_sentences_are_heard(engine):
@@ -203,3 +204,121 @@ def test_parakeet_hears_when_kaldi_fails(engine):
         assert decision.text_source != "kaldi" and decision.matched_by != "kaldi"
     finally:
         engine.recognizer_choice = "parakeet"
+
+
+# ------------------------------------------------------- sentence templates
+
+TEMPLATED = {
+    "names": {
+        "entities": {"light.desk": {"name": "Desk Lamp"}, "lock.front_door": {"name": "Front Door"}},
+        "areas": {"kitchen": {"name": "Kitchen"}, "office": {"name": "Office"}},
+    },
+    "commands": {
+        "light_on": {
+            "description": "turn on a light", "require": [["turn on", "turn ... on"]], "optional": [["the"], ["in"], ["light", "lights"]],
+            "names": {"entity": {"count": 1, "domains": ["light"]}, "area": {"count": 1}},
+            "combinations": [["entity"], ["area"]],
+            "sentences": ["turn on [the] {entity}", "turn on the lights in [the] {area}"],
+            "action": {"action": "light.turn_on"},
+        },
+        "brightness": {
+            "description": "set a light's brightness", "require": [["brightness"]], "optional": [["set"], ["the"], ["to"], ["percent"]],
+            "names": {"entity": {"count": 1, "domains": ["light"]}}, "number": "percentage",
+            "sentences": ["set [the] {entity} brightness to {percentage} percent"],
+            "action": {"action": "light.turn_on"},
+        },
+    },
+}
+
+
+def test_templates_are_kaldi_s_alone():
+    """Parakeet reads nothing of them: the recognizer's config is the same
+    with them as without."""
+    without = {**TEMPLATED, "commands": {k: {kk: vv for kk, vv in v.items() if kk != "sentences"} for k, v in TEMPLATED["commands"].items()}}
+    assert compile_store(TEMPLATED).config == compile_store(without).config
+
+
+def test_template_slots_are_their_names_and_numbers():
+    engine = _engine(TEMPLATED)
+    heard = engine.kaldi_sentences = _sentences(engine)
+    said = {" ".join(s) for s in heard.all}
+    on_entity = next(s for s in heard.by_intent["light_on"])
+    token = next(w for w in on_entity if w.startswith(kaldi_mode.SLOT_TOKEN))
+    # The light's name only: a lock isn't a light.
+    assert heard.slots[token] == [("desk", "lamp")]
+    assert any(w.startswith(kaldi_mode.SLOT_TOKEN) for s in heard.by_intent["light_on:area"] for w in s)
+    numbers = next(heard.slots[w] for s in heard.by_intent["brightness"] for w in s if w.startswith(kaldi_mode.SLOT_TOKEN) and len(heard.slots[w]) > 50)
+    assert ("fifty",) in numbers and ("one", "hundred") in numbers
+    assert not any("{" in s for s in said)
+    # Each reads back as its own command.
+    engine._misread(engine.recognizer, heard)
+    assert heard.misread == {}
+
+
+def test_a_template_read_as_another_command_is_said():
+    store = {**TEMPLATED, "commands": {**TEMPLATED["commands"], "brightness": {
+        **TEMPLATED["commands"]["brightness"], "sentences": ["turn on [the] {entity} to {percentage} percent"]}}}
+    engine = _engine(store)
+    heard = _sentences(engine)
+    engine._misread(engine.recognizer, heard)
+    # Without "brightness" it isn't Set the brightness: Kaldi would hear it, and it wouldn't run.
+    [misread] = heard.misread["brightness"]
+    assert misread["sentence"] == "turn on the desk lamp to fifty percent" and misread["as"] != "brightness"
+
+
+def test_a_template_s_slots_must_be_a_way_to_say_it():
+    from adapt_ctc.config import ConfigError  # pylint: disable=import-outside-toplevel
+
+    for bad, message in ((["turn on {floor}"], "not a slot"), (["turn on {entity} in {area}"], "isn't a way to say it"),
+                         (["turn on (the {entity}"], "never closed")):
+        store = {**TEMPLATED, "commands": {"light_on": {**TEMPLATED["commands"]["light_on"], "sentences": bad}}}
+        with pytest.raises(ConfigError, match=message):
+            compile_store(store)
+
+
+def test_a_slot_is_a_tree_where_it_is_said():
+    lines = kaldi_mode._grammar([("turn", "on", "zzslota"), ("turn", "on", "zzslota", "please")], ([], []),
+                                slots={"zzslota": [("kitchen", "light"), ("lamp",)]})
+    words = [line.split()[2] for line in lines if len(line.split()) > 3]
+    assert words.count("kitchen") == 1 and words.count("lamp") == 1 and "zzslota" not in words
+
+
+def test_a_followed_command_keeps_its_own_sentences(monkeypatch):
+    from voice_labs import library  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(library, "base", lambda reference, *_: {"description": "d", "require": [["a"]], "response": "ok",
+                                                                 "sentences": ["the library's"]})
+    out = library.resolve("x", {"from": "f/x", "sentences": ["mine", "the library's"]})
+    assert out["sentences"] == ["the library's", "mine"]
+    assert library.settings({"from": "f/x", "sentences": ["the library's", "mine"]}, {"sentences": ["the library's"]}) == {
+        "from": "f/x", "sentences": ["mine"]}
+
+
+def test_every_library_template_reads_back_as_its_command():
+    """The English library's sentences (languages/en/sentences.yaml), each
+    with names of every kind and a value for every free text: what Kaldi
+    would hear is read as the command it is a sentence of."""
+    from voice_labs import languages  # pylint: disable=import-outside-toplevel
+    from voice_labs.library import _library  # pylint: disable=import-outside-toplevel
+
+    languages.use("en")
+    entries = _library("en")
+    assert not [e["id"] for e in entries if e.get("error")]
+    entities = {"light.desk_lamp": "Desk Lamp", "switch.kettle": "Kettle", "fan.ceiling_fan": "Ceiling Fan",
+                "media_player.living_room_speaker": "Living Room Speaker", "climate.ecobee": "Ecobee",
+                "cover.garage_door": "Garage Door", "lock.front_door": "Front Door", "binary_sensor.back_door": "Back Door",
+                "sensor.outside_temperature": "Outside Temperature", "scene.movie_night": "Movie Night",
+                "script.good_night": "Good Night"}
+    store = {
+        "names": {"entities": {k: {"name": v} for k, v in entities.items()},
+                  "areas": {"kitchen": {"name": "Kitchen"}, "office": {"name": "Office"}},
+                  "floors": {"upstairs": {"name": "Upstairs"}}},
+        "lists": {slot: {value: [value]} for slot, value in (("item", "milk"), ("query", "radiohead"), ("message", "dinner is ready"),
+                                                             ("reminder", "to call mom"), ("timer", "pizza"), ("time", "seven"))},
+        "commands": {e["id"]: {"from": f"{e['file']}/{e['id']}"} for e in entries},
+    }
+    engine = _engine(store)
+    heard = _sentences(engine)
+    engine._misread(engine.recognizer, heard)
+    assert sum(len(t) for t in heard.templates.values()) > 200
+    assert heard.misread == {}

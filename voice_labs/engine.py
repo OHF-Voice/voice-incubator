@@ -610,7 +610,7 @@ class Engine:
         if self.kaldi is None:
             return
         with self._lock:
-            recognizer = self.recognizer
+            recognizer, compiled = self.recognizer, self.compiled
         if recognizer is None:
             return
         language = recognizer.config.language
@@ -618,8 +618,10 @@ class Engine:
             if language.split("-")[0].split("_")[0] not in kaldi_mode.LANGUAGES:
                 raise RuntimeError(f"Kaldi has no model for {language}")
             heard = kaldi_mode.sentences(
-                recognizer.config, lambda intent, text: self._free_text(recognizer, intent, text)
+                recognizer.config, lambda intent, text: self._free_text(recognizer, intent, text),
+                compiled.commands.values() if compiled is not None else (),
             )
+            self._misread(recognizer, heard)
             reading = languages.current().reading
             answers = sorted({*reading.ANSWER_ENDS, *reading.YES_SAID, *reading.NO_SAID})
             phrases, lexicon = self.kaldi_wake
@@ -628,6 +630,21 @@ class Engine:
         except Exception as err:  # noqa: BLE001 - Parakeet hears instead
             _LOGGER.exception("Kaldi mode can't be built")
             self.kaldi.error = str(err) or type(err).__name__
+
+    def _misread(self, recognizer: Recognizer, heard: kaldi_mode.Sentences) -> None:
+        """Each command's sentence templates that the matcher doesn't read
+        as the command -- one sentence each stands for, the slots' first
+        phrases -- into ``heard.misread``: Kaldi would hear them, and
+        something else would run."""
+        for command_id, templates in heard.templates.items():
+            for template, words in templates:
+                text = " ".join(words)
+                spellings = spoken_words(text, recognizer.config.language)
+                log_probs, _ = self.model.vocab.text_log_probs(spellings[0] if spellings else [])
+                best = recognizer.recognize_log_probs(log_probs, self.model.frame_seconds).best
+                read = command_of(best.intent) if best is not None else None
+                if read != command_id:
+                    heard.misread.setdefault(command_id, []).append({"template": template, "sentence": text, "as": read})
 
     def _free_text(self, recognizer: Recognizer, intent: str, text: str) -> str | None:
         """The free text the matcher reads in ``text``, one of ``intent``'s

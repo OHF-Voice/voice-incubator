@@ -33,10 +33,13 @@ from .store import compile_store, plain
 
 REFERENCE = "from"
 """A command's key that names the library command it follows (``file/id``)."""
-SETTINGS = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon", "slots", "examples", "language")
+SETTINGS = (
+    "area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon", "slots", "examples",
+    "sentences", "language",
+)
 """What a command that follows the library may set itself. ``slots``: its
-implied target, in place of the library's; ``examples``: sentences added to
-the library's."""
+implied target, in place of the library's; ``examples`` and ``sentences``
+(Kaldi mode's): added to the library's."""
 REPLACED = ("area", "off", "disabled", "verbosity", "fallback", "do_not_disturb", "confirm", "title", "icon", "slots")
 """The settings that take the library's place (null: none of it)."""
 COPY_SUFFIX = r"(_\d+|_[a-z]{2}|_copy(_\d+)?)?"
@@ -104,12 +107,25 @@ def load_library() -> list[dict[str, Any]]:
 
 
 @functools.cache
+def library_sentences(code: str) -> dict[str, list[str]]:
+    """Kaldi mode's sentences for the library's commands in ``code``
+    (``sentences.yaml`` beside the library), by ``file/id``."""
+    path = library_dir(code).parent / "sentences.yaml"
+    try:
+        data = YAML(typ="safe").load(path.read_text("utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    return {str(ref): [str(s) for s in sentences or []] for ref, sentences in data.items()}
+
+
+@functools.cache
 def _library(code: str) -> list[dict[str, Any]]:
     """The library in ``code``, read once -- and checked, in the app's
     language: it ships with the app. 1.6 s on an HA Green, mostly parsing
     YAML. Not to be changed: ``load_library`` hands out copies."""
     entries = []
     checked = code == languages.current().code
+    sentences = library_sentences(code)
     for path, data in library_files(code):
         file_lists = data.get("lists") or {}
         for family_id, family in (data.get("commands") or {}).items():
@@ -121,6 +137,8 @@ def _library(code: str) -> list[dict[str, Any]]:
             else:
                 failed = None
             for index, (command_id, variant, spec) in enumerate(versions):
+                if f"{path.stem}/{command_id}" in sentences:
+                    spec = {**spec, "sentences": sentences[f"{path.stem}/{command_id}"]}
                 entries.append(_library_entry(path.stem, data, file_lists, family_id, family, command_id, variant, spec, failed, checked))
                 # The family's former ids are its first version's (entry()).
                 entries[-1]["formerly"] = [str(i) for i in family.get("formerly") or []] if index == 0 else []
@@ -270,9 +288,10 @@ def resolve(command_id: str, spec: dict[str, Any]) -> dict[str, Any]:
                 out.pop(key, None)
             else:
                 out[key] = copy.deepcopy(spec[key])
-    if spec.get("examples"):
-        theirs = [str(e) for e in out.get("examples") or []]
-        out["examples"] = theirs + [str(e) for e in spec["examples"] if str(e) not in theirs]
+    for key in ("examples", "sentences"):
+        if spec.get(key):
+            theirs = [str(e) for e in out.get(key) or []]
+            out[key] = theirs + [str(e) for e in spec[key] if str(e) not in theirs]
     if spec.get("language"):
         out["language"] = spec["language"]
     if not out.get("confirm") and isinstance(out.get("response"), dict) and "confirm" in out["response"]:
@@ -298,10 +317,11 @@ def settings(spec: dict[str, Any], library: dict[str, Any]) -> dict[str, Any]:
             mine, theirs = mine or {}, theirs or {}
         if mine != theirs:
             out[key] = mine
-    theirs = [str(e) for e in library.get("examples") or []]
-    added = [str(e) for e in spec.get("examples") or [] if str(e) not in theirs]
-    if added:
-        out["examples"] = added
+    for key in ("examples", "sentences"):
+        theirs = [str(e) for e in library.get(key) or []]
+        added = [str(e) for e in spec.get(key) or [] if str(e) not in theirs]
+        if added:
+            out[key] = added
     if spec.get("language"):
         out["language"] = spec["language"]
     return out

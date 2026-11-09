@@ -1278,7 +1278,20 @@ for this app:
   verifier's). Parakeet stays the default; some of Speech-to-Phrase's users
   found Kaldi heard them better.
   - **What it hears** is the home's example sentences, word for word -- its
-    commands' and Home Assistant's sentence triggers', as compiled -- with
+    commands' and Home Assistant's sentence triggers', as compiled -- and its
+    commands' **Kaldi sentences** (`sentences:`, `commands.SLOT`): templates
+    with the slots they hear in braces (`turn on [the] {entity}`), each one
+    way of saying the command whole. A slot is every phrase it may be in its
+    combination's intent -- the names the command may take (domains and
+    all), its numbers, its value list's phrases -- spliced into the grammar
+    where it is said, so `{entity} ... {percentage}` is names plus numbers,
+    not their product. Parakeet never reads them: they stay out of the
+    adapt-ctc intents (`LISTEN_KEYS`), and the recognizer's config is the
+    same with them as without (tests/test_kaldi_mode.py). Each template's
+    sentence, with a name and a number the command takes, is read as typed
+    when it is built: one read as another command, or as none, is said on
+    its page. The English library's are in `languages/en/sentences.yaml`
+    (128 commands, 261 templates, each read back as its own), with
     one of the language's extras before or after ("um", "please": their
     words' twins in the lexicon, `__um`, left out of what was said) and
     noise (`<unk>`) around them. A command with no example isn't heard (its

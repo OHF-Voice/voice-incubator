@@ -38,6 +38,13 @@ Each combination is an adapt-ctc intent of its own (``lights_off``,
 never runs with something that was said left out: "turn off the lights in the
 bedroom" is the area combination, not the satellite's area.
 
+``sentences`` are for Kaldi mode alone (voice_labs/kaldi_mode.py), which
+hears only whole sentences: templates as examples are, with the slots it
+hears in braces -- ``turn on [the] {entity}``, ``set the {area} lights to
+{brightness} percent`` -- each one way to say it whole (its slots one
+combination's). Kaldi hears each with every name, number and value the slot
+may take. Parakeet never reads them: they change nothing it hears.
+
 Exactly what happens is one of ``script`` (a script entity, run with the
 variables as its data), ``scene`` (activated), ``action`` (one Home Assistant
 action or a list of them, as in a script), ``timer`` (an operation on the
@@ -249,6 +256,7 @@ COMMAND_KEYS = {
     "do_not_disturb",
     "confirm",
     "combinations",
+    "sentences",  # Kaldi mode's alone: not adapt-ctc's (LISTEN_KEYS)
     *LISTEN_KEYS,
     *DO_KEYS,
 }
@@ -586,6 +594,8 @@ class Command:
     """One adapt-ctc intent for each combination, by name (``command_of``)."""
     library: str = ""
     """The library command it follows ("satellites/never_mind"), if any."""
+    sentences: tuple[str, ...] = ()
+    """Kaldi mode's sentence templates, slots in braces (``SLOT``)."""
 
     @property
     def takes_something(self) -> bool:
@@ -665,6 +675,7 @@ def parse_command(command_id: str, spec: Any) -> Command:
         if slot is not None and slot not in heard and slot not in behavior.slots:
             known = ", ".join(heard) or "none"
             raise ConfigError(f"{where}.supports.{capability}: {slot!r} is not a slot it listens for ({known})")
+    sentences = _sentences(spec.get("sentences"), combinations, heard, f"{where}.sentences")
     area = area_id(spec.get("area"), f"{where}.area")
     off = area_ids(spec.get("off"), f"{where}.off")
     if area is not None and off:
@@ -684,7 +695,45 @@ def parse_command(command_id: str, spec: Any) -> Command:
         _fallback_steps(spec.get("fallback"), f"{where}.fallback"),
         combinations=combinations,
         intents=intents,
+        sentences=sentences,
     )
+
+
+SLOT = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+"""A slot in a Kaldi sentence template: ``{area}``."""
+
+
+def _sentences(
+    value: Any, combinations: tuple[tuple[str, ...], ...], heard: tuple[str, ...], where: str,
+) -> tuple[str, ...]:
+    """Kaldi mode's sentence templates, checked: each a template, its slots
+    the command's, together one of its combinations."""
+    if value in (None, []):
+        return ()
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: a list of sentence templates, like ['turn on [the] {{entity}}']")
+    out = []
+    for index, raw in enumerate(value):
+        text = str(raw).strip()
+        if not text:
+            continue
+        slots = SLOT.findall(text)
+        unknown = [s for s in slots if s not in heard]
+        if unknown:
+            known = ", ".join(heard) or "none"
+            raise ConfigError(f"{where}[{index}]: {{{unknown[0]}}} is not a slot it listens for ({known})")
+        if len(set(slots)) != len(slots):
+            raise ConfigError(f"{where}[{index}]: says {{{slots[0]}}} twice")
+        if set(slots) not in [set(c) for c in combinations]:
+            ways = "; ".join(", ".join(f"{{{s}}}" for s in c) or "none" for c in combinations)
+            raise ConfigError(f"{where}[{index}]: {', '.join(f'{{{s}}}' for s in slots) or 'no slot'} together isn't a way to "
+                              f"say it ({ways})")
+        try:
+            expand(SLOT.sub(lambda m: f"zzslot{m.group(1).replace('_', '')}", text))
+        except TemplateError as err:
+            raise ConfigError(f"{where}[{index}]: {err}") from err
+        out.append(text)
+    return tuple(dict.fromkeys(out))
 
 
 NEVER_MIND = "satellites/never_mind"
