@@ -161,12 +161,16 @@ def _heard(audio, expect, graphs: dict[str, str], after: float = 0.0) -> dict:
     graph's sentence came to."""
     from voice_labs.engine import Satellite  # pylint: disable=import-outside-toplevel
 
-    heard = _W["kaldi"].decode(audio)
+    from voice_labs.kaldi_mode import BACKGROUNDS  # pylint: disable=import-outside-toplevel
+
+    heard = _W["kaldi"].decode(audio, tuple(dict.fromkeys(
+        t for g in graphs.values() for t in (g, BACKGROUNDS.get(g, "background"))
+    )))
     out = {}
     for name, graph in graphs.items():
         text = heard.text(graph)
-        row = {"text": text, "margin": round(heard.margin(graph), 4), "background": heard.background_words,
-               "background_after": heard.background_after(after),
+        row = {"text": text, "margin": round(heard.margin(graph), 4), "background": heard.background_words(graph),
+               "background_after": heard.background_after(after, graph),
                "seconds": round(heard.seconds, 3), "audio": round(len(audio) / 16000, 2)}
         if text:
             decision = _W["engine"].recognize_text(text, Satellite("bench", "bench"))

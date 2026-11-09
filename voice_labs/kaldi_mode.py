@@ -125,6 +125,16 @@ TAGS = ("home", "answer", "call", "background", "call_background")
 question, those after a wake phrase (a call, decoded whole), the
 background, and the background after a wake phrase (a call's)."""
 
+CALL = ("call", "call_background")
+"""What a call is decoded against: one acoustic pass, two searches."""
+COMMAND = ("home", "background")
+"""What audio with no wake word in it is (Wyoming's speech-to-text)."""
+ANSWER = ("answer", "background")
+"""What an answer to a question is."""
+
+BACKGROUNDS = {"call": "call_background"}
+"""Each graph's background, when not the plain one."""
+
 _START_TIMEOUT = 120.0
 _DECODE_TIMEOUT = 30.0
 
@@ -739,14 +749,15 @@ class KaldiMode:
 
     # ------------------------------------------------------------- decode
 
-    def decode(self, audio: np.ndarray) -> Heard:
-        """``audio`` (16 kHz, float) against the graphs (TAGS). Raises
-        RuntimeError when no decoder is running."""
+    def decode(self, audio: np.ndarray, graphs: tuple[str, ...] = COMMAND) -> Heard:
+        """``audio`` (16 kHz, float) against ``graphs`` (``CALL``,
+        ``COMMAND``, ``ANSWER``): one acoustic pass, only their searches.
+        Raises RuntimeError when no decoder is running."""
         decoder = self._decoder
         if decoder is None or not decoder.running:
             raise RuntimeError(self.error or "Kaldi isn't ready")
         started = time.perf_counter()
-        return Heard(decoder.decode(audio), time.perf_counter() - started, self.max_cost)
+        return Heard(decoder.decode(audio, graphs), time.perf_counter() - started, self.max_cost)
 
     def close(self) -> None:
         decoder, self._decoder = self._decoder, None
@@ -789,7 +800,8 @@ def _frequent_words(model_dir: Path) -> list[str]:
 
 @dataclass
 class Heard:
-    """What Kaldi made of some audio, against each of its graphs (TAGS)."""
+    """What Kaldi made of some audio, against the graphs it was decoded
+    against (a graph and its background)."""
 
     results: dict[str, tuple[float, int, list[tuple[str, float, float]]]]
     """Each graph's: its best path's cost, the frames, its words with their
@@ -807,20 +819,19 @@ class Heard:
         """How much more than the background a frame of ``graph``'s sentence
         cost (a call's: the background after the same wake phrase)."""
         cost, frames, _ = self.results[graph]
-        return (cost - self.results["call_background" if graph == "call" else "background"][0]) / max(1, frames)
+        return (cost - self.results[BACKGROUNDS.get(graph, "background")][0]) / max(1, frames)
 
     def taken(self, graph: str = "home") -> bool:
         return bool(self.text(graph)) and self.margin(graph) <= self.max_cost
 
-    @property
-    def background_words(self) -> list[str]:
-        """What the background heard: whether anything was said."""
-        return self.words("background")
+    def background_words(self, graph: str = "home") -> list[str]:
+        """What ``graph``'s background heard: whether anything was said."""
+        return self.words(BACKGROUNDS.get(graph, "background"))
 
     def background_after(self, seconds: float, graph: str = "home") -> list[str]:
         """What ``graph``'s background heard from ``seconds`` on: whether
         anything was said after the wake word, in a call decoded whole."""
-        background = self.results["call_background" if graph == "call" else "background"][2]
+        background = self.results[BACKGROUNDS.get(graph, "background")][2]
         return [w for w, start, end in background if _is_word(w) and end > seconds + SAID_AFTER]
 
     def to_json(self, graph: str = "home") -> dict[str, Any]:
@@ -832,7 +843,7 @@ class Heard:
             "cost": round(self.margin(graph), 3),
             "max_cost": self.max_cost,
             "taken": self.taken(graph),
-            "background": " ".join(self.background_words),
+            "background": " ".join(self.background_words(graph)),
             "seconds": round(self.seconds, 3),
         }
 
@@ -873,7 +884,11 @@ class _Decoder:
             self.close()
             raise RuntimeError("the Kaldi decoder didn't start")
 
-    def decode(self, audio: np.ndarray) -> dict[str, tuple[float, int, list[tuple[str, float, float]]]]:
+    def decode(
+        self, audio: np.ndarray, graphs: tuple[str, ...] = TAGS,
+    ) -> dict[str, tuple[float, int, list[tuple[str, float, float]]]]:
+        """``graphs``' results for ``audio``: the decoder searches only
+        theirs, after one acoustic pass."""
         with self._lock:
             if self.proc is None or self.proc.stdin is None:
                 raise RuntimeError("the Kaldi decoder isn't running")
@@ -883,10 +898,10 @@ class _Decoder:
                 out.setsampwidth(2)
                 out.setframerate(16000)
                 out.writeframes((np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
-            self.proc.stdin.write(f"{path}\n")
+            self.proc.stdin.write(f"{path}\t{','.join(graphs)}\n")
             self.proc.stdin.flush()
             results = {}
-            for _ in TAGS:
+            for _ in graphs:
                 parts = _read_line(self.proc, _DECODE_TIMEOUT).split()
                 if not parts:
                     raise RuntimeError("the Kaldi decoder stopped")
@@ -900,7 +915,7 @@ class _Decoder:
                     word_id, begin, end = token.split(":")
                     words.append((self.words[tag].get(word_id, word_id), int(begin) * FRAME_SHIFT, int(end) * FRAME_SHIFT))
                 results[tag] = (float(parts[2]), int(parts[3]), words)
-            for tag in TAGS:
+            for tag in graphs:
                 results.setdefault(tag, (0.0, 0, []))
             return results
 

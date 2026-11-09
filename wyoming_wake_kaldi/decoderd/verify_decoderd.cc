@@ -16,8 +16,9 @@
 // with the last three arguments repeated once per graph.
 //
 // Protocol (line oriented):
-//   stdin:  <wav-path>
-//   stdout: exactly one line per graph, in the order the graphs were given:
+//   stdin:  <wav-path>[<TAB><tag>,<tag>...]
+//   stdout: exactly one line per graph decoded -- every graph, or those
+//           tagged after a tab, in the order the graphs were given:
 //             OK <tag> <total_best_path_cost> <n_output_frames> [wordid:beg:end ...]
 //             ERR <tag> <message>
 //   "READY" is printed once after loading. Word times are in OUTPUT frames
@@ -221,11 +222,42 @@ int main(int argc, char *argv[]) {
 
     std::cout << "READY" << std::endl;
 
-    std::string wav_path;
-    while (std::getline(std::cin, wav_path)) {
-      if (wav_path.empty()) {
+    std::string request;
+    while (std::getline(std::cin, request)) {
+      if (request.empty()) {
         continue;
       }
+      // The graphs to decode: every one, or those tagged after a tab (one
+      // caller's decodes needing only some of them -- the acoustic model
+      // still runs once, and the others' searches are skipped).
+      std::string wav_path = request;
+      std::vector<int32> active;
+      const size_t tab = request.find('\t');
+      if (tab != std::string::npos) {
+        wav_path = request.substr(0, tab);
+        std::stringstream tags(request.substr(tab + 1));
+        std::string tag;
+        while (std::getline(tags, tag, ',')) {
+          for (int32 g = 0; g < num_graphs; g++) {
+            if (graphs[g].tag == tag &&
+                std::find(active.begin(), active.end(), g) == active.end()) {
+              active.push_back(g);
+            }
+          }
+        }
+        std::sort(active.begin(), active.end());
+      }
+      if (active.empty()) {
+        for (int32 g = 0; g < num_graphs; g++) {
+          active.push_back(g);
+        }
+      }
+      // The traceback silence weighting reads: its graph, if decoded.
+      const int32 weighting =
+          std::find(active.begin(), active.end(), silence_weighting_index) !=
+                  active.end()
+              ? silence_weighting_index
+              : active[0];
 
       std::vector<std::string> lines(num_graphs);
       try {
@@ -248,7 +280,7 @@ int main(int argc, char *argv[]) {
             trans_model, decodable_info, feature_pipeline.InputFeature(),
             feature_pipeline.IvectorFeature());
 
-        for (int32 g = 0; g < num_graphs; g++) {
+        for (int32 g : active) {
           // (fst, config): borrows the FST. The (config, FST*) overload
           // takes ownership, which would delete a graph we reuse every turn.
           graphs[g].decoder.reset(
@@ -278,7 +310,7 @@ int main(int argc, char *argv[]) {
           if (silence_weighting.Active() &&
               feature_pipeline.IvectorFeature() != nullptr) {
             silence_weighting.ComputeCurrentTraceback(
-                *graphs[silence_weighting_index].decoder);
+                *graphs[weighting].decoder);
             silence_weighting.GetDeltaWeights(
                 feature_pipeline.NumFramesReady(), &delta_weights);
             feature_pipeline.IvectorFeature()->UpdateFrameWeights(
@@ -287,15 +319,15 @@ int main(int argc, char *argv[]) {
           // Lockstep, one output frame at a time: the looped decodable caches
           // a chunk of log-posteriors and rejects frames requested before its
           // current offset, so no decoder may run ahead of the others.
-          while (graphs[0].decoder->NumFramesDecoded() <
+          while (graphs[active[0]].decoder->NumFramesDecoded() <
                  decodable.NumFramesReady()) {
-            for (int32 g = 0; g < num_graphs; g++) {
+            for (int32 g : active) {
               graphs[g].decoder->AdvanceDecoding(&decodable, 1);
             }
           }
         }
 
-        for (int32 g = 0; g < num_graphs; g++) {
+        for (int32 g : active) {
           Graph &graph = graphs[g];
           graph.decoder->FinalizeDecoding();
 
@@ -349,16 +381,16 @@ int main(int argc, char *argv[]) {
           lines[g] = out.str();
         }
       } catch (const std::exception &e) {
-        for (int32 g = 0; g < num_graphs; g++) {
+        for (int32 g : active) {
           if (lines[g].empty()) {
             lines[g] = "ERR " + graphs[g].tag + " " + e.what();
           }
         }
       }
 
-      // Always exactly one line per graph, so the client can read a fixed
-      // number of lines without a terminator.
-      for (int32 g = 0; g < num_graphs; g++) {
+      // Always exactly one line per graph decoded, so the client can read a
+      // fixed number of lines without a terminator.
+      for (int32 g : active) {
         if (lines[g].empty()) {
           lines[g] = "ERR " + graphs[g].tag + " no result";
         }

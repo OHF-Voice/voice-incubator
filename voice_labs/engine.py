@@ -663,12 +663,13 @@ class Engine:
                 return str(value) if value else None
         return None
 
-    def _kaldi_decode(self, audio: np.ndarray) -> kaldi_mode.Heard | None:
-        """Kaldi's decode of ``audio``; None when its decoder failed (being
-        replaced, or gone): Parakeet hears that call."""
+    def _kaldi_decode(self, audio: np.ndarray, graphs: tuple[str, ...]) -> kaldi_mode.Heard | None:
+        """Kaldi's decode of ``audio`` against ``graphs`` (kaldi_mode.CALL,
+        COMMAND, ANSWER); None when its decoder failed (being replaced, or
+        gone): Parakeet hears that call."""
         assert self.kaldi is not None
         try:
-            return self.kaldi.decode(audio)
+            return self.kaldi.decode(audio, graphs)
         except RuntimeError as err:
             _LOGGER.warning("Kaldi couldn't hear it, so Parakeet does: %s", err)
             return None
@@ -790,7 +791,7 @@ class Engine:
         the wake word. ``transcriber`` stands in for the TDT head (an STT
         entity, see voice_labs/voices.py)."""
         started = time.perf_counter()
-        if self.kaldi_on and (heard := self._kaldi_decode(audio)) is not None:
+        if self.kaldi_on and (heard := self._kaldi_decode(audio, kaldi_mode.CALL)) is not None:
             # The whole call, pre-roll and all: a wake phrase, then a sentence.
             return self._kaldi_heard(heard, satellite, "call", kaldi_split), Split(0.0, kaldi_split, kaldi_split)
         evidence, frame_seconds, split, cut = self._place(audio, wake_start, kaldi_split, wake_phrases)
@@ -822,7 +823,7 @@ class Engine:
         when it was had already. ``sentences``: heard as one of the home's
         sentences first (``hear_sentence``)."""
         started = time.perf_counter()
-        if self.kaldi_on and sentences and (heard := self._kaldi_decode(audio)) is not None:
+        if self.kaldi_on and sentences and (heard := self._kaldi_decode(audio, kaldi_mode.COMMAND)) is not None:
             return self._kaldi_heard(heard, satellite)
         log_probs, frame_seconds = evidence if evidence is not None else self.model.log_probs(audio)
         acoustic = time.perf_counter() - started
@@ -880,7 +881,7 @@ class Engine:
         whoever asked reads -- even when the command needed none. Not as one
         of the home's sentences: an answer is seldom one. With Kaldi, the
         home's sentences and the language's ways of answering."""
-        if self.kaldi_on and (heard := self._kaldi_decode(audio)) is not None:
+        if self.kaldi_on and (heard := self._kaldi_decode(audio, kaldi_mode.ANSWER)) is not None:
             return self._kaldi_heard(heard, satellite, "answer")
         decision = self.recognize_command(audio, satellite, transcriber, sentences=False)
         reader = transcriber or self.transcriber

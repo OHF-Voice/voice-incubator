@@ -1312,8 +1312,10 @@ for this app:
     through prepare_lang and mkgraph (the wake verifier's tools); one
     resident decoder (`verify_decoderd`) holds the home's, the same with
     the answers to a question, the same after a wake phrase (a call's), the
-    background and the background after a wake phrase, and decodes all five
-    in one acoustic pass. The plain background is the same for every home,
+    background and the background after a wake phrase. A request names the
+    graphs it is searched in (`kaldi_mode.CALL`, `COMMAND`, `ANSWER`: a
+    graph and its background; a bare path, as the wake verifier sends, is
+    all of them): one acoustic pass, only those searches. The plain background is the same for every home,
     built once (1.9 s); the home's after each change took 0.7 s for 14
     sentences on a desktop (with the wake phrase's background, 4.9 s the
     first time). The dictionary has no index: a word a query was 4 ms, so
@@ -1355,9 +1357,16 @@ for this app:
     after one more sentence 8.9 s, so it is built after a save, in the
     background (`VoiceLabsApp.kaldi_outdated`: the graphs before hear
     meanwhile, and changes made meanwhile build once more, after); the
-    decoder 93 MB; a call a median 1.2 s for 4.5 s of audio (0.29x real
-    time), the two 10,000-word backgrounds most of it -- Parakeet's whole
-    call was about 0.3 s there.
+    decoder 93 MB. A call, searched in all five graphs, took a median 1.2 s
+    for 4.5 s of audio (0.29x real time); in its own two, 442 ms (0.11x):
+    106 ms of it the acoustic pass and the call's graph, the rest the
+    10,000-word background. Parakeet's whole call was about 0.3 s there.
+    Speech-to-Phrase's chain on the same calls and Pi (its trained English
+    graph, a 336-word trigram; a new decoder process a call, beam 24,
+    lattice beam 8; then the 3 best and the fuzzy snap, 8 processes) was a
+    median 1.13 s: 155 ms of it starting the decoder, 89 ms the fuzzy snap.
+    It decoded as the audio came, so little of that was after the call
+    ended; Voice Labs decodes when it has ended.
   - Kaldi normalizes the level: a call 28 dB quieter than the corpus's
     (-47 dBFS) heard the same at +25 dB. Such a call's background was
     silence, no word in it.

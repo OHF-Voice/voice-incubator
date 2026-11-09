@@ -310,7 +310,9 @@
   On the office-multicap corpus's calls, its own sentences the examples:
   86.0% of commands right, 4.6% wrong, 86.9% of the rest refused; talk
   overheard ran a command 5 times in 400. Wyoming speech-to-text and answers
-  to a question are heard the same way, without a wake phrase. The image carries the model's G2P and
+  to a question are heard the same way, without a wake phrase. Each is
+  searched only in its own graph and background: a call took 0.44 s for
+  4.5 s of audio on a Pi 5. The image carries the model's G2P and
   phonetisaurus (43 MB).
 - **Sentences are lists you can change**: example sentences, Kaldi
   sentences and a wake word's confusables, one a line, each edited in

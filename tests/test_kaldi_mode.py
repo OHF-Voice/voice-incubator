@@ -10,7 +10,7 @@ import pytest
 
 from voice_labs import kaldi_mode
 from voice_labs.engine import Engine, Satellite
-from voice_labs.kaldi_mode import Heard, KaldiMode, Sentences, words_of
+from voice_labs.kaldi_mode import CALL, COMMAND, Heard, KaldiMode, Sentences, words_of
 from voice_labs.store import compile_store
 
 ROOT = Path(__file__).parent.parent
@@ -116,8 +116,10 @@ class FakeKaldi:
     def __init__(self, heard: Heard) -> None:
         self.heard = heard
 
-    def decode(self, audio):
-        return self.heard
+    def decode(self, audio, graphs):
+        # Only the graphs asked for, as the decoder answers: reading another
+        # is a KeyError.
+        return Heard({tag: self.heard.results[tag] for tag in graphs}, self.heard.seconds, self.heard.max_cost)
 
 
 def _kaldi(engine: Engine, heard: Heard) -> Engine:
@@ -180,11 +182,14 @@ def test_kaldi_hears_a_recorded_call(tmp_path, monkeypatch):
         assert built.sentences == 2 and not built.unspeakable
         with wave.open(str(WAV)) as recording:
             audio = np.frombuffer(recording.readframes(recording.getnframes()), dtype="<i2").astype(np.float32) / 32768.0
-        result = mode.decode(audio)
         # The call whole, after its wake phrase -- and, without it, after noise.
+        result = mode.decode(audio, CALL)
+        assert set(result.results) == set(CALL)
         assert result.text("call") == "turn on the lights" and result.taken("call"), result.to_json("call")
+        result = mode.decode(audio, COMMAND)
+        assert set(result.results) == set(COMMAND)
         assert result.text("home") == "turn on the lights"
-        assert result.background_words
+        assert result.background_words()
         # The same again: nothing built anew.
         assert mode.build(heard, "en", {}, ["yes", "no"], *wake) is built
     finally:
@@ -192,7 +197,7 @@ def test_kaldi_hears_a_recorded_call(tmp_path, monkeypatch):
 
 
 class BrokenKaldi(FakeKaldi):
-    def decode(self, audio):
+    def decode(self, audio, graphs):
         raise RuntimeError("the Kaldi decoder stopped")
 
 
