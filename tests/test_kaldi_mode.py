@@ -78,6 +78,10 @@ def test_the_grammar():
     # Extras are their words' twins: heard, left out of what was said.
     assert any(line.startswith("0 0 <unk> <unk>") for line in lines)
     assert any(" __um __um " in line for line in lines) and any(" __please __please " in line for line in lines)
+    # A call's: its wake phrase first, the twins of its words.
+    lines = kaldi_mode._grammar([("turn", "on")], ([], []), [("okay", "nabu")])
+    assert any(line.startswith("0 ") and " __wake_okay __wake_okay " in line for line in lines)
+    assert not any(line.startswith("0 1 #0") for line in lines)  # not without it
 
 
 def test_pronunciations_are_checked():
@@ -90,10 +94,17 @@ def test_pronunciations_are_checked():
 
 
 def _heard(text: str, margin: float, background: list[str] | None = None, answer: str | None = None) -> Heard:
-    words = [(w, 0.0, 0.1) for w in text.split()]
-    answer_words = [(w, 0.0, 0.1) for w in (answer if answer is not None else text).split()]
-    return Heard(words=words, cost=margin * 100, frames=100, answer_words=answer_words, answer_cost=margin * 100,
-                 background=0.0, background_words=["something"] if background is None else background, seconds=0.01)
+    def said(words: str) -> list:
+        return [(w, 0.3 * at, 0.3 * at + 0.3) for at, w in enumerate(words.split())]
+
+    # The wake phrase's words and the extras' are their twins: not said.
+    call = said(f"__wake_okay __wake_nabu {text} __please")
+    background = ["something"] if background is None else background
+    return Heard({
+        "home": (margin * 100, 100, said(text)), "answer": (margin * 100, 100, said(answer if answer is not None else text)),
+        "call": (margin * 100, 100, call), "background": (0.0, 100, said(" ".join(background))),
+        "call_background": (0.0, 100, said(" ".join(background))),
+    }, 0.01)
 
 
 class FakeKaldi:
@@ -121,9 +132,10 @@ def test_a_sentence_heard_is_matched_as_typed(engine):
         assert decision.command.id == "lights_on" and decision.matched_by == "kaldi" and decision.text_source == "kaldi"
         assert decision.transcript == "turn on the lights"
         assert decision.sentence["recognizer"] == "kaldi" and decision.sentence["taken"]
-        # A call: from just before Kaldi's split.
+        # A call: decoded whole, after its wake phrase.
         decision, split = engine.recognize_call(np.zeros(48000, dtype=np.float32), None, 1.5, OFFICE)
         assert decision.command.id == "lights_on" and split.cut == 1.5
+        assert decision.sentence["graph"] == "call" and decision.transcript == "turn on the lights"
     finally:
         engine.recognizer_choice = "parakeet"
 
@@ -161,16 +173,19 @@ def test_kaldi_hears_a_recorded_call(tmp_path, monkeypatch):
     import wave  # pylint: disable=import-outside-toplevel
 
     heard = Sentences({"lights": [*words_of("turn on the lights", "en"), *words_of("turn off the lights", "en")]})
-    built = mode.build(heard, "en", {}, ["yes", "no"])
+    wake = ([("okay", "nabu")], {"nabu": ["n ˈæ b u"]})
+    built = mode.build(heard, "en", {}, ["yes", "no"], *wake)
     try:
         assert built.sentences == 2 and not built.unspeakable
         with wave.open(str(WAV)) as recording:
             audio = np.frombuffer(recording.readframes(recording.getnframes()), dtype="<i2").astype(np.float32) / 32768.0
         result = mode.decode(audio)
-        assert result.text == "turn on the lights" and result.taken, result.to_json()
+        # The call whole, after its wake phrase -- and, without it, after noise.
+        assert result.text("call") == "turn on the lights" and result.taken("call"), result.to_json("call")
+        assert result.text("home") == "turn on the lights"
         assert result.background_words
         # The same again: nothing built anew.
-        assert mode.build(heard, "en", {}, ["yes", "no"]) is built
+        assert mode.build(heard, "en", {}, ["yes", "no"], *wake) is built
     finally:
         mode.close()
 

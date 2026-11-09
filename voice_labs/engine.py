@@ -508,6 +508,9 @@ class Engine:
         """The person's own pronunciations, for Kaldi (pronunciations.json)."""
         self.kaldi_sentences: kaldi_mode.Sentences | None = None
         """What Kaldi was last built to hear, and which commands it doesn't."""
+        self.kaldi_wake: tuple[list[tuple[str, ...]], dict[str, list[str]]] = ([], {})
+        """The wake phrases in use, as words, and the wake word verifier's
+        pronunciations of them: what Kaldi hears a call start with."""
 
     def _shared(self, model_dir: Path, tdt_dir: Path | None):
         """The CTC model and the transducer as one, with one encoder, when the
@@ -619,7 +622,8 @@ class Engine:
             )
             reading = languages.current().reading
             answers = sorted({*reading.ANSWER_ENDS, *reading.YES_SAID, *reading.NO_SAID})
-            self.kaldi.build(heard, language, self.pronunciations, answers)
+            phrases, lexicon = self.kaldi_wake
+            self.kaldi.build(heard, language, self.pronunciations, answers, phrases, lexicon)
             self.kaldi_sentences = heard
         except Exception as err:  # noqa: BLE001 - Parakeet hears instead
             _LOGGER.exception("Kaldi mode can't be built")
@@ -648,20 +652,23 @@ class Engine:
             _LOGGER.warning("Kaldi couldn't hear it, so Parakeet does: %s", err)
             return None
 
-    def _kaldi_heard(self, heard: kaldi_mode.Heard, satellite: Satellite, answer: bool = False) -> Decision:
-        """What Kaldi heard, as a decision: its sentence matched as typed,
-        when it was one of the home's; else nothing -- Never mind when not a
-        word was said (the background heard none)."""
-        text = heard.answer_text if answer else heard.text
-        taken = heard.answer_taken if answer else heard.taken
+    def _kaldi_heard(
+        self, heard: kaldi_mode.Heard, satellite: Satellite, graph: str = "home", after: float = 0.0,
+    ) -> Decision:
+        """What Kaldi heard (``graph``'s sentence: kaldi_mode.TAGS), as a
+        decision: its sentence matched as typed, when it was one of the
+        home's; else nothing -- Never mind when not a word was said (the
+        background heard none ``after`` the wake word)."""
+        answer = graph == "answer"
+        text, taken = heard.text(graph), heard.taken(graph)
         decision = self.recognize_text(text if taken else "", satellite)
         if taken and decision.command is not None:
             decision.matched_by = "kaldi"
         decision.text_source = "kaldi"
         decision.recognition["transcript"] = text if taken else ""
         decision.recognition["tdt_transcript"] = text if taken else ""
-        decision.sentence = heard.to_json(answer)
-        if not taken and not answer and not heard.background_words:
+        decision.sentence = heard.to_json(graph)
+        if not taken and not answer and not heard.background_after(after, graph):
             with self._lock:
                 compiled = self.compiled
             if compiled is not None:
@@ -762,13 +769,9 @@ class Engine:
         the wake word. ``transcriber`` stands in for the TDT head (an STT
         entity, see voice_labs/voices.py)."""
         started = time.perf_counter()
-        if self.kaldi_on:
-            # From just before Kaldi's split: the grammar's noise takes a
-            # first word the wake verifier took in.
-            offset = max(0.0, kaldi_split - kaldi_mode.LEAD)
-            heard = self._kaldi_decode(audio[int(offset * SAMPLE_RATE):])
-            if heard is not None:
-                return self._kaldi_heard(heard, satellite), Split(offset, kaldi_split, kaldi_split)
+        if self.kaldi_on and (heard := self._kaldi_decode(audio)) is not None:
+            # The whole call, pre-roll and all: a wake phrase, then a sentence.
+            return self._kaldi_heard(heard, satellite, "call", kaldi_split), Split(0.0, kaldi_split, kaldi_split)
         evidence, frame_seconds, split, cut = self._place(audio, wake_start, kaldi_split, wake_phrases)
         log_probs = evidence[cut:]
         placed = time.perf_counter() - started
@@ -857,7 +860,7 @@ class Engine:
         of the home's sentences: an answer is seldom one. With Kaldi, the
         home's sentences and the language's ways of answering."""
         if self.kaldi_on and (heard := self._kaldi_decode(audio)) is not None:
-            return self._kaldi_heard(heard, satellite, answer=True)
+            return self._kaldi_heard(heard, satellite, "answer")
         decision = self.recognize_command(audio, satellite, transcriber, sentences=False)
         reader = transcriber or self.transcriber
         if decision.recognition.get("tdt_transcript") is None and reader is not None and len(audio):

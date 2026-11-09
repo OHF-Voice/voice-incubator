@@ -1290,7 +1290,7 @@ for this app:
     10,000 frequent words, in any order (the background). A sentence that
     costs more than `kaldi_max_cost` (0) a frame more than the background is
     refused: "Sorry, I didn't understand that", or Never mind when the
-    background heard no word. Speech-to-Phrase decoded with a trigram of its
+    background heard no word (in a call, after the wake word). Speech-to-Phrase decoded with a trigram of its
     sentences and snapped the three best to the sentences; a fixed grammar
     and the background does without either.
   - **The graphs**: the word pronunciations -- yours (the Pronunciations
@@ -1298,31 +1298,48 @@ for this app:
     guess with the model's G2P model (kept in `kaldi/guesses.json`) --
     through prepare_lang and mkgraph (the wake verifier's tools); one
     resident decoder (`verify_decoderd`) holds the home's, the same with
-    the answers to a question, and the background's, and decodes all three
-    in one acoustic pass. The background is the same for every home, built
-    once (1.9 s); the home's after each change took 0.7 s for 14 sentences
-    on a desktop. The dictionary has no index: a word a query was 4 ms, so
+    the answers to a question, the same after a wake phrase (a call's), the
+    background and the background after a wake phrase, and decodes all five
+    in one acoustic pass. The plain background is the same for every home,
+    built once (1.9 s); the home's after each change took 0.7 s for 14
+    sentences on a desktop (with the wake phrase's background, 4.9 s the
+    first time). The dictionary has no index: a word a query was 4 ms, so
     they go 500 a query.
-  - A call is decoded from 0.3 s before Kaldi's split (the noise takes a
-    wake word's tail); Wyoming STT's audio whole, and Home Assistant gets the
-    sentence as written, or nothing. Parakeet's model is still loaded: the
-    matcher reads the sentence as typed text.
-  - On the office-multicap corpus (four speakers, the VPEs' AGC channels,
-    each whole call, "okay nabu" in it), the corpus's own command sentences
-    the examples (`scripts/kaldi_mode.py`):
+  - **A call** is decoded whole, pre-roll and all, against the sentences
+    after one of the wake phrases in use (said as the wake word verifier
+    says them: `Engine.kaldi_wake`) -- and so is its background, after the
+    same phrase, so that only the command is compared. Wyoming STT's audio,
+    which has no wake word, is decoded against the sentences alone, and Home
+    Assistant gets the sentence as written, or nothing. Never mind runs when
+    the background heard no word after Kaldi's split. Parakeet's model is
+    still loaded: the matcher reads the sentence as typed text.
+  - On the office-multicap corpus's calls the wake chain accepted (four
+    speakers, the VPEs' AGC channels; 1,230 commands, 221 sentences that are
+    none), the corpus's own command sentences the examples
+    (`scripts/kaldi_mode.py --wake`):
 
-    | `kaldi_max_cost` | commands right | wrong | refused (of 488) | overheard ran (of 400) |
+    | `kaldi_max_cost` | commands right | wrong | refused | overheard ran (of 400) |
     |---|---|---|---|---|
-    | -0.04 | 65.6% | 4.7% | 91.6% | 0 |
-    | -0.02 | 73.6% | 6.0% | 88.3% | 2 |
-    | **0** | **79.3%** | **8.1%** | **81.4%** | **7** |
-    | 0.02 | 83.0% | 10.6% | 67.0% | 40 |
-    | 0.05 | 85.3% | 12.9% | 47.7% | 392 |
+    | -0.05 | 73.5% | 3.1% | 92.3% | 0 |
+    | -0.02 | 82.3% | 3.9% | 90.5% | 0 |
+    | **0** | **86.0%** | **4.6%** | **86.9%** | **5** |
+    | 0.02 | 88.5% | 5.8% | 79.2% | 29 |
+    | 0.05 | 90.2% | 8.3% | 61.1% | 387 |
 
-    By speaker at 0: jenn 89.9%, mike 84.8%, natalie 71.0%, oliver 71.2%.
-    Overheard talk sits just above 0, so the setting moves from few false
-    wakes to nearly all of them within 0.05. Decoding took a median 0.135 s
-    a second of audio (12 at once on a desktop).
+    Overheard talk sits just above 0, so the setting goes from few false
+    wakes to nearly all of them within 0.05. At the same share refused, the
+    call decoded whole after its wake phrase was right more often than the
+    other ways tried: refusing 88%, 84.4% right and 4.1% wrong, against
+    82.9% and 4.5% from 0.3 s before Kaldi's split (what it did first: a
+    real "movie time" was refused at 0.055 there, -0.008 this way), 82.4%
+    and 5.0% whole without the wake phrase, and 77.7% and 3.7% with the
+    wake phrase in the sentences' graph but not the background's (which
+    explained "okay nabu" with everyday words, and added that to every
+    margin). Two 10,000-word backgrounds made a 3.5 s call's decode 256 ms
+    on a desktop, against about 100 ms with one.
+  - Kaldi normalizes the level: a call 28 dB quieter than the corpus's
+    (-47 dBFS) heard the same at +25 dB. Such a call's background was
+    silence, no word in it.
   - What didn't work first: Parakeet's sentence graph (keywords in any
     order) as Kaldi's grammar wouldn't determinize (mkgraph ran past ten
     minutes); built without determinizing it was 78 MB, 7 s a call, and 47%

@@ -301,10 +301,11 @@
   words. A command it can't hear says so on the Commands list and its page.
   The **Pronunciations** page (in Kaldi mode) has every word's, guessed by
   phonetisaurus where the dictionary lacks one, and yours in place of any.
-  On the office-multicap corpus, its own sentences the examples: 79.3% of
-  commands right, 8.1% wrong, 81.4% of the rest refused; talk overheard ran
-  a command 7 times in 400. Wyoming speech-to-text and answers to a question
-  are heard the same way. The image carries the model's G2P and
+  A call is heard whole, after its wake phrase, and so is the background.
+  On the office-multicap corpus's calls, its own sentences the examples:
+  86.0% of commands right, 4.6% wrong, 86.9% of the rest refused; talk
+  overheard ran a command 5 times in 400. Wyoming speech-to-text and answers
+  to a question are heard the same way, without a wake phrase. The image carries the model's G2P and
   phonetisaurus (43 MB).
 - **What's on the list confirms a doubtful command on it.** "Check coffee
   filters off the shopping list", heard as "to check cffee filters off the

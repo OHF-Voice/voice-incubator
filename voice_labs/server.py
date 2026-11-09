@@ -1195,6 +1195,24 @@ class VoiceLabsApp:
         engine.pronunciations = {str(w): [str(p) for p in prons] for w, prons in (self.store.pronunciations or {}).items() if prons}
         if engine.kaldi is not None:
             engine.kaldi.max_cost = float(settings.get("kaldi_max_cost", kaldi_mode.MAX_COST))
+        engine.kaldi_wake = self._kaldi_wake()
+
+    def _kaldi_wake(self) -> tuple[list[tuple[str, ...]], dict[str, list[str]]]:
+        """The wake phrases in use, as words, and how the wake word verifier
+        says them: what Kaldi hears a call start with. A wake word it doesn't
+        verify, by its phrase, said as any other word is."""
+        phrases: list[tuple[str, ...]] = []
+        lexicon: dict[str, list[str]] = {}
+        config = self.wake.config
+        for wake_id in self._wake_words_in_use():
+            entry = config.resolve(wake_id) if config is not None else None
+            if entry is not None:
+                phrases += [tuple(p.words) for p in entry.phrases]
+                for word, prons in entry.lexicon.items():
+                    lexicon.setdefault(word, list(prons))
+            else:
+                phrases += [tuple(p.split()) for p in self.wake_words.phrases(wake_id)[:1]]
+        return list(dict.fromkeys(phrases)), lexicon
 
     def kaldi_status(self) -> dict[str, Any] | None:
         """Kaldi mode for the Settings and Pronunciations pages: chosen, on,
@@ -1554,6 +1572,8 @@ class VoiceLabsApp:
         """A satellite's pick (or every satellite's), or a cutoff, changed:
         push again where it changes what the device listens for. A ringing
         satellite gets them when the ring ends."""
+        if self.engine is not None and self.engine.recognizer_choice == "kaldi" and self._kaldi_wake() != self.engine.kaldi_wake:
+            self._spawn(self.change_recognizer())  # Kaldi hears calls start with them
         for session in list(self.sessions.values()):
             if key is not None and session.satellite != key:
                 continue

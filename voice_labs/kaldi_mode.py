@@ -16,7 +16,8 @@ sentence trigger with free text (``add {item} to my list``) is heard the same
 way, once a list is named as its slot (triggers.py).
 
 **Whether anything was said** is the background's: the same audio decoded as
-any of the model's frequent words (its 10,000), in any order. A sentence
+any of the model's frequent words (its 10,000), in any order -- a call's
+after the same wake phrase, so that only the command is compared. A sentence
 that costs more than ``max_cost`` a frame more than the background
 (``Heard.margin``) was not one of the home's: refused.
 
@@ -27,10 +28,12 @@ kept in ``guesses.json`` -- through Kaldi's prepare_lang and mkgraph, as the
 wake verifier builds its graphs (wyoming_wake_kaldi.train). A word none of
 them can say leaves out the sentences it is in. The background's graph is
 the same for every home: built once, and kept. One resident decoder
-(wyoming_wake_kaldi's verify_decoderd) holds the three graphs -- the home's
-sentences; the same with the answers to a question (the language's yes, no
-and ways of ending it); the background -- and decodes every call against all
-three in one acoustic pass.
+(wyoming_wake_kaldi's verify_decoderd) holds the graphs (``TAGS``) -- the
+home's sentences (Wyoming's audio, which has no wake word); the same with
+the answers to a question (the language's yes, no and ways of ending it);
+the same after one of the wake phrases in use, said as the wake word
+verifier says them, for a call decoded whole, pre-roll and all; the
+background -- and decodes all of them in one acoustic pass.
 
 Kaldi mode still loads Parakeet: the matcher reads the sentence heard as
 typed text with its vocabulary (Engine.recognize_text).
@@ -74,6 +77,14 @@ EXTRA = "__"
 """Before an extra's word in the grammar (its twin in the lexicon): left out
 of what was said. Kaldi aligns words only to words written out."""
 
+WAKE = "__wake_"
+"""Before a wake phrase's word in the grammar of a call: its twin, said as
+the wake word verifier says it."""
+
+SAID_AFTER = 0.15
+"""How far past Kaldi's split a background word must run to be said after
+the wake word, not its tail."""
+
 UNK_COST = 4.0
 """Noise before or after the sentence, each stretch of it."""
 
@@ -86,19 +97,21 @@ BACKGROUND_COST = 6.0
 
 MAX_COST = 0.0
 """How much more than the background a frame of the sentence may cost
-(``settings.json`` ``kaldi_max_cost``). On the office-multicap corpus, the
-corpus's own sentences the examples (scripts/kaldi_mode.py): at 0, 79.3% of
-2,756 commands right, 8.1% wrong, 81.4% of 488 sentences that are none
-refused, and 7 of 400 calls of talk overheard ran a command; at -0.02, 73.6%,
-6.0%, 88.3% and 2; at 0.02, 83.0%, 10.6%, 67.0% and 40."""
+(``settings.json`` ``kaldi_max_cost``). On the office-multicap corpus's
+calls the wake chain accepted (scripts/kaldi_mode.py --wake), the corpus's
+own sentences the examples, a call decoded whole after "okay nabu": at 0,
+86.0% of 1,230 commands right, 4.6% wrong, 86.9% of 221 sentences that are
+none refused, and 5 of 400 calls of talk overheard ran a command; at -0.02,
+82.3%, 3.9%, 90.5% and 0; at 0.02, 88.5%, 5.8%, 79.2% and 29."""
 
 LEAD = 0.3
-"""Seconds of a call decoded before Kaldi's split, for a first word the
-wake verifier took in: noise (``<unk>``) to the grammar."""
+"""Seconds before Kaldi's split that a call was decoded from, before calls
+were decoded whole after their wake phrase: scripts/kaldi_mode.py's
+``split``, to compare."""
 
 SEARCH = ("--beam=13.0", "--max-active=7000", "--lattice-beam=2.0")
 
-BUILD_VERSION = 3
+BUILD_VERSION = 5
 """Bumped when the graphs change for the same sentences."""
 
 EXTRAS = {
@@ -106,9 +119,10 @@ EXTRAS = {
 }
 """Said around a command that no example says, by language: (before, after)."""
 
-TAGS = ("home", "answer", "background")
+TAGS = ("home", "answer", "call", "background", "call_background")
 """The decoder's graphs: the home's sentences, those with the answers to a
-question, and the background."""
+question, those after a wake phrase (a call, decoded whole), the
+background, and the background after a wake phrase (a call's)."""
 
 _START_TIMEOUT = 120.0
 _DECODE_TIMEOUT = 30.0
@@ -336,20 +350,24 @@ class Built:
     seconds: float
 
 
-def _grammar(sentences: list[tuple[str, ...]], extras: tuple[list[tuple[str, ...]], list[tuple[str, ...]]]) -> list[str]:
-    """``sentences`` as an OpenFST text grammar: noise, an extra, a
-    sentence (their shared-prefix tree), an extra, noise. Epsilons are
-    ``#0`` in and nothing out, as Kaldi's grammars have them. An extra is
-    its word's twin (``EXTRA``): heard, and left out of what was said, as
-    noise is."""
+def _grammar(
+    sentences: list[tuple[str, ...]], extras: tuple[list[tuple[str, ...]], list[tuple[str, ...]]],
+    wake: list[tuple[str, ...]] | None = None,
+) -> list[str]:
+    """``sentences`` as an OpenFST text grammar: noise, one of the ``wake``
+    phrases when given, an extra, a sentence (their shared-prefix tree), an
+    extra, noise. Epsilons are ``#0`` in and nothing out, as Kaldi's
+    grammars have them. An extra is its word's twin (``EXTRA``), and a wake
+    phrase's word its own (``WAKE``): heard, and left out of what was said,
+    as noise is."""
     lines: list[str] = []
     states = 6
 
-    def arc(src: int, dst: int, word: str | None = None, cost: float = 0.0, said: bool = True) -> None:
-        label = "#0 <eps>" if word is None else (f"{word} {word}" if said else f"{EXTRA}{word} {EXTRA}{word}")
+    def arc(src: int, dst: int, word: str | None = None, cost: float = 0.0, prefix: str = "") -> None:
+        label = "#0 <eps>" if word is None else f"{prefix}{word} {prefix}{word}"
         lines.append(f"{src} {dst} {label} {cost}")
 
-    def tree(src: int, dst: int, phrases: Iterable[tuple[str, ...]], cost: float = 0.0, said: bool = True) -> None:
+    def tree(src: int, dst: int, phrases: Iterable[tuple[str, ...]], cost: float = 0.0, prefix: str = "") -> None:
         nonlocal states
         children: dict[tuple[int, str], int] = {}
         ends: set[int] = set()
@@ -359,21 +377,25 @@ def _grammar(sentences: list[tuple[str, ...]], extras: tuple[list[tuple[str, ...
                 key = (at, word)
                 if key not in children:
                     children[key] = states
-                    arc(at, states, word, cost if at == src else 0.0, said)
+                    arc(at, states, word, cost if at == src else 0.0, prefix)
                     states += 1
                 at = children[key]
             ends.add(at)
         for end in sorted(ends):
             arc(end, dst)
 
-    # 0 noise, 1 an extra, 2 the sentence; 3 its end, 4 an extra, 5 noise.
+    # 0 noise (then the wake word), 1 an extra, 2 the sentence; 3 its end, 4
+    # an extra, 5 noise.
     arc(0, 0, UNK, UNK_COST)
-    arc(0, 1)
+    if wake:
+        tree(0, 1, wake, prefix=WAKE)
+    else:
+        arc(0, 1)
     arc(1, 2)
-    tree(1, 2, extras[0], EXTRA_COST, said=False)  # heard, not written
+    tree(1, 2, extras[0], EXTRA_COST, prefix=EXTRA)
     tree(2, 3, sentences)
     arc(3, 4)
-    tree(3, 4, extras[1], EXTRA_COST, said=False)
+    tree(3, 4, extras[1], EXTRA_COST, prefix=EXTRA)
     arc(4, 5)
     arc(5, 5, UNK, UNK_COST)
     lines.append("5")
@@ -428,10 +450,12 @@ class KaldiMode:
 
     def build(
         self, heard: Sentences, language: str, own: dict[str, list[str]], answers: Iterable[str] = (),
+        wake: Iterable[tuple[str, ...]] = (), wake_lexicon: dict[str, Iterable[str]] | None = None,
     ) -> Built:
         """The graphs for ``heard`` (with ``answers``, the language's ways of
-        answering a question), then a decoder holding them, in place of the
-        one before. Slow (seconds): call from a thread. Raises RuntimeError
+        answering a question; after one of the ``wake`` phrases, each said
+        as ``wake_lexicon`` has it -- the wake word verifier's -- for a call),
+        then a decoder holding them, in place of the one before. Slow (seconds): call from a thread. Raises RuntimeError
         when Kaldi can't build them; the old decoder stays."""
         missing = self.available
         if missing:
@@ -451,11 +475,15 @@ class KaldiMode:
                 return [p for p in phrases if all(w in speakable for w in p)]
 
             keep, answer_keep, extras = sayable(said), sayable(answered), (sayable(before), sayable(after))
+            wakes = self._wake_words(wake, wake_lexicon or {}, own)
+            wake_keep = [p for p in dict.fromkeys(tuple(w.lower() for w in p) for p in wake) if all(f"{WAKE}{w}" in wakes for w in p)]
             signature = _signature({
-                "sentences": keep, "answers": answer_keep, "extras": extras,
-                "words": {w: words[w].pronunciations for w in sorted(speakable)}, "costs": [UNK_COST, EXTRA_COST],
+                "sentences": keep, "answers": answer_keep, "extras": extras, "wake": wake_keep,
+                "words": {w: words[w].pronunciations for w in sorted(speakable)},
+                "wake_words": {w: e.pronunciations for w, e in sorted(wakes.items())}, "costs": [UNK_COST, EXTRA_COST],
             })
             background = self._background()
+            call_background = self._background(wake_keep, wakes) if wake_keep else background
             if self.built is not None and self.built.signature == signature and self.ready:
                 return self.built
             directory = self.work_dir / "graphs" / signature
@@ -466,10 +494,12 @@ class KaldiMode:
                 self._build_graphs(directory, {
                     "home": _grammar(keep, extras),
                     "answer": _grammar(list(dict.fromkeys([*keep, *answer_keep])), extras),
-                }, {**{w: words[w] for w in speakable}, **twins})
+                    "call": _grammar(keep, extras, wake_keep or None),
+                }, {**{w: words[w] for w in speakable}, **twins, **{w: wakes[w] for w in {f"{WAKE}{x}" for p in wake_keep for x in p}}})
                 (directory / "done").write_text("", "utf-8")
             decoder = _Decoder(self.daemon, self.model(), {
-                "home": directory / "graph_home", "answer": directory / "graph_answer", "background": background,
+                **{tag: directory / f"graph_{tag}" for tag in TAGS if "background" not in tag}, "background": background,
+                "call_background": call_background,
             }, self.tools)
             decoder.start()
             old, self._decoder = self._decoder, decoder
@@ -484,21 +514,48 @@ class KaldiMode:
             )
             return self.built
 
-    def _background(self) -> Path:
+    def _wake_words(
+        self, wake: Iterable[tuple[str, ...]], lexicon: dict[str, Iterable[str]], own: dict[str, list[str]],
+    ) -> dict[str, Word]:
+        """The wake phrases' words, each its twin (``WAKE``) said as the wake
+        word verifier says it -- else as any other word is."""
+        wanted = {w.lower() for phrase in wake for w in phrase}
+        given = {w.lower(): [str(p) for p in prons] for w, prons in lexicon.items()}
+        others = self.pronouncer.words([w for w in wanted if not given.get(w)], own)
+        out = {}
+        for word in sorted(wanted):
+            prons = given.get(word) or (others[word].pronunciations if word in others else [])
+            if prons:
+                out[f"{WAKE}{word}"] = Word(f"{WAKE}{word}", prons, "wake")
+        return out
+
+    def _background(self, wake: list[tuple[str, ...]] | None = None, wakes: dict[str, Word] | None = None) -> Path:
         """The background's graph: the model's frequent words, any of them in
-        any order. Built once (it is the same for every home)."""
+        any order -- after noise and one of the ``wake`` phrases (``wakes``:
+        their words' twins), when given, as a call's is. Built once for each
+        (the plain one is the same for every home)."""
         files = [self.model_dir / "frequent_words.txt", self.model_dir / "lexicon.db", self.model_dir / "model/model/final.mdl"]
         stats = [(f.name, f.stat()) for f in files if f.exists()]
-        signature = _signature({"files": [[name, st.st_size, int(st.st_mtime)] for name, st in stats], "cost": BACKGROUND_COST})
+        twins = {w: e for w, e in (wakes or {}).items() if any(w == f"{WAKE}{x}" for p in wake or [] for x in p)}
+        signature = _signature({"files": [[name, st.st_size, int(st.st_mtime)] for name, st in stats], "cost": BACKGROUND_COST,
+                                **({"wake": wake, "wake_words": {w: e.pronunciations for w, e in sorted(twins.items())}} if wake else {})})
         directory = self.work_dir / "background" / signature
         if not (directory / "done").is_file():
             shutil.rmtree(directory, ignore_errors=True)
             started = time.perf_counter()
             dictionary, _ = self.pronouncer.dictionary(_frequent_words(self.model_dir))
             words = {w: Word(w, prons, "dictionary") for w, prons in dictionary.items()}
-            self._build_graphs(directory, {"background": [f"0 0 {w} {w} {BACKGROUND_COST}" for w in sorted(words)] + ["0"]}, words)
+            loop = [f"1 1 {w} {w} {BACKGROUND_COST}" for w in sorted(words)] + ["1"]
+            if wake:
+                lines = _grammar([], ([], []), wake)
+                # Noise, then a wake phrase into state 1: the words' loop.
+                head = [line for line in lines if not line.startswith(("1 ", "2 ", "3 ", "4 ", "5 ")) and line != "5"]
+            else:
+                head = ["0 1 #0 <eps> 0.0"]
+            self._build_graphs(directory, {"background": head + loop}, {**words, **twins})
             (directory / "done").write_text("", "utf-8")
-            _LOGGER.info("Kaldi's background (%d words) built in %.1f s", len(words), time.perf_counter() - started)
+            _LOGGER.info("Kaldi's background (%d words%s) built in %.1f s", len(words), ", after the wake word" if wake else "",
+                         time.perf_counter() - started)
         return directory / "graph_background"
 
     def _build_graphs(self, directory: Path, grammars: dict[str, list[str]], words: dict[str, Word]) -> None:
@@ -553,19 +610,13 @@ class KaldiMode:
     # ------------------------------------------------------------- decode
 
     def decode(self, audio: np.ndarray) -> Heard:
-        """``audio`` (16 kHz, float) against the three graphs. Raises
+        """``audio`` (16 kHz, float) against the graphs (TAGS). Raises
         RuntimeError when no decoder is running."""
         decoder = self._decoder
         if decoder is None or not decoder.running:
             raise RuntimeError(self.error or "Kaldi isn't ready")
         started = time.perf_counter()
-        results = decoder.decode(audio)
-        home, answer, background = (results[tag] for tag in TAGS)
-        return Heard(
-            words=home[2], cost=home[0], frames=home[1], answer_words=answer[2], answer_cost=answer[0],
-            background=background[0], background_words=[w for w, _, _ in background[2] if _is_word(w)],
-            seconds=time.perf_counter() - started, max_cost=self.max_cost,
-        )
+        return Heard(decoder.decode(audio), time.perf_counter() - started, self.max_cost)
 
     def close(self) -> None:
         decoder, self._decoder = self._decoder, None
@@ -608,53 +659,49 @@ def _frequent_words(model_dir: Path) -> list[str]:
 
 @dataclass
 class Heard:
-    """What Kaldi made of a call."""
+    """What Kaldi made of some audio, against each of its graphs (TAGS)."""
 
-    words: list[tuple[str, float, float]]
-    """The home's sentence's words, with their times (seconds)."""
-    cost: float
-    frames: int
-    answer_words: list[tuple[str, float, float]]
-    answer_cost: float
-    background: float
-    background_words: list[str]
-    """What the background heard: whether anything was said."""
+    results: dict[str, tuple[float, int, list[tuple[str, float, float]]]]
+    """Each graph's: its best path's cost, the frames, its words with their
+    times (seconds)."""
     seconds: float
     max_cost: float = MAX_COST
 
-    @property
-    def text(self) -> str:
-        return " ".join(w for w, _, _ in self.words if _is_word(w))
+    def words(self, graph: str = "home") -> list[str]:
+        return [w for w, _, _ in self.results[graph][2] if _is_word(w)]
+
+    def text(self, graph: str = "home") -> str:
+        return " ".join(self.words(graph))
+
+    def margin(self, graph: str = "home") -> float:
+        """How much more than the background a frame of ``graph``'s sentence
+        cost (a call's: the background after the same wake phrase)."""
+        cost, frames, _ = self.results[graph]
+        return (cost - self.results["call_background" if graph == "call" else "background"][0]) / max(1, frames)
+
+    def taken(self, graph: str = "home") -> bool:
+        return bool(self.text(graph)) and self.margin(graph) <= self.max_cost
 
     @property
-    def answer_text(self) -> str:
-        return " ".join(w for w, _, _ in self.answer_words if _is_word(w))
+    def background_words(self) -> list[str]:
+        """What the background heard: whether anything was said."""
+        return self.words("background")
 
-    @property
-    def margin(self) -> float:
-        """How much more than the background a frame of the sentence cost."""
-        return (self.cost - self.background) / max(1, self.frames)
+    def background_after(self, seconds: float, graph: str = "home") -> list[str]:
+        """What ``graph``'s background heard from ``seconds`` on: whether
+        anything was said after the wake word, in a call decoded whole."""
+        background = self.results["call_background" if graph == "call" else "background"][2]
+        return [w for w, start, end in background if _is_word(w) and end > seconds + SAID_AFTER]
 
-    @property
-    def answer_margin(self) -> float:
-        return (self.answer_cost - self.background) / max(1, self.frames)
-
-    @property
-    def taken(self) -> bool:
-        return bool(self.text) and self.margin <= self.max_cost
-
-    @property
-    def answer_taken(self) -> bool:
-        return bool(self.answer_text) and self.answer_margin <= self.max_cost
-
-    def to_json(self, answer: bool = False) -> dict[str, Any]:
+    def to_json(self, graph: str = "home") -> dict[str, Any]:
         """For the call's record (Decision.sentence)."""
         return {
             "recognizer": "kaldi",
-            "text": (self.answer_text if answer else self.text) or None,
-            "cost": round(self.answer_margin if answer else self.margin, 3),
+            "graph": graph,
+            "text": self.text(graph) or None,
+            "cost": round(self.margin(graph), 3),
             "max_cost": self.max_cost,
-            "taken": self.answer_taken if answer else self.taken,
+            "taken": self.taken(graph),
             "background": " ".join(self.background_words),
             "seconds": round(self.seconds, 3),
         }
