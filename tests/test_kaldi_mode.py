@@ -186,6 +186,16 @@ def test_kaldi_hears_a_recorded_call(tmp_path, monkeypatch):
         result = mode.decode(audio, CALL)
         assert set(result.results) == set(CALL)
         assert result.text("call") == "turn on the lights" and result.taken("call"), result.to_json("call")
+        # As it is said: fed in the pieces a satellite sends, the same (but
+        # for the dither each decode draws anew).
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+        stream = mode.stream(CALL)
+        for at in range(0, len(pcm), 1023):
+            stream.feed(pcm[at : at + 1023])
+        assert stream.samples == len(audio)
+        streamed = stream.finish()
+        assert streamed.streamed and streamed.to_json("call")["streamed"]
+        assert streamed.text("call") == "turn on the lights" and abs(streamed.margin("call") - result.margin("call")) < 0.05
         result = mode.decode(audio, COMMAND)
         assert set(result.results) == set(COMMAND)
         assert result.text("home") == "turn on the lights"
@@ -194,6 +204,74 @@ def test_kaldi_hears_a_recorded_call(tmp_path, monkeypatch):
         assert mode.build(heard, "en", {}, ["yes", "no"], *wake) is built
     finally:
         mode.close()
+
+
+def test_a_call_being_said_finishes_on_the_graphs_it_started_on(tmp_path):
+    import gc  # pylint: disable=import-outside-toplevel
+    import wave  # pylint: disable=import-outside-toplevel
+
+    mode = KaldiMode(ROOT, tmp_path / "kaldi")
+    if mode.available:
+        pytest.skip(mode.available)
+    wake = ([("okay", "nabu")], {"nabu": ["n ˈæ b u"]})
+    lights = Sentences({"lights": [*words_of("turn on the lights", "en"), *words_of("turn off the lights", "en")]})
+    mode.build(lights, "en", {}, ["yes", "no"], *wake)
+    try:
+        with wave.open(str(WAV)) as recording:
+            pcm = recording.readframes(recording.getnframes())
+        half = len(pcm) // 2 & ~1
+        said, forgotten = mode.stream(CALL), mode.stream(CALL)
+        said.feed(pcm[:half])
+        forgotten.feed(pcm[:half])
+        old = mode._decoder  # pylint: disable=protected-access
+        # A save meanwhile: the graphs are built again, without the lights.
+        mode.build(Sentences({"fan": words_of("turn on the fan", "en")}), "en", {}, ["yes", "no"], *wake)
+        assert mode._decoder is not old and old.running  # pylint: disable=protected-access
+        said.feed(pcm[half:])
+        assert said.finish().text("call") == "turn on the lights"
+        assert old.running  # the other call isn't over yet
+        del forgotten
+        gc.collect()
+        assert not old.running
+        # New calls are heard by the new graphs.
+        stream = mode.stream(CALL)
+        stream.feed(pcm)
+        assert stream.finish().text("call") != "turn on the lights"
+    finally:
+        mode.close()
+
+
+class FakeStream:
+    def __init__(self, heard: Heard, samples: int) -> None:
+        self.heard, self.samples, self.done, self.cancelled = heard, samples, False, False
+
+    def finish(self):
+        self.done = True
+        return Heard(self.heard.results, 0.001, self.heard.max_cost, streamed=True)
+
+    def cancel(self):
+        self.done = self.cancelled = True
+
+
+def test_a_call_decoded_as_it_was_said_is_heard_from_its_stream(engine):
+    _kaldi(engine, _heard("turn on the lights", -0.2))
+    try:
+        audio = np.zeros(48000, dtype=np.float32)
+        stream = FakeStream(_heard("turn on the lights", -0.2), len(audio))
+        decision, _ = engine.recognize_call(audio, None, 1.5, OFFICE, kaldi_stream=stream)
+        assert decision.command.id == "lights_on" and decision.sentence["streamed"] and not stream.cancelled
+        # Someone else's speech cut the call short: what was fed is too much,
+        # so the call is decoded whole.
+        stream = FakeStream(_heard("turn off the lights", -0.2), len(audio) + 1600)
+        decision, _ = engine.recognize_call(audio, None, 1.5, OFFICE, kaldi_stream=stream)
+        assert decision.transcript == "turn on the lights" and "streamed" not in decision.sentence and stream.cancelled
+        # Parakeet hears when Kaldi isn't chosen: the stream is let go.
+        engine.recognizer_choice = "parakeet"
+        stream = FakeStream(_heard("turn on the lights", -0.2), len(audio))
+        engine.recognize_call(audio, None, 1.5, OFFICE, kaldi_stream=stream)
+        assert stream.cancelled
+    finally:
+        engine.recognizer_choice = "parakeet"
 
 
 class BrokenKaldi(FakeKaldi):
@@ -364,3 +442,24 @@ def test_kaldi_is_built_after_a_save_not_during_it():
         assert app._kaldi_task.done()
 
     asyncio.run(run())
+
+
+def test_home_assistants_audio_is_fed_to_kaldi_as_it_comes():
+    from voice_labs.wyoming_server import Hearing  # pylint: disable=import-outside-toplevel
+
+    class Fed:
+        def __init__(self):
+            self.pcm, self.cancelled = b"", False
+
+        def feed(self, pcm):
+            self.pcm += pcm
+
+        def cancel(self):
+            self.cancelled = True
+
+    hearing = Hearing({}, None, None, kaldi=Fed())
+    hearing.feed(b"\x01\x00\x02\x00")
+    hearing.feed(b"\x03\x00")
+    assert hearing.kaldi.pcm == bytes(hearing.pcm) == b"\x01\x00\x02\x00\x03\x00"
+    hearing.cancel()  # the client left
+    assert hearing.kaldi.cancelled

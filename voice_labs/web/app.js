@@ -4452,7 +4452,7 @@ function heardLabels(rec) {
 function kaldiRows(sentence) {
   return [
     h("div", {}, "Sentence"), h("div", {}, sentence.text ? quoted(sentence.text) : h("span", { class: "muted" }, "none"),
-      h("span", { class: "muted" }, ` · ${num(sentence.cost, 3)} a frame from the background (at most ${num(sentence.max_cost, 2)})${sentence.taken ? "" : ", not taken"}`)),
+      h("span", { class: "muted" }, ` · ${num(sentence.cost, 3)} a frame from the background (at most ${num(sentence.max_cost, 2)})${sentence.taken ? "" : ", not taken"}${sentence.streamed ? " · decoded as you spoke" : ""}`)),
     h("div", {}, "Background"), h("div", {}, sentence.background ? quoted(sentence.background) : h("span", { class: "muted" }, "nothing: not a word said")),
   ];
 }

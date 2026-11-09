@@ -469,6 +469,11 @@ class Call:
     when it always runs."""
     stt_gain: float = 1.0
     """What the AEC capture is boosted by as it is streamed."""
+    kaldi: Any = None
+    """Kaldi's decode of the call as it is said (kaldi_mode.Stream), in
+    Kaldi mode: from its start (an answer's: from the split)."""
+    kaldi_position: int = 0
+    """How much of the AGC capture Kaldi has been fed."""
     speaker_ref: Any = None
     """The identified speaker's profile, once the command's first segment is in
     (what later segments are checked against); False when nobody was."""
@@ -2323,6 +2328,7 @@ class VoiceLabsApp:
         asked = call.follow_up
         assert asked is not None
         call.split_bytes = call.preroll_bytes
+        self._start_kaldi(call, kaldi_mode.ANSWER, call.split_bytes)
         await self._start_stt(session, call)
         call.endpointer = Endpointer(self.end_of_speech(session.satellite), gain=asked.gain, warm=asked.warm)
         call.endpointer.watch(False)  # an answer is short, and whoever was answered gives it
@@ -2343,6 +2349,7 @@ class VoiceLabsApp:
 
     def _give_up(self, session: Session, call: Call, why: str, seconds: float, details: dict[str, Any]) -> None:
         """The call ends with nothing done: it ran out of time, or nobody spoke."""
+        self._drop_kaldi(call)
         if call.record is not None:
             call.record.stage("timeout", why=why, seconds=seconds, **details)
             self.calls.finish(call.record, "timeout", why, self._call_audio(call))
@@ -2355,6 +2362,7 @@ class VoiceLabsApp:
         if call.endpointer is not None and call.endpointer.no_speech and call.follow_up is not None:
             # Not answered: nothing to keep.
             _LOGGER.info("[%s] No answer to %r", session, call.follow_up.question)
+            self._drop_kaldi(call)
             if call.record is not None:
                 self.calls.delete(call.record.id)
             self._spawn(self._hang_up(session, "no_answer"))
@@ -2424,6 +2432,7 @@ class VoiceLabsApp:
             return
         call.command += new_audio
         self._feed_stt(call)
+        self._feed_kaldi(call)
         if call.endpointer.process(new_audio) and not call.finished:
             self._command_ended(session, call)
         else:
@@ -2620,6 +2629,7 @@ class VoiceLabsApp:
             )
 
         self._place_split(call, verdict)
+        self._start_kaldi(call, kaldi_mode.CALL, 0)
         wake = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
         await self._start_stt(session, call)
         call.endpointer = Endpointer(self.end_of_speech(session.satellite), gain=vad_gain(wake), warm=wake)
@@ -2692,6 +2702,31 @@ class VoiceLabsApp:
         if end > stream.position:
             stream.feed(pcm)
             stream.position = end
+
+    def _start_kaldi(self, call: Call, graphs: tuple[str, ...], start: int) -> None:
+        """In Kaldi mode: the call decoded as it is said, from ``start``
+        (bytes), so that little is left when it ends."""
+        if self.engine is None or (stream := self.engine.kaldi_stream(graphs)) is None:
+            return
+        call.kaldi, call.kaldi_position = stream, start
+        self._feed_kaldi(call)
+
+    @staticmethod
+    def _feed_kaldi(call: Call) -> None:
+        """What has come of the call since, to Kaldi."""
+        stream = call.kaldi
+        if stream is None or stream.done:
+            return
+        end = len(call.audio) & ~1
+        if end > call.kaldi_position:
+            stream.feed(bytes(call.audio[call.kaldi_position : end]))
+            call.kaldi_position = end
+
+    @staticmethod
+    def _drop_kaldi(call: Call) -> None:
+        """Nothing will be recognized: Kaldi's stream is let go."""
+        if call.kaldi is not None:
+            call.kaldi.cancel()
 
     @staticmethod
     def _place_split(call: Call, verdict: WakeVerdict) -> None:
@@ -2824,6 +2859,7 @@ class VoiceLabsApp:
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
         finally:
+            self._drop_kaldi(call)  # not recognized: an error, or the call ended
             if call.cues is not None:
                 await call.cues.stop(close=False)  # the call is over: nothing left to end
             release_memory()  # what recognizing and answering it used
@@ -2878,6 +2914,7 @@ class VoiceLabsApp:
             transcriber.finish()
         else:
             transcriber = await self._transcriber(satellite)
+        self._feed_kaldi(call)  # all of it, now
         agc, aec = bytes(call.audio), bytes(call.aec)
         stop = self._speaker_stop(call)
         if stop is not None:
@@ -2900,7 +2937,8 @@ class VoiceLabsApp:
                 # No wake word in it: all of it is the answer.
                 split = None
                 decision = await asyncio.to_thread(
-                    self.engine.recognize_answer, _pcm_to_float(agc[call.split_bytes :]), satellite, transcriber
+                    self.engine.recognize_answer, _pcm_to_float(agc[call.split_bytes :]), satellite, transcriber,
+                    kaldi_stream=call.kaldi,
                 )
             else:
                 decision, split = await asyncio.to_thread(
@@ -2911,6 +2949,7 @@ class VoiceLabsApp:
                     satellite,
                     transcriber,
                     self.wake_words.phrases(call.wake_word),
+                    kaldi_stream=call.kaldi,
                 )
         if record is not None:
             if split is not None:
@@ -3738,7 +3777,9 @@ class VoiceLabsApp:
             stream = await self.voices.streaming_transcriber(
                 entity, tdt, satellite.voice.stt_language, {"channel": "home_assistant"}
             )
-        return Hearing(context, satellite, tdt, stream)
+        # In Kaldi mode, decoded as it comes too.
+        kaldi = engine.kaldi_stream(kaldi_mode.COMMAND) if engine is not None else None
+        return Hearing(context, satellite, tdt, stream, kaldi=kaldi)
 
     async def transcribe(self, hearing: Hearing) -> str:
         """What Home Assistant's satellite said (Wyoming's speech-to-text),
@@ -3766,7 +3807,7 @@ class VoiceLabsApp:
             if engine.kaldi_on:
                 # One of the home's sentences, as written, or nothing.
                 evidence = (np.zeros((0, 0), dtype=np.float32), engine.model.frame_seconds)
-                decision = await asyncio.to_thread(engine.recognize_command, audio, satellite)
+                decision = await asyncio.to_thread(engine.recognize_command, audio, satellite, kaldi_stream=hearing.kaldi)
                 started = time.perf_counter()
                 text, how = decision.recognition.get("transcript") or "", {"as": "kaldi"}
             else:

@@ -1870,3 +1870,50 @@ async def _calendar(tmp_path: Path) -> None:
         await rest.cleanup()
         satellite_server.close()
         hass_server.close()
+
+
+def test_kaldi_hears_a_call_as_it_is_said(tmp_path):
+    asyncio.run(_kaldi_streamed(tmp_path))
+
+
+async def _kaldi_streamed(tmp_path: Path) -> None:
+    from voice_labs.kaldi_mode import KaldiMode  # pylint: disable=import-outside-toplevel
+
+    if (missing := KaldiMode(ROOT, tmp_path / "probe").available) is not None:
+        pytest.skip(missing)
+    hass, hass_server = await fake_hass.serve()
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite_server = await serve(satellite)
+    hass.device_areas[f"device-{MAC}"] = "kitchen"
+    # Kaldi hears only what it is given to: a Kaldi sentence for the lights.
+    (tmp_path / "commands.yaml").write_text(COMMANDS.replace(
+        "    description: turn on the lights\n", "    description: turn on the lights\n    sentences: [turn on the lights]\n", 1,
+    ))
+    http_port = free_port()
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1],
+        hass_url=f"http://127.0.0.1:{hass_server.sockets[0].getsockname()[1]}", hass_token=fake_hass.TOKEN,
+        data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json", threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            assert (await http.put("/api/settings", json={"recognizer": "kaldi"})).status == 200
+        await wait_for(lambda: app.engine.kaldi_on and not app.kaldi_building, timeout=180)
+
+        # Decoded as it came: only the end of it was left when it ended.
+        assert await satellite.call(read_call(CALLS / "call-15788.wav")) == "done"
+        record = app.calls.recent[-1]
+        recognition = next(s for s in record.stages if s["stage"] == "recognition")
+        sentence = recognition["sentence"]
+        assert sentence["recognizer"] == "kaldi" and sentence["graph"] == "call" and sentence["streamed"], sentence
+        assert sentence["text"] == "turn on the lights" and sentence["taken"]
+        assert hass.scripts[-1]["variables"]["command"]["id"] == "lights_on"
+        assert app.engine.kaldi._decoder._open == 0  # pylint: disable=protected-access
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+        hass_server.close()

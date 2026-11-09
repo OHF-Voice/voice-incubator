@@ -26,6 +26,20 @@
 //   through the graph's words.txt. Word alignment entries are only produced
 //   for graphs given a word_boundary.int file.
 //
+// Streams: audio decoded as it comes, so that little is left to do when it
+// ends (a call, while it is said). Each has an id the client picks; several
+// may be open at once, their audio interleaved:
+//   OPEN <id>[<TAB><tag>,<tag>...]     no output
+//   AUDIO <id> <n>                     then n bytes of 16 kHz mono s16le; no output
+//   CLOSE <id>[<TAB><tag>,<tag>...]    the result lines, as for a wav path
+//                                      (the tags again: an unknown stream
+//                                      still answers one ERR line per graph)
+//   DROP <id>                          forgotten; no output
+// Only a wav path and CLOSE answer, so a client that writes those and reads
+// their lines in turn never reads another request's. The audio is fed in the
+// same chunks as a wav file's (--chunk-length), whatever sizes it comes in:
+// a stream decodes as the same audio from a file would.
+//
 // Two things make the sharing exact rather than approximate:
 //
 //   * The decoders are advanced ONE output frame at a time, in lockstep. The
@@ -55,7 +69,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
+#include <stdexcept>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -81,7 +97,32 @@ struct Graph {
   WordBoundaryInfo *word_boundary = nullptr;
   // Per-graph, because max_active must differ: see --uncapped-graphs.
   LatticeFasterDecoderConfig opts;
-  std::unique_ptr<LatticeFasterOnlineDecoder> decoder;
+};
+
+// What every decode shares: the model, its configs, the graphs.
+struct Shared {
+  const TransitionModel *trans_model = nullptr;
+  OnlineNnet2FeaturePipelineInfo *feature_info = nullptr;
+  nnet3::DecodableNnetSimpleLoopedInfo *decodable_info = nullptr;
+  int32 frame_subsampling_factor = 1;
+  std::vector<Graph> *graphs = nullptr;
+  int32 silence_weighting_index = 0;
+  BaseFloat chunk_length_secs = 0.18;
+};
+
+// One decode in progress: a wav file's, or a stream's as its audio comes.
+struct Stream {
+  std::vector<int32> active;  // graph indices, sorted
+  int32 weighting = 0;        // the graph driving i-vector silence weighting
+  BaseFloat samp_freq = 16000;
+  std::unique_ptr<OnlineNnet2FeaturePipeline> features;
+  std::unique_ptr<nnet3::DecodableAmNnetLoopedOnline> decodable;
+  std::vector<std::unique_ptr<LatticeFasterOnlineDecoder>> decoders;  // by graph
+  std::unique_ptr<OnlineSilenceWeighting> silence_weighting;
+  std::vector<std::pair<int32, BaseFloat>> delta_weights;
+  std::vector<BaseFloat> pending;  // less than a chunk, not yet fed
+  std::string error;               // the first failure: reported at the end
+  uint64 opened = 0;               // for dropping the oldest of too many
 };
 
 // Split a comma-separated option value.
@@ -123,6 +164,210 @@ void BestPathCost(const CompactLattice &best_path, double *total_cost,
     state = arc.nextstate;
   }
 }
+
+// The graphs a request names (comma-separated tags), sorted; every one when
+// it names none.
+std::vector<int32> ActiveGraphs(const std::vector<Graph> &graphs,
+                                const std::string &tags) {
+  std::vector<int32> active;
+  for (const std::string &tag : SplitCommas(tags)) {
+    for (int32 g = 0; g < static_cast<int32>(graphs.size()); g++) {
+      if (graphs[g].tag == tag &&
+          std::find(active.begin(), active.end(), g) == active.end()) {
+        active.push_back(g);
+      }
+    }
+  }
+  std::sort(active.begin(), active.end());
+  if (active.empty()) {
+    for (int32 g = 0; g < static_cast<int32>(graphs.size()); g++) {
+      active.push_back(g);
+    }
+  }
+  return active;
+}
+
+void Open(const Shared &shared, Stream *stream) {
+  std::vector<Graph> &graphs = *shared.graphs;
+  // The traceback silence weighting reads: its graph, if decoded.
+  stream->weighting =
+      std::find(stream->active.begin(), stream->active.end(),
+                shared.silence_weighting_index) != stream->active.end()
+          ? shared.silence_weighting_index
+          : stream->active[0];
+  stream->features.reset(new OnlineNnet2FeaturePipeline(*shared.feature_info));
+  // ONE decodable: the acoustic model runs once for all the graphs.
+  stream->decodable.reset(new nnet3::DecodableAmNnetLoopedOnline(
+      *shared.trans_model, *shared.decodable_info,
+      stream->features->InputFeature(), stream->features->IvectorFeature()));
+  stream->decoders.resize(graphs.size());
+  for (int32 g : stream->active) {
+    // (fst, config): borrows the FST. The (config, FST*) overload takes
+    // ownership, which would delete a graph we reuse every turn.
+    stream->decoders[g].reset(
+        new LatticeFasterOnlineDecoder(*graphs[g].fst, graphs[g].opts));
+    stream->decoders[g]->InitDecoding();
+  }
+  stream->silence_weighting.reset(new OnlineSilenceWeighting(
+      *shared.trans_model, shared.feature_info->silence_weighting_config,
+      shared.frame_subsampling_factor));
+}
+
+// One chunk into the features (``finished``: the last), and every decoder
+// advanced over what that made ready.
+void Advance(Stream *stream, const BaseFloat *samples, int32 n,
+             bool finished) {
+  OnlineNnet2FeaturePipeline &features = *stream->features;
+  if (n > 0) {
+    Vector<BaseFloat> chunk(n, kUndefined);
+    std::copy(samples, samples + n, chunk.Data());
+    features.AcceptWaveform(stream->samp_freq, chunk);
+  }
+  if (finished) {
+    features.InputFinished();
+  }
+  if (stream->silence_weighting->Active() &&
+      features.IvectorFeature() != nullptr) {
+    stream->silence_weighting->ComputeCurrentTraceback(
+        *stream->decoders[stream->weighting]);
+    stream->silence_weighting->GetDeltaWeights(features.NumFramesReady(),
+                                               &stream->delta_weights);
+    features.IvectorFeature()->UpdateFrameWeights(stream->delta_weights);
+  }
+  // Lockstep, one output frame at a time: the looped decodable caches a chunk
+  // of log-posteriors and rejects frames requested before its current
+  // offset, so no decoder may run ahead of the others.
+  LatticeFasterOnlineDecoder &first = *stream->decoders[stream->active[0]];
+  while (first.NumFramesDecoded() < stream->decodable->NumFramesReady()) {
+    for (int32 g : stream->active) {
+      stream->decoders[g]->AdvanceDecoding(stream->decodable.get(), 1);
+    }
+  }
+}
+
+// Audio as it comes: fed a chunk at a time, as a wav file's would be.
+void Feed(const Shared &shared, Stream *stream, const BaseFloat *samples,
+          size_t n) {
+  if (!stream->error.empty()) {
+    return;
+  }
+  int32 chunk = static_cast<int32>(stream->samp_freq * shared.chunk_length_secs);
+  std::vector<BaseFloat> &pending = stream->pending;
+  pending.insert(pending.end(), samples, samples + n);
+  if (chunk <= 0) {
+    return;  // all of it at the end
+  }
+  size_t at = 0;
+  try {
+    while (pending.size() - at >= static_cast<size_t>(chunk)) {
+      Advance(stream, pending.data() + at, chunk, false);
+      at += chunk;
+    }
+  } catch (const std::exception &e) {
+    stream->error = e.what();
+  }
+  pending.erase(pending.begin(), pending.begin() + at);
+}
+
+// The end of the audio, and each graph's result line.
+std::vector<std::string> Finish(const Shared &shared, Stream *stream) {
+  std::vector<Graph> &graphs = *shared.graphs;
+  std::vector<std::string> lines(graphs.size());
+  try {
+    if (!stream->error.empty()) {
+      throw std::runtime_error(stream->error);
+    }
+    Advance(stream, stream->pending.data(),
+            static_cast<int32>(stream->pending.size()), true);
+    stream->pending.clear();
+
+    for (int32 g : stream->active) {
+      Graph &graph = graphs[g];
+      LatticeFasterOnlineDecoder &decoder = *stream->decoders[g];
+      decoder.FinalizeDecoding();
+
+      if (decoder.NumFramesDecoded() == 0) {
+        lines[g] = "ERR " + graph.tag + " no frames decoded";
+        continue;
+      }
+
+      Lattice raw_lat;
+      decoder.GetRawLattice(&raw_lat, true /* end_of_utterance */);
+      CompactLattice clat;
+      DeterminizeLatticePhonePrunedWrapper(*shared.trans_model, &raw_lat,
+                                           graph.opts.lattice_beam, &clat,
+                                           graph.opts.det_opts);
+      if (clat.NumStates() == 0) {
+        lines[g] = "ERR " + graph.tag + " empty lattice";
+        continue;
+      }
+
+      CompactLattice best_path;
+      CompactLatticeShortestPath(clat, &best_path);
+      if (best_path.NumStates() == 0) {
+        lines[g] = "ERR " + graph.tag + " empty best path";
+        continue;
+      }
+
+      double total_cost = 0.0;
+      int64 n_frames = 0;
+      BestPathCost(best_path, &total_cost, &n_frames);
+
+      std::ostringstream out;
+      out << "OK " << graph.tag << " " << total_cost << " " << n_frames;
+
+      if (graph.word_boundary != nullptr) {
+        CompactLattice aligned;
+        if (WordAlignLattice(best_path, *shared.trans_model,
+                             *graph.word_boundary, 0 /* max_states: no limit */,
+                             &aligned)) {
+          std::vector<int32> words, times, lengths;
+          if (CompactLatticeToWordAlignment(aligned, &words, &times,
+                                            &lengths)) {
+            for (size_t i = 0; i < words.size(); i++) {
+              if (words[i] == 0) {
+                continue;  // <eps> / silence gap
+              }
+              out << " " << words[i] << ":" << times[i] << ":"
+                  << (times[i] + lengths[i]);
+            }
+          }
+        }
+      }
+      lines[g] = out.str();
+    }
+  } catch (const std::exception &e) {
+    for (int32 g : stream->active) {
+      if (lines[g].empty()) {
+        lines[g] = "ERR " + graphs[g].tag + " " + e.what();
+      }
+    }
+  }
+  std::vector<std::string> out;
+  for (int32 g : stream->active) {
+    out.push_back(lines[g].empty() ? "ERR " + graphs[g].tag + " no result"
+                                   : lines[g]);
+  }
+  return out;
+}
+
+// Always exactly one line per graph decoded, so the client can read a fixed
+// number of lines without a terminator.
+void Answer(const std::vector<std::string> &lines) {
+  for (const std::string &line : lines) {
+    std::cout << line << "\n";
+  }
+  std::cout << std::flush;
+}
+
+// "<id>[<TAB><tags>]" after a stream request's keyword.
+void IdAndTags(const std::string &rest, std::string *id, std::string *tags) {
+  const size_t tab = rest.find('\t');
+  *id = rest.substr(0, tab);
+  *tags = tab == std::string::npos ? "" : rest.substr(tab + 1);
+}
+
+const size_t kMostStreams = 16;  // more open: the oldest is dropped
 
 }  // namespace
 
@@ -222,44 +467,100 @@ int main(int argc, char *argv[]) {
 
     std::cout << "READY" << std::endl;
 
+    Shared shared;
+    shared.trans_model = &trans_model;
+    shared.feature_info = &feature_info;
+    shared.decodable_info = &decodable_info;
+    shared.frame_subsampling_factor = decodable_opts.frame_subsampling_factor;
+    shared.graphs = &graphs;
+    shared.silence_weighting_index = silence_weighting_index;
+    shared.chunk_length_secs = chunk_length_secs;
+
+    std::map<std::string, std::unique_ptr<Stream>> streams;
+    uint64 opened = 0;
+    std::vector<char> bytes;
+    std::vector<BaseFloat> samples;
+
     std::string request;
     while (std::getline(std::cin, request)) {
       if (request.empty()) {
         continue;
       }
-      // The graphs to decode: every one, or those tagged after a tab (one
-      // caller's decodes needing only some of them -- the acoustic model
-      // still runs once, and the others' searches are skipped).
-      std::string wav_path = request;
-      std::vector<int32> active;
-      const size_t tab = request.find('\t');
-      if (tab != std::string::npos) {
-        wav_path = request.substr(0, tab);
-        std::stringstream tags(request.substr(tab + 1));
-        std::string tag;
-        while (std::getline(tags, tag, ',')) {
-          for (int32 g = 0; g < num_graphs; g++) {
-            if (graphs[g].tag == tag &&
-                std::find(active.begin(), active.end(), g) == active.end()) {
-              active.push_back(g);
+      std::string id, tags;
+      if (request.compare(0, 6, "AUDIO ") == 0) {
+        std::istringstream fields(request.substr(6));
+        size_t n = 0;
+        fields >> id >> n;
+        bytes.resize(n);
+        if (n > 0 && !std::cin.read(bytes.data(), n)) {
+          break;  // the client has gone
+        }
+        auto found = streams.find(id);
+        if (found == streams.end()) {
+          continue;  // dropped, or too many: its CLOSE says so
+        }
+        samples.resize(n / 2);
+        for (size_t i = 0; i < n / 2; i++) {
+          // s16le, as a wav file's samples are read: unscaled.
+          samples[i] = static_cast<int16>(
+              static_cast<uint16>(static_cast<unsigned char>(bytes[2 * i])) |
+              static_cast<uint16>(static_cast<unsigned char>(bytes[2 * i + 1])) << 8);
+        }
+        Feed(shared, found->second.get(), samples.data(), samples.size());
+        continue;
+      }
+      if (request.compare(0, 5, "OPEN ") == 0) {
+        IdAndTags(request.substr(5), &id, &tags);
+        std::unique_ptr<Stream> stream(new Stream());
+        stream->active = ActiveGraphs(graphs, tags);
+        stream->opened = ++opened;
+        try {
+          Open(shared, stream.get());
+        } catch (const std::exception &e) {
+          stream->error = e.what();
+        }
+        streams[id] = std::move(stream);
+        if (streams.size() > kMostStreams) {
+          auto oldest = streams.begin();
+          for (auto it = streams.begin(); it != streams.end(); ++it) {
+            if (it->second->opened < oldest->second->opened) {
+              oldest = it;
             }
           }
+          streams.erase(oldest);
         }
-        std::sort(active.begin(), active.end());
+        continue;
       }
-      if (active.empty()) {
-        for (int32 g = 0; g < num_graphs; g++) {
-          active.push_back(g);
+      if (request.compare(0, 6, "CLOSE ") == 0) {
+        IdAndTags(request.substr(6), &id, &tags);
+        auto found = streams.find(id);
+        if (found == streams.end()) {
+          std::vector<std::string> lines;
+          for (int32 g : ActiveGraphs(graphs, tags)) {
+            lines.push_back("ERR " + graphs[g].tag + " unknown stream");
+          }
+          Answer(lines);
+          continue;
         }
+        std::unique_ptr<Stream> stream = std::move(found->second);
+        streams.erase(found);
+        Answer(Finish(shared, stream.get()));
+        continue;
       }
-      // The traceback silence weighting reads: its graph, if decoded.
-      const int32 weighting =
-          std::find(active.begin(), active.end(), silence_weighting_index) !=
-                  active.end()
-              ? silence_weighting_index
-              : active[0];
+      if (request.compare(0, 5, "DROP ") == 0) {
+        streams.erase(request.substr(5));
+        continue;
+      }
 
-      std::vector<std::string> lines(num_graphs);
+      // A wav file, decoded whole: the graphs every one, or those tagged
+      // after a tab (one caller's decodes needing only some of them -- the
+      // acoustic model still runs once, and the others' searches are
+      // skipped).
+      const size_t tab = request.find('\t');
+      const std::string wav_path = request.substr(0, tab);
+      Stream stream;
+      stream.active =
+          ActiveGraphs(graphs, tab == std::string::npos ? "" : request.substr(tab + 1));
       try {
         // NOTE: MFCC dither draws from the process-global rand() stream, so
         // consecutive requests see different dither than fresh subprocesses
@@ -272,131 +573,22 @@ int main(int argc, char *argv[]) {
           wave_data.Read(ki.Stream());
         }
         SubVector<BaseFloat> data(wave_data.Data(), 0);
-        const BaseFloat samp_freq = wave_data.SampFreq();
-
-        OnlineNnet2FeaturePipeline feature_pipeline(feature_info);
-        // ONE decodable: the acoustic model runs once for all the graphs.
-        nnet3::DecodableAmNnetLoopedOnline decodable(
-            trans_model, decodable_info, feature_pipeline.InputFeature(),
-            feature_pipeline.IvectorFeature());
-
-        for (int32 g : active) {
-          // (fst, config): borrows the FST. The (config, FST*) overload
-          // takes ownership, which would delete a graph we reuse every turn.
-          graphs[g].decoder.reset(
-              new LatticeFasterOnlineDecoder(*graphs[g].fst, graphs[g].opts));
-          graphs[g].decoder->InitDecoding();
-        }
-
-        OnlineSilenceWeighting silence_weighting(
-            trans_model, feature_info.silence_weighting_config,
-            decodable_opts.frame_subsampling_factor);
-        std::vector<std::pair<int32, BaseFloat>> delta_weights;
-
-        int32 chunk_length = static_cast<int32>(samp_freq * chunk_length_secs);
-        if (chunk_length <= 0) {
-          chunk_length = data.Dim();
-        }
-        int32 samp_offset = 0;
-        while (samp_offset < data.Dim()) {
-          int32 num_samp =
-              std::min<int32>(chunk_length, data.Dim() - samp_offset);
-          SubVector<BaseFloat> wave_part(data, samp_offset, num_samp);
-          feature_pipeline.AcceptWaveform(samp_freq, wave_part);
-          samp_offset += num_samp;
-          if (samp_offset == data.Dim()) {
-            feature_pipeline.InputFinished();
-          }
-          if (silence_weighting.Active() &&
-              feature_pipeline.IvectorFeature() != nullptr) {
-            silence_weighting.ComputeCurrentTraceback(
-                *graphs[weighting].decoder);
-            silence_weighting.GetDeltaWeights(
-                feature_pipeline.NumFramesReady(), &delta_weights);
-            feature_pipeline.IvectorFeature()->UpdateFrameWeights(
-                delta_weights);
-          }
-          // Lockstep, one output frame at a time: the looped decodable caches
-          // a chunk of log-posteriors and rejects frames requested before its
-          // current offset, so no decoder may run ahead of the others.
-          while (graphs[active[0]].decoder->NumFramesDecoded() <
-                 decodable.NumFramesReady()) {
-            for (int32 g : active) {
-              graphs[g].decoder->AdvanceDecoding(&decodable, 1);
-            }
-          }
-        }
-
-        for (int32 g : active) {
-          Graph &graph = graphs[g];
-          graph.decoder->FinalizeDecoding();
-
-          if (graph.decoder->NumFramesDecoded() == 0) {
-            lines[g] = "ERR " + graph.tag + " no frames decoded";
-            continue;
-          }
-
-          Lattice raw_lat;
-          graph.decoder->GetRawLattice(&raw_lat, true /* end_of_utterance */);
-          CompactLattice clat;
-          DeterminizeLatticePhonePrunedWrapper(trans_model, &raw_lat,
-                                               graph.opts.lattice_beam, &clat,
-                                               graph.opts.det_opts);
-          if (clat.NumStates() == 0) {
-            lines[g] = "ERR " + graph.tag + " empty lattice";
-            continue;
-          }
-
-          CompactLattice best_path;
-          CompactLatticeShortestPath(clat, &best_path);
-          if (best_path.NumStates() == 0) {
-            lines[g] = "ERR " + graph.tag + " empty best path";
-            continue;
-          }
-
-          double total_cost = 0.0;
-          int64 n_frames = 0;
-          BestPathCost(best_path, &total_cost, &n_frames);
-
-          std::ostringstream out;
-          out << "OK " << graph.tag << " " << total_cost << " " << n_frames;
-
-          if (graph.word_boundary != nullptr) {
-            CompactLattice aligned;
-            if (WordAlignLattice(best_path, trans_model, *graph.word_boundary,
-                                 0 /* max_states: no limit */, &aligned)) {
-              std::vector<int32> words, times, lengths;
-              if (CompactLatticeToWordAlignment(aligned, &words, &times,
-                                                &lengths)) {
-                for (size_t i = 0; i < words.size(); i++) {
-                  if (words[i] == 0) {
-                    continue;  // <eps> / silence gap
-                  }
-                  out << " " << words[i] << ":" << times[i] << ":"
-                      << (times[i] + lengths[i]);
-                }
-              }
-            }
-          }
-          lines[g] = out.str();
-        }
+        stream.samp_freq = wave_data.SampFreq();
+        Open(shared, &stream);
+        Feed(shared, &stream, data.Data(), data.Dim());
       } catch (const std::exception &e) {
-        for (int32 g : active) {
-          if (lines[g].empty()) {
-            lines[g] = "ERR " + graphs[g].tag + " " + e.what();
-          }
-        }
+        stream.error = e.what();
       }
-
-      // Always exactly one line per graph decoded, so the client can read a
-      // fixed number of lines without a terminator.
-      for (int32 g : active) {
-        if (lines[g].empty()) {
-          lines[g] = "ERR " + graphs[g].tag + " no result";
+      if (!stream.error.empty() || stream.decoders.empty()) {
+        std::vector<std::string> lines;
+        for (int32 g : stream.active) {
+          lines.push_back("ERR " + graphs[g].tag + " " +
+                          (stream.error.empty() ? "no result" : stream.error));
         }
-        std::cout << lines[g] << "\n";
+        Answer(lines);
+        continue;
       }
-      std::cout << std::flush;
+      Answer(Finish(shared, &stream));
     }
 
     for (int32 g = 0; g < num_graphs; g++) {

@@ -663,11 +663,35 @@ class Engine:
                 return str(value) if value else None
         return None
 
-    def _kaldi_decode(self, audio: np.ndarray, graphs: tuple[str, ...]) -> kaldi_mode.Heard | None:
-        """Kaldi's decode of ``audio`` against ``graphs`` (kaldi_mode.CALL,
-        COMMAND, ANSWER); None when its decoder failed (being replaced, or
-        gone): Parakeet hears that call."""
+    def kaldi_stream(self, graphs: tuple[str, ...]) -> kaldi_mode.Stream | None:
+        """Kaldi's decode of a call (kaldi_mode.CALL), an answer (ANSWER) or
+        Home Assistant's audio (COMMAND) as it is said, when Kaldi hears
+        commands: for ``recognize_*``'s ``kaldi_stream``, fed the same audio
+        from its start."""
+        if not self.kaldi_on:
+            return None
         assert self.kaldi is not None
+        try:
+            return self.kaldi.stream(graphs)
+        except RuntimeError:
+            return None
+
+    def _kaldi_decode(
+        self, audio: np.ndarray, graphs: tuple[str, ...], stream: kaldi_mode.Stream | None = None,
+    ) -> kaldi_mode.Heard | None:
+        """Kaldi's decode of ``audio`` against ``graphs`` (kaldi_mode.CALL,
+        COMMAND, ANSWER): the stream's, when it was fed all of it (and only
+        it: someone else's speech cuts a call short), else all of it now;
+        None when its decoder failed (being replaced, or gone): Parakeet
+        hears that call."""
+        assert self.kaldi is not None
+        if stream is not None and stream.samples == len(audio):
+            try:
+                return stream.finish()
+            except RuntimeError as err:
+                _LOGGER.warning("Kaldi's stream failed, so the call is decoded whole: %s", err)
+        elif stream is not None:
+            stream.cancel()
         try:
             return self.kaldi.decode(audio, graphs)
         except RuntimeError as err:
@@ -786,14 +810,18 @@ class Engine:
         satellite: Satellite,
         transcriber: Any = None,
         wake_phrases: tuple[str, ...] | None = None,
+        kaldi_stream: kaldi_mode.Stream | None = None,
     ) -> tuple[Decision, Split]:
         """A whole call, from the start of its pre-roll, after Kaldi accepted
         the wake word. ``transcriber`` stands in for the TDT head (an STT
-        entity, see voice_labs/voices.py)."""
+        entity, see voice_labs/voices.py). ``kaldi_stream``: Kaldi's decode
+        of the call as it was said (``kaldi_stream``)."""
         started = time.perf_counter()
-        if self.kaldi_on and (heard := self._kaldi_decode(audio, kaldi_mode.CALL)) is not None:
+        if self.kaldi_on and (heard := self._kaldi_decode(audio, kaldi_mode.CALL, kaldi_stream)) is not None:
             # The whole call, pre-roll and all: a wake phrase, then a sentence.
             return self._kaldi_heard(heard, satellite, "call", kaldi_split), Split(0.0, kaldi_split, kaldi_split)
+        if kaldi_stream is not None:
+            kaldi_stream.cancel()
         evidence, frame_seconds, split, cut = self._place(audio, wake_start, kaldi_split, wake_phrases)
         log_probs = evidence[cut:]
         placed = time.perf_counter() - started
@@ -817,14 +845,17 @@ class Engine:
     def recognize_command(
         self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None,
         evidence: tuple[np.ndarray, float] | None = None, sentences: bool = True,
+        kaldi_stream: kaldi_mode.Stream | None = None,
     ) -> Decision:
         """Audio that is only the command (typed and synthesized, uploaded, or
         Home Assistant's). ``evidence``: the CTC head's on it (``model.log_probs``),
         when it was had already. ``sentences``: heard as one of the home's
         sentences first (``hear_sentence``)."""
         started = time.perf_counter()
-        if self.kaldi_on and sentences and (heard := self._kaldi_decode(audio, kaldi_mode.COMMAND)) is not None:
+        if self.kaldi_on and sentences and (heard := self._kaldi_decode(audio, kaldi_mode.COMMAND, kaldi_stream)) is not None:
             return self._kaldi_heard(heard, satellite)
+        if kaldi_stream is not None:
+            kaldi_stream.cancel()
         log_probs, frame_seconds = evidence if evidence is not None else self.model.log_probs(audio)
         acoustic = time.perf_counter() - started
         heard, sentence = self.hear_sentence(log_probs, 0, log_probs, satellite) if sentences else (None, None)
@@ -875,14 +906,19 @@ class Engine:
         decision.timings = {"sentence": searched, **decision.timings}
         return decision, sentence
 
-    def recognize_answer(self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None) -> Decision:
+    def recognize_answer(
+        self, audio: np.ndarray, satellite: Satellite, transcriber: Any = None,
+        kaldi_stream: kaldi_mode.Stream | None = None,
+    ) -> Decision:
         """An answer to what the app asked (voice_labs/follow_up.py): as a
         command, and always with its words -- the transcriber's, which
         whoever asked reads -- even when the command needed none. Not as one
         of the home's sentences: an answer is seldom one. With Kaldi, the
         home's sentences and the language's ways of answering."""
-        if self.kaldi_on and (heard := self._kaldi_decode(audio, kaldi_mode.ANSWER)) is not None:
+        if self.kaldi_on and (heard := self._kaldi_decode(audio, kaldi_mode.ANSWER, kaldi_stream)) is not None:
             return self._kaldi_heard(heard, satellite, "answer")
+        if kaldi_stream is not None:
+            kaldi_stream.cancel()
         decision = self.recognize_command(audio, satellite, transcriber, sentences=False)
         reader = transcriber or self.transcriber
         if decision.recognition.get("tdt_transcript") is None and reader is not None and len(audio):

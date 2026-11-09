@@ -1315,7 +1315,21 @@ for this app:
     background and the background after a wake phrase. A request names the
     graphs it is searched in (`kaldi_mode.CALL`, `COMMAND`, `ANSWER`: a
     graph and its background; a bare path, as the wake verifier sends, is
-    all of them): one acoustic pass, only those searches. The plain background is the same for every home,
+    all of them): one acoustic pass, only those searches.
+  - **Decoded as it is said** (`kaldi_mode.Stream`), as Speech-to-Phrase
+    did: a call's stream opens when the wake word is accepted, is fed the
+    call so far (pre-roll and all) and then each piece as it comes
+    (`VoiceLabsApp._feed_kaldi`, beside the STT entity's), and is finished
+    when the command ends -- only the last of the decode is left then. An
+    answer's opens at its split, Home Assistant's audio (Wyoming) at its
+    start. The decoder takes streams by id (`OPEN`, `AUDIO`, `CLOSE`,
+    `DROP`), several at once, each fed in the same 0.18 s chunks as a wav
+    file is: a stream answers as the same audio from a file (checked
+    identical but for the dither). One thread writes to it, so feeding never
+    waits on a decode. A call cut short by someone else's speech was fed too
+    much, so it is decoded whole again; so is one whose stream failed.
+    Graphs built anew mid-call: the call finishes on the old decoder, which
+    closes once its streams are done (or forgotten). The plain background is the same for every home,
     built once (1.9 s); the home's after each change took 0.7 s for 14
     sentences on a desktop (with the wake phrase's background, 4.9 s the
     first time). The dictionary has no index: a word a query was 4 ms, so
@@ -1361,12 +1375,15 @@ for this app:
     for 4.5 s of audio (0.29x real time); in its own two, 442 ms (0.11x):
     106 ms of it the acoustic pass and the call's graph, the rest the
     10,000-word background. Parakeet's whole call was about 0.3 s there.
+    Streamed (2 s at once, as when the wake word is accepted, then 64 ms
+    pieces in real time), what was left when the call ended was a median
+    48 ms (at most 90 ms of 20 calls), the same sentences and margins.
     Speech-to-Phrase's chain on the same calls and Pi (its trained English
     graph, a 336-word trigram; a new decoder process a call, beam 24,
     lattice beam 8; then the 3 best and the fuzzy snap, 8 processes) was a
     median 1.13 s: 155 ms of it starting the decoder, 89 ms the fuzzy snap.
     It decoded as the audio came, so little of that was after the call
-    ended; Voice Labs decodes when it has ended.
+    ended -- as Voice Labs now does too.
   - Kaldi normalizes the level: a call 28 dB quieter than the corpus's
     (-47 dBFS) heard the same at +25 dB. Such a call's background was
     silence, no word in it.

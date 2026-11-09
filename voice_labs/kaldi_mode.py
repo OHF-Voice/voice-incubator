@@ -42,15 +42,19 @@ typed text with its vocabulary (Engine.recognize_text).
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import logging
+import queue
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
-import wave
+import weakref
 from collections.abc import Callable, Iterable
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -644,7 +648,8 @@ class KaldiMode:
             decoder.start()
             old, self._decoder = self._decoder, decoder
             if old is not None:
-                old.close()
+                # Calls being said finish on the graphs they started on.
+                old.retire()
             self.built = Built(directory, signature, len(keep), words, unspeakable, time.perf_counter() - started)
             self.error = None
             self._prune(directory)
@@ -759,6 +764,15 @@ class KaldiMode:
         started = time.perf_counter()
         return Heard(decoder.decode(audio, graphs), time.perf_counter() - started, self.max_cost)
 
+    def stream(self, graphs: tuple[str, ...] = CALL) -> Stream:
+        """A decode against ``graphs`` fed as the audio comes (``Stream``):
+        a call's while it is said, so little is left when it ends. Raises
+        RuntimeError when no decoder is running."""
+        decoder = self._decoder
+        if decoder is None or not decoder.running:
+            raise RuntimeError(self.error or "Kaldi isn't ready")
+        return Stream(decoder, graphs, self.max_cost)
+
     def close(self) -> None:
         decoder, self._decoder = self._decoder, None
         if decoder is not None:
@@ -807,7 +821,10 @@ class Heard:
     """Each graph's: its best path's cost, the frames, its words with their
     times (seconds)."""
     seconds: float
+    """How long it took: for a stream, after its audio ended."""
     max_cost: float = MAX_COST
+    streamed: bool = False
+    """Decoded as the audio came (``Stream``)."""
 
     def words(self, graph: str = "home") -> list[str]:
         return [w for w, _, _ in self.results[graph][2] if _is_word(w)]
@@ -845,12 +862,62 @@ class Heard:
             "taken": self.taken(graph),
             "background": " ".join(self.background_words(graph)),
             "seconds": round(self.seconds, 3),
+            **({"streamed": True} if self.streamed else {}),
         }
 
 
+class Stream:
+    """A decode fed as its audio comes -- a call's, while it is said -- so
+    that only the end of it is left when the audio ends (``finish``).
+    ``feed`` never waits: the decoder's own thread writes. One not finished
+    is dropped (``cancel``), or when it is forgotten."""
+
+    def __init__(self, decoder: _Decoder, graphs: tuple[str, ...], max_cost: float) -> None:
+        self.graphs = graphs
+        self.max_cost = max_cost
+        self.samples = 0
+        """How much audio it has been fed."""
+        self.done = False
+        self._odd = b""
+        """A byte of a sample, the rest of which is to come."""
+        self._decoder = decoder
+        self._id = decoder.open(graphs)
+        self._forget = weakref.finalize(self, decoder.drop, self._id)
+
+    def feed(self, pcm: bytes) -> None:
+        """More of the audio: 16 kHz, mono, signed 16-bit little-endian."""
+        if self.done:
+            return
+        pcm = self._odd + pcm
+        pcm, self._odd = pcm[: len(pcm) & ~1], pcm[len(pcm) & ~1 :]
+        if not pcm:
+            return
+        self._decoder.send(b"AUDIO %s %d\n" % (self._id.encode(), len(pcm)) + pcm)
+        self.samples += len(pcm) // 2
+
+    def finish(self) -> Heard:
+        """The audio has ended: what it was. Raises RuntimeError when the
+        decoder failed."""
+        if self.done:
+            raise RuntimeError("the stream has ended")
+        self.done = True
+        self._forget.detach()
+        started = time.perf_counter()
+        results = self._decoder.close_stream(self._id, self.graphs)
+        return Heard(results, time.perf_counter() - started, self.max_cost, streamed=True)
+
+    def cancel(self) -> None:
+        """Not wanted after all."""
+        if not self.done:
+            self.done = True
+            self._forget()
+
+
 class _Decoder:
-    """The resident decoder (verify_decoderd), its graphs loaded once: a
-    wav file in, a line for each graph out."""
+    """The resident decoder (verify_decoderd), its graphs loaded once: audio
+    in, a line for each graph out. One thread writes to it and reads its
+    answers, in the order asked, so that what streams are fed never waits
+    on a decode."""
 
     def __init__(self, daemon: Path, model: PreparedModel, graphs: dict[str, Path], tools: SpeechTools) -> None:
         self.args = [
@@ -867,59 +934,154 @@ class _Decoder:
             }
         self.tools = tools
         self.proc: subprocess.Popen | None = None
+        self._queue: queue.SimpleQueue[tuple[bytes, int, Future | None] | None] = queue.SimpleQueue()
         self._lock = threading.Lock()
-        self._scratch = Path(tempfile.mkdtemp(prefix="voice-labs-kaldi-"))
+        self._closed = False
+        self._retiring = False
+        self._open = 0
+        """Streams not yet finished or dropped."""
+        self._ids = itertools.count(1)
+        self._worker: threading.Thread | None = None
 
     @property
     def running(self) -> bool:
-        return self.proc is not None and self.proc.poll() is None
+        return not self._closed and self.proc is not None and self.proc.poll() is None
 
     def start(self) -> None:
         env = {**self.tools.extended_env, "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
         self.proc = subprocess.Popen(
-            self.args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env,
+            self.args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
         )
         ready = _read_line(self.proc, _START_TIMEOUT)
         if ready.strip() != "READY":
             self.close()
             raise RuntimeError("the Kaldi decoder didn't start")
+        self._worker = threading.Thread(target=self._work, name="kaldi-decoder", daemon=True)
+        self._worker.start()
+
+    # The decoder's own thread: each request written, its answer read.
+
+    def send(self, payload: bytes) -> None:
+        """Written when its turn comes; nothing to answer."""
+        with self._lock:
+            if not self._closed:
+                self._queue.put((payload, 0, None))
+
+    def request(self, payload: bytes, lines: int) -> list[str]:
+        """Written when its turn comes, and its ``lines`` read."""
+        future: Future = Future()
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("the Kaldi decoder isn't running")
+            self._queue.put((payload, lines, future))
+        try:
+            return future.result(timeout=_DECODE_TIMEOUT + 10.0)
+        except FutureTimeout:
+            raise RuntimeError("the Kaldi decoder took too long") from None
+
+    def _work(self) -> None:
+        while (item := self._queue.get()) is not None:
+            payload, lines, future = item
+            try:
+                if self.proc is None or self.proc.stdin is None or self.proc.poll() is not None:
+                    raise RuntimeError("the Kaldi decoder stopped")
+                self.proc.stdin.write(payload)
+                self.proc.stdin.flush()
+                answer = []
+                for _ in range(lines):
+                    line = _read_line(self.proc, _DECODE_TIMEOUT)
+                    if not line:
+                        raise RuntimeError("the Kaldi decoder stopped")
+                    answer.append(line)
+                if future is not None:
+                    future.set_result(answer)
+            except (OSError, RuntimeError, ValueError) as err:
+                if future is not None:
+                    future.set_exception(RuntimeError(str(err)))
+        self._end()
+
+    # Streams.
+
+    def open(self, graphs: tuple[str, ...]) -> str:
+        with self._lock:
+            self._open += 1
+        stream = f"s{next(self._ids)}"
+        self.send(f"OPEN {stream}\t{','.join(graphs)}\n".encode())
+        return stream
+
+    def close_stream(self, stream: str, graphs: tuple[str, ...]) -> dict[str, tuple[float, int, list[tuple[str, float, float]]]]:
+        try:
+            return self._results(self.request(f"CLOSE {stream}\t{','.join(graphs)}\n".encode(), len(graphs)), graphs)
+        finally:
+            self._ended()
+
+    def drop(self, stream: str) -> None:
+        self.send(f"DROP {stream}\n".encode())
+        self._ended()
+
+    def _ended(self) -> None:
+        with self._lock:
+            self._open -= 1
+            last = self._retiring and self._open <= 0
+        if last:
+            self.close()
+
+    def retire(self) -> None:
+        """Replaced: closed once the streams on it are done."""
+        with self._lock:
+            self._retiring = True
+            idle = self._open <= 0
+        if idle:
+            self.close()
+
+    # Whole audio.
 
     def decode(
         self, audio: np.ndarray, graphs: tuple[str, ...] = TAGS,
     ) -> dict[str, tuple[float, int, list[tuple[str, float, float]]]]:
         """``graphs``' results for ``audio``: the decoder searches only
-        theirs, after one acoustic pass."""
-        with self._lock:
-            if self.proc is None or self.proc.stdin is None:
-                raise RuntimeError("the Kaldi decoder isn't running")
-            path = self._scratch / "call.wav"
-            with wave.open(str(path), "wb") as out:
-                out.setnchannels(1)
-                out.setsampwidth(2)
-                out.setframerate(16000)
-                out.writeframes((np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
-            self.proc.stdin.write(f"{path}\t{','.join(graphs)}\n")
-            self.proc.stdin.flush()
-            results = {}
-            for _ in graphs:
-                parts = _read_line(self.proc, _DECODE_TIMEOUT).split()
-                if not parts:
-                    raise RuntimeError("the Kaldi decoder stopped")
-                if parts[0] != "OK":
-                    # Too short to decode ("no frames decoded"): nothing heard.
-                    results[parts[1] if len(parts) > 1 else "?"] = (0.0, 0, [])
-                    continue
-                tag = parts[1]
-                words = []
-                for token in parts[4:]:
-                    word_id, begin, end = token.split(":")
-                    words.append((self.words[tag].get(word_id, word_id), int(begin) * FRAME_SHIFT, int(end) * FRAME_SHIFT))
-                results[tag] = (float(parts[2]), int(parts[3]), words)
-            for tag in graphs:
-                results.setdefault(tag, (0.0, 0, []))
-            return results
+        theirs, after one acoustic pass. Sent as a stream, all at once."""
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+        stream, tags = f"d{next(self._ids)}", ",".join(graphs)
+        payload = (
+            f"OPEN {stream}\t{tags}\n".encode() + f"AUDIO {stream} {len(pcm)}\n".encode() + pcm
+            + f"CLOSE {stream}\t{tags}\n".encode()
+        )
+        return self._results(self.request(payload, len(graphs)), graphs)
+
+    def _results(
+        self, lines: list[str], graphs: tuple[str, ...],
+    ) -> dict[str, tuple[float, int, list[tuple[str, float, float]]]]:
+        results = {}
+        for line in lines:
+            parts = line.split()
+            if not parts:
+                raise RuntimeError("the Kaldi decoder stopped")
+            if parts[0] != "OK":
+                # Too short to decode ("no frames decoded"): nothing heard.
+                results[parts[1] if len(parts) > 1 else "?"] = (0.0, 0, [])
+                continue
+            tag = parts[1]
+            words = []
+            for token in parts[4:]:
+                word_id, begin, end = token.split(":")
+                words.append((self.words[tag].get(word_id, word_id), int(begin) * FRAME_SHIFT, int(end) * FRAME_SHIFT))
+            results[tag] = (float(parts[2]), int(parts[3]), words)
+        for tag in graphs:
+            results.setdefault(tag, (0.0, 0, []))
+        return results
 
     def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            # What was asked before is answered first.
+            self._queue.put(None)
+        if self._worker is None:
+            self._end()
+
+    def _end(self) -> None:
         proc, self.proc = self.proc, None
         if proc is not None and proc.poll() is None:
             try:
@@ -928,18 +1090,17 @@ class _Decoder:
                 proc.wait(timeout=5)
             except (OSError, subprocess.TimeoutExpired, AssertionError):
                 proc.kill()
-        shutil.rmtree(self._scratch, ignore_errors=True)
 
 
 def _read_line(proc: subprocess.Popen, timeout: float) -> str:
     """A line of the decoder's output, or "" when it ends or takes longer
     than ``timeout``."""
     assert proc.stdout is not None
-    box: list[str] = []
+    box: list[bytes] = []
     reader = threading.Thread(target=lambda: box.append(proc.stdout.readline()), daemon=True)  # type: ignore[union-attr]
     reader.start()
     reader.join(timeout)
     if not box:
         proc.kill()
         return ""
-    return box[0]
+    return box[0].decode("utf-8", "replace")

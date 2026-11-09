@@ -160,16 +160,22 @@ class Hearing:
     stream: Any = None
     """The STT entity hearing it (voices.StreamingTranscriber), or None."""
     pcm: bytearray = field(default_factory=bytearray)
+    kaldi: Any = None
+    """Kaldi decoding it as it comes (kaldi_mode.Stream), in Kaldi mode."""
 
     def feed(self, pcm: bytes) -> None:
         self.pcm += pcm
         if self.stream is not None:
             self.stream.feed(pcm)
+        if self.kaldi is not None:
+            self.kaldi.feed(pcm)
 
     def cancel(self) -> None:
         """It won't be transcribed (the client left)."""
         if self.stream is not None and not self.stream.closed:
             self.stream.cancel()
+        if self.kaldi is not None:
+            self.kaldi.cancel()
 
 
 @dataclass
