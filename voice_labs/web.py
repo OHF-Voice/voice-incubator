@@ -178,6 +178,7 @@ async def start_web(app: "VoiceLabsApp") -> web.AppRunner:
             web.get("/api/voices/{entity_id}", api.tts_voices),
             web.put("/api/settings", api.put_settings),
             web.get("/api/calls", api.calls),
+            web.delete("/api/calls", api.clear_calls),
             web.get("/api/calls/{id}", api.call),
             web.delete("/api/calls/{id}", api.delete_call),
             web.get("/api/calls/{id}/audio/{name}", api.call_audio),
@@ -1979,6 +1980,11 @@ class Api:
         if record is None:
             raise FileNotFoundError("No such call")
         return web.json_response(record.to_json(), dumps=_dumps)
+
+    async def clear_calls(self, request: web.Request) -> web.Response:
+        """Every session, or a satellite's (``?satellite=``), and its audio."""
+        cleared = self.app.calls.clear(request.query.get("satellite"))
+        return web.json_response({"ok": True, "cleared": cleared})
 
     async def delete_call(self, request: web.Request) -> web.Response:
         self.app.calls.delete(request.match_info["id"])

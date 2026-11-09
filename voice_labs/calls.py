@@ -259,6 +259,31 @@ class CallLog:
         shutil.rmtree(self.calls_dir / call_id, ignore_errors=True)
         self.recent = deque((r for r in self.recent if r.id != call_id), maxlen=RECENT)
 
+    def clear(self, satellite: str | None = None) -> int:
+        """Every session (or ``satellite``'s) forgotten, its audio deleted:
+        how many. One still going is kept."""
+        def mine(record: CallRecord) -> bool:
+            return satellite is None or str(record.satellite.get("id")) == satellite
+
+        going = {r.id for r in self.recent if r.finished is None}
+        cleared = {r.id for r in self.recent if mine(r) and r.id not in going}
+        if self.calls_dir.is_dir():
+            for path in self.calls_dir.iterdir():
+                if not path.is_dir() or path.name in going:
+                    continue
+                if satellite is not None and path.name not in cleared:
+                    # Saved, but no longer among the recent: whose it was.
+                    try:
+                        trace = json.loads((path / "trace.json").read_text("utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    if str((trace.get("satellite") or {}).get("id")) != satellite:
+                        continue
+                shutil.rmtree(path, ignore_errors=True)
+                cleared.add(path.name)
+        self.recent = deque((r for r in self.recent if r.id not in cleared), maxlen=RECENT)
+        return len(cleared)
+
     def list(self, satellite: str | None = None) -> list[dict[str, Any]]:
         records = [
             r for r in self.recent if satellite is None or str(r.satellite.get("id")) == satellite

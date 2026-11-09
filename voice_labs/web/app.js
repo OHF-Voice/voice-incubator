@@ -4244,12 +4244,20 @@ async function pageSessions(query) {
 
   const keep = h("input", { type: "checkbox", checked: settings.keep_audio, onchange: async (e) => { await api("PUT", "settings", { keep_audio: e.target.checked }); refreshStatus(); toast(e.target.checked ? "Keeping audio of every session" : "Not keeping audio"); } });
   const max = h("input", { type: "number", min: 1, value: settings.max_saved_calls, style: "width:80px", onchange: async (e) => { await api("PUT", "settings", { max_saved_calls: Number(e.target.value) }); toast("Saved"); } });
+  const clear = h("button", { class: "danger", onclick: async () => {
+    const whose = satellite ? `the sessions on ${sats[satellite] || satellite}` : "all sessions";
+    if (!confirm(`Clear ${whose}? Their audio is deleted too.`)) return;
+    const done = await api("DELETE", `calls${satellite ? `?satellite=${satellite}` : ""}`);
+    toast(`Cleared ${done.cleared} session${done.cleared === 1 ? "" : "s"}`);
+    await refresh();
+  } }, "Clear");
   fill($main,
     h("div", { class: "row" },
       h("h1", { style: "margin:0; flex:1 0 auto" }, satellite ? `Sessions on ${sats[satellite] || satellite}` : "Sessions"),
       satellite ? h("a", { href: "#/sessions" }, "All satellites") : null,
       h("label", { class: "small" }, keep, "Keep every session", hint("Keeps the audio and full trace of every session — everything from the wake word to the answer. Without this, the last sessions' traces are kept in memory only. Debugging one satellite (on its page, under Test it) keeps its audio.")),
-      h("label", { class: "small" }, "At most", max)),
+      h("label", { class: "small" }, "At most", max),
+      clear),
     session && session.debug ? h("div", { class: "notice warn" }, `Debugging ${session.name}${session.debug.dry_run ? " (dry run: nothing is executed)" : ""}. New sessions appear here as they happen.`) : null,
     h("div", { class: "panel", style: "margin-top:12px" }, list),
   );

@@ -320,6 +320,9 @@
 - **Saving doesn't wait for Kaldi.** Its sentences are built again after a
   save, in the background -- seconds on a Pi -- with **Kaldi updating…** at
   the top meanwhile; it hears the ones before until then.
+- **Clear sessions**: a button on the Sessions page deletes every session
+  and its audio (on a satellite's sessions, only its own). One still going
+  is kept.
 - **What's on the list confirms a doubtful command on it.** "Check coffee
   filters off the shopping list", heard as "to check cffee filters off the
   shopping list" -- a word left over, in the transcript too -- did nothing.
