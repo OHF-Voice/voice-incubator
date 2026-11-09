@@ -151,8 +151,11 @@ def test_an_answer_is_heard_among_the_ways_of_answering(engine):
         engine.recognizer_choice = "parakeet"
 
 
-def test_kaldi_hears_a_recorded_call(tmp_path):
-    mode = KaldiMode(ROOT, tmp_path)
+def test_kaldi_hears_a_recorded_call(tmp_path, monkeypatch):
+    # A data folder given relative to where the app started (--data-dir
+    # var/test-home): Kaldi's scripts run from inside the graphs' folders.
+    monkeypatch.chdir(tmp_path)
+    mode = KaldiMode(ROOT, Path("var/kaldi"))
     if mode.available:
         pytest.skip(mode.available)
     import wave  # pylint: disable=import-outside-toplevel

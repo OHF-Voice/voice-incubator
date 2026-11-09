@@ -191,7 +191,7 @@ def fetch(models: Path, arch: str) -> None:
                 continue
             folder.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=folder) as work:
-                path = Path(work) / file.name
+                path = Path(work) / file.url.rsplit("/", 1)[-1]  # an archive: by its own name
                 _fetch_file(file, path)
                 if file.member:
                     _extract(path, file.member, target)
@@ -201,7 +201,7 @@ def fetch(models: Path, arch: str) -> None:
                     (Path(work) / file.unpack).replace(target)
                 else:
                     path.replace(target)
-            print(f"{target} ({file.size / 1e6:.1f} MB)")
+            print(f"{target} ({(target.stat().st_size if file.member else file.size) / 1e6:.1f} MB)")
 
 
 def _extract(archive_path: Path, member: str, target: Path) -> None:

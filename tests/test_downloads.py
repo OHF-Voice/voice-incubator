@@ -161,3 +161,26 @@ def test_one_file_of_an_archive_is_kept(tmp_path):
     with pytest.raises(SystemExit):
         downloads._extract(archive, "missing", tmp_path / "missing")  # pylint: disable=protected-access
     assert downloads.PHONETISAURUS.keys() == downloads.KALDI_TOOLS.keys()
+
+
+def test_fetch_keeps_a_file_of_an_archive_in_a_folder(tmp_path, monkeypatch):
+    """The model's G2P is one file of an archive, kept in the model's folder
+    (en_US-rhasspy/g2p.fst): downloaded as the archive, not as that path."""
+    import io  # pylint: disable=import-outside-toplevel
+    import tarfile  # pylint: disable=import-outside-toplevel
+
+    def fetched(file, path, tries=3):  # pylint: disable=unused-argument
+        with tarfile.open(path, "w:gz") as out:
+            info = tarfile.TarInfo("./model/g2p.fst")
+            info.size = 3
+            out.addfile(info, io.BytesIO(b"fst"))
+
+    monkeypatch.setattr(downloads, "_fetch_file", fetched)
+    archive = "https://example.invalid/models/model.tar.gz"
+    monkeypatch.setattr(downloads, "IMAGE", (Model("kaldi", (File("model/g2p.fst", archive, "", 1, member="model/g2p.fst"),)),))
+    monkeypatch.setattr(downloads, "KALDI_TOOLS", {"amd64": File("tools", archive, "", 1, member="model/g2p.fst")})
+    monkeypatch.setattr(downloads, "PHONETISAURUS", {"amd64": File("phonetisaurus", archive, "", 1, member="model/g2p.fst")})
+    (tmp_path / "kaldi/model").mkdir(parents=True)
+    downloads.fetch(tmp_path, "amd64")
+    assert (tmp_path / "kaldi/model/g2p.fst").read_bytes() == b"fst"
+    assert sorted(p.name for p in (tmp_path / "kaldi").iterdir()) == ["model"]  # nothing left over

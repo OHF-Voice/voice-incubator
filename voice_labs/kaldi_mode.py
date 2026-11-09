@@ -384,11 +384,11 @@ class KaldiMode:
     """The graphs and the resident decoder (``build``, ``decode``)."""
 
     def __init__(self, root: Path, work_dir: Path) -> None:
-        models = Path(root) / "models"
+        models = Path(root).absolute() / "models"
         self.model_dir = models / "wake-kaldi-models" / MODEL_ID
         self.tools = SpeechTools.from_dir(models / "wake-kaldi-tools")
         self.daemon = models / "wake-kaldi-decoderd" / "verify_decoderd"
-        self.work_dir = Path(work_dir)
+        self.work_dir = Path(work_dir).absolute()  # Kaldi's scripts run from inside it
         self.pronouncer = Pronouncer(self.model_dir, self.tools, self.work_dir / "guesses.json")
         self.max_cost = MAX_COST
         self.built: Built | None = None
