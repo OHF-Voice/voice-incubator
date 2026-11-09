@@ -171,6 +171,17 @@ class Outcome:
     """Its question (the command's ``confirm``) was answered yes: it acts
     without asking again."""
 
+    listens: bool = False
+    """The satellite hears an answer (voice_labs/follow_up.py): which of
+    several timers is asked, its ``choices`` kept."""
+
+    picked: list[str] | None = None
+    """Which of several it was asked about was answered: the ids of the
+    timers, alarms or reminders it acts on (every one, when several)."""
+
+    choices: list[dict[str, Any]] = field(default_factory=list)
+    """Which of these (``id``, ``label``) it is about: asked."""
+
     trigger: str | None = None
     """For a sentence trigger: the sentence sent to Home Assistant's agent."""
 
@@ -180,6 +191,7 @@ class Outcome:
             **({"trigger": self.trigger} if self.trigger is not None else {}),
             "verbosity": self.verbosity,
             "timer": self.timer,
+            **({"picked": self.picked} if self.picked else {}),
             "music": self.music,
             "dry_run": self.dry_run,
             "variables": {k: v for k, v in self.variables.items() if k not in PRIVATE},
@@ -382,6 +394,8 @@ async def run(
     devices: dict[str, Any] | None = None,
     confirmed: bool = False,
     agent: Any = None,
+    listens: bool = False,
+    picked: list[str] | None = None,
 ) -> Outcome:
     """Run the decided command (unless ``dry_run``) and render what to say.
     ``elsewhere``: the level a command that beeps says at when it acted out
@@ -397,7 +411,9 @@ async def run(
     ``confirmed``: its question (``confirm``) was answered yes; else a
     command that asks first turns out ``confirm``, the question said and
     nothing done. ``agent``: the conversation agents' (agent.Agent), which
-    sends a sentence trigger's sentence to Home Assistant."""
+    sends a sentence trigger's sentence to Home Assistant. ``listens``: the
+    satellite hears an answer, so which of several timers (alarms,
+    reminders) is asked; ``picked``: the answer, the ids it acts on."""
     command, behavior = decision.command, decision.behavior
     assert command is not None and behavior is not None
     if devices is not None:
@@ -448,6 +464,7 @@ async def run(
         beeps=satellite.beeps,
     )
     outcome.confirmed = confirmed
+    outcome.listens, outcome.picked = listens, picked
     if not known:
         return await _say(hass, behavior, values, outcome, "no_speaker", languages.speech().NO_SPEAKER)
     if unset:
@@ -1082,7 +1099,12 @@ async def _run_timer(
     except (HassError, ConnectionError, OSError, TimeoutError) as err:
         outcome.error = str(err)
         return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
-    plan = timers.plan(behavior.timer, values["slots"], running)
+    if outcome.picked is not None:
+        # Which of them was answered: those, or -- gone since -- as asked.
+        chosen = [t for t in running if str(t.get("timer_id")) in outcome.picked]
+        running = chosen or running
+    plan = timers.plan(behavior.timer, values["slots"], running, every=bool(outcome.picked))
+    _which(plan, outcome)
     target = {"entity_id": satellite.timer_list}
     calls = ([(plan.service, plan.data)] if plan.service else []) + plan.calls
     outcome.sequence = [
@@ -1114,6 +1136,14 @@ async def _run_timer(
             return await _say(hass, behavior, values, outcome, "failed", languages.speech().FAILED, {"error": str(err)})
     outcome.timings["timer"] = time.perf_counter() - started
     return await _say(hass, behavior, values, outcome, plan.outcome, plan.levels or plan.speech)
+
+
+def _which(plan: timers.Plan | alarms.Plan, outcome: Outcome) -> None:
+    """Several fit: on a satellite that hears the answer, which is asked
+    (the plan's question in place of what it says) and its choices kept."""
+    if plan.outcome == "ambiguous" and plan.choices and outcome.listens:
+        outcome.choices = plan.choices
+        plan.speech = plan.question or plan.speech
 
 
 async def _asks_first(hass: HomeAssistant, behavior: Behavior, values: dict[str, Any], outcome: Outcome) -> Outcome | None:
@@ -1261,10 +1291,15 @@ async def _run_calendar(
     todo = next((e for e in slots.get("entity") or [] if str(e).startswith("todo.")), None)
     # The area's, as its timers are; a satellite in no area, its own.
     place = satellite.area_id or satellite.key
+    upcoming = {kind: calendar.upcoming(kind, place) for kind in ("alarm", "reminder")}
+    if outcome.picked is not None:
+        # Which of them was answered: those, or -- gone since -- as asked.
+        upcoming = {kind: [e for e in events if e.uid in outcome.picked] or events for kind, events in upcoming.items()}
     plan = alarms.plan(
-        str(behavior.timer), slots, calendar.now(),
-        calendar.upcoming("alarm", place), calendar.upcoming("reminder", place), todo=todo is not None,
+        str(behavior.timer), slots, calendar.now(), upcoming["alarm"], upcoming["reminder"], todo=todo is not None,
+        every=bool(outcome.picked),
     )
+    _which(plan, outcome)
     if plan.create and not ready:
         return await unready()
     outcome.timer = plan.to_json()

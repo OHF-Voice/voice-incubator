@@ -144,6 +144,11 @@ def join(parts: list[str]) -> str:
     return "".join(parts) if len(parts) <= 1 else ", ".join(parts[:-1]) + " e " + parts[-1]
 
 
+def join_or(parts: list[str]) -> str:
+    """"a o b", "a, b o c"."""
+    return "".join(parts) if len(parts) <= 1 else ", ".join(parts[:-1]) + " o " + parts[-1]
+
+
 def _capital(text: str) -> str:
     return text[:1].upper() + text[1:]
 
@@ -407,6 +412,16 @@ def timer_not_found(asked: str | float | None, running: list[dict[str, Any]]) ->
 
 def which_timer(timers: list[dict[str, Any]]) -> str:
     return f"Quale timer? {_running(timers)}"
+
+
+def which_timer_asked(timers: list[dict[str, Any]]) -> str:
+    """Several timers fit, asked of a satellite that hears the answer."""
+    return _capital(join_or([_timer(t) for t in timers])) + "?"
+
+
+def timer_label(timer: dict[str, Any]) -> str:
+    """How a timer is told apart from others (an answer to which_timer_asked)."""
+    return _timer(timer)
 
 
 def timer_status(timers: list[dict[str, Any]]) -> str:

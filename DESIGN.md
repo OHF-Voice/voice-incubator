@@ -437,7 +437,7 @@ automation's page.
 | `voice_labs/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_labs/gliner.py`) -- each only for the commands chosen for it |
 | `voice_labs/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_labs/languages/<code>/skills/`, with `numbers` and `live`) |
 | `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
-| `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`) -- and how the answer is read |
+| `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`), which of several timers, alarms or reminders (`which`) -- and how the answer is read |
 | `voice_labs/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
 | `voice_labs/compound.py` | two commands said together ("and", "then"; English's `languages/en/compound.py`): where to split, what a clause borrows, what both say as one |
 | `voice_labs/night.py` | night mode (each area's switch, followed by `integration.py`): a command that acts blinks how it went (the `result` event), an answer or a question is said quietly, none of the sounds, do not disturb too; the satellite is told (`night` event) |

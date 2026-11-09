@@ -346,6 +346,11 @@ class Plan:
     delete: list[Event] = field(default_factory=list)
     todo: str | None = None
     """A reminder without a time: its text, for the to-do list."""
+    choices: list[dict[str, Any]] = field(default_factory=list)
+    """When ambiguous: the events it may be, in the order said -- each its
+    ``id`` (uid) and ``label`` -- for the answer to ``question``."""
+    question: str | None = None
+    """When ambiguous: which, asked, for a satellite that hears the answer."""
 
     def to_json(self) -> dict[str, Any]:
         create = dict(self.create or {})
@@ -354,6 +359,7 @@ class Plan:
         return {
             "outcome": self.outcome, "speech": self.speech, "levels": self.levels, "create": create or None,
             "delete": [e.to_json() for e in self.delete], "todo": self.todo,
+            **({"choices": self.choices} if self.choices else {}),
         }
 
 
@@ -362,10 +368,11 @@ def _done(levels: dict[str, str], **kwargs: Any) -> Plan:
 
 
 def plan(operation: str, slots: dict[str, Any], now: datetime, alarms: list[Event], reminders: list[Event],
-         todo: bool = False) -> Plan:
+         todo: bool = False, every: bool = False) -> Plan:
     """Decide what ``operation`` does: with the satellite's ``alarms`` and
     ``reminders`` still to come; ``todo``, whether a reminder without a time
-    has a to-do list to go on."""
+    has a to-do list to go on; ``every``, on every one that fits rather
+    than asking which (the answer to which was "both")."""
     say = words()
     assert say is not None
     if operation == "alarm":
@@ -406,8 +413,8 @@ def plan(operation: str, slots: dict[str, Any], now: datetime, alarms: list[Even
         if not picked:
             when_said = say.said_when(asked.start, asked.rrule, now) if asked is not None else text
             return Plan(say.alarm_not_found(when_said, _said(alarms), now), "not_found")
-        if len(picked) > 1:
-            return Plan(say.which_alarm(_said(picked), now), "ambiguous")
+        if len(picked) > 1 and not every:
+            return _which(say.which_alarm(_said(picked), now), picked, now, "alarm")
         return _done(say.alarm_cancelled(_said(picked), now), delete=picked)
     if operation == "cancel_reminder":
         if not reminders:
@@ -417,10 +424,24 @@ def plan(operation: str, slots: dict[str, Any], now: datetime, alarms: list[Even
         picked = _about(picked, say.about(asked.rest if asked is not None else text), say)
         if not picked:
             return Plan(say.reminder_not_found(_said(reminders), now), "not_found")
-        if len(picked) > 1:
-            return Plan(say.which_reminder(_said(picked), now), "ambiguous")
+        if len(picked) > 1 and not every:
+            return _which(say.which_reminder(_said(picked), now), picked, now, "reminder")
         return _done(say.reminder_cancelled(_said(picked), now), delete=picked)
     raise ValueError(f"not a calendar operation: {operation}")
+
+
+def _which(speech: str, events: list[Event], now: datetime, kind: str) -> Plan:
+    """Several fit: which, said -- and asked, with the choices, for a
+    satellite that hears the answer."""
+    say = words()
+    labels = getattr(say, f"{kind}_labels", None)
+    asked = getattr(say, f"which_{kind}_asked", None)
+    said = _said(events)
+    shown = labels(said, now) if labels is not None else [e.summary for e in events]
+    return Plan(
+        speech, "ambiguous", choices=[{"id": e.uid, "label": text} for e, text in zip(events, shown, strict=True)],
+        question=asked(said, now) if asked is not None else None,
+    )
 
 
 ABOUT_MATCH = 0.6

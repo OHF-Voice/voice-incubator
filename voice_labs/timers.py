@@ -21,7 +21,11 @@ else for each (``response: {done: ..., no_timers: ...}``):
 ``done``              it was done (or, for status, said)
 ``no_timers``         nothing is running on this satellite
 ``not_found``         the timer asked for (by name or length) isn't running
-``ambiguous``         several timers fit; asks which
+``ambiguous``         several timers fit; asks which (``choices``: on a
+                      satellite that hears the answer, a question -- "The
+                      10 minute timer or the 5 minute timer?" --
+                      answered on its reopened microphone,
+                      voice_labs/follow_up.py)
 ``already``           pausing a paused timer, resuming a running one
 ``missing_duration``  starting a timer or adding time, with no length heard
 """
@@ -95,6 +99,13 @@ class Plan:
     """When done: what it says by level of verbosity (``speech`` is the
     specific one); none for a status, which answers."""
 
+    choices: list[dict[str, Any]] = field(default_factory=list)
+    """When ambiguous: the timers it may be, in the order said -- each its
+    ``id`` and ``label`` ("the 5 minute timer") -- for the answer to
+    ``question``."""
+    question: str | None = None
+    """When ambiguous: which, asked, for a satellite that hears the answer."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "outcome": self.outcome,
@@ -104,14 +115,17 @@ class Plan:
             "data": self.data,
             "timer": self.timer,
             "calls": self.calls,
+            **({"choices": self.choices} if self.choices else {}),
         }
 
 
 def plan(
-    operation: str, slots: dict[str, Any], running: list[dict[str, Any]], now: datetime | None = None
+    operation: str, slots: dict[str, Any], running: list[dict[str, Any]], now: datetime | None = None,
+    every: bool = False,
 ) -> Plan:
     """Decide what ``operation`` does with these slots and running timers.
-    ``now`` (local time) is for an alarm."""
+    ``now`` (local time) is for an alarm. ``every``: on every timer that
+    fits rather than asking which (the answer to which was "both")."""
     now = now or datetime.now()
     say = languages.speech()
     if operation == "alarm":
@@ -157,18 +171,47 @@ def plan(
             timers=candidates,
             timer=candidates[0] if len(candidates) == 1 else None,
         )
-    if len(ready) > 1:
-        return Plan(say.which_timer(ready), "ambiguous", timers=ready)
+    if len(ready) > 1 and not every:
+        asked = getattr(say, "which_timer_asked", None)
+        return Plan(
+            say.which_timer(ready), "ambiguous", timers=ready,
+            choices=[{"id": str(t.get("timer_id")), "label": label(t)} for t in ready],
+            question=asked(ready) if asked is not None else None,
+        )
+    if operation in ("add", "subtract") and not duration:
+        return Plan(say.TIMER_HOW_MUCH, "missing_duration", timer=ready[0] if len(ready) == 1 else None)
+    each = [_operated(operation, timer, duration) for timer in ready]
+    if len(each) == 1:
+        return each[0]
+    # Every one ("both"): each done, and said one after the other.
+    levels = {level: " ".join(p.levels.get(level, p.speech) for p in each) for level in each[0].levels}
+    return Plan(
+        levels.get("specific", " ".join(p.speech for p in each)), "done", calls=[(p.service, p.data) for p in each if p.service],
+        timers=ready, levels=levels,
+    )
 
-    timer = ready[0]
+
+def _operated(operation: str, timer: dict[str, Any], duration: float | None) -> Plan:
+    """``operation`` done on ``timer``."""
+    say = languages.speech()
     data = {"timer_id": timer["timer_id"]}
     if operation in ("add", "subtract"):
-        if not duration:
-            return Plan(say.TIMER_HOW_MUCH, "missing_duration", timer=timer)
+        assert duration
         data["duration"] = duration
         left = float(timer.get("remaining") or 0) + (duration if operation == "add" else -duration)
         return _done(SERVICES[operation], data, timer, say.timer_changed(operation, timer, duration, max(0.0, left)))
     return _done(SERVICES[operation], data, timer, say.timer_done(operation, timer))
+
+
+def label(timer: dict[str, Any]) -> str:
+    """How a timer is told apart, said: "the pizza timer", "the 5 minute
+    timer" (the language's ``timer_label``; without one, its name or its
+    length in minutes)."""
+    said = getattr(languages.speech(), "timer_label", None)
+    if said is not None:
+        return str(said(timer))
+    seconds = float(timer.get("created_duration") or 0)
+    return str(timer.get("name") or (round(seconds / 60) if seconds >= 60 else round(seconds)))
 
 
 def _done(service: str, data: dict[str, Any], timer: dict[str, Any], levels: dict[str, str]) -> Plan:

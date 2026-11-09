@@ -13,7 +13,7 @@ from typing import Any
 
 from . import reading
 from .skills.numbers import parse_num
-from .speech import _capital, clock, duration, join
+from .speech import _capital, clock, duration, join, join_or
 
 # ----------------------------------------------------------------- reading
 
@@ -350,6 +350,16 @@ def which_alarm(alarms: list[dict[str, Any]], now: datetime) -> str:
     return f"Which alarm? You have {join(_listed(alarms, now))}."
 
 
+def which_alarm_asked(alarms: list[dict[str, Any]], now: datetime) -> str:
+    """Several alarms fit, asked of a satellite that hears the answer."""
+    return f"The {join_or([f'{when} alarm' for when in _listed(alarms, now)])}?"
+
+
+def alarm_labels(alarms: list[dict[str, Any]], now: datetime) -> list[str]:
+    """How each is told apart (an answer to which_alarm_asked)."""
+    return [f"the {when} alarm" for when in _listed(alarms, now)]
+
+
 def alarm_not_found(asked: str, alarms: list[dict[str, Any]], now: datetime) -> str:
     return f"There's no alarm at {asked}. {alarms_listed(alarms, now)}" if alarms else NO_ALARMS
 
@@ -367,6 +377,16 @@ def reminder_cancelled(reminders: list[dict[str, Any]], now: datetime) -> dict[s
 def which_reminder(reminders: list[dict[str, Any]], now: datetime) -> str:
     said = [f"{r['text']} at {when}" for r, when in zip(reminders, _listed(reminders, now), strict=True)]
     return f"Which reminder? You have {join(said)}."
+
+
+def which_reminder_asked(reminders: list[dict[str, Any]], now: datetime) -> str:
+    """Several reminders fit, asked of a satellite that hears the answer."""
+    return f"{_capital(join_or(reminder_labels(reminders, now)))}?"
+
+
+def reminder_labels(reminders: list[dict[str, Any]], now: datetime) -> list[str]:
+    """How each is told apart (an answer to which_reminder_asked)."""
+    return [f"{r['text']} at {when}" for r, when in zip(reminders, _listed(reminders, now), strict=True)]
 
 
 def reminder_not_found(reminders: list[dict[str, Any]], now: datetime) -> str:

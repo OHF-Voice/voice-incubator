@@ -280,6 +280,9 @@ class Decision:
 
     outcome: str | None = None
     """How the command it ran turned out (actions.Outcome.name), once it ran."""
+    choices: list[dict[str, Any]] | None = None
+    """Which of these (timers, alarms, reminders) it meant, asked when it
+    ran (actions.Outcome.choices): answered on the reopened microphone."""
 
     then: "Decision | None" = None
     """The second of two commands said together (voice_labs/compound.py),
@@ -627,7 +630,11 @@ class Engine:
             )
             self._misread(recognizer, heard)
             reading = languages.current().reading
-            answers = sorted({*reading.ANSWER_ENDS, *reading.YES_SAID, *reading.NO_SAID})
+            answers = sorted({
+                *reading.ANSWER_ENDS, *reading.YES_SAID, *reading.NO_SAID,
+                # Which of several timers, alarms or reminders (follow_up.pick).
+                *kaldi_mode.answer_sentences(getattr(reading, "WHICH_SAID", ()), heard),
+            })
             phrases, lexicon = self.kaldi_wake
             self.kaldi.build(heard, language, self.pronunciations, answers, phrases, lexicon)
             self.kaldi_sentences = heard

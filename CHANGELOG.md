@@ -320,6 +320,14 @@
 - **Saving doesn't wait for Kaldi.** Its sentences are built again after a
   save, in the background -- seconds on a Pi -- with **Kaldi updating…** at
   the top meanwhile; it hears the ones before until then.
+- **"Which timer?" is answered without the wake word.** When a command fits
+  several timers, alarms or reminders, a satellite that can listen again
+  asks -- "The 10 minute timer or the 5 minute timer?" -- and the answer
+  picks: "the five minute one", "pizza", "the second one", or "both" for
+  each of them. The same command said again runs as said, another runs
+  instead, "never mind" ends it. Kaldi hears these answers too, with the
+  home's lengths, timers' names and times. Firmware that can't listen hears
+  "Which timer? There's ..." as before.
 - **Clear sessions**: a button on the Sessions page deletes every session
   and its audio (on a satellite's sessions, only its own). One still going
   is kept.

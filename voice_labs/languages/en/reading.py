@@ -99,6 +99,26 @@ NO_SAID = (
 """Yes and no said whole, without words that only doubt it ("but", "not"):
 what an answer with neither, or both, is told apart by, by meaning."""
 
+WHICH_ALL = ("both", "all", "each", "every one", "everything")
+"""Which of several timers, alarms or reminders (follow_up.pick): every one."""
+
+WHICH_ORDINALS = (
+    ("first", 0), ("1st", 0), ("former", 0), ("second", 1), ("2nd", 1), ("third", 2), ("3rd", 2), ("fourth", 3),
+    ("4th", 3), ("fifth", 4), ("5th", 4), ("last", -1), ("latter", -1),
+)
+"""Which: the one at this place in the order they were said (-1: the last)."""
+
+WHICH_SAID = (
+    "[the] {duration} [timer|one]",
+    "[the] {timer_name} [timer|one]",
+    "[the] {timer} [timer|one]",
+    "[the] {time} [alarm|one]",
+    "[the] (first|second|third|fourth|fifth|last|former|latter) [one|timer|alarm|reminder]",
+    "(both|all|each) [of them]",
+)
+"""Which, as Kaldi hears it (kaldi_mode.answer_sentences): templates with
+the slots the home's commands hear (lengths, timers' names, times)."""
+
 # --------------------------------------------------------------- pronouns
 # Said in place of what was last spoken of (voice_labs/context.py).
 

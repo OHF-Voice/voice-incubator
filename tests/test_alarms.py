@@ -123,7 +123,11 @@ def test_cancel_picks_the_alarm():
     assert alarms.plan("cancel_alarm", {"time": "7"}, NOW, [seven, seven_pm], []).outcome == "ambiguous"
     assert alarms.plan("cancel_alarm", {"time": "7 pm"}, NOW, [seven, seven_pm], []).delete == [seven_pm]
     assert alarms.plan("cancel_alarm", {"time": "8"}, NOW, [seven], []).outcome == "not_found"
-    assert alarms.plan("cancel_alarm", {}, NOW, [seven, weekdays], []).outcome == "ambiguous"
+    which = alarms.plan("cancel_alarm", {}, NOW, [seven, weekdays], [])
+    assert which.outcome == "ambiguous" and [c["id"] for c in which.choices] == ["1", "3"]
+    assert which.question.startswith("The ") and which.question.endswith(" alarm?") and " or " in which.question
+    # "Both": each of them.
+    assert alarms.plan("cancel_alarm", {}, NOW, [seven, weekdays], [], every=True).delete == [seven, weekdays]
     assert alarms.plan("cancel_alarm", {}, NOW, [weekdays], []).delete == [weekdays]
     assert alarms.plan("cancel_alarm", {}, NOW, [], []).outcome == "no_alarms"
 

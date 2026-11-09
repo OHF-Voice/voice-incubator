@@ -463,3 +463,14 @@ def test_home_assistants_audio_is_fed_to_kaldi_as_it_comes():
     assert hearing.kaldi.pcm == bytes(hearing.pcm) == b"\x01\x00\x02\x00\x03\x00"
     hearing.cancel()  # the client left
     assert hearing.kaldi.cancelled
+
+
+
+def test_kaldi_hears_which_by_the_homes_own_slots():
+    from voice_labs.kaldi_mode import answer_sentences  # pylint: disable=import-outside-toplevel
+
+    heard = Sentences(slots={"zzslota": [("five", "minutes")], "zzslotb": [("pizza",)]},
+                      slot_names={"zzslota": "duration", "zzslotb": "timer"})
+    said = answer_sentences(["[the] {duration} [timer|one]", "[the] {time} alarm", "(both|all) [of them]"], heard)
+    assert "the zzslota one" in said and "zzslota" in said and "both of them" in said
+    assert not any("time" in s.split() for s in said)  # no command hears a time here

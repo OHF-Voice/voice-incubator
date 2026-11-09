@@ -1,7 +1,9 @@
 """Follow-up turns: the satellite's microphone opened again, with no wake
 word, for an answer the app asked for -- the conversation agent's question
-(Home Assistant's ``continue_conversation``), or a command's yes-or-no one
-before it acts (its ``confirm``: "Cancel all 3 timers?").
+(Home Assistant's ``continue_conversation``), a command's yes-or-no one
+before it acts (its ``confirm``: "Cancel all 3 timers?"), or which of
+several a command meant (``which``: "The 10 minute timer or the 5 minute
+timer?").
 
 The reply says the question, and the ``listening`` sound after it (when the
 call's sounds are on) says it is the speaker's turn. The app then hangs up
@@ -36,6 +38,17 @@ are ("you bet", "absolutely not", "maybe later") -- none read wrong. Yes runs th
 timer may have finished meanwhile); no doesn't; the command itself said
 again is yes; another command said instead runs instead; anything else is
 not caught, and nothing is done -- it is never asked twice.
+
+Which of several timers, alarms or reminders (the command's ``ambiguous``
+outcome, voice_labs/timers.py and alarms.py) is answered by what tells them
+apart (``pick``): "both" or "all" (the language's ``WHICH_ALL``) is every
+one; "the second one" one in the order they were said (``WHICH_ORDINALS``);
+else the words in only one of their labels -- "the five minute one",
+"pizza", "seven thirty" -- numbers said in words or digits alike. The command
+then runs on that one (or each). The same command said again runs as said
+(its own words pick); another runs instead; "never mind" ends it; anything
+else does nothing. Kaldi hears the answers its language's ``WHICH_SAID``
+templates say, with the home's lengths, timers' names and times.
 """
 
 from __future__ import annotations
@@ -88,13 +101,19 @@ class FollowUp:
     """What yes runs (``confirm``): the command as it was heard (engine.Decision)."""
     wake_word: dict[str, Any] | None = None
     """The wake word that started it, as commands see it."""
+    choices: list[dict[str, Any]] | None = None
+    """What ``which`` chooses among (``id``, ``label``), in the order said;
+    the command it runs on the one chosen is ``decision``."""
 
     def stale(self, now: float | None = None) -> bool:
         """Its call didn't start in time: nobody is answering."""
         return (time.monotonic() if now is None else now) - self.told > WAIT_SECONDS
 
     def to_json(self) -> dict[str, Any]:
-        return {"kind": self.kind, "question": self.question, "after": self.after, "speaker": self.who.name}
+        return {
+            "kind": self.kind, "question": self.question, "after": self.after, "speaker": self.who.name,
+            **({"choices": [c["label"] for c in self.choices]} if self.choices else {}),
+        }
 
 
 def _words(text: str) -> str:
@@ -140,3 +159,85 @@ def by_meaning(embedder: Any, text: str) -> str | None:
     if max(to_yes, to_no) < MEANING_FLOOR or abs(to_yes - to_no) < MEANING_MARGIN:
         return None
     return "yes" if to_yes > to_no else "no"
+
+
+def pick(text: str, choices: list[dict[str, Any]]) -> list[str] | None:
+    """Which of ``choices`` (each its ``id`` and ``label``) an answer to
+    which picks: their ids -- every one's for "both" -- or None. A word in
+    a label ("the 30 second timer") is read as the label's, not as an
+    ordinal or "all"."""
+    if not choices:
+        return None
+    reading = languages.current().reading
+    labels = [_said_words(str(c["label"])) for c in choices]
+    in_labels = {w for words in labels for w in words}
+    words = _said_words(text, answer=True)
+    said = " ".join(words)
+    if not said:
+        return None
+
+    def says(phrase: str) -> bool:
+        return not set(phrase.split()) & in_labels and _says(said, {phrase})
+
+    if any(says(p) for p in getattr(reading, "WHICH_ALL", ())):
+        return [str(c["id"]) for c in choices]
+    ordinals = {index for phrase, index in getattr(reading, "WHICH_ORDINALS", ()) if says(phrase)}
+    if len(ordinals) == 1 and -len(choices) <= (index := ordinals.pop()) < len(choices):
+        return [str(choices[index]["id"])]
+    # What only some of them say, heard.
+    shared = set.intersection(*(set(words) for words in labels))
+    heard = set(words)
+    scores = [len((set(label) - shared) & heard) for label in labels]
+    best = max(scores)
+    if best and scores.count(best) == 1:
+        return [str(choices[scores.index(best)]["id"])]
+    return None
+
+
+def _said_words(text: str, answer: bool = False) -> list[str]:
+    """``text``'s words, lowercase, numbers as digits ("twenty five" and
+    "25" alike; "7:30" is 7 30), plurals as one ("minutes" is "minute").
+    ``answer``: an answer's, whose last word, when it is the word for one,
+    stands for what it picks ("the five minute one")."""
+    words = re.sub(r"[^\w\s']", " ", text.lower()).split()
+    numbers = _numbers()
+    if answer and len(words) > 1 and words[-1] == numbers.get(1, ("one",))[0]:
+        words = words[:-1]
+    out: list[str] = []
+    index = 0
+    longest = max((len(spelled) for spelled in numbers.values()), default=1)
+    spelled_as = {spelled: value for value, spelled in numbers.items()}
+    while index < len(words):
+        for size in range(min(longest, len(words) - index), 0, -1):
+            value = spelled_as.get(tuple(words[index : index + size]))
+            if value is not None:
+                out.append(str(value))
+                index += size
+                break
+        else:
+            word = words[index].removesuffix("'s")
+            out.append(word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word)
+            index += 1
+    return out
+
+
+_SPELLED: dict[str, dict[int, tuple[str, ...]]] = {}
+
+
+def _numbers() -> dict[int, tuple[str, ...]]:
+    """The language's numbers to 200, spelled (unicode_rbnf): as words."""
+    code = languages.current().code
+    if code not in _SPELLED:
+        spelled: dict[int, tuple[str, ...]] = {}
+        try:
+            from unicode_rbnf import RbnfEngine  # pylint: disable=import-outside-toplevel
+
+            engine = RbnfEngine.for_language(code)
+            for value in range(201):
+                words = tuple(re.sub(r"[^\w\s']", " ", engine.format_number(value).text.lower()).split())
+                if words:
+                    spelled[value] = words
+        except Exception:  # noqa: BLE001 - no spelling for the language: digits only
+            spelled = {}
+        _SPELLED[code] = spelled
+    return _SPELLED[code]

@@ -74,6 +74,17 @@ NO_SAID = (
 """Yes and no said whole, without words that only doubt it ("but", "not"):
 what an answer with neither, or both, is told apart by, by meaning."""
 
+WHICH_ALL = ("les deux", "tous", "toutes", "chacun")
+"""Which of several timers, alarms or reminders (follow_up.pick): every one."""
+
+WHICH_ORDINALS = (("premier", 0), ("première", 0), ("deuxième", 1), ("second", 1), ("seconde", 1), ("troisième", 2),
+    ("quatrième", 3), ("cinquième", 4), ("dernier", -1), ("dernière", -1))
+"""Which: the one at this place in the order they were said (-1: the last)."""
+
+WHICH_SAID = ("[le|celui de] {duration}", "[le] {timer_name}", "[le] {timer}",
+    "[le|la] (premier|première|deuxième|troisième|dernier|dernière)", "(les deux|tous|toutes)")
+"""Which, as Kaldi would hear it (kaldi_mode.answer_sentences)."""
+
 # --------------------------------------------------------------- pronouns
 # Said in place of what was last spoken of (voice_labs/context.py).
 

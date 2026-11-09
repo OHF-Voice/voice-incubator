@@ -77,6 +77,17 @@ NO_SAID = (
 """Yes and no said whole, without words that only doubt it ("but", "not"):
 what an answer with neither, or both, is told apart by, by meaning."""
 
+WHICH_ALL = ("entrambi", "entrambe", "tutti e due", "tutte e due", "tutti", "tutte")
+"""Which of several timers, alarms or reminders (follow_up.pick): every one."""
+
+WHICH_ORDINALS = (("primo", 0), ("prima", 0), ("secondo", 1), ("seconda", 1), ("terzo", 2), ("terza", 2), ("quarto", 3),
+    ("quarta", 3), ("quinto", 4), ("quinta", 4), ("ultimo", -1), ("ultima", -1))
+"""Which: the one at this place in the order they were said (-1: the last)."""
+
+WHICH_SAID = ("[il|quello da] {duration}", "[il] {timer_name}", "[il] {timer}",
+    "[il|la] (primo|prima|secondo|seconda|terzo|terza|ultimo|ultima)", "(entrambi|entrambe|tutti|tutte)")
+"""Which, as Kaldi would hear it (kaldi_mode.answer_sentences)."""
+
 # --------------------------------------------------------------- pronouns
 # Said in place of what was last spoken of (voice_labs/context.py).
 

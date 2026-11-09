@@ -1222,6 +1222,13 @@ async def _follow_ups(tmp_path):
     confirm: "{{ timers | count > 1 }}"
     response:
       confirm: Cancel all {{ timers | count }} timers?
+  pause_timer:
+    description: pause a timer
+    require: [[pause], [timer, timers]]
+    optional: [[the], [minutes, minute]]
+    number: duration
+    combinations: [[], [duration]]
+    timer: pause
 """)
     http_port = free_port()
     app = VoiceLabsApp(Options(
@@ -1340,6 +1347,39 @@ async def _follow_ups(tmp_path):
         answer = app.calls.recent[-1]
         assert stage(answer, "answer")["other"] and stage(answer, "speech")["text"] == "It's time." and len(cancelled()) == 2
 
+        # Which of several: asked, and answered on the reopened microphone.
+        def paused():
+            return [m["service_data"]["timer_id"] for m in hass.services if m["service"] == "pause_timer"]
+
+        def active(seconds):
+            return next(t["timer_id"] for t in hass.timers[timer_list].values()
+                        if t["status"] == "active" and t["created_duration"] == seconds)
+
+        five, ten = active(300), active(600)
+        assert await satellite.call(wake + await said("Pause the timer.")) == "done"
+        question = app.calls.recent[-1]
+        assert question.outcome == "asked" and stage(question, "speech")["text"] == "The 5 minute timer or the 10 minute timer?"
+        assert satellite.listens[-1] and session.follow_up.kind == "which" and not paused()
+        assert await satellite.answer(await said("The ten minute one.")) == "done"
+        answer = app.calls.recent[-1]
+        assert stage(answer, "answer")["picked"] == [ten] and answer.outcome == "done" and paused() == [ten]
+        assert stage(answer, "action")["picked"] == [ten] and not satellite.listens[-1]
+        # Both: each of them.
+        await hass._call_service({"domain": "voice_timer_list", "service": "unpause_timer",
+                                  "target": {"entity_id": timer_list}, "service_data": {"timer_id": ten}})
+        await wait_for(lambda: sum(t.get("status") == "active" for t in app.integration.running(MAC) or []) == 2)
+        assert await satellite.call(wake + await said("Pause the timer.")) == "done" and satellite.listens[-1]
+        assert await satellite.answer(await said("Both of them.")) == "done"
+        assert sorted(paused()[1:]) == sorted([five, ten]) and app.calls.recent[-1].outcome == "done"
+        # "Never mind": nothing.
+        for timer_id in (five, ten):
+            await hass._call_service({"domain": "voice_timer_list", "service": "unpause_timer",
+                                      "target": {"entity_id": timer_list}, "service_data": {"timer_id": timer_id}})
+        await wait_for(lambda: sum(t.get("status") == "active" for t in app.integration.running(MAC) or []) == 2)
+        assert await satellite.call(wake + await said("Pause the timer.")) == "done"
+        assert await satellite.answer(await said("Never mind.")) == "done"
+        assert app.calls.recent[-1].outcome == "ended" and len(paused()) == 3
+
         # "It": what the area last spoke of, by name. Heard again with its
         # name in its place, taken when that is a command acting on it.
         app.context.forget()
@@ -1369,6 +1409,9 @@ async def _follow_ups(tmp_path):
         assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
         assert not satellite.listens[-1] and session.follow_up is None
         assert not satellite.heard.endswith(listening)
+        assert await satellite.call(wake + await said("Pause the timer.")) == "done"
+        assert stage(app.calls.recent[-1], "speech")["text"].startswith("Which timer? There's")
+        assert not satellite.listens[-1] and session.follow_up is None
         assert await satellite.call(wake + await said("Cancel all the timers.")) == "done"
         assert app.calls.recent[-1].outcome == "done" and len(cancelled()) == 4
     finally:
@@ -1882,13 +1925,22 @@ async def _kaldi_streamed(tmp_path: Path) -> None:
     if (missing := KaldiMode(ROOT, tmp_path / "probe").available) is not None:
         pytest.skip(missing)
     hass, hass_server = await fake_hass.serve()
-    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0)
+    satellite = FakeSatellite(mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0, hello_extra={"listen": True})
     satellite_server = await serve(satellite)
     hass.device_areas[f"device-{MAC}"] = "kitchen"
-    # Kaldi hears only what it is given to: a Kaldi sentence for the lights.
+    # Kaldi hears only what it is given to: Kaldi sentences.
     (tmp_path / "commands.yaml").write_text(COMMANDS.replace(
         "    description: turn on the lights\n", "    description: turn on the lights\n    sentences: [turn on the lights]\n", 1,
-    ))
+    ) + """\
+  pause_timer:
+    description: pause a timer
+    require: [[pause], [timer, timers]]
+    optional: [[the], [minutes, minute]]
+    number: duration
+    combinations: [[], [duration]]
+    timer: pause
+    sentences: ["pause [the] timer", "pause [the] {duration} timer"]
+""")
     http_port = free_port()
     app = VoiceLabsApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1],
@@ -1912,6 +1964,30 @@ async def _kaldi_streamed(tmp_path: Path) -> None:
         assert sentence["text"] == "turn on the lights" and sentence["taken"]
         assert hass.scripts[-1]["variables"]["command"]["id"] == "lights_on"
         assert app.engine.kaldi._decoder._open == 0  # pylint: disable=protected-access
+
+        # Which of two timers: Kaldi hears the answer too.
+        timer_list = "voice_timer_list.kitchen_timers"
+        for seconds in (300, 600):
+            await hass._call_service({"domain": "voice_timer_list", "service": "create_timer",
+                                      "target": {"entity_id": timer_list}, "service_data": {"duration": seconds}})
+        await wait_for(lambda: len(app.integration.running(MAC) or []) == 2)
+        await wait_for(lambda: not app.kaldi_building, timeout=180)
+        steady = {"noise_scale": 0.0, "noise_w_scale": 0.0}
+
+        async def said(text: str) -> bytes:
+            return bytes(int(0.3 * 32000)) + await asyncio.to_thread(app.speech.synthesize, text, steady) + bytes(32000)
+
+        wake = read_call(CALLS / "call-15788.wav")[: int(1.5 * 32000)]  # "okay nabu", to the detection
+        assert await satellite.call(wake + await said("Pause the timer.")) == "done"
+        question = app.calls.recent[-1]
+        assert question.outcome == "asked" and satellite.listens[-1], [s for s in question.stages if s["stage"] == "recognition"]
+        assert await satellite.answer(await said("The five minute one.")) == "done"
+        answer = app.calls.recent[-1]
+        recognition = next(s for s in answer.stages if s["stage"] == "recognition")
+        assert recognition["sentence"]["graph"] == "answer" and recognition["sentence"]["text"] == "the five minute one", recognition
+        five = next(t["timer_id"] for t in hass.timers[timer_list].values() if t["created_duration"] == 300)
+        assert next(s for s in answer.stages if s["stage"] == "answer")["picked"] == [five]
+        assert [m["service_data"]["timer_id"] for m in hass.services if m["service"] == "pause_timer"] == [five]
     finally:
         runner.cancel()
         await app.stop()

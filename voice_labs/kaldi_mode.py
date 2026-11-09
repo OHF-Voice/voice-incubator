@@ -159,6 +159,8 @@ class Sentences:
     (``list``: the value list it needs)."""
     slots: dict[str, list[tuple[str, ...]]] = field(default_factory=dict)
     """Each slot token's phrases: the names, numbers or values it may be."""
+    slot_names: dict[str, str] = field(default_factory=dict)
+    """Each slot token's slot ("duration"): for ``answer_sentences``."""
     templates: dict[str, list[tuple[str, tuple[str, ...]]]] = field(default_factory=dict)
     """Each command's templates and, for each, a sentence it stands for (the
     slots' first phrases): what ``Engine.build_kaldi`` checks reads back as
@@ -277,6 +279,7 @@ def _templates(out: Sentences, config: Config, commands: Iterable[Any]) -> set[s
                 index -= 1
             tokens[key] = f"{SLOT_TOKEN}{letters}"
             out.slots[tokens[key]] = said
+            out.slot_names[tokens[key]] = slot
             samples[tokens[key]] = sample(intent, slot, said)
         return tokens[key]
 
@@ -309,6 +312,28 @@ def _templates(out: Sentences, config: Config, commands: Iterable[Any]) -> set[s
             out.templates.setdefault(command.id, []).append((template, first))
             templated.add(intent.name)
     return templated
+
+
+def answer_sentences(templates: Iterable[str], heard: Sentences) -> list[str]:
+    """Answers to a question, from templates (the language's ``WHICH_SAID``:
+    "[the] {duration} [timer|one]"): each slot the phrases a command's
+    template hears for it -- the home's lengths, timers' names, times -- and
+    a template with a slot no command hears, none."""
+    from .commands import SLOT  # pylint: disable=import-outside-toplevel
+
+    token_of: dict[str, str] = {}
+    for token, slot in heard.slot_names.items():
+        token_of.setdefault(slot, token)
+    out: list[str] = []
+    for template in templates:
+        slots = SLOT.findall(template)
+        if any(slot not in token_of for slot in slots):
+            continue
+        try:
+            out.extend(expand(SLOT.sub(lambda m: f" {token_of[m.group(1)]} ", template)))
+        except TemplateError:
+            _LOGGER.warning("Not an answer template: %r", template)
+    return out
 
 
 def _with_values(

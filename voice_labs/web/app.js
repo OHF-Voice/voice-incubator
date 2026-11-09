@@ -4617,6 +4617,10 @@ function stepGlance(stage) {
         const how = d.other ? "another command instead" : d.said ? `${d.said}${d.by === "meaning" ? ", by meaning" : d.by === "command" ? ", the command again" : ""}` : "neither yes nor no";
         return { title: "Answer", status: d.said || d.other ? "ok" : "warn", line: `${quoted(d.heard || "")}: ${how}` };
       }
+      if (d.kind === "which") {
+        const how = d.ended ? "ended the conversation" : d.picked ? (d.picked.length > 1 ? `all ${d.picked.length} of them` : "picked one") : d.again ? "the command again" : d.other ? "another command instead" : "none of them";
+        return { title: "Answer", status: d.picked || d.again || d.other ? "ok" : d.ended ? "" : "warn", line: `${quoted(d.heard || "")}: ${how}` };
+      }
       return { title: "Answer", status: d.ended ? "" : "ok", line: d.ended ? `${quoted(d.heard || "")}: ended the conversation` : `${quoted(d.heard || "")}, to the conversation agent` };
     case "call_start":
       return { title: "Wake word", status: "ok", line: `${d.name || d.wake_word || "—"}${d.probability !== undefined ? ` · ${prob(d.probability)} (cutoff ${prob(d.cutoff)})` : ""}` };

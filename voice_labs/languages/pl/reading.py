@@ -84,6 +84,17 @@ NO_SAID = (
 """Yes and no said whole, without words that only doubt it ("but", "not"):
 what an answer with neither, or both, is told apart by, by meaning."""
 
+WHICH_ALL = ("oba", "obydwa", "obie", "wszystkie")
+"""Which of several timers, alarms or reminders (follow_up.pick): every one."""
+
+WHICH_ORDINALS = (("pierwszy", 0), ("pierwsza", 0), ("drugi", 1), ("druga", 1), ("trzeci", 2), ("trzecia", 2), ("czwarty", 3),
+    ("piąty", 4), ("ostatni", -1), ("ostatnia", -1))
+"""Which: the one at this place in the order they were said (-1: the last)."""
+
+WHICH_SAID = ("[ten] [na] {duration}", "[ten] {timer_name}", "[ten] {timer}",
+    "(pierwszy|drugi|trzeci|ostatni) [minutnik]", "(oba|obydwa|wszystkie)")
+"""Which, as Kaldi would hear it (kaldi_mode.answer_sentences)."""
+
 # --------------------------------------------------------------- pronouns
 # Said in place of what was last spoken of (voice_labs/context.py).
 

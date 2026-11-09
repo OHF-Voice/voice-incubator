@@ -59,6 +59,22 @@ def test_several_running_timers_are_ambiguous():
     assert plan.speech == "Which timer? There's the lasagna timer, the 5 minute timer and the tea timer."
 
 
+def test_which_is_asked_with_its_choices():
+    plan = timers.plan("cancel", {}, RUNNING)
+    assert plan.question == "The lasagna timer, the 5 minute timer or the tea timer?"
+    assert plan.choices == [
+        {"id": "1", "label": "the lasagna timer"}, {"id": "2", "label": "the 5 minute timer"}, {"id": "3", "label": "the tea timer"},
+    ]
+    # Pausing: only the running ones.
+    assert [c["id"] for c in timers.plan("pause", {}, RUNNING).choices] == ["1", "2"]
+    # "Both": each of them, said one after the other.
+    plan = timers.plan("pause", {}, RUNNING, every=True)
+    assert plan.outcome == "done" and plan.calls == [("pause_timer", {"timer_id": "1"}), ("pause_timer", {"timer_id": "2"})]
+    assert plan.speech == "Paused the lasagna timer. Paused the 5 minute timer."
+    plan = timers.plan("add", {"duration": duration(60)}, RUNNING[:2], every=True)
+    assert [c[0] for c in plan.calls] == ["add_time", "add_time"]
+
+
 def test_no_such_timer():
     plan = timers.plan("cancel", {"timer": "pizza"}, RUNNING)
     assert (plan.service, plan.outcome) == (None, "not_found")

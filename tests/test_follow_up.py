@@ -79,3 +79,36 @@ def test_every_language_can_be_answered(code):
 def test_an_answer_that_asks(text, asking):
     """A question mark last, but for what isn't words after it."""
     assert asks(text) is asking
+
+
+TIMERS = [{"id": "a", "label": "the 10 minute timer"}, {"id": "b", "label": "the 5 minute timer"}]
+NAMED = [{"id": "p", "label": "the pizza timer"}, {"id": "q", "label": "the 30 second timer"}, {"id": "r", "label": "the 1 hour timer"}]
+ALARMS = [{"id": "x", "label": "the 7:30 AM tomorrow alarm"}, {"id": "y", "label": "the 9 AM on Friday alarm"}]
+
+
+@pytest.mark.parametrize(
+    ("text", "choices", "picked"),
+    [
+        ("The five minute one.", TIMERS, ["b"]),
+        ("ten minutes", TIMERS, ["a"]),
+        ("the 10-minute timer", TIMERS, ["a"]),
+        ("Both of them.", TIMERS, ["a", "b"]),
+        ("all", TIMERS, ["a", "b"]),
+        ("The second one.", TIMERS, ["b"]),
+        ("the last one", TIMERS, ["b"]),
+        ("the first", TIMERS, ["a"]),
+        ("pizza", NAMED, ["p"]),
+        ("the hour one", NAMED, ["r"]),
+        ("the third", NAMED, ["r"]),
+        # A word of a label is the label's: "second" is the 30 second timer.
+        ("the thirty second one", NAMED, ["q"]),
+        ("seven thirty", ALARMS, ["x"]),
+        ("Friday's", ALARMS, ["y"]),
+        ("the nine o'clock one", ALARMS, ["y"]),
+        ("the other one", TIMERS, None),
+        ("pause it", TIMERS, None),
+        ("", TIMERS, None),
+    ],
+)
+def test_which_is_picked_by_what_tells_them_apart(text, choices, picked):
+    assert follow_up.pick(text, choices) == picked
