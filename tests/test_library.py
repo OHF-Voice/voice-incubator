@@ -44,7 +44,7 @@ def test_the_homes_own(language):
              "set_thermostat_fan": "climate", "thermostat_mode": "climate", "set_thermostat_mode": "climate",
              "shopping_list_add": "shopping_list", "shopping_list_remove": "shopping_list",
              "shopping_list_check": "shopping_list", "shopping_list_items": "shopping_list", "todo_add": "todo_list",
-             "todo_add_mine": "todo_list"}
+             "todo_add_mine": "todo_list", "todo_items": "todo_list", "todo_items_mine": "todo_list"}
     # Set the temperature's first version is the thermostat's where the
     # language has its commands (English); elsewhere Home Assistant's intent.
     found = {i: entries[i]["spec"] for i in homes if i in entries and (i != "set_temperature_here" or "thermostat" in entries)}

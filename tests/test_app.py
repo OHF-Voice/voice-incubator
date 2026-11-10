@@ -644,8 +644,33 @@ async def _scenario(tmp_path: Path) -> None:
             assert (await http.put("/api/settings", json={"home": {"todo_list": "todo.house", "shopping_list": "todo.groceries"}})).status == 200
             assert app.store.settings["home"] == {"todo_list": "todo.house", "shopping_list": "todo.groceries"}
             assert await said("add milk to my to do list") == "Added milk to todo.house."
+            # What's on them: the home's, and "my" -- the home's too, while
+            # nobody has their own. Home Assistant's script gives the items.
+            reading = [{"file": "todo", "id": "todo_items"}, {"file": "todo", "id": "todo_items_mine"}]
+            assert (await http.post("/api/library/add", json={"entries": reading})).status == 200
+            hass.script_response = {"listed": ["Fix the gate", "Call the plumber"]}
+
+            async def read(sentence: str) -> tuple[str, str, list[str]]:
+                record = await app.try_text(sentence, MAC, run_actions=True)
+                reply = next(s for s in record.stages if s["stage"] == "speech")["text"]
+                variables = next(s for s in record.stages if s["stage"] == "action")["variables"]
+                return reply, variables["command"]["id"], variables["slots"]["entity"]
+
+            assert await read("what's on the to do list") == (
+                "On the to-do list: Fix the gate and Call the plumber.", "todo_items", ["todo.house"])
+            assert await read("what's on my to do list") == (
+                "On your to-do list: Fix the gate and Call the plumber.", "todo_items_mine", ["todo.house"])
             assert (await http.put("/api/people/mike", json={"own": {"todo_list": "todo.mike"}})).status == 200
             assert await said("add milk to my to do list") == "Added milk to todo.mike."
+            assert await read("read me my to do list") == (
+                "On your to-do list: Fix the gate and Call the plumber.", "todo_items_mine", ["todo.mike"])
+            hass.script_response = {"listed": []}
+            assert await read("what is on the to do list") == ("The to-do list is empty.", "todo_items", ["todo.house"])
+            hass.script_response = {"listed": ["Taxes"]}
+            assert (await read("what's on my to do list"))[0] == "There's Taxes on your to-do list."
+            hass.script_response = None
+            for command_id in ("todo_items", "todo_items_mine"):
+                assert (await http.delete(f"/api/commands/{command_id}")).status == 200
             assert (await http.delete("/api/people/Mike")).status == 200
             assert (await http.put("/api/settings", json={"home": {"todo_list": None, "shopping_list": None}})).status == 200
             assert (await http.delete("/api/commands/todo_add_mine")).status == 200

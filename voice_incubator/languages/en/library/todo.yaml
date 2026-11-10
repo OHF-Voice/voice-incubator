@@ -289,6 +289,49 @@ commands:
       - Set the home's to-do list in Settings, or give it one of its
         own (its implied target).
 
+  todo_items:
+    title: What's on the to-do list
+    topic: todo_list
+    icon: mdi:format-list-bulleted
+    description: say what's on the to-do list
+    # What is still to do; what was checked off is left out. Someone's own
+    # is What's on my to-do list.
+    examples: ["what's on [the|our] to do list", "read [me] [the|our] to do list"]
+    require: [[what's on, what is on, read, tell me], [to do list, to do]]
+    optional: [[the, our], [me]]
+    exclude: [my]
+    home: todo_list
+    action:
+      - variables:
+          todo: "{{ slots.entity[0] }}"
+      - action: todo.get_items
+        target:
+          entity_id: "{{ todo }}"
+        data:
+          status: needs_action
+        response_variable: found
+      - variables:
+          reply:
+            listed: "{{ found[todo]['items'] | map(attribute='summary') | list }}"
+      - stop: Read the list
+        response_variable: reply
+    response:
+      done: >-
+        {%- set listed = result.listed or [] -%}
+        {%- set count = listed | count -%}
+        {%- if count == 0 -%}
+        The to-do list is empty.
+        {%- elif count == 1 -%}
+        There's {{ listed[0] }} on the to-do list.
+        {%- elif count > 8 -%}
+        There are {{ count }} things on the to-do list: {{ listed[:5] | join(', ') }} and {{ count - 5 }} more.
+        {%- else -%}
+        On the to-do list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
+        {%- endif -%}
+    needs:
+      - Set the home's to-do list in Settings, or give it one of its
+        own (its implied target).
+
   todo_add_mine:
     title: Add to my to-do list
     topic: todo_list
@@ -406,3 +449,46 @@ commands:
     needs:
       - Give each person their to-do list (People page). Where nobody has one,
         it checks off the home's (Settings).
+
+  todo_items_mine:
+    title: What's on my to-do list
+    topic: todo_list
+    icon: mdi:account-details-outline
+    description: say what's on my to-do list
+    # The speaker's own (People page); where nobody has one, the home's. What
+    # is still to do; what was checked off is left out.
+    examples: ["what's on my to do list", "read [me] my to do list"]
+    require: [[what's on, what is on, read, tell me], [my to do list, my to do]]
+    optional: [[me]]
+    home: todo_list
+    mine: todo_list
+    action:
+      - variables:
+          todo: "{{ slots.entity[0] }}"
+      - action: todo.get_items
+        target:
+          entity_id: "{{ todo }}"
+        data:
+          status: needs_action
+        response_variable: found
+      - variables:
+          reply:
+            listed: "{{ found[todo]['items'] | map(attribute='summary') | list }}"
+      - stop: Read the list
+        response_variable: reply
+    response:
+      done: >-
+        {%- set listed = result.listed or [] -%}
+        {%- set count = listed | count -%}
+        {%- if count == 0 -%}
+        Your to-do list is empty.
+        {%- elif count == 1 -%}
+        There's {{ listed[0] }} on your to-do list.
+        {%- elif count > 8 -%}
+        There are {{ count }} things on your to-do list: {{ listed[:5] | join(', ') }} and {{ count - 5 }} more.
+        {%- else -%}
+        On your to-do list: {{ listed[:-1] | join(', ') }} and {{ listed[-1] }}.
+        {%- endif -%}
+    needs:
+      - Give each person their to-do list (People page). Where nobody has one,
+        it reads the home's (Settings).

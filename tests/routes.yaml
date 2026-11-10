@@ -144,6 +144,8 @@ raise the blinds: {"command": "open_covers_here", "slots": {"device_class": "bli
 raise the blinds to 30 percent: {"command": "cover_position_here", "slots": {"device_class": "blind", "percentage": 30}}
 raise the temperature: {"command": "heat_up", "slots": {"step": 1}}
 raise the volume to 40: {"command": "set_volume_here", "slots": {"percentage": 40}}
+read me my to do list: {"command": "todo_items_mine"}
+read the to do list: {"command": "todo_items"}
 remind me in 3 hours to pick up the kids: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "3 hours to pick up the kids"}}
 remind me to water the plants: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "water the plants"}}
 remove call the plumber from my to do list: {"command": "todo_remove_mine", "slots": {"item": "call the plumber"}}
@@ -232,6 +234,7 @@ tell me a joke: null
 tell me about the date: {"command": "what_date"}
 tell me the date: {"command": "what_date"}
 tell me what time it is right now: {"command": "what_time"}
+tell me what's on my to do list: {"command": "todo_items_mine"}
 thank you: null
 the kitchen brightness at 100 percent: {"command": "set_brightness_place", "slots": {"area": ["kitchen"], "percentage": 100}}
 the kitchen brightness is 150 percent: null
@@ -378,11 +381,16 @@ we don't need apples anymore: null
 we need milk: null
 we're out of coffee: null
 what is my name: {"command": "who_am_i"}
+what is on our to do list: {"command": "todo_items"}
 what is the temperature in the living room: null
 what time is it: {"command": "what_time"}
 what time is it right now: {"command": "what_time"}
 what's my name: {"command": "who_am_i"}
 what's my schedule: {"command": "my_calendar", "slots": {"entity": ["calendar.family"]}}
+what's on my shopping list: {"command": "shopping_list_items"}
+what's on my to do list: {"command": "todo_items_mine"}
+what's on the shopping list: {"command": "shopping_list_items"}
+what's on the to do list: {"command": "todo_items"}
 what's the capital of france: null
 what's the temperature: null
 what's the thermostat set to: {"command": "thermostat"}

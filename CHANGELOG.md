@@ -21,6 +21,10 @@
 
   As a Home Assistant app it is a new one: what Voice Labs kept doesn't come
   along by itself.
+- **What's on the to-do list**, and **What's on my to-do list** (the
+  speaker's own, else the home's), in the library's Lists: what is still to
+  do, read as the shopping list's is -- "what's on the to-do list", "read me
+  my to-do list".
 - **The Home page is by area.** The whole home and each area are listed down
   the side (by floor; a select on a phone), each with its satellites and its
   **Commands**, **Names** and **Settings** -- the Names and Settings pages
