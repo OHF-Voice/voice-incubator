@@ -1,7 +1,7 @@
 """The models the app downloads the first time it starts: Parakeet (English
 speech, with its CTC head beside it: adapt_ctc.hybrid), the CTC model's
 tokens, EmbeddingGemma 2 (hints by meaning) and GLiNER (the command
-fallback) -- about 470 MB, from rhasspy/voice-labs-models and
+fallback) -- about 470 MB, from rhasspy/voice-incubator-models and
 onnx-community/embeddinggemma-2-ONNX, each file checked against its SHA-256 --
 and the Piper voices in use (voice_incubator/piper_voices.py).
 
@@ -15,7 +15,7 @@ The image itself carries the rest (``IMAGE``, fetched as it is built): the
 speaker model, the microWakeWord models pushed to satellites, and the wake
 word verifier's Kaldi -- its model, and its tools for the image's
 architecture, which the resident decoder is compiled against -- about 160
-MB, from rhasspy/voice-labs-models and OpenVoiceOS/redimnet-b2-vox2-onnx; and
+MB, from rhasspy/voice-incubator-models and OpenVoiceOS/redimnet-b2-vox2-onnx; and
 for Kaldi mode, the model's G2P and phonetisaurus (43 MB, of Speech-to-Phrase's
 archives in rhasspy/rhasspy-speech).
 
@@ -44,7 +44,7 @@ from aiohttp import web
 _LOGGER = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_REPO = "https://huggingface.co/rhasspy/voice-labs-models/resolve/de2ae0069e6e8f6883d057b300ee285e5e3be87f"
+MODELS_REPO = "https://huggingface.co/rhasspy/voice-incubator-models/resolve/de2ae0069e6e8f6883d057b300ee285e5e3be87f"
 EMBEDDING_REPO = (
     "https://huggingface.co/onnx-community/embeddinggemma-2-ONNX/resolve/daa72c51243991dfcaf9f9137d2c573d8f7790c0"
 )

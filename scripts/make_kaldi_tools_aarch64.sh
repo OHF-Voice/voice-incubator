@@ -3,7 +3,7 @@
 # models/wake-kaldi-tools-aarch64, laid out as models/wake-kaldi-tools is
 # (kaldi/{bin,lib,utils,steps,include}, openfst/{bin,lib,include}). Packed as
 # a wake-kaldi-tools/ folder, it is kaldi/tools-aarch64.tar.gz in
-# rhasspy/voice-labs-models, which the image's build fetches
+# rhasspy/voice-incubator-models, which the image's build fetches
 # (voice_incubator/downloads.py).
 #
 # From the Kaldi of 2021 that Rhasspy shipped, as kaldi-manylinux built it --

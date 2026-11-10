@@ -6,8 +6,9 @@
   packaging is OHF-Voice/app-voice-incubator), its Python package
   (`python -m voice_incubator`), its logo, its integration (domain
   `voice_incubator`, OHF-Voice/integration-voice-incubator), its firmware
-  (OHF-Voice/firmware-voice-incubator) and its standalone image
-  (`ghcr.io/ohf-voice/voice-incubator`). This repository is its source. For a
+  (OHF-Voice/firmware-voice-incubator), its standalone image
+  (`ghcr.io/ohf-voice/voice-incubator`) and its models on Hugging Face
+  (`rhasspy/voice-incubator-models`). This repository is its source. For a
   release, what was made before keeps working:
   - the integration as it was (`voice_labs`) is talked to until the new one
     is installed, and then the new one is set up and used;

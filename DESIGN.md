@@ -459,7 +459,7 @@ automation's page.
 | `Dockerfile` | the standalone image, fetching what it carries besides its code (`voice_incubator/downloads.py`) |
 | [OHF-Voice/app-voice-incubator](https://github.com/OHF-Voice/app-voice-incubator) | the Home Assistant app: its `config.yaml`, its s6 service (`rootfs/`), and its own Dockerfile, which builds a release of this source (`scripts/app_source.sh` gives it this checkout's instead) |
 | `voice_incubator/piper_voices.py`, `voice_incubator/piper_voices.json`, `scripts/piper_voices.py` | Piper's voices for the language (US and British English), from rhasspy/piper-voices at the revision the catalog was written from: each downloaded into `models/piper` the first time it is used, checked by MD5; the Settings page picks one, its speaker and Piper's inference settings (`settings.json` `piper`) |
-| `voice_incubator/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile. And what the image carries, fetched as it is built (`fetch`): the speaker model (OpenVoiceOS), the microWakeWord models, and the wake verifier's Kaldi model and tools for its architecture (rhasspy/voice-labs-models) |
+| `voice_incubator/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-incubator-models](https://huggingface.co/rhasspy/voice-incubator-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile. And what the image carries, fetched as it is built (`fetch`): the speaker model (OpenVoiceOS), the microWakeWord models, and the wake verifier's Kaldi model and tools for its architecture (rhasspy/voice-incubator-models) |
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
@@ -1918,7 +1918,7 @@ threads; 440 MB at peak with it loaded, of which ~110 MB is the tokenizer).
 The networks are exported once by `scripts/export_gliner.py` (it needs
 torch and the gliner2 package, in a venv of its own) into
 `models/gliner2.5-small-v1-onnx` (78 MB), published in
-`rhasspy/voice-labs-models` for the app to download: the encoder with 8-bit weights and a 4-bit embedding
+`rhasspy/voice-incubator-models` for the app to download: the encoder with 8-bit weights and a 4-bit embedding
 (MatMulNBits), and the boundary head split in two around the candidate
 spans, which are chosen in numpy (it branches on sizes and needs a stable
 sort, which ONNX lacks). The
@@ -2526,7 +2526,7 @@ CTC branch adds only a 1x1 convolution and a log-softmax to it, so
 made by `python -m adapt_ctc.hybrid CTC_DIR TDT_DIR`, which checks the
 transducer's encoder then gives the CTC model's log-probabilities -- within
 3e-5 for English and all eight other languages -- and published with the
-transducer in rhasspy/voice-labs-models).
+transducer in rhasspy/voice-incubator-models).
 The engine then loads the encoder once, and decodes transcripts itself rather
 than with sherpa-onnx: the engine's peak, after a call's matching and its
 transcript, 692 -> 512 MB on x86; 42 ms for a 2.8 s call's transcript
@@ -2595,7 +2595,7 @@ positives.
 
 **The image.** For an aarch64 machine (an HA Green, a Pi), the Kaldi tools are
 the Kaldi of 2021 that Rhasspy shipped, as `kaldi-manylinux` built it
-(`kaldi/tools-aarch64.tar.gz` in rhasspy/voice-labs-models, made by
+(`kaldi/tools-aarch64.tar.gz` in rhasspy/voice-incubator-models, made by
 `scripts/make_kaldi_tools_aarch64.sh`), and the image's build compiles the
 resident decoder against its headers, as it does on x86.
 
