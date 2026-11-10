@@ -19,4 +19,4 @@ What is kept here was set aside:
 | `archive/esphome-native-voice-labs/` | An earlier design, as patches against ESPHome: voice calls over the native API |
 
 The Home Assistant side, the Voice Labs integration, is
-[OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs).
+[OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator).

@@ -3,7 +3,7 @@
 The details of the system: how a call goes, what was measured to get it
 there, and how to run and work on it. Installing the app is in the
 [README](README.md); using it, page by page, is in the
-[guide](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md) in OHF-Voice/voice-labs.
+[guide](https://github.com/OHF-Voice/integration-voice-incubator/blob/main/GUIDE.md) in OHF-Voice/integration-voice-incubator.
 
 ## A call
 
@@ -450,7 +450,7 @@ automation's page.
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/voice-labs](https://github.com/OHF-Voice/voice-labs) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
+| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
 | [OHF-Voice/firmware-voice-incubator](https://github.com/OHF-Voice/firmware-voice-incubator) | the satellites' ESPHome firmware: `devices/voice-pe.yaml`, the `components/voice_incubator` component, the install page's build, and the protocol (PROTOCOL.md). Before: the Voice Labs firmware in [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) (protocol 1) |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |
@@ -1560,7 +1560,7 @@ nothing.
 Timers live in Home Assistant, on a `voice_timer_list` entity for each area a
 satellite is in -- every satellite there shares it -- and one on each
 satellite in no area, provided by the Voice Labs integration
-(OHF-Voice/voice-labs). The app follows each list
+(OHF-Voice/integration-voice-incubator). The app follows each list
 (`integration.Integration.timers`, by list): a timer on one shows on every
 satellite using it, in the same color (`timer_colors`, by list), commands on
 any act on it, and when it finishes each of them rings, a stop on one

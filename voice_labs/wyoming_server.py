@@ -97,7 +97,7 @@ CONTEXT_KEYS = ("conversation_id", "device_id", "satellite_id")
 """What Home Assistant says of a request (Wyoming's context): its
 conversation, and the satellite asking -- its device and its entity."""
 
-APP = Attribution(name="Open Home Foundation", url="https://github.com/OHF-Voice/voice-labs")
+APP = Attribution(name="Open Home Foundation", url="https://github.com/OHF-Voice/voice-incubator")
 PARAKEET = Attribution(name="NVIDIA", url="https://huggingface.co/nvidia/parakeet-tdt_ctc-110m")
 PIPER = Attribution(name="Piper", url="https://github.com/OHF-Voice/piper1-gpl")
 

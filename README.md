@@ -84,7 +84,7 @@ satellite Home Assistant has.
    got. Later starts and updates keep them.
 2. **The integration.**
    [![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=OHF-Voice&repository=voice-labs&category=integration)
-   In [HACS](https://hacs.xyz), add `https://github.com/OHF-Voice/voice-labs`
+   In [HACS](https://hacs.xyz), add `https://github.com/OHF-Voice/integration-voice-incubator`
    as a custom repository of type **Integration**, download **Voice Labs**,
    and restart Home Assistant. The app sets it up the next time it connects.
    It gives each satellite a device and its timers, and runs Assist's intents
@@ -96,7 +96,7 @@ satellite Home Assistant has.
 
 Then open **Voice Labs** in Home Assistant's sidebar to make commands, name
 things, set up satellites and look at sessions. The
-[guide](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md) has
+[guide](https://github.com/OHF-Voice/integration-voice-incubator/blob/main/GUIDE.md) has
 everything it does, page by page.
 
 ### Standalone
@@ -168,7 +168,7 @@ Only with the Voice Labs firmware:
 
 ## More
 
-- [The guide](https://github.com/OHF-Voice/voice-labs/blob/main/GUIDE.md):
+- [The guide](https://github.com/OHF-Voice/integration-voice-incubator/blob/main/GUIDE.md):
   everything the app does, page by page.
 - [DESIGN.md](https://github.com/OHF-Voice/apps-experimental/blob/main/voice_labs/DESIGN.md): how it works, what was measured to get it there,
   and how to work on it.
