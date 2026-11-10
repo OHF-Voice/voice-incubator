@@ -1,11 +1,12 @@
 """Run the library's templates in Home Assistant itself, with its own fixtures
-and the Voice Labs integration (a checkout of OHF-Voice/voice-labs beside this
-repository's, or ``VOICE_LABS``). The integration's own tests are there.
+and the integration (a checkout of OHF-Voice/integration-voice-incubator
+beside this repository's, or ``VOICE_LABS``). The integration's own tests are
+there.
 
 From a Home Assistant core checkout, with its test requirements installed:
 
     cd ~/opt/homeassistant && python -m pytest -c pyproject.toml --rootdir . \\
-        ~/opt/ohf-apps-experimental/voice_labs/hass_tests
+        ~/opt/app-voice-incubator/voice_labs/hass_tests
 
 (``HA_CORE`` points elsewhere than the current directory.) Home Assistant's
 tests keep their custom integrations in a package of their own
@@ -25,9 +26,12 @@ for name in [m for m in sys.modules if m == "tests" or m.startswith("tests.")]:
 
 from tests.conftest import *  # noqa: E402,F403 - Home Assistant's fixtures and hooks
 
-# The integration, from a checkout of OHF-Voice/voice-labs: VOICE_LABS, else
-# beside this repository's.
-COMPONENTS = Path(os.environ.get("VOICE_LABS", Path(__file__).resolve().parents[3] / "voice-labs")) / "custom_components"
+# The integration, from a checkout of OHF-Voice/integration-voice-incubator:
+# VOICE_LABS, else beside this repository's.
+COMPONENTS = (
+    Path(os.environ.get("VOICE_LABS", Path(__file__).resolve().parents[3] / "integration-voice-incubator"))
+    / "custom_components"
+)
 
 
 @pytest.fixture(autouse=True)
