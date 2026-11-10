@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from voice_labs.commands import HOME_TAKEN
-from voice_labs.hass import Catalog, Entity, HomeAssistant
-from voice_labs.server import VoiceLabsApp
+from voice_incubator.commands import HOME_TAKEN
+from voice_incubator.hass import Catalog, Entity, HomeAssistant
+from voice_incubator.server import VoiceIncubatorApp
 
 
 def test_a_failing_event_handler_keeps_the_connection():
@@ -28,7 +28,7 @@ def test_timers_before_the_engine_is_built():
     """Home Assistant answers before the models are loaded: the timers it
     reports then wait for the engine (which starts with their names)."""
     app = SimpleNamespace(sessions={}, engine=None, integration=SimpleNamespace(running_names=lambda: ["pizza"]))
-    VoiceLabsApp._timers_changed(app)  # pylint: disable=protected-access
+    VoiceIncubatorApp._timers_changed(app)  # pylint: disable=protected-access
 
 
 def test_the_home_takes_what_home_assistant_has_one_of():
@@ -57,7 +57,7 @@ def test_the_home_takes_what_home_assistant_has_one_of():
         store=SimpleNamespace(settings={"home": {"climate": "climate.attic"}}, save_settings=lambda: saved.append(1)),
         hass=SimpleNamespace(catalog=catalog),
     )
-    VoiceLabsApp._take_home(app)  # pylint: disable=protected-access
+    VoiceIncubatorApp._take_home(app)  # pylint: disable=protected-access
     # The thermostat chosen already counts; the weather is looked for again.
     assert app.store.settings == {
         "home": {"climate": "climate.attic", "shopping_list": "todo.shopping_list"},
@@ -66,11 +66,11 @@ def test_the_home_takes_what_home_assistant_has_one_of():
     # Cleared afterwards: that stands.
     app.store.settings["home"] = {"climate": "climate.attic"}
     has(("weather.forecast_home", "Forecast Home"))
-    VoiceLabsApp._take_home(app)  # pylint: disable=protected-access
+    VoiceIncubatorApp._take_home(app)  # pylint: disable=protected-access
     assert app.store.settings == {
         "home": {"climate": "climate.attic", "weather": "weather.forecast_home"},
         HOME_TAKEN: ["climate", "shopping_list", "weather"],
     }
     assert len(saved) == 2
-    VoiceLabsApp._take_home(app)  # pylint: disable=protected-access
+    VoiceIncubatorApp._take_home(app)  # pylint: disable=protected-access
     assert len(saved) == 2  # nothing new: not saved again

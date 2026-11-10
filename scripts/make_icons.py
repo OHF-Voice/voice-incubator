@@ -1,7 +1,7 @@
-"""Write voice_labs/web/icons.js: the Material Design Icons the web UI shows.
+"""Write voice_incubator/web/icons.js: the Material Design Icons the web UI shows.
 
 Only the icons used are shipped: every ``icon:`` in the library (its topics'
-too), each skill's (voice_labs/skills/), the defaults for each kind of command (DEFAULTS
+too), each skill's (voice_incubator/skills/), the defaults for each kind of command (DEFAULTS
 in app.js), the editor's choices (PICKER below) and areas' (AREA_ICONS). Paths come from @mdi/js (Apache-2.0), e.g. the Home Assistant
 frontend's node_modules:
 
@@ -18,7 +18,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "voice_labs/web/icons.js"
+OUT = ROOT / "voice_incubator/web/icons.js"
 
 DEFAULTS = [
     "mdi:message-text-outline",
@@ -175,7 +175,7 @@ def camel(icon: str) -> str:
 def library_icons() -> list[str]:
     yaml = YAML(typ="safe")
     icons = []
-    for path in sorted(ROOT.glob("voice_labs/languages/*/library/*.yaml")):
+    for path in sorted(ROOT.glob("voice_incubator/languages/*/library/*.yaml")):
         data = yaml.load(path.read_text("utf-8")) or {}
         if data.get("icon"):
             icons.append(data["icon"])
@@ -190,7 +190,7 @@ def library_icons() -> list[str]:
 def skill_icons() -> list[str]:
     """Read, not imported: ``icon="mdi:..."`` in each skill's module."""
     icons = []
-    for path in sorted((ROOT / "voice_labs/skills").glob("*.py")):
+    for path in sorted((ROOT / "voice_incubator/skills").glob("*.py")):
         icons += re.findall(r'icon="(mdi:[a-z0-9-]+)"', path.read_text("utf-8"))
     return icons
 

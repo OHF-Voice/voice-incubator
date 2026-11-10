@@ -1,15 +1,16 @@
 """Alarms and timed reminders on the calendar: what is read from what was
-said, and what each command does (voice_labs/alarms.py, and the English
-calendar words, voice_labs/languages/en/calendar.py)."""
+said, and what each command does (voice_incubator/alarms.py, and the English
+calendar words, voice_incubator/languages/en/calendar.py)."""
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from voice_labs import alarms, languages
+from voice_incubator import alarms, languages
 
 TZ = ZoneInfo("Europe/Berlin")
 NOW = datetime(2026, 10, 21, 14, 0, tzinfo=TZ)  # a Wednesday afternoon
@@ -178,9 +179,12 @@ def test_status():
 
 def test_events_from_home_assistant():
     raw = {"uid": "u1", "summary": "Alarm", "start": "2026-10-22T07:00:00+02:00", "end": "2026-10-22T07:05:00+02:00",
-           "description": "Set by voice on Kitchen. [voice_labs:alarm:aabbccddeeff]"}
+           "description": "Set by voice on Kitchen. [voice_incubator:alarm:aabbccddeeff]"}
     event = alarms.parse_event(raw, TZ)
     assert event.kind == "alarm" and event.place == "aabbccddeeff" and event.start.hour == 7
+    # Set before the rename: the same.
+    old = alarms.parse_event({**raw, "description": "Set by voice on Kitchen. [voice_labs:reminder:kitchen]"}, TZ)
+    assert old.kind == "reminder" and old.place == "kitchen"
     # Added in Home Assistant: a reminder for every satellite.
     added = alarms.parse_event({**raw, "description": None, "summary": "Water the plants"}, TZ)
     assert added.kind == "reminder" and added.place is None
@@ -190,6 +194,28 @@ def test_events_from_home_assistant():
     rest = alarms.parse_event({**raw, "start": {"dateTime": raw["start"]}, "end": {"dateTime": raw["end"]}}, TZ)
     assert rest.start == event.start
     assert alarms.parse_event({**raw, "start": {"date": "2026-10-22"}, "end": {"date": "2026-10-23"}}, TZ) is None
+
+
+def test_the_calendar_from_before_the_rename():
+    """The "Voice Labs" calendar is used while there is no "Voice Incubator" one."""
+
+    class Hass:
+        def __init__(self, titles: list[str]) -> None:
+            self.titles = titles
+
+        async def config_entries(self, domain: str) -> list[dict]:
+            return [{"entry_id": t, "title": t} for t in self.titles] if domain == "local_calendar" else []
+
+        async def call(self, message: dict) -> list[dict]:
+            return [{"entity_id": "calendar." + t.lower().replace(" ", "_"), "config_entry_id": t} for t in self.titles]
+
+    cal = alarms.AlarmCalendar.__new__(alarms.AlarmCalendar)
+    cal.hass = Hass(["Family", "Voice Labs"])
+    assert asyncio.run(cal._find()) == "calendar.voice_labs"
+    cal.hass = Hass(["Voice Labs", "Voice Incubator"])
+    assert asyncio.run(cal._find()) == "calendar.voice_incubator"
+    cal.hass = Hass(["Family"])
+    assert asyncio.run(cal._find()) is None
 
 
 def test_upcoming_is_each_once_and_the_areas_own():

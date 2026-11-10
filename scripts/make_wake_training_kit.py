@@ -1,4 +1,4 @@
-"""Make the kit the app trains wake words with (voice_labs/wake_training.py).
+"""Make the kit the app trains wake words with (voice_incubator/wake_training.py).
 
 What a new wake word is trained against is the same for every word:
 negatives -- speech, music, noise and confusable phrases, as microWakeWord

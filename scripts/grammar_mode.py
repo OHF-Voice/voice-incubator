@@ -48,8 +48,8 @@ COMMANDS = ROOT / "adapt_ctc/examples/home-extras.yaml"
 def _engine(commands: Path, tdt: bool = True):
     from bench_corpus import load_commands  # pylint: disable=import-outside-toplevel
 
-    from voice_labs import languages  # pylint: disable=import-outside-toplevel
-    from voice_labs.engine import Engine  # pylint: disable=import-outside-toplevel
+    from voice_incubator import languages  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine  # pylint: disable=import-outside-toplevel
 
     languages.use("en")
     engine = Engine(CTC, TDT if tdt else None, threads=1)
@@ -87,7 +87,7 @@ def _init(commands: str) -> None:
 def _verdict(expect, decision) -> str:
     from adapt_ctc.score import _slots  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.commands import command_of  # pylint: disable=import-outside-toplevel
+    from voice_incubator.commands import command_of  # pylint: disable=import-outside-toplevel
 
     got = decision.intent if decision is not None else None
     if expect is None:
@@ -118,7 +118,7 @@ def _scored(job: tuple) -> dict:
 
     from _corpus import read_wav  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.engine import Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Satellite  # pylint: disable=import-outside-toplevel
 
     path, phrase, expect = job
     engine, satellite = _W["engine"], Satellite("bench", "bench")
@@ -247,7 +247,7 @@ def main() -> int:
 
         from _corpus import read_wav  # pylint: disable=import-outside-toplevel
 
-        from voice_labs.engine import Satellite  # pylint: disable=import-outside-toplevel
+        from voice_incubator.engine import Satellite  # pylint: disable=import-outside-toplevel
 
         engine = _engine(args.commands)
         decision, split = engine.recognize_call(read_wav(args.wav).astype(np.float32) / 32768.0, 0.0, 2.5,

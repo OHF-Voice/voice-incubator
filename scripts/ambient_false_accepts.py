@@ -1,6 +1,6 @@
 """Wake words' false accepts per hour on ambient audio (a microWakeWord
 feature set: DiPCo, say), with and without microWakeWord's VAD gate, by the
-voice_labs firmware's detection rule (wake_detector.cpp):
+voice_incubator firmware's detection rule (wake_detector.cpp):
 
 - each model runs every 3 feature slices (30 ms) and keeps its last 5 uint8
   outputs; a wake word fires when their sum > cutoff * 5 (cutoff in 0-255,

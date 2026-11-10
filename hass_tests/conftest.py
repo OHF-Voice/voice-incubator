@@ -1,6 +1,6 @@
 """Run the library's templates in Home Assistant itself, with its own fixtures
 and the integration (a checkout of OHF-Voice/integration-voice-incubator
-beside this repository's, or ``VOICE_LABS``). The integration's own tests are
+beside this repository's, or ``VOICE_INCUBATOR``). The integration's own tests are
 there.
 
 From a Home Assistant core checkout, with its test requirements installed:
@@ -27,16 +27,16 @@ for name in [m for m in sys.modules if m == "tests" or m.startswith("tests.")]:
 from tests.conftest import *  # noqa: E402,F403 - Home Assistant's fixtures and hooks
 
 # The integration, from a checkout of OHF-Voice/integration-voice-incubator:
-# VOICE_LABS, else beside this repository's.
+# VOICE_INCUBATOR, else beside this repository's.
 COMPONENTS = (
-    Path(os.environ.get("VOICE_LABS", Path(__file__).resolve().parents[2] / "integration-voice-incubator"))
+    Path(os.environ.get("VOICE_INCUBATOR", Path(__file__).resolve().parents[2] / "integration-voice-incubator"))
     / "custom_components"
 )
 
 
 @pytest.fixture(autouse=True)
-def voice_labs_integration(enable_custom_integrations: None) -> None:
-    """Make custom_components.voice_labs loadable."""
+def voice_incubator_integration(enable_custom_integrations: None) -> None:
+    """Make custom_components.voice_incubator loadable."""
     import custom_components  # pylint: disable=import-outside-toplevel
 
     if str(COMPONENTS) not in list(custom_components.__path__):

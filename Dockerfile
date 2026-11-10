@@ -15,7 +15,7 @@ ARG TRAINING=true
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-WORKDIR /usr/src/voice_labs
+WORKDIR /usr/src/voice_incubator
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN \
@@ -33,7 +33,7 @@ RUN \
         python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# FluidSynth plays the call's sounds (voice_labs/instruments.py): only its
+# FluidSynth plays the call's sounds (voice_incubator/instruments.py): only its
 # synth, so without the audio drivers Debian's is built with -- SDL, which
 # brings Mesa and LLVM (200 MB), PulseAudio, PipeWire, JACK. libsndfile reads
 # the SoundFont's compressed samples.
@@ -61,11 +61,11 @@ RUN \
     && pip3 install --no-cache-dir -r requirements.txt \
     && if [ "${TRAINING}" = "true" ]; then pip3 install --no-cache-dir -r requirements-training.txt; fi
 
-# What the image carries besides its code (voice_labs/downloads.py, IMAGE):
+# What the image carries besides its code (voice_incubator/downloads.py, IMAGE):
 # the speaker, wake word and Kaldi models, and Kaldi's tools for this
 # architecture, each checked against its SHA-256.
-COPY voice_labs/__init__.py voice_labs/downloads.py ./voice_labs/
-RUN python3 -m voice_labs.downloads fetch models --arch "${BUILD_ARCH:-$(dpkg --print-architecture | sed 's/arm64/aarch64/')}"
+COPY voice_incubator/__init__.py voice_incubator/downloads.py ./voice_incubator/
+RUN python3 -m voice_incubator.downloads fetch models --arch "${BUILD_ARCH:-$(dpkg --print-architecture | sed 's/arm64/aarch64/')}"
 
 # The wake verifier's resident decoder, compiled against those tools; then
 # only what the verifier, the decoder and phonetisaurus (Kaldi mode's guessed
@@ -90,7 +90,7 @@ FROM ${BUILD_FROM} AS runtime
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-WORKDIR /usr/src/voice_labs
+WORKDIR /usr/src/voice_incubator
 
 RUN \
     apt-get update \
@@ -107,18 +107,18 @@ RUN \
 
 COPY --from=builder /usr/local /usr/local
 RUN ldconfig
-COPY --from=builder /usr/src/voice_labs/models ./models
+COPY --from=builder /usr/src/voice_incubator/models ./models
 COPY wake.yaml ./
 COPY sounds ./sounds
-COPY --from=builder /usr/src/voice_labs/adapt_ctc ./adapt_ctc
+COPY --from=builder /usr/src/voice_incubator/adapt_ctc ./adapt_ctc
 COPY wyoming_wake_kaldi ./wyoming_wake_kaldi
 COPY sentence_stream ./sentence_stream
 COPY microwakeword ./microwakeword
-COPY voice_labs ./voice_labs
+COPY voice_incubator ./voice_incubator
 # Parakeet, EmbeddingGemma and GLiNER are downloaded into the app's data the
-# first time it starts (voice_labs/downloads.py), and Piper's voices the first
-# time one is used (voice_labs/piper_voices.py): linked from models/.
-RUN python3 -m voice_labs.downloads link /data/models
+# first time it starts (voice_incubator/downloads.py), and Piper's voices the first
+# time one is used (voice_incubator/piper_voices.py): linked from models/.
+RUN python3 -m voice_incubator.downloads link /data/models
 
 HEALTHCHECK --start-period=10m \
     CMD curl -sf http://127.0.0.1:8099/health > /dev/null || exit 1
@@ -132,4 +132,4 @@ HEALTHCHECK --start-period=10m \
 FROM runtime AS standalone
 VOLUME /data
 EXPOSE 8099 10800
-ENTRYPOINT ["python3", "-m", "voice_labs", "--data-dir", "/data", "--http-host", "0.0.0.0", "--wyoming-host", "0.0.0.0"]
+ENTRYPOINT ["python3", "-m", "voice_incubator", "--data-dir", "/data", "--http-host", "0.0.0.0", "--wyoming-host", "0.0.0.0"]

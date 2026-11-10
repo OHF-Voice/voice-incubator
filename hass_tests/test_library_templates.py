@@ -26,12 +26,12 @@ try:
 except ImportError:  # Home Assistant before its test helpers became a package
     from tests.common import async_mock_service
 
-LIBRARY = Path(__file__).resolve().parent.parent / "voice_labs" / "languages" / "en" / "library"
+LIBRARY = Path(__file__).resolve().parent.parent / "voice_incubator" / "languages" / "en" / "library"
 
 
 def command(file: str, command_id: str, variant: str | None = None) -> dict[str, Any]:
     """A library command, or one of its versions (the family's keys with its
-    own on top, as voice_labs/web.py's library_versions has them)."""
+    own on top, as voice_incubator/web.py's library_versions has them)."""
     family = yaml.safe_load((LIBRARY / f"{file}.yaml").read_text())["commands"][command_id]
     if variant is None:
         return family
@@ -55,7 +55,7 @@ async def _home(hass: HomeAssistant) -> SimpleNamespace:
     )
 
     assert await async_setup_component(hass, "homeassistant", {})
-    assert await async_setup_component(hass, "voice_labs", {})
+    assert await async_setup_component(hass, "voice_incubator", {})
 
     def add(entity_id: str, area, state: str, **attributes) -> None:
         domain, object_id = entity_id.split(".", 1)
@@ -83,14 +83,14 @@ async def _home(hass: HomeAssistant) -> SimpleNamespace:
 
 
 EXPOSED: set[str] = set()
-"""What _home exposed to Assist (the app reads it with voice_labs/exposed)."""
+"""What _home exposed to Assist (the app reads it with voice_incubator/exposed)."""
 DEVICES: dict[str, str | None] = {}
 """What _home added on the Names page, by entity id: its area id (none: in
-no area), as voice_labs/actions.py's implicit_devices has them."""
+no area), as voice_incubator/actions.py's implicit_devices has them."""
 
 
 def _variables(slots: dict[str, Any], area: str | None = None, area_name: str | None = None) -> dict[str, Any]:
-    """What the app gives a command (voice_labs/actions.py)."""
+    """What the app gives a command (voice_incubator/actions.py)."""
     return {
         "slots": slots,
         "satellite": {"id": "vpe", "name": "VPE", "area_id": area, "area_name": area_name},
@@ -117,7 +117,7 @@ def _say(hass: HomeAssistant, spec: dict[str, Any], values: dict[str, Any], retu
 
 
 async def _intent(client, spec: dict[str, Any], values: dict[str, Any]) -> dict:
-    """The command's intent run as the app runs it (voice_labs/actions.py):
+    """The command's intent run as the app runs it (voice_incubator/actions.py):
     on the device named, the area or floor named, else the satellite's area
     -- or, for "anywhere", the home when nothing of the kind is there -- and
     what its response sees as result."""
@@ -136,7 +136,7 @@ async def _intent(client, spec: dict[str, Any], values: dict[str, Any]) -> dict:
 
     async def handle(target: dict[str, Any]) -> dict:
         await client.send_json_auto_id({
-            "type": "voice_labs/intent/handle", "intent": call["name"],
+            "type": "voice_incubator/intent/handle", "intent": call["name"],
             "slots": {**(call.get("slots") or {}), **target}, "variables": values,
         })
         msg = await client.receive_json()

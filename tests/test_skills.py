@@ -7,10 +7,10 @@ import importlib
 
 import pytest
 
-from voice_labs import skills
-from voice_labs.skills import SKILLS, enabled, skill_off, skill_response
-from voice_labs.skills.common import normalize
-from voice_labs.skills.live import is_live
+from voice_incubator import skills
+from voice_incubator.skills import SKILLS, enabled, skill_off, skill_response
+from voice_incubator.skills.common import normalize
+from voice_incubator.skills.live import is_live
 
 
 @pytest.mark.parametrize(
@@ -190,7 +190,7 @@ def test_everywhere_or_off_in_some_areas():
 
 def test_each_skill_is_its_own_module():
     for skill_id, skill in SKILLS.items():
-        module = importlib.import_module(f"voice_labs.skills.{skill_id}")
+        module = importlib.import_module(f"voice_incubator.skills.{skill_id}")
         assert module.SKILL is skill and skill.answer.__module__ == module.__name__
         assert skill.name and skill.description and skill.examples and skill.icon.startswith("mdi:")
         # Each says its own examples are its own.
@@ -202,7 +202,7 @@ def test_each_skill_is_its_own_module():
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_labs.skills import dates
+    from voice_incubator.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -227,7 +227,7 @@ def test_days_until(monkeypatch):
 def test_is_it_a_holiday(monkeypatch):
     import datetime as dt
 
-    from voice_labs.skills import dates
+    from voice_incubator.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -286,7 +286,7 @@ def test_settings_as_built_in():
 
 
 def test_units_added_changed_and_taken_out():
-    from voice_labs.skills.units import Settings
+    from voice_incubator.skills.units import Settings
 
     page = Settings().to_json()
     assert page["measures"]["volume"] == "milliliter" and page["removed"] == []
@@ -312,7 +312,7 @@ def test_units_added_changed_and_taken_out():
 
 
 def test_imperial_volumes():
-    from voice_labs.skills.units import VOLUMES, Settings
+    from voice_incubator.skills.units import VOLUMES, Settings
 
     page = Settings().to_json()
     assert page["volumes"] == "us" and page["presets"]["imperial"]["name"] == "Imperial (UK)"
@@ -352,7 +352,7 @@ def test_imperial_volumes():
     ],
 )
 def test_units_refused(units, error):
-    from voice_labs.skills.units import UNITS, Settings
+    from voice_incubator.skills.units import UNITS, Settings
 
     with pytest.raises(ValueError, match=error):
         Settings.store({"units": [u.to_json() for u in UNITS] + units})
@@ -371,7 +371,7 @@ def test_precision():
 
 
 def test_spelling_your_way():
-    from voice_labs.skills.spelling import Settings
+    from voice_incubator.skills.spelling import Settings
 
     stored = Settings.store({"words": {"Color": "colour", "my last name": "Hansen", "new york": "New York"}})
     assert stored == {"words": {"color": "colour", "my last name": "Hansen", "new york": "New York"}}
@@ -389,7 +389,7 @@ def test_spelling_your_way():
 def test_holidays(monkeypatch):
     import datetime as dt
 
-    from voice_labs.skills import dates
+    from voice_incubator.skills import dates
 
     class Today(dt.date):
         @classmethod

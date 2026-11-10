@@ -10,7 +10,7 @@ search (adapt_ctc/grammar.py) falls back on Python, too slow for every call.
 from setuptools import Extension, setup
 
 setup(
-    name="voice_labs",
+    name="voice_incubator",
     packages=[],
     ext_modules=[
         Extension(

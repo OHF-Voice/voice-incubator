@@ -9,9 +9,9 @@ import json
 import aiohttp
 import numpy as np
 
-from voice_labs import tones
-from voice_labs.discover import Device
-from voice_labs.server import Options, VoiceLabsApp
+from voice_incubator import tones
+from voice_incubator.discover import Device
+from voice_incubator.server import Options, VoiceIncubatorApp
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -61,7 +61,7 @@ async def _scenario(tmp_path) -> None:
     hass.device_areas[f"device-{KITCHEN}"] = "kitchen"
     hass.device_areas[f"device-{BEDROOM}"] = "bedroom"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -173,7 +173,7 @@ async def _shared_timers(tmp_path) -> None:
     for key in (KITCHEN, BEDROOM):
         hass.device_areas[f"device-{key}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -239,14 +239,14 @@ async def _shared_alarms(tmp_path) -> None:
     for key in (KITCHEN, BEDROOM):
         hass.device_areas[f"device-{key}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(_library_commands(("timers", "set_alarm"), ("timers", "alarm_status")))
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{rest_port}",
         hass_websocket_url=f"ws://127.0.0.1:{hass_port}/api/websocket", hass_token=fake_hass.TOKEN, data_dir=tmp_path,
         http_port=free_port(), speaker_profiles=tmp_path / "speakers.json", threads=4,
     ))
     await app.start()
     runner = asyncio.ensure_future(app.run_forever())
-    calendar = "calendar.voice_labs"
+    calendar = "calendar.voice_incubator"
 
     async def said(text: str, key: str) -> str:
         record = await app.try_text(text, key, run_actions=True)
@@ -260,7 +260,7 @@ async def _shared_alarms(tmp_path) -> None:
         # Set on the counter: the Kitchen's, said on the table too.
         assert await said("set an alarm for 7 am tomorrow", KITCHEN) == "Set an alarm for 7:00 AM tomorrow."
         [event] = hass.calendar_events[calendar]
-        assert "[voice_labs:alarm:kitchen]" in event["description"]
+        assert "[voice_incubator:alarm:kitchen]" in event["description"]
         await wait_for(lambda: len(app.alarms.upcoming("alarm", "kitchen")) == 1)
         assert await said("what alarms do i have", BEDROOM) == "You have an alarm at 7:00 AM tomorrow."
 
@@ -268,7 +268,7 @@ async def _shared_alarms(tmp_path) -> None:
         soon = datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(seconds=1)
         await hass.add_calendar_event(
             calendar, summary="Alarm", start=soon.isoformat(), end=(soon + timedelta(minutes=5)).isoformat(),
-            description=f"Set by voice on Counter. [voice_labs:alarm:{KITCHEN}]",
+            description=f"Set by voice on Counter. [voice_incubator:alarm:{KITCHEN}]",
         )
         sessions = [app.sessions[KITCHEN], app.sessions[BEDROOM]]
         await wait_for(lambda: all(s.ringing is not None and not s.ringing.done() and "stop" in sat.models
@@ -291,7 +291,7 @@ def test_a_satellite_disabled_in_home_assistant_is_left_alone(tmp_path):
 
 
 async def _disabled(tmp_path) -> None:
-    """Its Voice Labs device disabled in Home Assistant, a satellite is let
+    """Its Voice Incubator device disabled in Home Assistant, a satellite is let
     go, for another app to take -- the other one stays; enabled again from
     its page, it is taken back."""
     hass, hass_server = await fake_hass.serve()
@@ -300,7 +300,7 @@ async def _disabled(tmp_path) -> None:
     bedroom = FakeSatellite(name="bedroom", mac=_mac(BEDROOM), speed=8.0)
     servers = [await serve(kitchen), await serve(bedroom)]
     http_port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=servers[0].sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -353,7 +353,7 @@ async def _served(tmp_path) -> None:
     }))
     hass.satellites[BEDROOM] = {"id": BEDROOM, "device_id": f"device-{BEDROOM}", "name": "bedroom"}
     hass.device_areas[f"device-{BEDROOM}"] = "bedroom"
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,

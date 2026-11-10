@@ -1,10 +1,10 @@
-"""The Sessions list (voice_labs/calls.py)."""
+"""The Sessions list (voice_incubator/calls.py)."""
 
 from __future__ import annotations
 
 import json
 
-from voice_labs.calls import CallLog
+from voice_incubator.calls import CallLog
 
 
 def test_clearing_sessions(tmp_path):

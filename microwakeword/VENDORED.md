@@ -1,8 +1,8 @@
 # microWakeWord, vendored
 
 Kevin Ahrendt's [microWakeWord](https://github.com/kahrendt/microWakeWord),
-under the Apache License 2.0 (`LICENSE`), as voice_labs trains wake words with
-it (`voice_labs/wake_trainer.py`, run with this folder's parent on its
+under the Apache License 2.0 (`LICENSE`), as voice_incubator trains wake words with
+it (`voice_incubator/wake_trainer.py`, run with this folder's parent on its
 `PYTHONPATH`): the `microwakeword` package of
 [OHF-Voice/micro-wake-word](https://github.com/OHF-Voice/micro-wake-word) at
 `4665173` ("Pin dependencies"), with

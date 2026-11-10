@@ -1,7 +1,7 @@
 """Synthesize the end-to-end test commands with Piper.
 
 Piper is not a dependency of this package. Run with an environment that has
-``piper-tts`` and ``soxr``, e.g. voice_labs's:
+``piper-tts`` and ``soxr``, e.g. voice_incubator's:
 
     ~/opt/voice-incubator/.venv/bin/python \
         tests/fixtures/make_fixtures.py \

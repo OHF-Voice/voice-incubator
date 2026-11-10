@@ -12,8 +12,8 @@ from pathlib import Path
 import aiohttp
 import pytest
 
-from voice_labs.server import Options, VoiceLabsApp
-from voice_labs.wake_words import WakeWords, spoken, trained_from
+from voice_incubator.server import Options, VoiceIncubatorApp
+from voice_incubator.wake_words import WakeWords, spoken, trained_from
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -54,7 +54,7 @@ def test_spoken():
 def test_trained_from():
     # By the phrase it was trained on, whatever it is called; else, trained
     # before the manifest said, by its id.
-    mine = {"wake_word": "Okay Nabu (Mike)", "trained": {"by": "voice_labs", "phrase": "Okay Nabu"}}
+    mine = {"wake_word": "Okay Nabu (Mike)", "trained": {"by": "voice_incubator", "phrase": "Okay Nabu"}}
     assert trained_from("okay_nabu_mike", mine) == "okay_nabu"
     assert trained_from("hey_tester", {"trained": {"phrase": "hey tester"}}) is None
     assert trained_from("okay_now_trained", {"trained": {"phrase": "okay now"}}) is None  # a reading, not the phrase
@@ -147,7 +147,7 @@ async def _per_satellite(tmp_path: Path) -> None:
     (tmp_path / "satellites.yaml").write_text(f"{MAC}: {{name: Kitchen VPE, wake_words: [hey_mycroft, hey_tater]}}\n")
     (tmp_path / "settings.yaml").write_text("wake_words: [hey_jarvis]\n")
     http_port = free_port()
-    app = VoiceLabsApp(
+    app = VoiceIncubatorApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -303,7 +303,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             # own, found again and verified as the built-in one is.
             shutil.copy(ROOT / "tests/fixtures/pooled.tflite", tmp_path / "wake_words/okay_nabu_trained.tflite")
             manifest = {"type": "micro", "wake_word": "Okay Nabu", "model": "okay_nabu_trained.tflite",
-                        "micro": {"probability_cutoff": 0.8}, "trained": {"by": "voice_labs"}}
+                        "micro": {"probability_cutoff": 0.8}, "trained": {"by": "voice_incubator"}}
             (tmp_path / "wake_words/okay_nabu_trained.json").write_text(json.dumps(manifest))
             app.wake_words.forget()
             assert app.trained_here("okay_nabu_trained") and not app.trained_here("okay_nabu")
@@ -316,7 +316,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             # phrase it was trained on.
             shutil.copy(ROOT / "tests/fixtures/pooled.tflite", tmp_path / "wake_words/okay_nabu_mike.tflite")
             manifest = {"type": "micro", "wake_word": "Okay Nabu (Mike)", "model": "okay_nabu_mike.tflite",
-                        "micro": {"probability_cutoff": 0.8}, "trained": {"by": "voice_labs", "phrase": "okay nabu"}}
+                        "micro": {"probability_cutoff": 0.8}, "trained": {"by": "voice_incubator", "phrase": "okay nabu"}}
             (tmp_path / "wake_words/okay_nabu_mike.json").write_text(json.dumps(manifest))
             app.wake_words.forget()
             await app._wake_word_trained("okay_nabu_mike")  # pylint: disable=protected-access

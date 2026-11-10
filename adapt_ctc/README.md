@@ -1,7 +1,7 @@
 # adapt-ctc
 
-> Vendored into voice_labs from adapt-ctc commit `07ef328`, with additions
-> listed under [Additions in voice_labs](#additions-in-voice_labs). Paths below
+> Vendored into voice_incubator from adapt-ctc commit `07ef328`, with additions
+> listed under [Additions in voice_incubator](#additions-in-voice_incubator). Paths below
 > (`examples/`, `tests/`) are `adapt_ctc/examples/` and
 > `tests/adapt_ctc_tests/` here.
 
@@ -48,10 +48,10 @@ hf download onnx-community/embeddinggemma-2-ONNX onnx/model_q4.onnx onnx/model_q
 
 | flag | |
 |---|---|
-| `--model DIR` | CTC model with `model.onnx` + `tokens.txt`. The default is `$ADAPT_CTC_MODEL`, or else voice_labs's int8 Parakeet TDT-CTC 110M |
+| `--model DIR` | CTC model with `model.onnx` + `tokens.txt`. The default is `$ADAPT_CTC_MODEL`, or else voice_incubator's int8 Parakeet TDT-CTC 110M |
 | `--json` | machine-readable output: spans, unexplained words, reasons, timings |
 | `--spans` | also list every place a phrase could have been said, heard or outscored |
-| `--tdt-model DIR` | TDT model (`encoder.onnx`, `decoder.onnx`, `joiner.onnx`, `tokens.txt`) for intents with example sentences. The default is `$ADAPT_CTC_TDT_MODEL`, or else voice_labs's int8 Parakeet TDT. Loaded only when some intent has `examples` |
+| `--tdt-model DIR` | TDT model (`encoder.onnx`, `decoder.onnx`, `joiner.onnx`, `tokens.txt`) for intents with example sentences. The default is `$ADAPT_CTC_TDT_MODEL`, or else voice_incubator's int8 Parakeet TDT. Loaded only when some intent has `examples` |
 | `--embedding-model DIR` | EmbeddingGemma 2 ONNX snapshot (`onnx/model_q4.onnx`, `tokenizer.json`) for examples said in other words. The default is `$ADAPT_CTC_EMBEDDING_MODEL`, or else the Hugging Face cache of onnx-community/embeddinggemma-2-ONNX. Loaded only when some intent has `examples` |
 | `--threads N` | ONNX intra-op threads (4) |
 | `--full-search` | score every phrase everywhere, so rejection reasons can quote the closest placement of a phrase far outside the gate (`settings.search: full`) |
@@ -446,7 +446,7 @@ intents:
 
 The device's wake word detector also fires on sound-alikes ("okay Natalie").
 A `wake` section in the config makes adapt-ctc the second-stage check that
-wyoming-wake-kaldi is in voice_labs, using the same CTC model as the commands.
+wyoming-wake-kaldi is in voice_incubator, using the same CTC model as the commands.
 
 - **What is checked:** the pre-roll, i.e. the audio up to the detection.
 - **Evidence is summed** (`scoring: sum`, the CTC forward score). Each
@@ -470,7 +470,7 @@ To compare systems whose scores have different units, the last two rows give
 the nearest call's distance from the threshold, as a fraction of the gap
 between the median genuine and median false score.
 
-| | Kaldi (voice_labs) | best path, margin + fit | summed margin |
+| | Kaldi (voice_incubator) | best path, margin + fit | summed margin |
 |---|---|---|---|
 | genuine wakes accepted | 109/109\* | 106/109 | 108/109 |
 | false wakes rejected | 7/7\* | 7/7 | 7/7 |
@@ -513,7 +513,7 @@ only differences are the 2 genuine wakes the verifier rejected.
 ```bash
 adapt-ctc-wake examples/home.yaml calls/*.wav --false "false positives"/*.wav
 adapt-ctc examples/home.yaml --call call-9181.wav
-adapt-ctc-score audio/manifest.yaml --calls ../voice_labs/calls
+adapt-ctc-score audio/manifest.yaml --calls ../voice_incubator/calls
 ```
 
 ## Running on a Raspberry Pi
@@ -522,8 +522,8 @@ Copy the code, the model and the recordings across:
 
 ```bash
 rsync -a --exclude .venv --exclude build --exclude '*.so' ~/opt/adapt-ctc/ pi:adapt-ctc/
-rsync -a ~/opt/ohf-apps-experimental/voice_labs/models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8/ pi:models/parakeet-ctc-int8/
-rsync -a ~/opt/ohf-apps-experimental/voice_labs/calls "$HOME/opt/ohf-apps-experimental/voice_labs/false positives" pi:adapt-ctc-data/
+rsync -a ~/opt/voice-incubator/models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8/ pi:models/parakeet-ctc-int8/
+rsync -a ~/opt/voice-incubator/calls "$HOME/opt/voice-incubator/false positives" pi:adapt-ctc-data/
 ```
 
 On the Pi, build the native Viterbi and install. The C compiler and headers
@@ -546,7 +546,7 @@ for t in 2 4; do .venv/bin/adapt-ctc-wake examples/home.yaml ~/adapt-ctc-data/ca
 .venv/bin/adapt-ctc examples/home.yaml --call ~/adapt-ctc-data/calls/call-9754.wav
 ```
 
-voice_labs's `scripts/benchmark.py --runs 5` times its Kaldi verifier on the
+voice_incubator's `scripts/benchmark.py --runs 5` times its Kaldi verifier on the
 same machine for comparison.
 
 ## Scoring recordings
@@ -589,7 +589,7 @@ sentence) with `--explain` prints those recordings' full recognitions.
 
 ### The office-multicap corpus
 
-[audio/office-multicap.yaml](audio/office-multicap.yaml) scores voice_labs's
+[audio/office-multicap.yaml](audio/office-multicap.yaml) scores voice_incubator's
 multi-microphone corpus: five sessions × 204 prompts of the form "okay nabu,
 <command>", each captured on 36 channels at once. The speakers are an adult
 man (two sessions, `mike` and `mike-old`), an adult woman (`jenn`) and two
@@ -599,8 +599,8 @@ can name such a corpus:
 ```yaml
 recordings:
   - corpus: /media/cache/12tb/en-us/office-multicap/*-merged/prompts
-    alignments: ../../ohf-apps-experimental/voice_labs/tests/alignments
-    corrections: ../../ohf-apps-experimental/voice_labs/tests/corpus_corrections.csv
+    alignments: ../../voice-incubator/tests/alignments
+    corrections: ../../voice-incubator/tests/corpus_corrections.csv
     channels: [pc-vpe.aec, pc-vpe.agc]
     strip: "okay nabu,"
 ```
@@ -611,7 +611,7 @@ recordings:
   are dropped.
 - **Where the command starts.** By default (`split: wake`) the whole prompt is
   decoded, and the command begins after the latest wake phrase placement, as
-  in `--call`. voice_labs's Kaldi alignments only bound that search.
+  in `--call`. voice_incubator's Kaldi alignments only bound that search.
   `split: alignment` cuts at Kaldi's wake word end instead. That cut is too
   late to use: on its own channel it lands a median 0.3–0.4 s after Parakeet
   places the end of "Nabu", and other devices run up to 0.2 s later still. So
@@ -734,10 +734,10 @@ and x86 round the int8 maths differently.
   only within split phrases, no compound commands.** A compound command is
   rejected for its unused words, not split.
 
-## Additions in voice_labs
+## Additions in voice_incubator
 
 All are off unless a config uses them; upstream configs behave as before, and
-`tests/adapt_ctc_tests/test_voice_labs_additions.py` covers them.
+`tests/adapt_ctc_tests/test_voice_incubator_additions.py` covers them.
 
 | | |
 |---|---|

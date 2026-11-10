@@ -15,12 +15,12 @@ import aiohttp
 import numpy as np
 import pytest
 
-from voice_labs import people as people_mod
-from voice_labs.agent import Streamed, conversation_key
-from voice_labs.instruments import Instruments
-from voice_labs.server import Options, VoiceLabsApp
-from voice_labs.store import styled
-from voice_labs.tts import RING_EVERY
+from voice_incubator import people as people_mod
+from voice_incubator.agent import Streamed, conversation_key
+from voice_incubator.instruments import Instruments
+from voice_incubator.server import Options, VoiceIncubatorApp
+from voice_incubator.store import styled
+from voice_incubator.tts import RING_EVERY
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -103,12 +103,12 @@ async def _scenario(tmp_path: Path) -> None:
     satellite_server = await serve(satellite)
     satellite_port = satellite_server.sockets[0].getsockname()[1]
 
-    # The satellite's area is its Home Assistant device's (Voice Labs integration).
+    # The satellite's area is its Home Assistant device's (Voice Incubator integration).
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     (tmp_path / "satellites.yaml").write_text(f"{MAC}: {{name: Kitchen VPE, area: office}}\n")
     http_port = free_port()
-    app = VoiceLabsApp(
+    app = VoiceIncubatorApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -135,8 +135,9 @@ async def _scenario(tmp_path: Path) -> None:
         assert variables["satellite"]["area_id"] == "kitchen"
         assert variables["satellite"]["floor_id"] == "ground"
         assert variables["command"]["id"] == "lights_on"
-        assert hass.events[-1]["event_type"] == "voice_labs_command"
-        assert hass.events[-1]["data"]["response"] == "Turned on the lights."
+        # Fired under the name from before the rename too, for now.
+        assert [e["event_type"] for e in hass.events[-2:]] == ["voice_incubator_command", "voice_labs_command"]
+        assert hass.events[-2]["data"]["response"] == "Turned on the lights." == hass.events[-1]["data"]["response"]
         assert any(e["type"] == "recognized" for e in satellite.events)
         assert satellite.played > 0
 
@@ -587,7 +588,7 @@ async def _scenario(tmp_path: Path) -> None:
             # A doubtful match the transcript didn't confirm (the end of the
             # wake word left over before it, in both): the list does, when
             # what either head heard is on it -- the CTC head's "cffee filters".
-            from voice_labs.engine import Decision  # pylint: disable=import-outside-toplevel
+            from voice_incubator.engine import Decision  # pylint: disable=import-outside-toplevel
 
             hass.todo_items["todo.shopping_list"] += [{"summary": "Coffee filters", "status": "needs_action"}]
             command = app.engine.compiled.commands["shopping_remove"]
@@ -784,7 +785,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert text == "conversation.chatty heard who wrote the odyssey" and record.outcome == "answered"
             asked = hass.conversations[-1]
             assert asked["agent_id"] == "conversation.chatty" and "conversation_id" not in asked
-            assert asked["type"] == "voice_labs/conversation/stream"
+            assert asked["type"] == "voice_incubator/conversation/stream"
             stage = next(s for s in record.stages if s["stage"] == "agent")
             assert stage["streamed"] and stage["first_seconds"] is not None
             assert asked.get("device_id") == app.satellite(MAC).device_id
@@ -1000,7 +1001,7 @@ async def _sounds(tmp_path):
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     http_port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -1122,7 +1123,7 @@ async def _night(tmp_path):
     hass.night = {"kitchen": False}
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     http_port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -1231,7 +1232,7 @@ async def _follow_ups(tmp_path):
     timer: pause
 """)
     http_port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -1440,7 +1441,7 @@ async def _cancelled(tmp_path):
     hass.device_areas[f"device-{MAC}"] = "kitchen"
     (tmp_path / "commands.yaml").write_text(COMMANDS.replace("response: Turned on the lights.", f"response: {json.dumps(LONG_REPLY)}", 1))
     (tmp_path / "settings.yaml").write_text("sounds: false\n")
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -1492,7 +1493,7 @@ async def _one_capture(tmp_path):
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     (tmp_path / "settings.yaml").write_text("sounds: false\n")
     http_port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -1546,7 +1547,7 @@ async def _stop_kept(tmp_path):
     satellite_server = await serve(satellite)
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     (tmp_path / "settings.yaml").write_text("sounds: false\n")
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(), speaker_profiles=tmp_path / "speakers.json",
         threads=4,
@@ -1622,7 +1623,7 @@ async def _voices(tmp_path: Path) -> None:
     (tmp_path / "commands.yaml").write_text(VOICE_COMMANDS)
     # No sounds: what is streamed is counted.
     (tmp_path / "settings.yaml").write_text("stt: stt.fake_whisper\ntts: tts.fake_cloud\ntts_voice: JennyNeural\nsounds: false\n")
-    app = VoiceLabsApp(
+    app = VoiceIncubatorApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -1851,9 +1852,9 @@ def _library_commands(*wanted: tuple[str, str]) -> str:
     """Commands from the English library, as they are added from it."""
     from ruamel.yaml import YAML  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.library import LIBRARY_ONLY  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import LIBRARY_ONLY  # pylint: disable=import-outside-toplevel
 
-    library = ROOT / "voice_labs/languages/en/library"
+    library = ROOT / "voice_incubator/languages/en/library"
     out = {}
     for file, command in wanted:
         spec = YAML(typ="safe").load((library / f"{file}.yaml").read_text())["commands"][command]
@@ -1883,7 +1884,7 @@ async def _calendar(tmp_path: Path) -> None:
         ("timers", "set_alarm"), ("timers", "cancel_alarm"), ("timers", "alarm_status"),
         ("reminders", "reminder_status"), ("reminders", "remind_me"),
     ))
-    app = VoiceLabsApp(
+    app = VoiceIncubatorApp(
         Options(
             host="127.0.0.1",
             port=satellite_port,
@@ -1906,14 +1907,14 @@ async def _calendar(tmp_path: Path) -> None:
         await asyncio.wait_for(satellite.ready.wait(), 30)
         assert app.alarms is not None
         await wait_for(lambda: app.alarms.ready)
-        calendar = "calendar.voice_labs"
-        assert hass.local_calendars == ["Voice Labs"] and app.alarms.entity_id == calendar
+        calendar = "calendar.voice_incubator"
+        assert hass.local_calendars == ["Voice Incubator"] and app.alarms.entity_id == calendar
         assert str(app.alarms.tz) == "Europe/Berlin"
 
         # An alarm: an event in Home Assistant's time zone, marked as this satellite's.
         assert await said("set an alarm for 7 am tomorrow") == "Set an alarm for 7:00 AM tomorrow."
         [event] = hass.calendar_events[calendar]
-        assert event["summary"] == "Alarm" and f"[voice_labs:alarm:{MAC}]" in event["description"]
+        assert event["summary"] == "Alarm" and f"[voice_incubator:alarm:{MAC}]" in event["description"]
         start = datetime.fromisoformat(event["start"])
         assert start.hour == 7 and start.utcoffset() == start.astimezone(ZoneInfo("Europe/Berlin")).utcoffset()
         await wait_for(lambda: len(app.alarms.upcoming("alarm", MAC)) == 1)
@@ -1941,7 +1942,7 @@ async def _calendar(tmp_path: Path) -> None:
         played = satellite.played
         await hass.add_calendar_event(
             calendar, summary="Alarm", start=soon.isoformat(), end=later,
-            description=f"Set by voice on Kitchen. [voice_labs:alarm:{MAC}]",
+            description=f"Set by voice on Kitchen. [voice_incubator:alarm:{MAC}]",
         )
         session = app.sessions[MAC]
         await wait_for(lambda: session.ringing is not None and "stop" in satellite.models and satellite.played > played + 32000)
@@ -1977,7 +1978,7 @@ def test_kaldi_hears_a_call_as_it_is_said(tmp_path):
 
 
 async def _kaldi_streamed(tmp_path: Path) -> None:
-    from voice_labs.kaldi_mode import KaldiMode  # pylint: disable=import-outside-toplevel
+    from voice_incubator.kaldi_mode import KaldiMode  # pylint: disable=import-outside-toplevel
 
     if (missing := KaldiMode(ROOT, tmp_path / "probe").available) is not None:
         pytest.skip(missing)
@@ -1999,7 +2000,7 @@ async def _kaldi_streamed(tmp_path: Path) -> None:
     sentences: ["pause [the] timer", "pause [the] {duration} timer"]
 """)
     http_port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1],
         hass_url=f"http://127.0.0.1:{hass_server.sockets[0].getsockname()[1]}", hass_token=fake_hass.TOKEN,
         data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json", threads=4,

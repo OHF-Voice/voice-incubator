@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import pytest
 
-from voice_labs.engine import Satellite, model_note
-from voice_labs.fallback import (
+from voice_incubator.engine import Satellite, model_note
+from voice_incubator.fallback import (
     Arguments,
     Fallback,
     by_meaning,
     chosen,
     parse_duration,
 )
-from voice_labs.store import compile_store
+from voice_incubator.store import compile_store
 
 STORE = {
     "names": {

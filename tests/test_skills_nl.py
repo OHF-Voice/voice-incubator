@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_labs import languages, skills
-from voice_labs.skills import SKILLS
+from voice_incubator import languages, skills
+from voice_incubator.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +46,7 @@ def test_dutch_answers(question, said, skill):
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_labs.skills import dates
+    from voice_incubator.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -78,7 +78,7 @@ def test_each_skill_answers_its_examples():
 
 
 def test_a_clock_time_written_as_one():
-    from voice_labs.languages.nl.reading import clock
+    from voice_incubator.languages.nl.reading import clock
 
     assert clock("halfzeven") == clock("half zeven") == (6, 30, None)
     assert clock("kwart over zeven 's avonds") == (7, 15, "pm")

@@ -6,11 +6,11 @@ from datetime import datetime
 import pytest
 
 from adapt_ctc.config import parse_config
-from voice_labs import timers
-from voice_labs.engine import Engine
-from voice_labs.languages.en import reading as english_reading
-from voice_labs.languages.en import speech as english
-from voice_labs.store import compile_store
+from voice_incubator import timers
+from voice_incubator.engine import Engine
+from voice_incubator.languages.en import reading as english_reading
+from voice_incubator.languages.en import speech as english
+from voice_incubator.store import compile_store
 
 RUNNING = [
     {"timer_id": "1", "name": "lasagna", "status": "active", "created_duration": 1800, "remaining": 754},

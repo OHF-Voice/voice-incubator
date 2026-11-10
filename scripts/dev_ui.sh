@@ -3,7 +3,7 @@
 # Home Assistant, so nothing is executed anywhere. With --replay, a fake
 # satellite (tests/fake_satellite.py) places those recorded calls, in a loop;
 # without it the app is pinned to a port nothing listens on. Other arguments
-# go to voice_labs (e.g. --data-dir).
+# go to voice_incubator (e.g. --data-dir).
 #
 #   scripts/dev_ui.sh                                      # UI on http://127.0.0.1:8099/
 #   scripts/dev_ui.sh --replay calls/call-15788.wav calls/call-19757.wav --
@@ -25,6 +25,6 @@ if (( ${#replay[@]} )); then
     .venv/bin/python -m tests.fake_satellite --port 6056 --pause 20 --loop "${replay[@]}" & pids+=($!)
     satellite=(--host 127.0.0.1 --port 6056)
 fi
-.venv/bin/python -m voice_labs "${satellite[@]}" \
+.venv/bin/python -m voice_incubator "${satellite[@]}" \
     --hass-url http://127.0.0.1:8124 --hass-token-file "$token" \
     --data-dir var/dev --http-port 8099 "$@"

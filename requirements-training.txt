@@ -1,6 +1,6 @@
-# Training a wake word in the app (voice_labs/wake_trainer.py): TensorFlow and
+# Training a wake word in the app (voice_incubator/wake_trainer.py): TensorFlow and
 # what microWakeWord's training needs -- not its audio stack, which the
-# positives don't use (voice_labs/wake_positives.py makes them with Piper and
+# positives don't use (voice_incubator/wake_positives.py makes them with Piper and
 # pymicro-features). microWakeWord itself is vendored (microwakeword/), on
 # the trainer's PYTHONPATH. TensorFlow 2.20 and 2.21 have aarch64 wheels for
 # Python 3.13.

@@ -3,8 +3,8 @@ either name (discover.Discovery)."""
 
 from __future__ import annotations
 
-from voice_labs.discover import Device, Discovery
-from voice_labs.protocol import SERVICE_TYPES, Hello
+from voice_incubator.discover import Device, Discovery
+from voice_incubator.protocol import SERVICE_TYPES, Hello
 
 NEW, OLD = SERVICE_TYPES
 
@@ -12,7 +12,7 @@ NEW, OLD = SERVICE_TYPES
 def test_protocol_1_is_a_vpe():
     """The Voice Labs firmware says no protocol 2 fields: both captures, and
     mixednet wake words."""
-    hello = Hello.parse({"protocol": 1, "name": "voice-labs-vpe", "mac": "AA:BB", "model_slots": 6, "listen": True})
+    hello = Hello.parse({"protocol": 1, "name": "voice-incubator-vpe", "mac": "AA:BB", "model_slots": 6, "listen": True})
     assert (hello.protocol, hello.model, hello.firmware) == (1, "voice-pe", None)
     assert hello.aec and hello.wake_format == "mixednet" and hello.aec_lead_samples is None
     assert hello.model_slots == 6 and hello.listen and not hello.intercom

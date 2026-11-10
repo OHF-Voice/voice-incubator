@@ -2,6 +2,25 @@
 
 ## 0.2.0
 
+- **Voice Labs is Voice Incubator**: the app (slug `voice_incubator`; its
+  packaging is OHF-Voice/app-voice-incubator), its Python package
+  (`python -m voice_incubator`), its logo, its integration (domain
+  `voice_incubator`, OHF-Voice/integration-voice-incubator), its firmware
+  (OHF-Voice/firmware-voice-incubator) and its standalone image
+  (`ghcr.io/ohf-voice/voice-incubator`). This repository is its source. For a
+  release, what was made before keeps working:
+  - the integration as it was (`voice_labs`) is talked to until the new one
+    is installed, and then the new one is set up and used;
+  - alarms and reminders stay on the "Voice Labs" calendar while there is no
+    "Voice Incubator" one, and those set before are read;
+  - each command fires `voice_labs_command` as well as
+    `voice_incubator_command`;
+  - wake words trained before are the app's own, and its speech-to-text is
+    known by its old entity id;
+  - satellites with the Voice Labs firmware are found (`_voice-labs._tcp`).
+
+  As a Home Assistant app it is a new one: what Voice Labs kept doesn't come
+  along by itself.
 - **The Home page is by area.** The whole home and each area are listed down
   the side (by floor; a select on a phone), each with its satellites and its
   **Commands**, **Names** and **Settings** -- the Names and Settings pages

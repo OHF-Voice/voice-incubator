@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from voice_labs.speaker import MODEL_NAME, PALETTE, Profiles
+from voice_incubator.speaker import MODEL_NAME, PALETTE, Profiles
 
 
 def on_the_ring(rgb: tuple[int, int, int]) -> tuple[int, ...]:

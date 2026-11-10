@@ -1,0 +1,432 @@
+# Kaldi mode's sentences for the library's commands (commands.py
+# ``sentences``; voice_incubator/kaldi_mode.py), by library command: file/id, a
+# family's version with its variant (lights/turn_on_place). Each is a
+# template, with the slots it hears in braces -- one way of saying the
+# command whole -- and every word in it one the command's keywords, names,
+# number or values explain (or a filler: the, a, my, please ...), so that
+# what Kaldi hears reads back as the command (tests/test_kaldi_mode.py).
+# Lean on purpose: Kaldi hears only these, and every alternative is one more
+# sentence to mistake another for. Parakeet never reads them.
+
+# ------------------------------------------------------------------ climate
+climate/set_temperature_here:
+  - set [the] (temperature|thermostat|heat) to {temperature} [degrees]
+  - (set|turn) the heat to {temperature} [degrees]
+climate/set_temperature_device:
+  - set [the] {entity} to {temperature} [degrees]
+  - set [the] {entity} temperature to {temperature} [degrees]
+  - set [the] {entity} in [the] {area} to {temperature} [degrees]
+climate/heat_up:
+  - (turn up|raise|increase) the (heat|heating|temperature|thermostat) [a (bit|little)]
+  - turn the (heat|heating|temperature|thermostat) up [a (bit|little)]
+climate/heat_down:
+  - (turn down|lower|decrease) the (heat|heating|temperature|thermostat) [a (bit|little)]
+  - turn the (heat|heating|temperature|thermostat) down [a (bit|little)]
+climate/set_thermostat_mode:
+  - (set|switch|change|put) [the] thermostat [mode] to {mode}
+  - turn [the] thermostat to {mode}
+climate/set_thermostat_fan:
+  - set [the] thermostat fan to {mode}
+  - set [the] fan mode to {mode}
+
+# --------------------------------------------------------------------- home
+home/open_covers_here:
+  - (open|raise) [all] [the] {device_class}
+home/open_covers_device:
+  - (open|raise) [the] {entity}
+  - (open|raise) [the] {entity} in [the] {area}
+home/open_covers_place:
+  - (open|raise) [all] [the] {device_class} in [the] {area}
+  - (open|raise) [all] [the] {area} {device_class}
+  - (open|raise) [all] [the] {device_class} on [the] {floor}
+home/close_covers_here:
+  - (close|shut|lower) [all] [the] {device_class}
+home/close_covers_device:
+  - (close|shut|lower) [the] {entity}
+  - (close|shut|lower) [the] {entity} in [the] {area}
+home/close_covers_place:
+  - (close|shut|lower) [all] [the] {device_class} in [the] {area}
+  - (close|shut|lower) [all] [the] {area} {device_class}
+  - (close|shut|lower) [all] [the] {device_class} on [the] {floor}
+home/cover_position_here:
+  - (set|open|close) [the] {device_class} to {percentage} percent
+home/cover_position_device:
+  - (set|open|close) [the] {entity} to {percentage} percent
+  - (set|open|close) [the] {entity} in [the] {area} to {percentage} percent
+home/cover_position_place:
+  - (set|open|close) [the] {device_class} in [the] {area} to {percentage} percent
+  - (set|open|close) [the] {area} {device_class} to {percentage} percent
+  - (set|open|close) [the] {device_class} on [the] {floor} to {percentage} percent
+home/lock:
+  - lock [the] {entity}
+  - lock [the] {entity} in [the] {area}
+home/unlock:
+  - unlock [the] {entity}
+  - unlock [the] {entity} in [the] {area}
+home/are_covers_open_here:
+  - (is|are) [the] {device_class} {asked}
+  - are [any|all] [the] {device_class} {asked}
+home/are_covers_open_device:
+  - is [the] {entity} {asked}
+  - is [the] {entity} in [the] {area} {asked}
+home/are_covers_open_place:
+  - are [any|all] [the] {device_class} in [the] {area} {asked}
+  - are [any|all] [the] {area} {device_class} {asked}
+  - are [any|all] [the] {device_class} on [the] {floor} {asked}
+home/is_locked:
+  - is [the] {entity} {asked}
+  - is [the] {entity} in [the] {area} {asked}
+home/all_locked:
+  - are all [the] (doors|locks) {asked}
+  - is everything {asked}
+
+# --------------------------------------------------------------------- time
+# (time/what_time and time/what_date: their examples.)
+
+# ------------------------------------------------------------------- lights
+lights/turn_on_here:
+  - (turn|switch) on [all] [the] lights
+  - turn [all] [the] lights on
+lights/turn_on_device:
+  - (turn|switch) on [the] {entity}
+  - turn [the] {entity} on
+  - (turn|switch) on [the] {entity} in [the] {area}
+lights/turn_on_place:
+  - (turn|switch) on [all] [the] lights in [the] {area}
+  - (turn|switch) on [all] [the] {area} lights
+  - turn [all] [the] {area} lights on
+  - (turn|switch) on [all] [the] lights on [the] {floor}
+  - (turn|switch) on [all] [the] {floor} lights
+lights/turn_off_here:
+  - (turn|switch) off [all] [the] lights
+  - turn [all] [the] lights off
+lights/turn_off_device:
+  - (turn|switch) off [the] {entity}
+  - turn [the] {entity} off
+  - (turn|switch) off [the] {entity} in [the] {area}
+lights/turn_off_place:
+  - (turn|switch) off [all] [the] lights in [the] {area}
+  - (turn|switch) off [all] [the] {area} lights
+  - turn [all] [the] {area} lights off
+  - (turn|switch) off [all] [the] lights on [the] {floor}
+  - (turn|switch) off [all] [the] {floor} lights
+lights/any_lights_on_here:
+  - (are|is) [any|the] lights on
+lights/any_lights_on_device:
+  - is [the] {entity} {asked}
+  - is [the] {entity} in [the] {area} {asked}
+lights/any_lights_on_place:
+  - are [any|the] lights on in [the] {area}
+  - are [any|the] {area} lights on
+  - are [any|the] {floor} lights on
+lights/set_brightness_here:
+  - set [the] (lights|brightness) to {percentage} percent
+  - (set|turn) [the] light brightness to {percentage} percent
+  - dim [the] lights to {percentage} percent
+lights/set_brightness_device:
+  - set [the] {entity} [brightness] to {percentage} percent
+  - set [the] brightness of [the] {entity} to {percentage} percent
+  - dim [the] {entity} to {percentage} percent
+  - set [the] {entity} in [the] {area} to {percentage} percent
+lights/set_brightness_place:
+  - set [the] {area} lights to {percentage} percent
+  - set [the] lights in [the] {area} to {percentage} percent
+  - set [the] {area} brightness to {percentage} percent
+  - set [the] lights on [the] {floor} to {percentage} percent
+lights/light_color_here:
+  - (set|make|turn) [the] lights {color}
+  - (set|turn) [the] lights to {color}
+lights/light_color_device:
+  - (set|make|turn) [the] {entity} {color}
+  - (set|turn) [the] {entity} to {color}
+  - (set|turn) [the] {entity} in [the] {area} to {color}
+lights/light_color_place:
+  - (set|make|turn) [the] {area} lights {color}
+  - (set|turn) [the] lights in [the] {area} to {color}
+  - (set|turn) [the] lights on [the] {floor} to {color}
+lights/brighter_here:
+  - make [the] lights brighter
+  - (brighten|turn up) [the] lights [a (bit|little)]
+lights/brighter_device:
+  - make [the] {entity} brighter
+  - (brighten|turn up) [the] {entity} [a (bit|little)]
+  - make [the] {entity} in [the] {area} brighter
+lights/brighter_place:
+  - make [the] {area} lights brighter
+  - make [the] lights in [the] {area} brighter
+  - (brighten|turn up) [the] lights in [the] {area}
+  - make [the] lights on [the] {floor} brighter
+lights/dimmer_here:
+  - make [the] lights (dimmer|darker)
+  - (dim|turn down) [the] lights [a (bit|little)]
+lights/dimmer_device:
+  - make [the] {entity} (dimmer|darker)
+  - (dim|turn down) [the] {entity} [a (bit|little)]
+  - make [the] {entity} in [the] {area} (dimmer|darker)
+lights/dimmer_place:
+  - make [the] {area} lights (dimmer|darker)
+  - make [the] lights in [the] {area} (dimmer|darker)
+  - (dim|turn down) [the] lights in [the] {area}
+  - make [the] lights on [the] {floor} (dimmer|darker)
+lights/light_temperature_here:
+  - (set|make|turn) [the] lights {color_temperature}
+  - set [the] lights to {color_temperature}
+lights/light_temperature_device:
+  - (set|make|turn) [the] {entity} {color_temperature}
+  - set [the] {entity} to {color_temperature}
+  - set [the] {entity} in [the] {area} to {color_temperature}
+lights/light_temperature_place:
+  - (set|make|turn) [the] {area} lights {color_temperature}
+  - set [the] lights in [the] {area} to {color_temperature}
+  - set [the] lights on [the] {floor} to {color_temperature}
+
+# --------------------------------------------------------------------- todo
+# Free text: heard only from a value list named as the slot (item).
+todo/shopping_list_add:
+  - (add|put) {item} (to|on) [the|my] shopping list
+todo/shopping_list_remove:
+  - (remove|take|delete) {item} (from|off) [the|my] shopping list
+todo/shopping_list_check:
+  - (check|cross|tick) {item} off [the|my] shopping list
+todo/todo_add:
+  - (add|put) {item} (to|on) the to do list
+todo/todo_remove:
+  - (remove|take|delete) {item} (from|off) the to do list
+todo/todo_check:
+  - (check|cross|tick) {item} off the to do list
+todo/todo_add_mine:
+  - (add|put) {item} (to|on) my to do list
+todo/todo_remove_mine:
+  - (remove|take|delete) {item} (from|off) my to do list
+todo/todo_check_mine:
+  - (check|cross|tick) {item} off my to do list
+
+# -------------------------------------------------------------------- music
+# What to play is free text: heard only from a value list named query.
+music/play_music_here:
+  - (play|put on|listen to) {query}
+music/play_music_device:
+  - (play|put on) {query} on [the] {entity}
+music/play_music_place:
+  - (play|put on) {query} in [the] {area}
+  - (play|put on) {query} on [the] {floor}
+music/add_to_queue_here:
+  - add {query} to the queue
+music/add_to_queue_device:
+  - add {query} to the queue on [the] {entity}
+music/add_to_queue_place:
+  - add {query} to the queue in [the] {area}
+music/play_similar_device:
+  - play more like this on [the] {entity}
+music/play_similar_place:
+  - play more like this in [the] {area}
+  - play more like this on [the] {floor}
+music/pause_music_here:
+  - pause [the] {kind}
+music/pause_music_device:
+  - pause [the] {entity}
+  - pause [the] music on [the] {entity}
+music/pause_music_place:
+  - pause [the] music in [the] {area}
+  - pause [the] {kind} in [the] {area}
+  - pause [the] music on [the] {floor}
+music/resume_music_here:
+  - (resume|unpause) [the] {kind}
+music/resume_music_device:
+  - (resume|unpause) [the] {entity}
+  - (resume|unpause) [the] music on [the] {entity}
+music/resume_music_place:
+  - (resume|unpause) [the] music in [the] {area}
+  - (resume|unpause) [the] {kind} in [the] {area}
+  - (resume|unpause) [the] music on [the] {floor}
+music/stop_music_here:
+  - stop [the] music
+  - stop playing
+music/stop_music_device:
+  - stop [the] music on [the] {entity}
+music/stop_music_place:
+  - stop [the] music in [the] {area}
+  - stop [the] music on [the] {floor}
+music/next_track_here:
+  - next song
+  - skip to the next song
+  - next song on [the] {kind}
+music/next_track_device:
+  - next song on [the] {entity}
+music/next_track_place:
+  - next song in [the] {area}
+  - next song on [the] {floor}
+music/previous_track_here:
+  - previous song
+  - go back to the previous song
+music/previous_track_device:
+  - previous song on [the] {entity}
+music/previous_track_place:
+  - previous song in [the] {area}
+  - previous song on [the] {floor}
+music/volume_up_here:
+  - turn up the volume
+  - turn [the] volume up
+  - turn up [the] {kind}
+music/volume_up_device:
+  - turn up [the] {entity}
+  - turn up the volume on [the] {entity}
+music/volume_up_place:
+  - turn up the volume in [the] {area}
+  - turn up [the] {kind} in [the] {area}
+  - turn up the volume on [the] {floor}
+music/volume_down_here:
+  - turn down the volume
+  - turn [the] volume down
+  - turn down [the] {kind}
+music/volume_down_device:
+  - turn down [the] {entity}
+  - turn down the volume on [the] {entity}
+music/volume_down_place:
+  - turn down the volume in [the] {area}
+  - turn down [the] {kind} in [the] {area}
+  - turn down the volume on [the] {floor}
+music/set_volume_here:
+  - set [the] volume to {percentage} [percent]
+  - set [the] {kind} volume to {percentage} [percent]
+music/set_volume_device:
+  - set [the] {entity} volume to {percentage} [percent]
+  - set [the] volume on [the] {entity} to {percentage} [percent]
+music/set_volume_place:
+  - set [the] volume in [the] {area} to {percentage} [percent]
+  - set [the] {kind} volume in [the] {area} to {percentage} [percent]
+  - set [the] volume on [the] {floor} to {percentage} [percent]
+music/mute_music_here:
+  - mute [the] {kind}
+music/mute_music_device:
+  - mute [the] {entity}
+music/mute_music_place:
+  - mute [the] {area}
+  - mute [the] {kind} in [the] {area}
+  - mute [the] {floor}
+music/unmute_music_here:
+  - unmute [the] {kind}
+music/unmute_music_device:
+  - unmute [the] {entity}
+music/unmute_music_place:
+  - unmute [the] {area}
+  - unmute [the] {kind} in [the] {area}
+  - unmute [the] {floor}
+music/shuffle_on_device:
+  - shuffle [the] music on [the] {entity}
+music/shuffle_on_place:
+  - shuffle [the] music in [the] {area}
+  - shuffle [the] music on [the] {floor}
+music/shuffle_off_device:
+  - stop shuffling on [the] {entity}
+music/shuffle_off_place:
+  - stop shuffling in [the] {area}
+  - stop shuffling on [the] {floor}
+music/repeat_one_device:
+  - repeat this song on [the] {entity}
+music/repeat_one_place:
+  - repeat this song in [the] {area}
+  - repeat this song on [the] {floor}
+music/repeat_all_device:
+  - repeat [the] music on [the] {entity}
+music/repeat_all_place:
+  - repeat [the] music in [the] {area}
+  - repeat [the] music on [the] {floor}
+music/repeat_off_device:
+  - stop repeating on [the] {entity}
+music/repeat_off_place:
+  - stop repeating in [the] {area}
+  - stop repeating on [the] {floor}
+music/move_music_device:
+  - (move|send) [the] music to [the] {entity}
+music/move_music_place:
+  - (move|send) [the] music to [the] {area}
+  - (move|send) [the] music to [the] {floor}
+music/whats_playing_device:
+  - what's playing on [the] {entity}
+music/whats_playing_place:
+  - what's playing in [the] {area}
+  - what's playing on [the] {floor}
+
+# ---------------------------------------------------------------- reminders
+reminders/remind_me:
+  - remind me {reminder}
+reminders/cancel_reminder:
+  - (cancel|delete) [my|the] reminder
+  - (cancel|delete) [my|the] reminder {reminder}
+
+# --------------------------------------------------------------- satellites
+satellites/announce:
+  - announce {message}
+  - announce {message} in [the] {area}
+  - announce in [the] {area} {message}
+  - announce {message} on [the] {floor}
+satellites/intercom:
+  - (connect|call) [to] [the] {area}
+  - intercom [the] {area}
+satellites/own_volume_set:
+  - set your volume to {percentage} [percent]
+
+# ------------------------------------------------------------------- scenes
+scenes/scene:
+  - (activate|start) [the] {entity} [scene]
+  - (activate|start) [the] {entity} [scene] in [the] {area}
+scenes/script:
+  - (run|start) [the] {entity} [script]
+  - (run|start) [the] {entity} [script] in [the] {area}
+
+# ------------------------------------------------------------------ sensors
+sensors/sensor_value:
+  - what is [the] {entity}
+  - what's [the] {entity}
+  - what is [the] {entity} in [the] {area}
+sensors/binary_sensor_state:
+  - is [the] {entity} {asked}
+  - is [the] {entity} in [the] {area} {asked}
+
+# ------------------------------------------------------------------- timers
+# A timer's name is free text: heard only from a value list named timer.
+timers/start_timer:
+  - (set|start) a timer for {duration}
+  - (set|start) a {duration} timer
+  - (set|start) a {timer} timer for {duration}
+timers/set_alarm:
+  - set an alarm for {time}
+  - wake me up at {time}
+timers/cancel_alarm:
+  - (cancel|delete|turn off) [my|the] alarm
+  - (cancel|delete|turn off) [my|the] alarm for {time}
+timers/cancel_timer:
+  - (cancel|stop) [the] timer
+  - (cancel|stop) [the] {timer_name} timer
+  - (cancel|stop) [the] {duration} timer
+  - (cancel|stop) [the] {timer} timer
+timers/cancel_all_timers:
+  - (cancel|stop) all [the] timers
+timers/pause_timer:
+  - pause [the] timer
+  - pause [the] {timer_name} timer
+  - pause [the] {duration} timer
+timers/resume_timer:
+  - (resume|unpause) [the] timer
+  - (resume|unpause) [the] {timer_name} timer
+  - (resume|unpause) [the] {duration} timer
+timers/timer_status:
+  - how much time is left on [the] {timer_name} timer
+  - how much time is left on [the] {duration} timer
+timers/add_time:
+  - add {duration} to [the] timer
+  - add {duration} to [the] {timer_name} timer
+timers/subtract_time:
+  - (take off|remove) {duration} from [the] timer
+  - (take off|remove) {duration} from [the] {timer_name} timer
+
+# ------------------------------------------------------------------ weather
+weather/weather_day:
+  - what's the weather going to be [like] {day}
+  - what's the forecast for {day}
+  - what will the weather be like {day}
+weather/will_it_rain:
+  - is it going to {what}
+  - is it going to {what} {day}
+  - will it {what} {day}

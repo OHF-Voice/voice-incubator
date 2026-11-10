@@ -1,4 +1,4 @@
-"""The torch-free GLiNER port (voice_labs/gliner.py) against reference data
+"""The torch-free GLiNER port (voice_incubator/gliner.py) against reference data
 from the gliner2 package (tests/fixtures/gliner_*, made by its export's
 check): the prompt, the candidate pool, overlap resolution -- and, when the
 exported model is in models/, the whole thing."""
@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from voice_labs.gliner import choose_candidates, normalize_text, resolve_flat, split_words
+from voice_incubator.gliner import choose_candidates, normalize_text, resolve_flat, split_words
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MODEL = Path(__file__).parent.parent / "models/gliner2.5-small-v1-onnx"
@@ -55,7 +55,7 @@ def test_flat_overlap_resolution():
 
 @needs_model
 def test_prompts_as_gliner2_builds_them():
-    from voice_labs.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
+    from voice_incubator.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
 
     model = GlinerOnnx(MODEL, threads=2)
     for case in json.loads((FIXTURES / "gliner_prompts.json").read_text()):
@@ -68,7 +68,7 @@ def test_prompts_as_gliner2_builds_them():
 
 @needs_model
 def test_extraction():
-    from voice_labs.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
+    from voice_incubator.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
 
     model = GlinerOnnx(MODEL, threads=2)
     labels = ["play an artist, album, song, playlist or genre", "set a timer", "something else: a question, small talk or thanks"]
@@ -87,7 +87,7 @@ def test_extraction():
 def test_spans_are_not_clipped():
     # As a call gave it (commands closest in meaning, their entity types):
     # with 4-bit layers the small model added "add apples".
-    from voice_labs.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
+    from voice_incubator.gliner import GlinerOnnx  # pylint: disable=import-outside-toplevel
 
     model = GlinerOnnx(MODEL, threads=2)
     labels = [

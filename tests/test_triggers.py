@@ -1,4 +1,4 @@
-"""Home Assistant's sentence triggers (voice_labs/triggers.py): read and
+"""Home Assistant's sentence triggers (voice_incubator/triggers.py): read and
 grouped by automation, heard as example sentences or on the transcript,
 ahead of the app's own commands, and run by Home Assistant's own agent."""
 
@@ -15,11 +15,11 @@ import pytest
 
 from adapt_ctc.config import ConfigError
 from adapt_ctc.text import spoken_words
-from voice_labs import actions, languages, triggers
-from voice_labs.engine import Engine, Satellite
-from voice_labs.fallback import label_of
-from voice_labs.hass import HassError
-from voice_labs.store import Store, compile_store
+from voice_incubator import actions, languages, triggers
+from voice_incubator.engine import Engine, Satellite
+from voice_incubator.fallback import label_of
+from voice_incubator.hass import HassError
+from voice_incubator.store import Store, compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
 OFFICE = Satellite("s", "Office", "office", "Office", device_id="satellite-device")
@@ -360,7 +360,7 @@ def test_home_assistant_gets_a_value_lists_value():
 def test_meaning_sends_a_sentence_of_its_own():
     """Chosen for meaning, a trigger close to what was said is sent its own
     sentence -- "kill the party" is none of its, and runs nothing there."""
-    from voice_labs.fallback import Fallback  # pylint: disable=import-outside-toplevel
+    from voice_incubator.fallback import Fallback  # pylint: disable=import-outside-toplevel
 
     if not CTC.is_dir():
         pytest.skip("no CTC model")
@@ -419,7 +419,7 @@ def test_the_model_runs_one_with_free_text():
     it picks from (by meaning: its label and its templates), known by its
     automation's description; what it hears fills a template of its, which
     Home Assistant is sent -- when it hears that back as this trigger."""
-    from voice_labs.fallback import Fallback  # pylint: disable=import-outside-toplevel
+    from voice_incubator.fallback import Fallback  # pylint: disable=import-outside-toplevel
 
     if not CTC.is_dir():
         pytest.skip("no CTC model")

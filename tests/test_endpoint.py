@@ -10,7 +10,7 @@ import pytest
 
 import numpy as np
 
-from voice_labs.endpoint import (
+from voice_incubator.endpoint import (
     MAX_VAD_GAIN,
     BothDetector,
     SETTLE_SECONDS,
@@ -311,29 +311,29 @@ def test_a_quiet_command_ends():
 def test_why_a_call_timed_out():
     import time  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.server import Call, VoiceLabsApp  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import Call, VoiceIncubatorApp  # pylint: disable=import-outside-toplevel
 
     call = Call(preroll_bytes=48000, wake_word="okay_nabu")
     call.audio += bytes(32000 * 3)
-    assert VoiceLabsApp._timed_out(call)[0] == "the audio stopped arriving 3.0 s in"  # pylint: disable=protected-access
+    assert VoiceIncubatorApp._timed_out(call)[0] == "the audio stopped arriving 3.0 s in"  # pylint: disable=protected-access
     call.last_audio = time.monotonic() - 5
-    assert VoiceLabsApp._timed_out(call)[0] == "the audio stopped arriving 3.0 s in"  # pylint: disable=protected-access
+    assert VoiceIncubatorApp._timed_out(call)[0] == "the audio stopped arriving 3.0 s in"  # pylint: disable=protected-access
     call.last_audio = time.monotonic()
-    assert VoiceLabsApp._timed_out(call)[0] == "the wake word was still being checked"  # pylint: disable=protected-access
+    assert VoiceIncubatorApp._timed_out(call)[0] == "the wake word was still being checked"  # pylint: disable=protected-access
     call.endpointer = Endpointer(EndOfSpeech(), lambda vad: Scripted([0.1] * 10))
     call.endpointer.process(bytes(CHUNK * 10))
-    why, details = VoiceLabsApp._timed_out(call)  # pylint: disable=protected-access
+    why, details = VoiceIncubatorApp._timed_out(call)  # pylint: disable=protected-access
     assert why == "no speech was heard" and details["speech_started"] is False
     call.endpointer = Endpointer(EndOfSpeech(), lambda vad: Scripted([0.9] * 300))
     call.endpointer.process(bytes(CHUNK * 300))
-    why, details = VoiceLabsApp._timed_out(call)  # pylint: disable=protected-access
+    why, details = VoiceIncubatorApp._timed_out(call)  # pylint: disable=protected-access
     assert why == "3.0 s of speech, never 1 s of silence" and details["speech_seconds"] == 3.0
 
 
 def test_stt_hears_the_call_from_kaldis_split():
     import numpy as np  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.server import AEC_LEAD_SAMPLES, stt_audio_for  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import AEC_LEAD_SAMPLES, stt_audio_for  # pylint: disable=import-outside-toplevel
 
     rng = np.random.default_rng(1)
     sound = (rng.standard_normal(64000) * 3000).clip(-32767, 32767)
@@ -374,13 +374,13 @@ def test_a_satellite_ends_commands_after_its_own_silence(tmp_path):
 
     import aiohttp  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.server import Options, VoiceLabsApp  # pylint: disable=import-outside-toplevel
-    from voice_labs.web import start_web  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import Options, VoiceIncubatorApp  # pylint: disable=import-outside-toplevel
+    from voice_incubator.web import start_web  # pylint: disable=import-outside-toplevel
 
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    app = VoiceLabsApp(Options(host="127.0.0.1", port=1, hass_url="http://127.0.0.1:1", hass_token="x",
+    app = VoiceIncubatorApp(Options(host="127.0.0.1", port=1, hass_url="http://127.0.0.1:1", hass_token="x",
                                data_dir=tmp_path, http_host="127.0.0.1", http_port=port))
     app.store.settings["end_of_speech"] = {"silence_seconds": 0.8}
 

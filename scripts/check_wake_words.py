@@ -5,7 +5,7 @@ For every microWakeWord manifest under the given directories (Tater's
 catalog, an ESPHome model repository, the app's wake_words/), three checks:
 
 1. **Lowered.** The app turns the ``.tflite`` into the op table the device runs
-   (voice_labs/mixednet.py). A graph it cannot walk is refused here, and would
+   (voice_incubator/mixednet.py). A graph it cannot walk is refused here, and would
    be refused by the app.
 2. **Same numbers as TFLite.** The upstream host harness (mixednet-executor,
    the code the firmware compiles) and TFLite's reference kernels run over the
@@ -48,8 +48,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from _corpus import WakeWord, features, read_wav  # noqa: E402
 
-from voice_labs.mixednet import pack  # noqa: E402
-from voice_labs.wake_words import MAX_CUTOFF, read_manifest, spoken  # noqa: E402
+from voice_incubator.mixednet import pack  # noqa: E402
+from voice_incubator.wake_words import MAX_CUTOFF, read_manifest, spoken  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEECH = ROOT / "tests/okay_nabu_turn_on_the_lights.wav"

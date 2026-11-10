@@ -1,4 +1,4 @@
-"""What is said, and in what pieces (voice_labs/tts.py): sentences without a
+"""What is said, and in what pieces (voice_incubator/tts.py): sentences without a
 conversation agent's markdown, a list's items apart, synthesized one at a
 time."""
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from voice_labs.tts import Speech, sentences_of
+from voice_incubator.tts import Speech, sentences_of
 
 ROOT = Path(__file__).resolve().parent.parent
 VOICE = ROOT / "models/piper/en_US-ellie-medium.onnx"

@@ -8,7 +8,7 @@ the AEC capture too). Playback is acknowledged as drained at once, and the next
 call starts after the app hangs up.
 
     .venv/bin/python -m tests.fake_satellite --port 6056 calls/call-15788.wav
-    .venv/bin/python -m voice_labs --host 127.0.0.1 --port 6056 ...
+    .venv/bin/python -m voice_incubator --host 127.0.0.1 --port 6056 ...
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from voice_labs.protocol import BYTE_RATE, HEADER, SAMPLE_RATE, Message, encode, encode_json
+from voice_incubator.protocol import BYTE_RATE, HEADER, SAMPLE_RATE, Message, encode, encode_json
 
 _LOGGER = logging.getLogger("fake_satellite")
 

@@ -1,6 +1,6 @@
-"""The Wyoming endpoints (voice_labs/wyoming_server.py): what Home Assistant's
+"""The Wyoming endpoints (voice_incubator/wyoming_server.py): what Home Assistant's
 pipelines get from the app -- and the corrected transcript
-(voice_labs/corrected.py) they hear commands with.
+(voice_incubator/corrected.py) they hear commands with.
 
 The app's scenario needs the models; skipped without them."""
 
@@ -26,15 +26,15 @@ from wyoming.handle import Handled, HandledChunk, HandledStart, HandledStop, Not
 from wyoming.info import Describe, Info
 from wyoming.tts import Synthesize, SynthesizeChunk, SynthesizeStart, SynthesizeStop, SynthesizeStopped, SynthesizeVoice
 
-from voice_labs import corrected, languages
-from voice_labs.actions import level_for
-from voice_labs.commands import Behavior
-from voice_labs.engine import Engine, Satellite
-from voice_labs.piper_voices import UNUSED_DAYS, Uses, catalog
-from voice_labs.server import Options, VoiceLabsApp, tdt_models
-from voice_labs.store import compile_store
-from voice_labs.tts import load_voice
-from voice_labs.wyoming_server import HOME_ASSISTANT, Endpoints, Heard, HeardCache
+from voice_incubator import corrected, languages
+from voice_incubator.actions import level_for
+from voice_incubator.commands import Behavior
+from voice_incubator.engine import Engine, Satellite
+from voice_incubator.piper_voices import UNUSED_DAYS, Uses, catalog
+from voice_incubator.server import Options, VoiceIncubatorApp, tdt_models
+from voice_incubator.store import compile_store
+from voice_incubator.tts import load_voice
+from voice_incubator.wyoming_server import HOME_ASSISTANT, Endpoints, Heard, HeardCache
 
 from . import fake_hass
 
@@ -414,7 +414,7 @@ async def _pipelines(tmp_path: Path) -> None:
     hass_port = hass_server.sockets[0].getsockname()[1]
     (tmp_path / "commands.yaml").write_text(COMMANDS)
     port = free_port()
-    app = VoiceLabsApp(Options(
+    app = VoiceIncubatorApp(Options(
         hass_url=f"http://127.0.0.1:{rest_port}", hass_websocket_url=f"ws://127.0.0.1:{hass_port}/api/websocket",
         hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=free_port(),
         speaker_profiles=tmp_path / "speakers.json", threads=4, wyoming_port=port,
@@ -427,7 +427,7 @@ async def _pipelines(tmp_path: Path) -> None:
         # What it offers.
         [info] = await ask(port, Describe(), until=lambda e: True)
         info = Info.from_event(info)
-        assert [a.name for a in info.asr] == ["Voice Labs"] and info.asr[0].models[0].languages == ["en"]
+        assert [a.name for a in info.asr] == ["Voice Incubator"] and info.asr[0].models[0].languages == ["en"]
         assert info.handle[0].supports_handled_streaming and info.handle[0].supports_home_control
         tts = info.tts[0]
         assert tts.supports_synthesize_streaming and len(tts.voices) == len(catalog())
@@ -544,15 +544,15 @@ async def _pipelines(tmp_path: Path) -> None:
         assert "Nanoleaf" in text and how["as"] == "names" and how["tried"][0]["text"] == "Turn on the lamp."
         app.store.settings["stt_always"] = False
 
-        # The app's own speech-to-text (an STT entity called Voice Labs) would
+        # The app's own speech-to-text (an STT entity called Voice Incubator) would
         # ask itself: the TDT head hears instead.
         asked = len(hass.stt_requests)
-        app.store.settings["stt"] = "stt.voice_labs"
+        app.store.settings["stt"] = "stt.voice_incubator"
         assert "Nanoleaf" in await transcribe(port, command, KITCHEN) and len(hass.stt_requests) == asked
         named = app.assist_satellite(KITCHEN)
         app.store.settings["stt"] = "stt.mine"
-        app.hass.catalog.stt_names["stt.mine"] = "Voice Labs"
-        assert app.stt_entity(app.assist_satellite(KITCHEN)) is None and named.voice.stt == "stt.voice_labs"
+        app.hass.catalog.stt_names["stt.mine"] = "Voice Incubator"
+        assert app.stt_entity(app.assist_satellite(KITCHEN)) is None and named.voice.stt == "stt.voice_incubator"
     finally:
         await app.stop()
         await rest.cleanup()

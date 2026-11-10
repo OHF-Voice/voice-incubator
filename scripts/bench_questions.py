@@ -9,7 +9,7 @@ library's commands in the bench home (scripts/bench_fallback.py) -- or, with
 - an exact answer, a skill's (graded against ``expected_answer``),
 - the live notice, the live skill's (graded against the CSV's ``online_required``),
 - nothing: what a Home Assistant conversation agent would get, when one is
-  chosen (voice_labs/agent.py), and otherwise the hint.
+  chosen (voice_incubator/agent.py), and otherwise the hint.
 
     scripts/bench_questions.py ~/Downloads/smart_home_quick_questions_benchmark.csv --out /tmp/q.json
 """
@@ -32,10 +32,10 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from bench_fallback import library_store  # noqa: E402
 
-from voice_labs import skills  # noqa: E402
-from voice_labs.skills.common import normalize  # noqa: E402
-from voice_labs.skills.live import is_live  # noqa: E402
-from voice_labs.store import compile_store  # noqa: E402
+from voice_incubator import skills  # noqa: E402
+from voice_incubator.skills.common import normalize  # noqa: E402
+from voice_incubator.skills.live import is_live  # noqa: E402
+from voice_incubator.store import compile_store  # noqa: E402
 
 
 def _norm(text: str) -> str:
@@ -67,10 +67,10 @@ async def main() -> int:
 
     from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.fallback import Fallback  # pylint: disable=import-outside-toplevel
-    from voice_labs.server import _pcm_to_float, tdt_models  # pylint: disable=import-outside-toplevel
-    from voice_labs.tts import Speech  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.fallback import Fallback  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import _pcm_to_float, tdt_models  # pylint: disable=import-outside-toplevel
+    from voice_incubator.tts import Speech  # pylint: disable=import-outside-toplevel
 
     rows = list(csv.DictReader(args.csv.open()))
     if args.limit:

@@ -30,8 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from scripts.bench_fallback import UTTERANCES, library_store  # noqa: E402
-from voice_labs import languages  # noqa: E402
-from voice_labs.store import compile_store  # noqa: E402
+from voice_incubator import languages  # noqa: E402
+from voice_incubator.store import compile_store  # noqa: E402
 
 TOP_K = 8
 
@@ -55,9 +55,9 @@ print(f"{loaded - base:.0f} {peak - base:.0f} {rss() - base:.0f}")
 
 
 def measure(model: str, language: str, compiled, utterances) -> dict:
-    from voice_labs.commands import command_of  # pylint: disable=import-outside-toplevel
-    from voice_labs.engine import Engine  # pylint: disable=import-outside-toplevel
-    from voice_labs.fallback import label_of  # pylint: disable=import-outside-toplevel
+    from voice_incubator.commands import command_of  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine  # pylint: disable=import-outside-toplevel
+    from voice_incubator.fallback import label_of  # pylint: disable=import-outside-toplevel
 
     started = time.perf_counter()
     engine = Engine(languages.current().ctc_dir(ROOT), None, Path(model), threads=2)

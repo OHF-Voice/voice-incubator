@@ -4,7 +4,7 @@ An intent may give example sentences instead of keywords. Those are matched
 only when no keyword intent matched: the command is then transcribed by the
 same model's transducer head, which writes far cleaner text than the CTC
 head's greedy path, and the transcript is compared with the examples. The
-CTC export has no transducer, so this is a second model (voice_labs's
+CTC export has no transducer, so this is a second model (voice_incubator's
 ``parakeet-tdt-int8``), decoded with sherpa-onnx (the ``tdt`` extra). A
 command that matches on keywords never pays for it.
 """

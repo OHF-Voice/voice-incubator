@@ -5,7 +5,7 @@ sounds](https://github.com/esphome/home-assistant-voice-pe/tree/dev/sounds),
 [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/).
 
 The call's sounds -- heard, acknowledge, not understood, asking, listening --
-and a timer's ring are played by FluidSynth (`voice_labs/instruments.py`)
+and a timer's ring are played by FluidSynth (`voice_incubator/instruments.py`)
 from the MuseScore General
 SoundFont, © 2018–2021 S. Christian Collins, built on the Fluid (R3) Mono
 SoundFont, © 2014–2017 Michael Cowgill, and the Fluid (R3) GM SoundFont,

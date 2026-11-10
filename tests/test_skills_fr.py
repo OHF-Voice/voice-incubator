@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_labs import languages, skills
-from voice_labs.skills import SKILLS
+from voice_incubator import languages, skills
+from voice_incubator.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +46,7 @@ def test_french_answers(question, said, skill):
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_labs.skills import dates
+    from voice_incubator.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -61,7 +61,7 @@ def test_days_until(monkeypatch):
 
 
 def test_mothers_day_gives_way_to_pentecost():
-    from voice_labs.languages.fr.skills.dates import when
+    from voice_incubator.languages.fr.skills.dates import when
 
     assert when("dernier dimanche de mai, sauf Pentecôte").on(2034).isoformat() == "2034-06-04"
     assert when("dernier dimanche de mai, sauf Pentecôte").on(2026).isoformat() == "2026-05-31"
@@ -92,13 +92,13 @@ def test_each_skill_answers_its_examples():
      ("deux mille vingt-six", 2026), ("trois virgule cinq", 3.5), ("1 000", 1000)],
 )
 def test_french_numbers(said, number):
-    from voice_labs.languages.fr.skills.numbers import parse_num
+    from voice_incubator.languages.fr.skills.numbers import parse_num
 
     assert parse_num(said) == number
 
 
 def test_a_clock_time_said_in_french():
-    from voice_labs.languages.fr.reading import clock
+    from voice_incubator.languages.fr.reading import clock
 
     assert clock("sept heures et demie du matin") == (7, 30, "am")
     assert clock("huit heures moins le quart") == (7, 45, None)

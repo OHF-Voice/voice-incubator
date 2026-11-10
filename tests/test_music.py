@@ -8,12 +8,12 @@ import pytest
 
 from adapt_ctc.config import ConfigError
 
-from voice_labs import actions, areas, music
-from voice_labs.commands import parse_command
-from voice_labs.engine import Decision, Satellite
-from voice_labs.hass import HomeAssistant
-from voice_labs.languages.en import speech as english
-from voice_labs.music import Item, Player, Query
+from voice_incubator import actions, areas, music
+from voice_incubator.commands import parse_command
+from voice_incubator.engine import Decision, Satellite
+from voice_incubator.hass import HomeAssistant
+from voice_incubator.languages.en import speech as english
+from voice_incubator.music import Item, Player, Query
 
 from . import fake_hass
 
@@ -259,7 +259,7 @@ def test_without_a_player_of_its_own():
 
 
 def test_guessing_a_satellites_player():
-    from voice_labs.hass import Catalog, Entity
+    from voice_incubator.hass import Catalog, Entity
 
     catalog = Catalog(
         entities={
@@ -267,12 +267,12 @@ def test_guessing_a_satellites_player():
             "media_player.b": Entity("media_player.b", "B", platform="music_assistant", unique_id="up1", device_id="d1"),
             "media_player.c": Entity("media_player.c", "C", platform="music_assistant", unique_id="up2", device_id="d2"),
         },
-        device_models={"d1": ("ESPHome", "kitchen-vpe"), "d2": ("ESPHome", "voice-labs-vpe")},
+        device_models={"d1": ("ESPHome", "kitchen-vpe"), "d2": ("ESPHome", "voice-incubator-vpe")},
     )
     assert catalog.music_player_for("d83bdaa3d5f4") == "media_player.a"  # "up" + the MAC
     assert catalog.music_player_for("aabbccddeeff", "kitchen-vpe") == "media_player.b"
-    catalog.device_models["d1"] = ("ESPHome", "voice-labs-vpe")
-    assert catalog.music_player_for("aabbccddeeff", "voice-labs-vpe") is None  # two alike: no guess
+    catalog.device_models["d1"] = ("ESPHome", "voice-incubator-vpe")
+    assert catalog.music_player_for("aabbccddeeff", "voice-incubator-vpe") is None  # two alike: no guess
 
 
 def test_a_genre_by_name_or_else_anything_by_it():
@@ -463,7 +463,7 @@ def test_moving_the_music_through_home_assistant():
 
 
 def test_free_text_without_the_place_it_ends_on():
-    from voice_labs.engine import without_place  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import without_place  # pylint: disable=import-outside-toplevel
 
     assert without_place("jazz in the kitchen", ["kitchen"]) == "jazz"
     assert without_place("Kind of Blue upstairs", ["upstairs"]) == "Kind of Blue"

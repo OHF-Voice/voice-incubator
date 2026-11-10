@@ -1,4 +1,4 @@
-"""Commands that follow the library (voice_labs/library.py): the library's
+"""Commands that follow the library (voice_incubator/library.py): the library's
 version with their own settings on top, saved as what differs; copies from
 before, made to follow it; taking control."""
 
@@ -9,10 +9,10 @@ import json
 import pytest
 
 from adapt_ctc.config import ConfigError
-from voice_labs import languages
-from voice_labs.commands import parse_command
-from voice_labs.library import base, migrate, resolve, settings
-from voice_labs.store import VERSION, Store, compile_store
+from voice_incubator import languages
+from voice_incubator.commands import parse_command
+from voice_incubator.library import base, migrate, resolve, settings
+from voice_incubator.store import VERSION, Store, compile_store
 
 
 @pytest.fixture(autouse=True)

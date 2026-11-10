@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Write voice_labs/piper_voices.json: the voices rhasspy/piper-voices has
+"""Write voice_incubator/piper_voices.json: the voices rhasspy/piper-voices has
 for the app's languages, at one revision of it -- each one's name, language,
 quality, speakers (in the order of their ids) and files with their sizes and
-MD5 digests, which voice_labs/piper_voices.py downloads and checks.
+MD5 digests, which voice_incubator/piper_voices.py downloads and checks.
 
     python3 scripts/piper_voices.py [--revision <commit>] [--language en_US ...]
 """
@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "voice_labs/piper_voices.json"
+OUT = ROOT / "voice_incubator/piper_voices.json"
 REPO = "https://huggingface.co/rhasspy/piper-voices"
 
 

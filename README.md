@@ -1,9 +1,9 @@
 > [!WARNING]
-> Voice Labs is experimental and not supported.
+> Voice Incubator is experimental and not supported.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/voice_labs/web/logo-dark.svg">
-  <img src="https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/voice_labs/web/logo.svg" alt="Voice Labs" width="320">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/voice_incubator/web/logo-dark.svg">
+  <img src="https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/voice_incubator/web/logo.svg" alt="Voice Incubator" width="320">
 </picture>
 
 Voice satellites with commands you make yourself, recognized on your own Home
@@ -11,7 +11,7 @@ Assistant. A command says what to listen for, where, and what happens: speak a
 response, run a script, activate a scene, or run an action. It hears and
 speaks English.
 
-![The Home page: the whole home's commands, grouped by what they're for](https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/images/home.png)
+![The Home page: the whole home's commands, grouped by what they're for](https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/images/home.png)
 
 ## Highlights
 
@@ -23,13 +23,13 @@ speaks English.
   itself, against the names of your areas and devices -- and the ones you
   give them on the Names page.
 
-![An area's names: what its devices are called there, and in the whole house](https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/images/names.png)
+![An area's names: what its devices are called there, and in the whole house](https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/images/names.png)
 
 - **Most of the work happens while you're still talking.** The wake word is
   checked again and the speaker recognized as you speak; when you stop, it
   acts and answers.
 
-![A command's timeline: the wake word is checked, the speaker recognized and the words transcribed while you speak](https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/images/call.png)
+![A command's timeline: the wake word is checked, the speaker recognized and the words transcribed while you speak](https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/images/call.png)
 
 - **Wake words, checked twice.** The satellite listens generously, and
   every wake word it hears is checked again against phrases that sound like
@@ -42,7 +42,7 @@ speaks English.
   pasta"), questions go to your conversation agent, and otherwise it says the
   closest command and what was missing.
 
-![When nothing matches: the audio, the transcript, skills, meaning, GLiNER, the conversation agent, then the closest command](https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/images/fallback.png)
+![When nothing matches: the audio, the transcript, skills, meaning, GLiNER, the conversation agent, then the closest command](https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/images/fallback.png)
 
 - **It knows who's speaking.** Enroll voices on the People page, and "add
   call mom to my to-do list", "remind me" and "play my playlist" are the
@@ -55,13 +55,13 @@ speaks English.
 - **Timers and alarms** ring on the satellite that set them, and its LED
   ring shows each timer, who's speaking, and how it went.
 
-![The satellite's ring: three timers, someone speaking, another satellite answering, and night mode](https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/images/ring.png)
+![The satellite's ring: three timers, someone speaking, another satellite answering, and night mode](https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/images/ring.png)
 
 - **Every session, step by step.** What was heard, what ran and what was
   said, with how long each step took. Replay a session, or type a sentence to
   see what it would do.
 
-![A session: what was heard, what ran and what was said, step by step](https://raw.githubusercontent.com/OHF-Voice/apps-experimental/main/voice_labs/images/session.png)
+![A session: what was heard, what ran and what was said, step by step](https://raw.githubusercontent.com/OHF-Voice/voice-incubator/main/images/session.png)
 
 - **Other satellites too.** Home Assistant's own voice assistants can use
   the app's speech-to-text, text-to-speech and conversation agent, through
@@ -77,24 +77,23 @@ satellite Home Assistant has.
 1. **The app.**
    [![Add the repository to your Home Assistant.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FOHF-Voice%2Fapps-experimental)
    Add `https://github.com/OHF-Voice/apps-experimental` to Home Assistant's app
-   repositories, then install **Voice Labs** and start it. The first time it
+   repositories, then install **Voice Incubator** and start it. The first time it
    starts, it downloads its speech models -- about 530 MB: Parakeet (speech),
    EmbeddingGemma 2 (meaning), GLiNER (the command fallback) and Piper's
    Kristin (its voice) -- into its own storage, and its page shows how far it
    got. Later starts and updates keep them.
 2. **The integration.**
-   [![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=OHF-Voice&repository=voice-labs&category=integration)
+   [![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=OHF-Voice&repository=integration-voice-incubator&category=integration)
    In [HACS](https://hacs.xyz), add `https://github.com/OHF-Voice/integration-voice-incubator`
-   as a custom repository of type **Integration**, download **Voice Labs**,
+   as a custom repository of type **Integration**, download **Voice Incubator**,
    and restart Home Assistant. The app sets it up the next time it connects.
    It gives each satellite a device and its timers, and runs Assist's intents
    for the app.
-3. **The satellites.** Flash a Home Assistant Voice Preview Edition with the
-   Voice Labs firmware from its
+3. **The satellites.** Flash a Home Assistant Voice Preview Edition from its
    [install page](https://ohf-voice.github.io/voice-pe-alt-firmware/voice-pe-voice-labs/)
    and give it your Wi-Fi. The app finds it on the network and connects to it.
 
-Then open **Voice Labs** in Home Assistant's sidebar to make commands, name
+Then open **Voice Incubator** in Home Assistant's sidebar to make commands, name
 things, set up satellites and look at sessions. The
 [guide](https://github.com/OHF-Voice/integration-voice-incubator/blob/main/GUIDE.md) has
 everything it does, page by page.
@@ -122,11 +121,11 @@ after the image name.
 
 ### From source
 
-See [Running from source](https://github.com/OHF-Voice/apps-experimental/blob/main/voice_labs/DESIGN.md#running-from-source) in the design notes.
+See [Running from source](DESIGN.md#running-from-source) in the design notes.
 
 ## Other satellites, through Wyoming
 
-Without the Voice Labs firmware, a satellite can still use the app: it is
+Without the Voice Incubator firmware, a satellite can still use the app: it is
 also a Wyoming service, for Home Assistant's own voice assistants. That's a
 Voice PE with Home Assistant's firmware, another ESPHome satellite,
 [Linux Voice Assistant](https://github.com/OHF-Voice/linux-voice-assistant),
@@ -142,20 +141,20 @@ your phone, or what's typed in Assist.
 4. **Name things** on the Names page, and put the satellite's device in an
    area in Home Assistant: its commands are that area's.
 
-The same as on a Voice Labs satellite:
+The same as on a Voice Incubator satellite:
 
 - Your commands, skills, "When nothing matches" and conversation agent, in
   the satellite's area. A question asked back keeps the conversation going,
   and the satellite listens for the answer.
 - Speech-to-text writes what it heard as the command it heard, with your
   names spelled as on the Names page: "Turn on the Nanoleaf.", where the
-  speech model alone hears "Turn on the Neno leave". With Voice Labs as the
+  speech model alone hears "Turn on the Neno leave". With Voice Incubator as the
   conversation agent too, the command is recognized in the audio.
 - Text-to-speech is Piper, with every voice it has: each is downloaded the
   first time it is used.
 - Every session is on the Sessions page.
 
-Only with the Voice Labs firmware:
+Only with the Voice Incubator firmware:
 
 - **The wake word, checked again.** Elsewhere it is the satellite's own.
 - **Who's speaking.** Elsewhere "my" means the only person on the People
@@ -163,13 +162,13 @@ Only with the Voice Labs firmware:
 - **Beeps.** Elsewhere a command that would beep says its brief response.
 - **Timers, alarms, reminders, announcements and intercom.** Elsewhere a
   timer is Home Assistant's own, and rings on that satellite; the rest play
-  only on Voice Labs satellites.
+  only on Voice Incubator satellites.
 - **Night mode, the ring and the app's sounds.**
 
 ## More
 
 - [The guide](https://github.com/OHF-Voice/integration-voice-incubator/blob/main/GUIDE.md):
   everything the app does, page by page.
-- [DESIGN.md](https://github.com/OHF-Voice/apps-experimental/blob/main/voice_labs/DESIGN.md): how it works, what was measured to get it there,
+- [DESIGN.md](DESIGN.md): how it works, what was measured to get it there,
   and how to work on it.
-- [CHANGELOG.md](https://github.com/OHF-Voice/apps-experimental/blob/main/voice_labs/CHANGELOG.md): what changed, version by version.
+- [CHANGELOG.md](CHANGELOG.md): what changed, version by version.

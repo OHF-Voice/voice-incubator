@@ -1,0 +1,15 @@
+# The people who live here (People page).
+#
+# Who is speaking is who the app takes them to be: their voice, else whose
+# wake word it was, else the only person -- as "my" means (voice_incubator/
+# people.py, speaking).
+title: People
+icon: mdi:account
+
+commands:
+  who_am_i:
+    title: Who am I
+    icon: mdi:account-voice
+    description: say who is speaking
+    examples: ["who am i", "(who's|who is) (speaking|talking)", "do you know who i am", "(what's|what is) my name"]
+    response: "{% if speaker.name %}You are {{ speaker.name }}.{% else %}Sorry, I don't know who's speaking.{% endif %}"

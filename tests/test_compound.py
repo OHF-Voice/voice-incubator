@@ -1,4 +1,4 @@
-"""Two commands said together (voice_labs/compound.py): split where the
+"""Two commands said together (voice_incubator/compound.py): split where the
 whole sentence leaves "and" or "then" unexplained, a clause that is no
 command alone borrowing from the other, both or neither -- typed, and said
 (Piper, through the CTC and TDT heads)."""
@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from voice_labs import compound, languages
-from voice_labs.languages.en import compound as english
+from voice_incubator import compound, languages
+from voice_incubator.languages.en import compound as english
 
 ROOT = Path(__file__).resolve().parent.parent
 CTC = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -73,9 +73,9 @@ def test_only_a_language_that_hears_them():
 def fixture_engine():
     """English's library (but the timers) in a home with a TV, two lamps and
     a front door, and a satellite in its Office."""
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.library import load_library  # pylint: disable=import-outside-toplevel
-    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import load_library  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import compile_store  # pylint: disable=import-outside-toplevel
 
     if not CTC.is_dir():
         pytest.skip("no CTC model")
@@ -179,9 +179,9 @@ def test_never_half(engine):
 def test_its_is_what_the_first_named_whatever_commands_there_are():
     """A home with only the by-name versions: "set its brightness to 10%"
     is no command alone, but it is with the light the first part named."""
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.library import load_library  # pylint: disable=import-outside-toplevel
-    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import load_library  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import compile_store  # pylint: disable=import-outside-toplevel
 
     if not CTC.is_dir():
         pytest.skip("no CTC model")
@@ -210,7 +210,7 @@ def test_its_is_what_the_first_named_whatever_commands_there_are():
 )
 def test_said(engine, text, commands):
     """Said, each clause is matched on its own stretch of the audio."""
-    from voice_labs.tts import Speech  # pylint: disable=import-outside-toplevel
+    from voice_incubator.tts import Speech  # pylint: disable=import-outside-toplevel
 
     if not KRISTIN.is_file():
         pytest.skip("no Piper voice")
@@ -227,7 +227,7 @@ def test_said(engine, text, commands):
 def test_a_name_said_again_from_a_plain_name():
     """An adapt-ctc config's name may be the name alone ("kitchen: Kitchen"),
     as scripts/bench_corpus.py's commands have them."""
-    from voice_labs.compound import target  # pylint: disable=import-outside-toplevel
+    from voice_incubator.compound import target  # pylint: disable=import-outside-toplevel
 
     names = {"areas": {"kitchen": "Kitchen", "bedroom": {"name": "Bedroom"}}, "entities": {"light.lamp": "Lamp"}}
     assert target({"area": ["kitchen", "bedroom"]}, names, {}) == "in the Kitchen and in the Bedroom"

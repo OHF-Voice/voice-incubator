@@ -11,8 +11,8 @@ import pytest
 
 from adapt_ctc.grammar import NATIVE
 from adapt_ctc.text import spoken_words
-from voice_labs.engine import Engine, Satellite, misheard_off, trimmed, within
-from voice_labs.store import compile_store
+from voice_incubator.engine import Engine, Satellite, misheard_off, trimmed, within
+from voice_incubator.store import compile_store
 
 CTC = Path(__file__).parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
 STORE = {
@@ -337,7 +337,7 @@ def test_the_tdt_hears_a_call_from_before_the_cut():
     doesn't -- and what it heard before 0.28 s past the cut is the end of
     the wake word ("Abu"), not the command's. Its words are timed from the
     cut, as the command's CTC evidence is."""
-    from voice_labs.engine import TDT_LEAD_IN, CallTdt  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import TDT_LEAD_IN, CallTdt  # pylint: disable=import-outside-toplevel
 
     call = np.zeros(48000, dtype=np.float32)
     command = call[int(1.2 * 16000):]
@@ -356,7 +356,7 @@ def test_the_tdt_hears_a_call_from_before_the_cut():
 
 
 def test_a_head_of_its_own_encodes_from_before_the_cut():
-    from voice_labs.engine import CallTdt  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import CallTdt  # pylint: disable=import-outside-toplevel
 
     call = np.zeros(48000, dtype=np.float32)
     command = call[int(1.2 * 16000):]
@@ -455,7 +455,7 @@ def test_a_question_after_the_end_of_the_wake_word(engine):
 def test_a_partial_wake_phrase_ends_where_kaldi_does(engine, monkeypatch):
     """"Okay now" is the CTC head's "okay Na|boo" as often as not: the command
     starts at the later of its end and Kaldi's, not on the "-boo"."""
-    from voice_labs import engine as engine_module  # pylint: disable=import-outside-toplevel
+    from voice_incubator import engine as engine_module  # pylint: disable=import-outside-toplevel
 
     evidence, _ = engine.model.vocab.text_log_probs(["okay", "now", "boo", "turn", "on", "the", "lights"])
     seconds = engine.model.frame_seconds

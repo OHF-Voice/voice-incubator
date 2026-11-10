@@ -1,8 +1,8 @@
 """A stand-in for Home Assistant's websocket API, for tests and UI work.
 
-It answers what voice_labs asks for -- auth, the registries, get_states,
+It answers what voice_incubator asks for -- auth, the registries, get_states,
 render_template, execute_script, fire_event, event subscriptions, the
-Voice Labs integration's API (satellites, voice_timer_list timers), and Music
+Voice Incubator integration's API (satellites, voice_timer_list timers), and Music
 Assistant's (players, search, play_media, get_queue, transfer_queue) -- and records the
 scripts it was asked to run, the services called and the events fired. Timers run only when a test finishes them (``finish_timer``). Templates are
 rendered with jinja2 and stubs for ``now()``, ``states()`` and
@@ -65,7 +65,7 @@ MUSIC_PLAYERS = {
     "media_player.kitchen_speaker": ("kitchen-speaker-uuid", "Kitchen Speaker", "kitchen", ("Sonos", "One")),
 }
 SENDSPIN_PLAYERS = {"aabbccddeeff": "media_player.fake_vpe"}
-"""Satellite -> its Sendspin player, as the Voice Labs integration finds it."""
+"""Satellite -> its Sendspin player, as the Voice Incubator integration finds it."""
 # The fake satellite's ESPHome device and its media player (where TTS speaks).
 ESPHOME_DEVICE = {"id": "esphome-fake-vpe", "mac": "aa:bb:cc:dd:ee:ff", "media_player": "media_player.fake_vpe_media_player"}
 # A satellite of Home Assistant's own (its assist_satellite), which reaches
@@ -111,12 +111,12 @@ class FakeHass:
         self.script_response: Any = None
         self.fail_scripts = False
         self.integration = True
-        """Whether the Voice Labs integration is installed and set up."""
+        """Whether the Voice Incubator integration is installed and set up."""
         self.services: list[dict[str, Any]] = []
         self.satellites: dict[str, dict[str, Any]] = {}
         """The integration's satellites, each with a device."""
         self.synced: list[list[str]] = []
-        """The satellites each voice_labs/satellites/sync registered."""
+        """The satellites each voice_incubator/satellites/sync registered."""
         self.device_areas: dict[str, str | None] = {}
         self.disabled_devices: set[str] = set()
         """Devices disabled (by the user): a satellite's, left to another app."""
@@ -159,7 +159,7 @@ class FakeHass:
         (``continue_conversation``), as an LLM's may; ``"emoji"``: with an
         emoji after it, and continue_conversation false."""
         self.tts_streams: dict[str, dict[str, Any]] = {}
-        """voice_labs/tts/stream's, by stream: what was asked, its ``pieces``, ``ended``."""
+        """voice_incubator/tts/stream's, by stream: what was asked, its ``pieces``, ``ended``."""
         self.on_tts_stream: Any = None
         """Called with a TTS stream once its text has ended: a test makes the satellite announce."""
         self._stream_ids = itertools.count(1)
@@ -186,7 +186,7 @@ class FakeHass:
         self.intents: list[dict[str, Any]] = []
         """The intents run: name and slots (rendered), and how."""
         self.intent_command = True
-        """Whether the Voice Labs integration has voice_labs/intent/handle (else REST)."""
+        """Whether the Voice Incubator integration has voice_incubator/intent/handle (else REST)."""
         self.calendar_push_uids = False
         """Whether calendar/event/subscribe sends uids (the developer docs
         say it sends only start, end, summary, description and location)."""
@@ -237,14 +237,14 @@ class FakeHass:
             elif message.get("event_type"):
                 self._event_subscribers.setdefault(message["event_type"], []).append((socket, msg_id))
             await result()
-        elif kind == "voice_labs/intent/handle":
+        elif kind == "voice_incubator/intent/handle":
             if not (self.integration and self.intent_command):
                 await result(success=False, error="unknown_command: Unknown command.")
                 return
             await result(self.handle_intent(message["intent"], message.get("slots") or {}, message.get("variables") or {},
                                             how="websocket", device_id=message.get("device_id"),
                                             exposed_only=message.get("assistant") == "conversation"))
-        elif kind == "voice_labs/exposed":
+        elif kind == "voice_incubator/exposed":
             if not (self.integration and self.intent_command):
                 await result(success=False, error="unknown_command: Unknown command.")
                 return
@@ -308,9 +308,9 @@ class FakeHass:
                         "id": s["device_id"],
                         "area_id": self.device_areas.get(s["device_id"]),
                         "manufacturer": "Open Home Foundation",
-                        "model": "Voice Labs satellite",
+                        "model": "Voice Incubator satellite",
                         "connections": [],
-                        "identifiers": [["voice_labs", key]],
+                        "identifiers": [["voice_incubator", key]],
                         "disabled_by": "user" if s["device_id"] in self.disabled_devices else None,
                     }
                     for key, s in self.satellites.items()
@@ -397,7 +397,7 @@ class FakeHass:
         elif kind == "conversation/process":
             self.conversations.append(message)
             await result(self._agent_answer(message))
-        elif kind == "voice_labs/conversation/stream":
+        elif kind == "voice_incubator/conversation/stream":
             # The answer a word at a time, as an LLM's comes; one that
             # understood nothing, only in its result.
             if not (self.integration and self.streams):
@@ -414,14 +414,14 @@ class FakeHass:
             events.append({"type": "result", "result": answer})
             for event in events:
                 await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
-        elif kind == "voice_labs/tts/stream":
+        elif kind == "voice_incubator/tts/stream":
             if not (self.integration and self.streams):
                 await result(success=False, error="unknown_command: Unknown command.")
                 return
             stream = f"stream-{next(self._stream_ids)}"
             self.tts_streams[stream] = {"message": message, "pieces": [message.get("text", "")], "ended": False}
             await result({"stream": stream, "streaming_input": True})
-        elif kind == "voice_labs/tts/stream/add":
+        elif kind == "voice_incubator/tts/stream/add":
             stream = self.tts_streams.get(message["stream"])
             if stream is None or stream["ended"]:
                 await result(success=False, error="not_found: No such stream")
@@ -452,7 +452,7 @@ class FakeHass:
             await result({"context": {"id": "x"}})
         elif kind == "config_entries/get":
             entries = {
-                "voice_labs": [{"entry_id": "vc", "domain": "voice_labs", "state": "loaded"}] if self.integration else [],
+                "voice_incubator": [{"entry_id": "vc", "domain": "voice_incubator", "state": "loaded"}] if self.integration else [],
                 "music_assistant": [{"entry_id": "ma", "domain": "music_assistant", "state": "loaded"}],
                 "local_calendar": [
                     {"entry_id": f"lc-{name}", "domain": "local_calendar", "title": name, "state": "loaded"}
@@ -460,7 +460,7 @@ class FakeHass:
                 ],
             }
             await result(entries.get(message.get("domain"), []))
-        elif kind == "voice_labs/satellites/sync":
+        elif kind == "voice_incubator/satellites/sync":
             if not self.integration:
                 await result(success=False, error="unknown command")
                 return
@@ -471,12 +471,12 @@ class FakeHass:
                 satellite["name"] = item.get("name")
                 out.append(self._described(satellite))
             await result({"satellites": out})
-        elif kind == "voice_labs/satellites/list":
+        elif kind == "voice_incubator/satellites/list":
             if not self.integration:
                 await result(success=False, error="unknown command")
                 return
             await result({"satellites": [self._described(s) for s in self.satellites.values()]})
-        elif kind == "voice_labs/do_not_disturb":
+        elif kind == "voice_incubator/do_not_disturb":
             if not self.integration:
                 await result(success=False, error="unknown command")
                 return
@@ -592,7 +592,7 @@ class FakeHass:
 
     def handle_intent(self, name: str, slots: dict[str, Any], variables: dict[str, Any], how: str = "websocket",
                       device_id: str | None = None, exposed_only: bool = True) -> dict[str, Any]:
-        """Home Assistant's intent matching, in short, as the Voice Labs
+        """Home Assistant's intent matching, in short, as the Voice Incubator
         integration answers it: domain, name (or entity id), area, floor,
         then what is exposed; the unavailable told apart."""
         rendered = {}

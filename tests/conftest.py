@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from voice_labs.skills import clock
+from voice_incubator.skills import clock
 
 
 @pytest.fixture(autouse=True)

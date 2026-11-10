@@ -39,14 +39,14 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path(os.environ.get("ADAPT_CTC_MODEL", DEFAULT_MODEL)),
         help="CTC model directory with model.onnx and tokens.txt "
-        "(default: $ADAPT_CTC_MODEL or voice_labs's int8 Parakeet)",
+        "(default: $ADAPT_CTC_MODEL or voice_incubator's int8 Parakeet)",
     )
     parser.add_argument(
         "--tdt-model",
         type=Path,
         default=Path(os.environ.get("ADAPT_CTC_TDT_MODEL", DEFAULT_TDT_MODEL)),
         help="TDT model directory (encoder/decoder/joiner.onnx) for intents with "
-        "example sentences (default: $ADAPT_CTC_TDT_MODEL or voice_labs's int8 Parakeet TDT)",
+        "example sentences (default: $ADAPT_CTC_TDT_MODEL or voice_incubator's int8 Parakeet TDT)",
     )
     parser.add_argument(
         "--embedding-model",

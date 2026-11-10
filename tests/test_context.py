@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_labs import languages
-from voice_labs.context import Context, substitute
+from voice_incubator import languages
+from voice_incubator.context import Context, substitute
 
 
 @pytest.fixture(autouse=True)

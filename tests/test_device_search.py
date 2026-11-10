@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import aiohttp
 
-from voice_labs.hass import Area, Catalog, Entity
-from voice_labs.store import Device
-from voice_labs.web import start_web
+from voice_incubator.hass import Area, Catalog, Entity
+from voice_incubator.store import Device
+from voice_incubator.web import start_web
 
 CATALOG = Catalog(
     areas={"kitchen": Area("kitchen", "Kitchen"), "den": Area("den", "Den")},

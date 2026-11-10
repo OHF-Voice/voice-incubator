@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from voice_labs import languages, skills
-from voice_labs.skills import SKILLS
+from voice_incubator import languages, skills
+from voice_incubator.skills import SKILLS
 
 
 @pytest.fixture(autouse=True)
@@ -78,7 +78,7 @@ def test_said_back_in_full():
 def test_days_until(monkeypatch):
     import datetime as dt
 
-    from voice_labs.skills import dates
+    from voice_incubator.skills import dates
 
     class Today(dt.date):
         @classmethod
@@ -124,7 +124,7 @@ def test_settings_in_polish():
 
 
 def test_holidays_written_in_polish_or_english():
-    from voice_labs.skills.dates import Settings
+    from voice_incubator.skills.dates import Settings
 
     stored = Settings.store({"holidays": [*(h.to_json() for h in Settings().holidays),
                                           {"name": "Urodziny babci", "when": "12 marca", "also": []},
@@ -146,7 +146,7 @@ def test_each_skill_answers_its_examples():
 
 
 def test_numbers_in_words():
-    from voice_labs.languages.pl.skills.numbers import ordinal, parse_num, plural, spell
+    from voice_incubator.languages.pl.skills.numbers import ordinal, parse_num, plural, spell
 
     assert parse_num("trzysta czterdzieści pięć") == 345 and parse_num("ośmiu") == 8
     assert parse_num("dwa tysiące dwadzieścia cztery") == 2024 and parse_num("trzy przecinek pięć") == 3.5
@@ -159,7 +159,7 @@ def test_numbers_in_words():
 
 
 def test_a_clock_time_said_as_polish_says_it():
-    from voice_labs.languages.pl.reading import clock
+    from voice_incubator.languages.pl.reading import clock
 
     assert clock("siódma trzydzieści") == clock("7:30") == clock("wpół do ósmej") == (7, 30, None)
     assert clock("o siódmej") == clock("na siódmą") == (7, 0, None)

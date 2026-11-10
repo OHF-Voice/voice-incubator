@@ -67,7 +67,7 @@ def test_a_transducer_of_another_model_is_refused(tmp_path):
 
 
 def test_the_engine_loads_the_encoder_once(tmp_path):
-    from voice_labs.engine import Engine  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine  # pylint: disable=import-outside-toplevel
 
     tdt = transducer(tmp_path / "tdt")
     make_head(CTC, tdt)

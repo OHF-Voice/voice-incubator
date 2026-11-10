@@ -1,9 +1,9 @@
-> Vendored into voice_labs from wyoming-wake-kaldi (Michael Hansen's,
+> Vendored into voice_incubator from wyoming-wake-kaldi (Michael Hansen's,
 > unpublished) at commit `9fda1ff`, under the Apache License 2.0 (`LICENSE`):
 > the package, and the resident decoder's source in `decoderd/`, which the
 > image's build compiles against the Kaldi tools it fetches
-> (`voice_labs/downloads.py`). Where this says `local/tools` and
-> `local/models`, voice_labs has `models/wake-kaldi-tools` and
+> (`voice_incubator/downloads.py`). Where this says `local/tools` and
+> `local/models`, voice_incubator has `models/wake-kaldi-tools` and
 > `models/wake-kaldi-models`; its configuration is `wake.yaml`. Its tests and
 > scripts are not vendored.
 

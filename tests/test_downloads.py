@@ -1,4 +1,4 @@
-"""The models the app downloads the first time it starts (voice_labs/downloads.py)."""
+"""The models the app downloads the first time it starts (voice_incubator/downloads.py)."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import aiohttp
 import pytest
 from aiohttp import web
 
-from voice_labs import downloads
-from voice_labs.downloads import Downloader, File, Model, link, missing, serve_progress
+from voice_incubator import downloads
+from voice_incubator.downloads import Downloader, File, Model, link, missing, serve_progress
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -106,7 +106,7 @@ def test_the_app_runs_on_what_it_downloads(tmp_path):
     CTC model's head beside it, is both (adapt_ctc.hybrid)."""
     from adapt_ctc.hybrid import has_shared_model  # pylint: disable=import-outside-toplevel
 
-    from voice_labs import languages  # pylint: disable=import-outside-toplevel
+    from voice_incubator import languages  # pylint: disable=import-outside-toplevel
 
     real = ROOT / "models"
     if not (real / "parakeet-tdt-int8/ctc_head.npz").is_file():
@@ -129,17 +129,17 @@ def test_the_model_folders_are_as_the_download_left_them(tmp_path):
     the CTC model's int8 folder is a link to nothing until it is downloaded."""
     from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
 
-    from voice_labs import languages  # pylint: disable=import-outside-toplevel
-    from voice_labs.server import VoiceLabsApp  # pylint: disable=import-outside-toplevel
+    from voice_incubator import languages  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import VoiceIncubatorApp  # pylint: disable=import-outside-toplevel
 
     app = SimpleNamespace(language=languages.load("en"), root=tmp_path)
     ctc = tmp_path / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     ctc.parent.mkdir(parents=True)
     ctc.symlink_to(tmp_path / "data/ctc")
-    assert VoiceLabsApp._ctc_dir.fget(app).name == "stt_en_parakeet_tdt_ctc_110m"  # pylint: disable=protected-access
+    assert VoiceIncubatorApp._ctc_dir.fget(app).name == "stt_en_parakeet_tdt_ctc_110m"  # pylint: disable=protected-access
     (tmp_path / "data/ctc").mkdir(parents=True)
     (tmp_path / "data/ctc/tokens.txt").write_text("<blk> 0\n", encoding="utf-8")
-    assert VoiceLabsApp._ctc_dir.fget(app) == ctc  # pylint: disable=protected-access
+    assert VoiceIncubatorApp._ctc_dir.fget(app) == ctc  # pylint: disable=protected-access
 
 
 def test_one_file_of_an_archive_is_kept(tmp_path):

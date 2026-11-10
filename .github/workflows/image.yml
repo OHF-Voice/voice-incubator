@@ -2,7 +2,7 @@
 # training: each architecture built on a runner of its own (aarch64 under
 # emulation would take hours: the image compiles Kaldi's decoder), then
 # published as one image to the GitHub Container Registry, tagged with this
-# source's version (voice_labs/__init__.py) and "latest".
+# source's version (voice_incubator/__init__.py) and "latest".
 name: Image
 
 on:
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: voice_labs/__init__.py
+          sparse-checkout: voice_incubator/__init__.py
       - uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
@@ -84,7 +84,7 @@ jobs:
       - name: Publish both architectures as one image
         working-directory: /tmp/digests
         run: |
-          version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/voice_labs/__init__.py")"
+          version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/voice_incubator/__init__.py")"
           docker buildx imagetools create -t "$IMAGE:$version" -t "$IMAGE:latest" \
             $(printf "$IMAGE@sha256:%s " *)
           docker buildx imagetools inspect "$IMAGE:$version"

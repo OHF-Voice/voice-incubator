@@ -4,11 +4,11 @@
 The device runs mixednet-executor against a blob the app sends at runtime,
 instead of the C table compile_mixednet.py normally compiles into the firmware.
 Both paths come out of the same lowering, so the only thing that can drift is
-the serialization: voice_labs/mixednet.py writing it and mixednet_blob.cpp
+the serialization: voice_incubator/mixednet.py writing it and mixednet_blob.cpp
 reading it back. This builds both harnesses and diffs them frame by frame.
 
     scripts/check_mixednet.py models/wake/okay_nabu.tflite tests/*.wav \\
-        --upstream <mixednet-executor> --component <voice-pe-alt-firmware>/components/voice_labs
+        --upstream <mixednet-executor> --component <firmware-voice-incubator>/components/voice_incubator
 
 Needs mixednet-executor and the ESPHome component checked out.
 """
@@ -26,7 +26,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voice_labs.mixednet import pack  # noqa: E402
+from voice_incubator.mixednet import pack  # noqa: E402
 
 BLOB_MAIN = """
 #include "mixednet.h"
@@ -48,7 +48,7 @@ static std::vector<uint8_t> slurp(const char *path) {
 }
 
 int main(int argc, char **argv) {
-  using namespace esphome::voice_labs;
+  using namespace esphome::voice_incubator;
   std::vector<uint8_t> blob_bytes = slurp(argv[1]);
   std::vector<int8_t> features;
   { auto raw = slurp(argv[2]); features.assign(raw.begin(), raw.end()); }
@@ -114,7 +114,7 @@ def main() -> int:
     parser.add_argument("wav", nargs="*", type=Path)
     parser.add_argument("--upstream", type=Path, required=True, help="a mixednet-executor checkout")
     parser.add_argument("--component", type=Path, required=True,
-                        help="the ESPHome component: voice-pe-alt-firmware/components/voice_labs")
+                        help="the ESPHome component: firmware-voice-incubator/components/voice_incubator")
     parser.add_argument("--random-frames", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=1234)
     args = parser.parse_args()

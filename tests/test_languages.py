@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from adapt_ctc.config import ConfigError
-from voice_labs import languages, skills
-from voice_labs.commands import base_config
-from voice_labs.server import tdt_choice
-from voice_labs.store import Store, compile_store, new_store
+from voice_incubator import languages, skills
+from voice_incubator.commands import base_config
+from voice_incubator.server import tdt_choice
+from voice_incubator.store import Store, compile_store, new_store
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -138,7 +138,7 @@ def test_a_devices_own_whatever_it_is_called_in(english, tmp_path):
     area for voice and whether it is part of its area and heard with its area
     said elsewhere are its own, kept when it is named in another language. One
     only part of its area has no name; removed, it is gone."""
-    from voice_labs.store import Device  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import Device  # pylint: disable=import-outside-toplevel
 
     store = Store(tmp_path)
     store.put_name("entities", "light.office_lamp", {"name": "Lamp", "house": ["Office Lamp"], "area": "office", "with_area": False})
@@ -179,7 +179,7 @@ def test_devices_from_before_have_their_names_where_they_were_heard(english, tmp
     name -- written once, the file as it was kept beside it."""
     import json  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.store import VERSION, Device  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import VERSION, Device  # pylint: disable=import-outside-toplevel
 
     before = {"version": 2, "language": "en", "commands": {}, "lists": {}, "names": {"entities": {
         "light.porch": {"name": "Porch Light"},
@@ -205,7 +205,7 @@ def test_devices_from_before_have_their_names_where_they_were_heard(english, tmp
 
 
 def test_name_clashes_are_names_two_devices_have_where_they_are_heard():
-    from voice_labs.store import Device, name_clashes  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import Device, name_clashes  # pylint: disable=import-outside-toplevel
 
     devices = {
         "light.office_lamp": Device(None, ("Lamp",), ("Office Lamp",)),
@@ -361,7 +361,7 @@ SKILL_GRAMMAR = {
     "units": ("EXAMPLES", "answer", "UNITS", "VOLUMES", "VOLUME_NAMES", "DEFAULT_VOLUMES", "QUALIFIED", "OUNCE",
               "FLUID_OUNCE", "plural_of", "key", "read_unit", "forms", "temperature_pattern"),
 }
-"""What voice_labs/skills takes from a language's skills/<name>.py."""
+"""What voice_incubator/skills takes from a language's skills/<name>.py."""
 
 
 @pytest.mark.parametrize("code", languages.codes())

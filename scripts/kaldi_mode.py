@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kaldi mode (voice_labs/kaldi_mode.py) on the office-multicap corpus.
+"""Kaldi mode (voice_incubator/kaldi_mode.py) on the office-multicap corpus.
 
 Kaldi mode hears only the home's example sentences, word for word. Here the
 examples are the corpus's own command sentences (tests/corpus_expected.yaml,
@@ -20,7 +20,7 @@ would hear.
 
 ``report`` says what other ``kaldi_max_cost`` values would have done.
 Guessed pronunciations need phonetisaurus and the model's g2p.fst in
-``models/`` (voice_labs/downloads.py fetches them for the image); without
+``models/`` (voice_incubator/downloads.py fetches them for the image); without
 them, sentences with words the dictionary lacks are left out.
 
 What it found: DESIGN.md ("Kaldi mode").
@@ -62,7 +62,7 @@ def corpus_sentences() -> list[str]:
 
 
 def kaldi(work: Path):
-    from voice_labs.kaldi_mode import (
+    from voice_incubator.kaldi_mode import (
         KaldiMode,  # pylint: disable=import-outside-toplevel
     )
 
@@ -76,7 +76,7 @@ def kaldi(work: Path):
 
 def build(work: Path) -> None:
     """The graphs, once, before the workers start their decoders."""
-    from voice_labs.kaldi_mode import (  # pylint: disable=import-outside-toplevel
+    from voice_incubator.kaldi_mode import (  # pylint: disable=import-outside-toplevel
         Sentences,
         words_of,
     )
@@ -90,7 +90,7 @@ def build(work: Path) -> None:
 
 
 def _init(work: str, wake: str | None) -> None:
-    from voice_labs.kaldi_mode import (  # pylint: disable=import-outside-toplevel
+    from voice_incubator.kaldi_mode import (  # pylint: disable=import-outside-toplevel
         Sentences,
         words_of,
     )
@@ -112,7 +112,7 @@ def _init(work: str, wake: str | None) -> None:
 def _wake() -> tuple[list[tuple[str, ...]], dict[str, list[str]]]:
     """"okay nabu" as the wake word verifier has it (wake.yaml): what a call
     is heard to start with."""
-    from voice_labs.wake import WakeVerifier  # pylint: disable=import-outside-toplevel
+    from voice_incubator.wake import WakeVerifier  # pylint: disable=import-outside-toplevel
 
     entry = WakeVerifier(ROOT / "wake.yaml").config.resolve("okay_nabu")
     return [tuple(p.words) for p in entry.phrases], {w: list(p) for w, p in entry.lexicon.items()}
@@ -159,9 +159,9 @@ def _woken(signal):
 def _heard(audio, expect, graphs: dict[str, str], after: float = 0.0) -> dict:
     """``audio`` decoded once; for each variant (name -> graph), what its
     graph's sentence came to."""
-    from voice_labs.engine import Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Satellite  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.kaldi_mode import BACKGROUNDS  # pylint: disable=import-outside-toplevel
+    from voice_incubator.kaldi_mode import BACKGROUNDS  # pylint: disable=import-outside-toplevel
 
     heard = _W["kaldi"].decode(audio, tuple(dict.fromkeys(
         t for g in graphs.values() for t in (g, BACKGROUNDS.get(g, "background"))
@@ -190,7 +190,7 @@ def _one(job: tuple) -> dict:
     import numpy as np  # pylint: disable=import-outside-toplevel
     from _corpus import read_wav  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.kaldi_mode import LEAD  # pylint: disable=import-outside-toplevel
+    from voice_incubator.kaldi_mode import LEAD  # pylint: disable=import-outside-toplevel
 
     path, phrase, expect, start, seconds = job
     signal = read_wav(Path(path))

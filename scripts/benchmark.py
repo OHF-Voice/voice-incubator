@@ -16,9 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from voice_labs.endpoint import Endpointer  # noqa: E402
-from voice_labs.protocol import BYTE_RATE, ms_to_bytes  # noqa: E402
-from voice_labs.wake import WakeVerifier  # noqa: E402
+from voice_incubator.endpoint import Endpointer  # noqa: E402
+from voice_incubator.protocol import BYTE_RATE, ms_to_bytes  # noqa: E402
+from voice_incubator.wake import WakeVerifier  # noqa: E402
 
 
 def _report(label: str, samples: list[float], audio_seconds: float | None = None) -> None:
@@ -60,9 +60,9 @@ async def main() -> None:
 
     engine = None
     if not args.skip_recognize:
-        from voice_labs.engine import Engine
-        from voice_labs.store import compile_store
-        from voice_labs.web import load_library
+        from voice_incubator.engine import Engine
+        from voice_incubator.store import compile_store
+        from voice_incubator.web import load_library
 
         started = time.monotonic()
         ctc_dir = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -78,7 +78,7 @@ async def main() -> None:
         engine.build(compile_store({"commands": commands}))
         print(f"  {'commands build':<24} {(time.monotonic() - started) * 1000:7.0f} ms")
 
-    from voice_labs.tts import Speech
+    from voice_incubator.tts import Speech
 
     started = time.monotonic()
     speech = Speech(
@@ -114,7 +114,7 @@ async def main() -> None:
     if engine is not None:
         import numpy as np
 
-        from voice_labs.engine import Satellite
+        from voice_incubator.engine import Satellite
 
         # As the app does it: the whole call, the wake phrase placed again in
         # the CTC output, the commands recognized after it.

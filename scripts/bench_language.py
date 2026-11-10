@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A language pack's library on its bench sentences (voice_labs/languages/
+"""A language pack's library on its bench sentences (voice_incubator/languages/
 <code>/bench.yaml): each said, recognized as a call's command is (the pack's
 CTC model, its transducer for free text), and scored against the command and
 slots it must become.
@@ -35,10 +35,10 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from voice_labs import languages  # noqa: E402
-from voice_labs.protocol import SAMPLE_RATE  # noqa: E402
+from voice_incubator import languages  # noqa: E402
+from voice_incubator.protocol import SAMPLE_RATE  # noqa: E402
 
-DEFAULT_CACHE = Path.home() / ".cache/voice_labs/bench"
+DEFAULT_CACHE = Path.home() / ".cache/voice_incubator/bench"
 
 TTS_LOCALES = {"en": "en-US", "uk": "uk-UA"}
 """A pack's Home Assistant TTS language where it isn't ``<code>-<CODE>``."""
@@ -63,9 +63,9 @@ def bench(code: str, path: Path | None = None) -> dict[str, Any]:
 def engine_for(data: dict[str, Any], threads: int = 4):
     """The pack's models with its whole library, in the bench's home."""
     # pylint: disable=import-outside-toplevel
-    from voice_labs.engine import Engine
-    from voice_labs.store import compile_store
-    from voice_labs.web import load_library
+    from voice_incubator.engine import Engine
+    from voice_incubator.store import compile_store
+    from voice_incubator.web import load_library
 
     pack = languages.current()
     entries = load_library()
@@ -83,7 +83,7 @@ def engine_for(data: dict[str, Any], threads: int = 4):
 
 
 def satellite_for(data: dict[str, Any]):
-    from voice_labs.engine import Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Satellite  # pylint: disable=import-outside-toplevel
 
     area = data.get("satellite")
     name = (data["names"].get("areas") or {}).get(area) if area else None
@@ -141,7 +141,7 @@ def _same_when(calendar, got: str, want: str, alarm: bool) -> bool:
 
 
 def write_wav(path: Path, samples: np.ndarray, rate: int) -> None:
-    from voice_labs.tts import _to_device_pcm  # pylint: disable=import-outside-toplevel
+    from voice_incubator.tts import _to_device_pcm  # pylint: disable=import-outside-toplevel
 
     if samples.ndim > 1:
         samples = samples.mean(axis=1)

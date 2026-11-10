@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the voice_labs recognition chain over a mic_tap corpus.
+"""Run the voice_incubator recognition chain over a mic_tap corpus.
 
 One prompt is recorded simultaneously by every microphone in the room, so the
 only thing that differs between the files of one prompt is the capture path.
@@ -17,7 +17,7 @@ Each file goes through what the satellite and the app actually do --
 
 -- and the command and slots are scored against tests/corpus_expected.yaml.
 
-The commands are a voice_labs ``commands.yaml`` or an adapt-ctc config (each
+The commands are a voice_incubator ``commands.yaml`` or an adapt-ctc config (each
 intent then a command); the default is adapt-ctc's home-extras config, which
 the expectations were written for.
 
@@ -71,12 +71,12 @@ _W: dict = {}
 
 
 def load_commands(path: Path):
-    """A voice_labs store (``commands:``), or an adapt-ctc config
+    """A voice_incubator store (``commands:``), or an adapt-ctc config
     (``intents:``) whose intents become commands that only respond."""
     from adapt_ctc.config import _read  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.commands import BASE_CONFIG, Behavior, Command
-    from voice_labs.store import Compiled, compile_store
+    from voice_incubator.commands import BASE_CONFIG, Behavior, Command
+    from voice_incubator.store import Compiled, compile_store
 
     data = _read(Path(path), ())
     if "commands" in data:
@@ -103,9 +103,9 @@ def worker_init(
     """Load one copy of everything per worker. This is the expensive part."""
     import asyncio
 
-    from voice_labs.engine import Engine
-    from voice_labs.wake import WakeVerifier
-    from voice_labs.wake_ratio import WakeRatio
+    from voice_incubator.engine import Engine
+    from voice_incubator.wake import WakeVerifier
+    from voice_incubator.wake_ratio import WakeRatio
 
     ctc_dir = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not (ctc_dir / "model.onnx").exists():
@@ -149,7 +149,7 @@ def run_one(job: tuple) -> list[dict]:
     """One wav, once as captured and once level-matched."""
     from adapt_ctc.score import Expectation, _slots
 
-    from voice_labs.engine import Satellite
+    from voice_incubator.engine import Satellite
 
     channel, index, path, phrase, expect, gain = job
     expectation = None if expect is None else Expectation(expect[0], expect[1])
@@ -256,7 +256,7 @@ def run_one(job: tuple) -> list[dict]:
         recognition = decision.recognition
         row["greedy"] = recognition.get("transcript", "")
         row["tdt"] = recognition.get("tdt_transcript")
-        from voice_labs.commands import command_of  # pylint: disable=import-outside-toplevel
+        from voice_incubator.commands import command_of  # pylint: disable=import-outside-toplevel
 
         got = decision.intent
         # A combination of a command (lights_off:area) is the command.
@@ -321,7 +321,7 @@ def main() -> int:
         "--commands",
         type=Path,
         default=DEFAULT_COMMANDS,
-        help="a voice_labs commands.yaml, or an adapt-ctc config (default: "
+        help="a voice_incubator commands.yaml, or an adapt-ctc config (default: "
         "home-extras, which the expectations are written for)",
     )
     parser.add_argument("--expected", type=Path, default=ROOT / "tests/corpus_expected.yaml")

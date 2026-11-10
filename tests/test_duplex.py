@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from voice_labs.duplex import DUCK, Duplex
+from voice_incubator.duplex import DUCK, Duplex
 
 RATE = 16000
 

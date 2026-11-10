@@ -1,4 +1,4 @@
-"""Kaldi mode (voice_labs/kaldi_mode.py): what it hears, its grammar, its
+"""Kaldi mode (voice_incubator/kaldi_mode.py): what it hears, its grammar, its
 pronunciations, and the decisions the engine makes of what it heard."""
 
 from __future__ import annotations
@@ -8,10 +8,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from voice_labs import kaldi_mode
-from voice_labs.engine import Engine, Satellite
-from voice_labs.kaldi_mode import CALL, COMMAND, Heard, KaldiMode, Sentences, words_of
-from voice_labs.store import compile_store
+from voice_incubator import kaldi_mode
+from voice_incubator.engine import Engine, Satellite
+from voice_incubator.kaldi_mode import CALL, COMMAND, Heard, KaldiMode, Sentences, words_of
+from voice_incubator.store import compile_store
 
 ROOT = Path(__file__).parent.parent
 CTC = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
@@ -367,7 +367,7 @@ def test_a_slot_is_a_tree_where_it_is_said():
 
 
 def test_a_followed_command_keeps_its_own_sentences(monkeypatch):
-    from voice_labs import library  # pylint: disable=import-outside-toplevel
+    from voice_incubator import library  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(library, "base", lambda reference, *_: {"description": "d", "require": [["a"]], "response": "ok",
                                                                  "sentences": ["the library's"]})
@@ -381,8 +381,8 @@ def test_every_library_template_reads_back_as_its_command():
     """The English library's sentences (languages/en/sentences.yaml), each
     with names of every kind and a value for every free text: what Kaldi
     would hear is read as the command it is a sentence of."""
-    from voice_labs import languages  # pylint: disable=import-outside-toplevel
-    from voice_labs.library import _library  # pylint: disable=import-outside-toplevel
+    from voice_incubator import languages  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import _library  # pylint: disable=import-outside-toplevel
 
     languages.use("en")
     entries = _library("en")
@@ -415,7 +415,7 @@ def test_kaldi_is_built_after_a_save_not_during_it():
     import time  # pylint: disable=import-outside-toplevel
     from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.server import VoiceLabsApp  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import VoiceIncubatorApp  # pylint: disable=import-outside-toplevel
 
     builds = []
     started = threading.Event()
@@ -429,23 +429,23 @@ def test_kaldi_is_built_after_a_save_not_during_it():
         app = SimpleNamespace(engine=SimpleNamespace(kaldi=object(), recognizer_choice="kaldi", build_kaldi=build_kaldi),
                               _kaldi_dirty=False, _kaldi_task=None, kaldi_building=False)
         app._spawn = asyncio.ensure_future
-        app._kaldi_builds = lambda: VoiceLabsApp._kaldi_builds(app)
-        VoiceLabsApp.kaldi_outdated(app)
+        app._kaldi_builds = lambda: VoiceIncubatorApp._kaldi_builds(app)
+        VoiceIncubatorApp.kaldi_outdated(app)
         await asyncio.to_thread(started.wait, 2)
         assert app.kaldi_building
         for _ in range(3):  # three saves while it builds
-            VoiceLabsApp.kaldi_outdated(app)
+            VoiceIncubatorApp.kaldi_outdated(app)
         await app._kaldi_task
         assert len(builds) == 2 and not app.kaldi_building
         app.engine.recognizer_choice = "parakeet"
-        VoiceLabsApp.kaldi_outdated(app)
+        VoiceIncubatorApp.kaldi_outdated(app)
         assert app._kaldi_task.done()
 
     asyncio.run(run())
 
 
 def test_home_assistants_audio_is_fed_to_kaldi_as_it_comes():
-    from voice_labs.wyoming_server import Hearing  # pylint: disable=import-outside-toplevel
+    from voice_incubator.wyoming_server import Hearing  # pylint: disable=import-outside-toplevel
 
     class Fed:
         def __init__(self):
@@ -467,7 +467,7 @@ def test_home_assistants_audio_is_fed_to_kaldi_as_it_comes():
 
 
 def test_kaldi_hears_which_by_the_homes_own_slots():
-    from voice_labs.kaldi_mode import answer_sentences  # pylint: disable=import-outside-toplevel
+    from voice_incubator.kaldi_mode import answer_sentences  # pylint: disable=import-outside-toplevel
 
     heard = Sentences(slots={"zzslota": [("five", "minutes")], "zzslotb": [("pizza",)]},
                       slot_names={"zzslota": "duration", "zzslotb": "timer"})

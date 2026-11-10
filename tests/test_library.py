@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 from adapt_ctc.config import ConfigError
-from voice_labs import languages
-from voice_labs.commands import parse_command
-from voice_labs.web import load_library
+from voice_incubator import languages
+from voice_incubator.commands import parse_command
+from voice_incubator.web import load_library
 
-WEB = Path(__file__).resolve().parent.parent / "voice_labs/web"
+WEB = Path(__file__).resolve().parent.parent / "voice_incubator/web"
 
 
 def shipped_icons() -> set[str]:
@@ -56,7 +56,7 @@ def test_the_homes_own(language):
 def test_ids_are_unique_across_files(language):
     # The library page marks a command added by its id; the Commands page
     # lists one by the file its id (or its family's, or a former one) is in.
-    from voice_labs.web import library_files  # pylint: disable=import-outside-toplevel
+    from voice_incubator.web import library_files  # pylint: disable=import-outside-toplevel
 
     ids = [e["id"] for e in load_library()]
     assert len(ids) == len(set(ids))
@@ -101,7 +101,7 @@ def test_a_command_comes_in_versions():
 
 
 def test_a_variant_must_be_one_of_the_three():
-    from voice_labs.web import library_versions  # pylint: disable=import-outside-toplevel
+    from voice_incubator.web import library_versions  # pylint: disable=import-outside-toplevel
 
     with pytest.raises(ConfigError, match="no variant room"):
         library_versions("x", {"examples": ["x"], "variants": {"room": {}}})
@@ -123,7 +123,7 @@ def test_every_icon_is_shipped(language):
 
 
 def test_commands_are_listed_by_library_section():
-    from voice_labs.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
+    from voice_incubator.web import library_of, library_sections  # pylint: disable=import-outside-toplevel
 
     sections, _ids = library_sections()
     # By title, as the Home page and the library list them.
@@ -161,7 +161,7 @@ def test_set_the_thermostat_is_a_version_of_set_the_temperature():
     """The home's thermostat (or one of its own) is Set the temperature's
     first version: one added as Set the thermostat follows it, and the Add
     dialog knows it by that id. The others are Home Assistant's intent."""
-    from voice_labs.library import entry  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import entry  # pylint: disable=import-outside-toplevel
 
     found = entry("climate/set_thermostat")
     assert (found["id"], found["title"], found["formerly"]) == ("set_temperature_here", "Set the thermostat", ["set_thermostat"])
@@ -176,7 +176,7 @@ def test_set_the_thermostat_is_a_version_of_set_the_temperature():
 def test_every_language_files_its_commands_as_english_does():
     """A command is in the same section in every language, and a section has
     the same title and icon: the Home page and the library group them alike."""
-    from voice_labs.library import library_files  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import library_files  # pylint: disable=import-outside-toplevel
 
     def sections(code):
         files = library_files(code)
@@ -196,8 +196,8 @@ def test_a_name_in_several_rooms():
     (unless not: with_area); its whole house names from every satellite. A
     name heard nowhere from here, or one two devices have there, runs
     nothing, and the hint says why; one only part of its area has none."""
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import compile_store  # pylint: disable=import-outside-toplevel
 
     ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not ctc.is_dir():
@@ -254,8 +254,8 @@ def test_a_name_not_heard_here_is_another_commands_word():
     (utility room) light" is the lights' keyword, as good a match as that
     name, and turns off the lights there. A refusal with no match as good
     is still said."""
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import compile_store  # pylint: disable=import-outside-toplevel
 
     ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not ctc.is_dir():
@@ -295,7 +295,7 @@ def test_every_response_template_renders(language):
     template functions (stubbed): a typo shows here, not in a call."""
     import jinja2  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.commands import SPOKEN, parse_command  # pylint: disable=import-outside-toplevel
+    from voice_incubator.commands import SPOKEN, parse_command  # pylint: disable=import-outside-toplevel
 
     class States:
         """states("light.x"), and states.light: Home Assistant's both."""
@@ -352,7 +352,7 @@ def test_who_am_i_says_who_is_speaking():
     "my" means them; nobody known is the sorry it says for "my"."""
     import jinja2  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.library import entry  # pylint: disable=import-outside-toplevel
+    from voice_incubator.library import entry  # pylint: disable=import-outside-toplevel
 
     template = jinja2.Environment(undefined=jinja2.ChainableUndefined).from_string(
         entry("people/who_am_i")["spec"]["response"])
@@ -410,8 +410,8 @@ ROUTES = [
 def fixture_routing():
     """English's library, every version added at once (but the timers), in a
     home with a few names, and a satellite in its Office."""
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.store import compile_store  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.store import compile_store  # pylint: disable=import-outside-toplevel
 
     ctc = Path(__file__).resolve().parent.parent / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not ctc.is_dir():
@@ -466,8 +466,8 @@ def test_each_version_takes_its_own_sentences(routing):
 )
 def test_it_is_what_was_spoken_of(routing, text, referred, command):
     """A pronoun heard again as the names of what was last spoken of
-    (voice_labs/context.py): taken only as a command acting on them."""
-    from voice_labs.context import hear_again  # pylint: disable=import-outside-toplevel
+    (voice_incubator/context.py): taken only as a command acting on them."""
+    from voice_incubator.context import hear_again  # pylint: disable=import-outside-toplevel
 
     engine, office = routing
     names = {"lock.front_door": "front door", "light.desk_lamp": "desk lamp"}
@@ -487,7 +487,7 @@ def _route(engine, office, text):
         return None
     route = {"command": decision.command.id, **({"slots": decision.slots} if decision.slots else {})}
     if decision.then is not None:
-        # Two commands said together (voice_labs/compound.py): the second too.
+        # Two commands said together (voice_incubator/compound.py): the second too.
         then = decision.then
         route["then"] = {"command": then.command.id, **({"slots": then.slots} if then.slots else {})}
     return route

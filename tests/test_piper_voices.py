@@ -1,4 +1,4 @@
-"""Piper's voices, downloaded the first time one is used (voice_labs/piper_voices.py)."""
+"""Piper's voices, downloaded the first time one is used (voice_incubator/piper_voices.py)."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from voice_labs import languages
-from voice_labs.piper_voices import catalog, synthesis, voices
-from voice_labs.tts import Speech
+from voice_incubator import languages
+from voice_incubator.piper_voices import catalog, synthesis, voices
+from voice_incubator.tts import Speech
 
 ROOT = Path(__file__).resolve().parent.parent
 KRISTIN = ROOT / "models/piper/en_US-kristin-medium.onnx"

@@ -8,3 +8,6 @@
 /wake_words/
 # Left by script/stage_build, which is gone: safe to delete.
 /local/
+# Python caches (apps-experimental's root ignored them before).
+__pycache__/
+.mypy_cache/

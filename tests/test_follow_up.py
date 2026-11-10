@@ -6,8 +6,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from voice_labs import follow_up, languages
-from voice_labs.agent import asks
+from voice_incubator import follow_up, languages
+from voice_incubator.agent import asks
 
 
 @pytest.fixture(autouse=True)

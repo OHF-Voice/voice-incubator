@@ -9,11 +9,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from voice_labs.engine import free_text
-from voice_labs.hass import HassError, HomeAssistant
-from voice_labs.server import VoiceLabsApp
-from voice_labs.web import ConfigError, _agent_voice
-from voice_labs.voices import (
+from voice_incubator.engine import free_text
+from voice_incubator.hass import HassError, HomeAssistant
+from voice_incubator.server import VoiceIncubatorApp
+from voice_incubator.web import ConfigError, _agent_voice
+from voice_incubator.voices import (
     CLOUD_TAKEN,
     HassTranscriber,
     StreamingTranscriber,
@@ -106,7 +106,7 @@ class StubTdt:
 
 
 def test_the_transcriber_asks_once_from_the_engines_thread(caplog):
-    caplog.set_level(logging.INFO, logger="voice_labs.voices")
+    caplog.set_level(logging.INFO, logger="voice_incubator.voices")
 
     async def scenario():
         hass = StubHass("turn on the lights")
@@ -146,7 +146,7 @@ class StreamingHass(StubHass):
 
 
 def test_streaming_while_the_command_is_said(caplog):
-    caplog.set_level(logging.INFO, logger="voice_labs.voices")
+    caplog.set_level(logging.INFO, logger="voice_incubator.voices")
 
     async def scenario():
         loop = asyncio.get_running_loop()
@@ -199,7 +199,8 @@ def test_always_run_is_chosen_with_an_entity():
 
 
 def test_the_app_s_own_speech_to_text_is_known_by_its_name():
-    assert own_stt("stt.voice_labs") and own_stt("stt.kitchen", "Voice Labs") and own_stt("stt.x", "voice labs 2")
+    assert own_stt("stt.voice_incubator") and own_stt("stt.kitchen", "Voice Incubator") and own_stt("stt.x", "voice labs 2")
+    assert own_stt("stt.voice_labs")  # its id from before the rename
     assert not own_stt("stt.home_assistant_cloud", "Home Assistant Cloud") and not own_stt("stt.faster_whisper")
 
 
@@ -214,7 +215,7 @@ def test_through_home_assistant():
             assert await hass.wait_connected(5)
             voices = Voices(hass)
             # The app's own speech-to-text (its Wyoming one) isn't offered: it would ask itself.
-            fake.stt_engines.append({"engine_id": "stt.voice_labs", "supported_languages": ["en"]})
+            fake.stt_engines.append({"engine_id": "stt.voice_incubator", "supported_languages": ["en"]})
             engines = await voices.engines()
             assert [e["entity_id"] for e in engines["stt"]] == ["stt.fake_whisper"]
             assert engines["stt"][0]["languages"] == ["en-US", "en-GB", "de-DE", "fr-FR"]
@@ -257,25 +258,25 @@ def test_home_assistant_cloud_is_taken_once():
             saved = []
             app = SimpleNamespace(store=SimpleNamespace(settings={}, save_settings=lambda: saved.append(1)), voices=Voices(hass))
             # Not signed in: nothing, and looked for again next time.
-            await VoiceLabsApp._take_cloud(app)
+            await VoiceIncubatorApp._take_cloud(app)
             assert app.store.settings == {} and not saved
             fake.stt_engines.append({"engine_id": "stt.home_assistant_cloud", "supported_languages": ["en-US"]})
             fake.tts_engines.append({"engine_id": "tts.home_assistant_cloud", "supported_languages": ["en-US"]})
-            await VoiceLabsApp._take_cloud(app)
+            await VoiceIncubatorApp._take_cloud(app)
             assert app.store.settings == {
                 "stt": "stt.home_assistant_cloud", "stt_always": True, "tts": "tts.home_assistant_cloud", CLOUD_TAKEN: True,
             }
             # The built-in models chosen since: they stand.
             del app.store.settings["stt"], app.store.settings["stt_always"], app.store.settings["tts"]
-            await VoiceLabsApp._take_cloud(app)
+            await VoiceIncubatorApp._take_cloud(app)
             assert app.store.settings == {CLOUD_TAKEN: True}
             # A choice made before it was found stands too.
             app.store.settings = {"tts": "tts.fake_cloud"}
-            await VoiceLabsApp._take_cloud(app)
+            await VoiceIncubatorApp._take_cloud(app)
             assert app.store.settings == {"tts": "tts.fake_cloud", "stt": "stt.home_assistant_cloud", "stt_always": True, CLOUD_TAKEN: True}
             # Speech-to-text chosen before: as it was, and when it runs too.
             app.store.settings = {"stt": "stt.fake_whisper"}
-            await VoiceLabsApp._take_cloud(app)
+            await VoiceIncubatorApp._take_cloud(app)
             assert app.store.settings == {"stt": "stt.fake_whisper", "tts": "tts.home_assistant_cloud", CLOUD_TAKEN: True}
         finally:
             await hass.stop()

@@ -1,4 +1,4 @@
-# Voice Labs design
+# Voice Incubator design
 
 The details of the system: how a call goes, what was measured to get it
 there, and how to run and work on it. Installing the app is in the
@@ -7,7 +7,7 @@ there, and how to run and work on it. Installing the app is in the
 
 ## A call
 
-The app connects straight to each satellite (the ESPHome `voice_labs`
+The app connects straight to each satellite (the ESPHome `voice_incubator`
 component) over TCP -- the audio doesn't go through Home Assistant -- and runs
 one call at a time on each:
 
@@ -68,7 +68,7 @@ one call at a time on each:
    understood or went wrong -- in one stream, which the reply follows (Home
    Assistant's speech, or none, ends it first). They and the acknowledgement
    are played by FluidSynth from MuseScore General's SoundFont
-   (`voice_labs/instruments.py`; Debian's
+   (`voice_incubator/instruments.py`; Debian's
    `musescore-general-soundfont-small`, else
    `models/soundfonts/MuseScore_General_Lite.sf3`) on settings.json
    `instrument` (a preset's name in underscores; none,
@@ -78,7 +78,7 @@ one call at a time on each:
 ## Running from source
 
 ```bash
-HASS_TOKEN=... .venv/bin/python -m voice_labs --save-dir /tmp/calls    # web UI on http://127.0.0.1:8099/
+HASS_TOKEN=... .venv/bin/python -m voice_incubator --save-dir /tmp/calls    # web UI on http://127.0.0.1:8099/
 ```
 
 A working copy needs the models the image carries (the speaker, wake word and
@@ -86,12 +86,12 @@ Kaldi models, and Kaldi's tools; about 160 MB, checked by SHA-256) and the wake
 verifier's resident decoder built against them:
 
 ```bash
-.venv/bin/python -m voice_labs.downloads fetch models
+.venv/bin/python -m voice_incubator.downloads fetch models
 bash wyoming_wake_kaldi/decoderd/build.sh "$PWD/models/wake-kaldi-tools" "$PWD/models/wake-kaldi-decoderd/verify_decoderd"
 ```
 
 The rest it downloads the first time it starts. wyoming-wake-kaldi,
-microWakeWord and sentence-stream are vendored beside `voice_labs/`: nothing
+microWakeWord and sentence-stream are vendored beside `voice_incubator/`: nothing
 comes from another checkout.
 
 Training wake words in the app needs `requirements-training.txt` too, in the
@@ -113,7 +113,7 @@ With no `--host` it browses `_voice-incubator._tcp` and `_voice-labs._tcp`
 (protocol 1's name, the Voice Labs firmware's; protocol 2 firmware answers to
 both, and is one satellite by its MAC) and serves **every** satellite it
 finds, connecting as they appear and dropping them as they go -- but one whose
-Voice Labs device is disabled in Home Assistant (`Catalog.disabled_satellites`,
+Voice Incubator device is disabled in Home Assistant (`Catalog.disabled_satellites`,
 followed as the device registry changes), which it lets go of for another app
 to take. `--host` pins it to one device instead, for a different subnet or to
 test one satellite while others are on the network; that one is served even
@@ -129,8 +129,8 @@ Saved audio is split per device, keyed on the name and the MAC tail from the
 device's `HELLO`:
 
 ```
-/tmp/calls/voice-labs-vpe-090087/call-23003.wav
-/tmp/calls/voice-labs-vpe-09aabb/call-23007.wav
+/tmp/calls/voice-incubator-vpe-090087/call-23003.wav
+/tmp/calls/voice-incubator-vpe-09aabb/call-23007.wav
 ```
 
 Several VPEs flashed from one YAML all report the same name (the config sets
@@ -142,7 +142,7 @@ The device accepts **one client at a time** and refuses the rest rather than
 replacing them, which stops two apps from kicking each other off in a reconnect
 loop. If a connection keeps dropping within 30 s, the app backs off
 exponentially and says so -- that is usually a second app holding the device,
-not the network. To hand a satellite to a second app, disable its Voice Labs
+not the network. To hand a satellite to a second app, disable its Voice Incubator
 device in the first app's Home Assistant, and run the second with `--host`
 (without it, it tries every satellite, and could take one from the first app
 whenever that satellite reboots).
@@ -169,7 +169,7 @@ and only the Kaldi programs the verifier runs are kept
 (`wyoming_wake_kaldi/prune.py`). The app's image is built the same way, with
 training, by its own Dockerfile in
 [OHF-Voice/app-voice-incubator](https://github.com/OHF-Voice/app-voice-incubator)
-from a release of this source (its version: `voice_labs/__init__.py`).
+from a release of this source (its version: `voice_incubator/__init__.py`).
 
 ## Commands
 
@@ -180,13 +180,13 @@ ms to read the commands and 218 ms to write them on an HA Green; JSON takes
 under a millisecond. A data directory from before is copied over once: each
 `.yaml` file to its `.json`, the YAML left as it was and not read again. A
 save from the UI is validated first -- by the command schema
-(`voice_labs/commands.py`) and by adapt-ctc's own config checks -- so a broken
+(`voice_incubator/commands.py`) and by adapt-ctc's own config checks -- so a broken
 command is refused rather than saved; commands an update no longer accepts
 keep the previous ones in use, saying why in the UI. The command library
 ships with the app: it is read and checked once (1.6 s on the Green, mostly
 parsing its YAML), when it is first opened.
 
-**Following the library** (`voice_labs/library.py`, as Home Assistant's
+**Following the library** (`voice_incubator/library.py`, as Home Assistant's
 blueprints). A command added from it is saved as a reference, `from:
 todo/shopping_list_add`, plus what it sets itself (`library.SETTINGS`:
 satellites, disabled, verbosity, fallback, title, icon, its implied target
@@ -290,7 +290,7 @@ and copies (`Satellite.first`).
 
 ### Two commands said together
 
-`voice_labs/compound.py`, in a language with a `compound` module (English).
+`voice_incubator/compound.py`, in a language with a `compound` module (English).
 A sentence whose best match leaves a joining word unexplained -- or that
 matched nothing, with one between other words -- and whose transcript has
 the joining word too (the CTC head hears "bed" as "and": `_joined_said`), is
@@ -326,7 +326,7 @@ typed sentences and Piper's (`tests/test_compound.py`).
 
 An automation that starts on a sentence (a conversation trigger) is heard
 here as a command of the whole home's, and run by Home Assistant
-(`voice_labs/triggers.py`). The commands were triggers once, the app's whole
+(`voice_incubator/triggers.py`). The commands were triggers once, the app's whole
 grammar; now they are its own, and a trigger is one more command, listed on
 the Home page under **Home Assistant**, with a switch to turn it off and
 turned off in an area like any of the whole home's (`commands.json`
@@ -407,63 +407,63 @@ automation's page.
 
 | path | |
 |---|---|
-| `voice_labs/protocol.py` | the satellite wire format (the firmware's PROTOCOL.md), and what a HELLO says (`Hello`, for protocols 1 and 2) |
-| `voice_labs/mixednet.py` | lowers a wake word `.tflite` into the device's blob |
-| `voice_labs/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
-| `voice_labs/wake.py` | Kaldi wake verification and split point |
-| `voice_labs/kaldi_mode.py` | Kaldi mode: commands heard by Kaldi, held to the home's example sentences, with a background to refuse the rest; pronunciations (dictionary, yours, phonetisaurus's guesses) |
-| `voice_labs/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
-| `voice_labs/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), with speakers' recordings of it, `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
-| `voice_labs/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
-| `voice_labs/endpoint.py` | endpointing: Silero VAD, microVAD or both, with hysteresis |
+| `voice_incubator/protocol.py` | the satellite wire format (the firmware's PROTOCOL.md), and what a HELLO says (`Hello`, for protocols 1 and 2) |
+| `voice_incubator/mixednet.py` | lowers a wake word `.tflite` into the device's blob |
+| `voice_incubator/_mixednet_compiler.py` | vendored from mixednet-executor; edit upstream |
+| `voice_incubator/wake.py` | Kaldi wake verification and split point |
+| `voice_incubator/kaldi_mode.py` | Kaldi mode: commands heard by Kaldi, held to the home's example sentences, with a background to refuse the rest; pronunciations (dictionary, yours, phonetisaurus's guesses) |
+| `voice_incubator/wake_words.py` | the wake words a satellite can listen for: built in and verified, or custom; their cutoffs and placement phrases |
+| `voice_incubator/wake_training.py` | training a new wake word from a typed phrase: the kit, the job, the saved model; `wake_positives.py` has Piper say it (rooms, noise, the frontend's features), with speakers' recordings of it, `wake_trainer.py` trains, temperature-scales and exports it (TensorFlow, microWakeWord) |
+| `voice_incubator/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
+| `voice_incubator/endpoint.py` | endpointing: Silero VAD, microVAD or both, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
-| `wyoming_wake_kaldi/` | vendored from wyoming-wake-kaldi (commit 9fda1ff): the Kaldi wake verifier `voice_labs/wake.py` runs, and its resident decoder's source (`decoderd/`), which the image compiles; its own README |
+| `wyoming_wake_kaldi/` | vendored from wyoming-wake-kaldi (commit 9fda1ff): the Kaldi wake verifier `voice_incubator/wake.py` runs, and its resident decoder's source (`decoderd/`), which the image compiles; its own README |
 | `microwakeword/` | vendored microWakeWord, as the app trains wake words with it (`VENDORED.md` says from where and what changed) |
 | `sentence_stream/` | vendored sentence-stream 1.4.0 (its markdown fixes, not yet on PyPI) |
-| `voice_labs/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints; the CTC model and the transducer as one when they share an encoder (`adapt_ctc/hybrid.py`) |
-| `voice_labs/commands.py` | the command schema: combinations, presets, where it is, what happens |
-| `voice_labs/store.py` | `commands.json`, `satellites.json`, `settings.json`, `wake_words.json` |
-| `voice_labs/actions.py` | variables, `execute_script`, intents (on what was heard, as Assist would: exposed devices only), the response, the `voice_labs_command` event |
-| `voice_labs/calls.py` | per-call traces, saved audio, debug sessions |
-| `voice_labs/web.py`, `voice_labs/web/` | the web UI and its API |
-| `voice_labs/languages/` | language packs, one per language (`en/`, `de/`, `nl/`, `fr/`, `es/`, `it/`, `pl/`, `ru/`, `uk/`): speech models, the matcher's base config, skills; `speech.py`, every sentence the app makes itself, and `reading.py`, what it reads past the matcher (an alarm's time, music cues, a place after free text) -- English's names are what every language's has; and `library/`, the example commands offered in the UI, most in versions (`variants`: here, device, place) |
-| `voice_labs/web/icons.js` | the Material Design Icons the UI shows (Apache-2.0), from `scripts/make_icons.py` |
-| `voice_labs/hass.py` | Home Assistant over one websocket: registries, scripts, templates, events |
-| `voice_labs/tts.py` | Piper, and the acknowledgement fallback |
-| `voice_labs/server.py` | the call state machine |
-| `voice_labs/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_labs.speaker` |
-| `voice_labs/library.py` | the command library; commands that follow it (references, settings, migration) |
-| `voice_labs/people.py` | people: who is speaking, and their own to-do list, calendar, playlist and voice ("my") |
-| `voice_labs/integration.py` | the Voice Labs integration from the app's side: set-up, satellites, following timers |
-| `voice_labs/alarms.py` | alarms and timed reminders on the "Voice Labs" Local Calendar in Home Assistant: made if missing, followed, rung on every satellite in the area they were set in (in a language with a `calendar.py`, English for now) |
-| `voice_labs/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
-| `voice_labs/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
-| `voice_labs/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_labs/gliner.py`) -- each only for the commands chosen for it |
-| `voice_labs/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_labs/languages/<code>/skills/`, with `numbers` and `live`) |
-| `voice_labs/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
-| `voice_labs/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`), which of several timers, alarms or reminders (`which`) -- and how the answer is read |
-| `voice_labs/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
-| `voice_labs/compound.py` | two commands said together ("and", "then"; English's `languages/en/compound.py`): where to split, what a clause borrows, what both say as one |
-| `voice_labs/night.py` | night mode (each area's switch, followed by `integration.py`): a command that acts blinks how it went (the `result` event), an answer or a question is said quietly, none of the sounds, do not disturb too; the satellite is told (`night` event) |
-| `voice_labs/triggers.py` | Home Assistant's sentence triggers: read and grouped by automation, kept current, heard as examples or on the transcript (hassil), ahead of the commands, and run by its own agent |
+| `voice_incubator/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints; the CTC model and the transducer as one when they share an encoder (`adapt_ctc/hybrid.py`) |
+| `voice_incubator/commands.py` | the command schema: combinations, presets, where it is, what happens |
+| `voice_incubator/store.py` | `commands.json`, `satellites.json`, `settings.json`, `wake_words.json` |
+| `voice_incubator/actions.py` | variables, `execute_script`, intents (on what was heard, as Assist would: exposed devices only), the response, the `voice_incubator_command` event |
+| `voice_incubator/calls.py` | per-call traces, saved audio, debug sessions |
+| `voice_incubator/web.py`, `voice_incubator/web/` | the web UI and its API |
+| `voice_incubator/languages/` | language packs, one per language (`en/`, `de/`, `nl/`, `fr/`, `es/`, `it/`, `pl/`, `ru/`, `uk/`): speech models, the matcher's base config, skills; `speech.py`, every sentence the app makes itself, and `reading.py`, what it reads past the matcher (an alarm's time, music cues, a place after free text) -- English's names are what every language's has; and `library/`, the example commands offered in the UI, most in versions (`variants`: here, device, place) |
+| `voice_incubator/web/icons.js` | the Material Design Icons the UI shows (Apache-2.0), from `scripts/make_icons.py` |
+| `voice_incubator/hass.py` | Home Assistant over one websocket: registries, scripts, templates, events |
+| `voice_incubator/tts.py` | Piper, and the acknowledgement fallback |
+| `voice_incubator/server.py` | the call state machine |
+| `voice_incubator/speaker.py` | speaker ID, profiles, enrollment; `python -m voice_incubator.speaker` |
+| `voice_incubator/library.py` | the command library; commands that follow it (references, settings, migration) |
+| `voice_incubator/people.py` | people: who is speaking, and their own to-do list, calendar, playlist and voice ("my") |
+| `voice_incubator/integration.py` | the Voice Incubator integration from the app's side: set-up, satellites, following timers |
+| `voice_incubator/alarms.py` | alarms and timed reminders on the "Voice Incubator" Local Calendar in Home Assistant: made if missing, followed, rung on every satellite in the area they were set in (in a language with a `calendar.py`, English for now) |
+| `voice_incubator/music.py` | music commands: which Music Assistant player, reading "play …", searching, controls |
+| `voice_incubator/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
+| `voice_incubator/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_incubator/gliner.py`) -- each only for the commands chosen for it |
+| `voice_incubator/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_incubator/languages/<code>/skills/`, with `numbers` and `live`) |
+| `voice_incubator/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
+| `voice_incubator/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`), which of several timers, alarms or reminders (`which`) -- and how the answer is read |
+| `voice_incubator/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
+| `voice_incubator/compound.py` | two commands said together ("and", "then"; English's `languages/en/compound.py`): where to split, what a clause borrows, what both say as one |
+| `voice_incubator/night.py` | night mode (each area's switch, followed by `integration.py`): a command that acts blinks how it went (the `result` event), an answer or a question is said quietly, none of the sounds, do not disturb too; the satellite is told (`night` event) |
+| `voice_incubator/triggers.py` | Home Assistant's sentence triggers: read and grouped by automation, kept current, heard as examples or on the transcript (hassil), ahead of the commands, and run by its own agent |
 | `scripts/bench_language.py` | a language pack's library on its `bench.yaml` sentences: typed, or spoken by its Piper voice and Home Assistant TTS voices |
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
-| `voice_labs/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_labs.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
+| `voice_incubator/timers.py` | timer commands: which timer is meant, the service call, what to say |
+| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_incubator.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
 | [OHF-Voice/firmware-voice-incubator](https://github.com/OHF-Voice/firmware-voice-incubator) | the satellites' ESPHome firmware: `devices/voice-pe.yaml`, the `components/voice_incubator` component, the install page's build, and the protocol (PROTOCOL.md). Before: the Voice Labs firmware in [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) (protocol 1) |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
-| `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from a voice-labs checkout (see its conftest) |
+| `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from an integration-voice-incubator checkout (see its conftest) |
 | `models/wake/stop.tflite` | microWakeWord's "stop", pushed to a satellite while a timer rings |
 | `tests/fake_hass.py`, `tests/fake_satellite.py` | stand-ins for Home Assistant and a device, for `tests/test_app.py` and UI work |
-| `Dockerfile` | the standalone image, fetching what it carries besides its code (`voice_labs/downloads.py`) |
+| `Dockerfile` | the standalone image, fetching what it carries besides its code (`voice_incubator/downloads.py`) |
 | [OHF-Voice/app-voice-incubator](https://github.com/OHF-Voice/app-voice-incubator) | the Home Assistant app: its `config.yaml`, its s6 service (`rootfs/`), and its own Dockerfile, which builds a release of this source (`scripts/app_source.sh` gives it this checkout's instead) |
-| `voice_labs/piper_voices.py`, `voice_labs/piper_voices.json`, `scripts/piper_voices.py` | Piper's voices for the language (US and British English), from rhasspy/piper-voices at the revision the catalog was written from: each downloaded into `models/piper` the first time it is used, checked by MD5; the Settings page picks one, its speaker and Piper's inference settings (`settings.json` `piper`) |
-| `voice_labs/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile. And what the image carries, fetched as it is built (`fetch`): the speaker model (OpenVoiceOS), the microWakeWord models, and the wake verifier's Kaldi model and tools for its architecture (rhasspy/voice-labs-models) |
+| `voice_incubator/piper_voices.py`, `voice_incubator/piper_voices.json`, `scripts/piper_voices.py` | Piper's voices for the language (US and British English), from rhasspy/piper-voices at the revision the catalog was written from: each downloaded into `models/piper` the first time it is used, checked by MD5; the Settings page picks one, its speaker and Piper's inference settings (`settings.json` `piper`) |
+| `voice_incubator/downloads.py` | what the app downloads the first time it starts (Parakeet with its CTC head, EmbeddingGemma 2, GLiNER: about 470 MB, from [rhasspy/voice-labs-models](https://huggingface.co/rhasspy/voice-labs-models) and onnx-community, checked by SHA-256) into `/data/models`, which the image links its `models/` folders to; a progress page answers on the web UI's port meanwhile. And what the image carries, fetched as it is built (`fetch`): the speaker model (OpenVoiceOS), the microWakeWord models, and the wake verifier's Kaldi model and tools for its architecture (rhasspy/voice-labs-models) |
 | `wake.yaml` | wake phrases, confusables, decision thresholds |
 | `scripts/check_mixednet.py` | proves the pushed blob decodes like a built-in model |
 | `scripts/quantize_tdt.py` | dynamic int8 for either Parakeet encoder |
-| `voice_labs/wake_ratio.py` | the second opinion on a rejected wake word |
+| `voice_incubator/wake_ratio.py` | the second opinion on a rejected wake word |
 | `scripts/align_sessions.py` | where the wake word is in every prompt of a session |
 | `scripts/false_accepts.py` | how often the chain fires on audio with no wake word in it |
 | `scripts/synth_wake_words.py` | wake words and near misses spoken by every Piper English voice, in rooms and noise |
@@ -718,7 +718,7 @@ detector's microphone. The firmware has six model slots and says so in
 words. Older firmware has four, so three. No VAD gate is pushed (below).
 
 The device reports the model's id as the wake word, which decides which
-verifier, second opinion and placement phrases apply (`voice_labs/wake_words.py`).
+verifier, second opinion and placement phrases apply (`voice_incubator/wake_words.py`).
 
 | | built in, verified | custom |
 |---|---|---|
@@ -763,7 +763,7 @@ page's to do.
 
 Words the verifier's dictionary lacks need a pronunciation in its phones (IPA,
 the stress mark on the vowel). The page offers espeak-ng's, from Piper's
-bundled copy, mapped onto those phones (`voice_labs/pronounce.py`): on 393
+bundled copy, mapped onto those phones (`voice_incubator/pronounce.py`): on 393
 common words from the dictionary it gives the dictionary's own pronunciation
 76% of the time, and the same phones with other stress 3% (the rest differ
 mostly in unstressed vowels). It is only offered: what is saved is what the
@@ -871,7 +871,7 @@ The manifests' cutoffs run from 0.02 to 1.0; 415 are 0.97.
 ### Training a wake word
 
 On the Wake words page, a typed phrase becomes a custom word
-(`voice_labs/wake_training.py`): Piper's `en_US-libritts_r-medium` (2,306
+(`voice_incubator/wake_training.py`): Piper's `en_US-libritts_r-medium` (2,306
 speakers) says it 2,000 ways, each in a room with noise behind it, joined by
 the recordings of whichever speakers are ticked (People page, above), and a
 model learns it against the kit's negatives (`scripts/make_wake_training_kit.py`:
@@ -1074,7 +1074,7 @@ processed, once someone's voice is enrolled. Who is speaking
 and matched nobody's. Each person's own
 to-do list, calendar and playlist (`people.json`, the People page) are what
 a command with `mine` acts on (`people.mine`, in `actions.run`), and their
-own text-to-speech voice is the reply's (`VoiceLabsApp.voice_for`). [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
+own text-to-speech voice is the reply's (`VoiceIncubatorApp.voice_for`). [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
 inside the graph) embeds the AEC capture from 1.2 s before the end of the wake
 word to the end of the command -- "okay nabu" plus the command -- and the
 closest profile wins if its cosine clears `--speaker-threshold` (0.45).
@@ -1110,7 +1110,7 @@ recognized).
 
 **Their wake words.** Also on the People page, everyone enrolled says a
 wake phrase at a satellite, pausing between, 25 times
-(`voice_labs/wake_recordings.py`). The satellite streams as for enrolling,
+(`voice_incubator/wake_recordings.py`). The satellite streams as for enrolling,
 and while monitored a wake word starts no command. Silero cuts the stream into
 utterances; one with 0.4-2.5 s of speech is a take, kept when it scores 0.35
 or more against the speaker's voice and no other voice scores higher (Piper's
@@ -1163,11 +1163,11 @@ Profiles live in `var/speakers.json`, shared by all satellites (enrolling on
 one VPE and identifying on another cost almost nothing in benchmarking):
 
 ```bash
-.venv/bin/python -m voice_labs.speaker list
-.venv/bin/python -m voice_labs.speaker enroll Mike /tmp/calls/*/call-aec-*.wav
-.venv/bin/python -m voice_labs.speaker color Mike violet     # or "#rrggbb", auto
-.venv/bin/python -m voice_labs.speaker rename Jenifer Jennifer
-.venv/bin/python -m voice_labs.speaker forget Mike
+.venv/bin/python -m voice_incubator.speaker list
+.venv/bin/python -m voice_incubator.speaker enroll Mike /tmp/calls/*/call-aec-*.wav
+.venv/bin/python -m voice_incubator.speaker color Mike violet     # or "#rrggbb", auto
+.venv/bin/python -m voice_incubator.speaker rename Jenifer Jennifer
+.venv/bin/python -m voice_incubator.speaker forget Mike
 ```
 
 Profiles remember which capture they were built from; identifying from the
@@ -1278,7 +1278,7 @@ for this app:
     sherpa-onnx's FST decoder, tried first, needed its own encoder run and
     136 MB for the same graph.
 - **Kaldi mode** (`settings.json` `recognizer: kaldi`, the Settings page;
-  `voice_labs/kaldi_mode.py`): Kaldi hears commands instead of Parakeet, as
+  `voice_incubator/kaldi_mode.py`): Kaldi hears commands instead of Parakeet, as
   Speech-to-Phrase did, with its English model (en_US-rhasspy, the wake
   verifier's). Parakeet stays the default; some of Speech-to-Phrase's users
   found Kaldi heard them better.
@@ -1324,7 +1324,7 @@ for this app:
   - **Decoded as it is said** (`kaldi_mode.Stream`), as Speech-to-Phrase
     did: a call's stream opens when the wake word is accepted, is fed the
     call so far (pre-roll and all) and then each piece as it comes
-    (`VoiceLabsApp._feed_kaldi`, beside the STT entity's), and is finished
+    (`VoiceIncubatorApp._feed_kaldi`, beside the STT entity's), and is finished
     when the command ends -- only the last of the decode is left then. An
     answer's opens at its split, Home Assistant's audio (Wyoming) at its
     start. The decoder takes streams by id (`OPEN`, `AUDIO`, `CLOSE`,
@@ -1374,7 +1374,7 @@ for this app:
   - On a Pi 5 (one thread), a home of 40 commands (462 sentences, the
     library's templates): the first build 21.6 s (both backgrounds), again
     after one more sentence 8.9 s, so it is built after a save, in the
-    background (`VoiceLabsApp.kaldi_outdated`: the graphs before hear
+    background (`VoiceIncubatorApp.kaldi_outdated`: the graphs before hear
     meanwhile, and changes made meanwhile build once more, after); the
     decoder 93 MB. A call, searched in all five graphs, took a median 1.2 s
     for 4.5 s of audio (0.29x real time); in its own two, 442 ms (0.11x):
@@ -1388,7 +1388,7 @@ for this app:
     lattice beam 8; then the 3 best and the fuzzy snap, 8 processes) was a
     median 1.13 s: 155 ms of it starting the decoder, 89 ms the fuzzy snap.
     It decoded as the audio came, so little of that was after the call
-    ended -- as Voice Labs now does too.
+    ended -- as Voice Incubator now does too.
   - Kaldi normalizes the level: a call 28 dB quieter than the corpus's
     (-47 dBFS) heard the same at +25 dB. Such a call's background was
     silence, no word in it.
@@ -1470,7 +1470,7 @@ for this app:
   goes on to the dates skill (`transcript_cost` in the trace).
   One on a list's items (`on_list`) the transcript didn't confirm runs
   after all when what either head heard there names items on that list,
-  as carrying it out reads them (`VoiceLabsApp._listed`,
+  as carrying it out reads them (`VoiceIncubatorApp._listed`,
   `actions.named_on_list`; `on_list` in the trace): "to check cffee filters
   off the shopping list" -- "to" the end of the wake word, in the
   transcript too -- is the Coffee filters there.
@@ -1555,11 +1555,11 @@ Recognizing a command, acoustic pass included, took 40-210 ms there (4
 threads). The TDT pass is paid only for free text and for calls that matched
 nothing.
 
-## Timers and the Voice Labs integration
+## Timers and the Voice Incubator integration
 
 Timers live in Home Assistant, on a `voice_timer_list` entity for each area a
 satellite is in -- every satellite there shares it -- and one on each
-satellite in no area, provided by the Voice Labs integration
+satellite in no area, provided by the Voice Incubator integration
 (OHF-Voice/integration-voice-incubator). The app follows each list
 (`integration.Integration.timers`, by list): a timer on one shows on every
 satellite using it, in the same color (`timer_colors`, by list), commands on
@@ -1578,7 +1578,7 @@ device belongs to one config entry, a lookup by MAC only finds the registering
 entry's devices, and a child device's parent must share its config entry. So
 each satellite is a device of its own; on creation it takes the ESPHome
 device's area, and keeps its own from then on. The app registers satellites
-(`voice_labs/satellites/sync`) as they connect, and reads each one's area from
+(`voice_incubator/satellites/sync`) as they connect, and reads each one's area from
 its device.
 
 **Matching.** Timer commands carry an operation (`timer: cancel`); which timer
@@ -1636,7 +1636,7 @@ the stock firmware does.
 
 ## Home Assistant STT and TTS
 
-`voice_labs/voices.py`. Each satellite listens and speaks with the built-in
+`voice_incubator/voices.py`. Each satellite listens and speaks with the built-in
 models (TDT, Piper) or with Home Assistant's entities: `stt`, `tts`,
 `tts_voice` in `settings.json` for every satellite, the same keys in
 `satellites.json` per satellite (`builtin` for the app's own model, no key for
@@ -1647,7 +1647,7 @@ for Home Assistant Cloud's entities among the STT and TTS engines
 (`stt.home_assistant_cloud`, `tts.home_assistant_cloud`: there once someone
 is signed in; `Voices.cloud`), and the first time it finds them sets each as
 every satellite's `stt` and `tts` where neither is set
-(`VoiceLabsApp._take_cloud`) -- its speech-to-text always running
+(`VoiceIncubatorApp._take_cloud`) -- its speech-to-text always running
 (`stt_always`: it hears every command as it is said), its default voice,
 and the entity's best match for the language. `settings.json` `cloud_taken` says it was: once, so
 a choice made afterwards, the built-in models included (no key, as before),
@@ -1658,7 +1658,7 @@ time the registries are read, the home's `weather`, `climate` and
 `shopping_list` (`settings.json` `home`) are set where none is, to Home
 Assistant's one weather entity, one thermostat, and one to-do list called
 "Shopping list" or `todo.shopping_list` (`Catalog.home_things`; several is a
-choice, and none is taken) -- by `VoiceLabsApp._take_home`, once each:
+choice, and none is taken) -- by `VoiceIncubatorApp._take_home`, once each:
 `settings.json` `home_taken` lists those taken or found chosen already, so
 one cleared or changed afterwards stays so.
 
@@ -1681,7 +1681,7 @@ automatic one.
 **Always run** (`stt_always`, in `settings.json` or per satellite, with an
 STT entity): `StreamingTranscriber` posts to the same `/api/stt/<entity>` as
 a chunked upload, which Home Assistant hands the entity as it arrives
-(`request.content`). `VoiceLabsApp._start_stt` opens it once Kaldi has
+(`request.content`). `VoiceIncubatorApp._start_stt` opens it once Kaldi has
 verified the wake word, from Kaldi's split (where endpointing starts) --
 the AGC capture, or the AEC one lined up with it as `stt_audio_for` does,
 boosted by the gain that brings the wake word in it to -3 dBFS (the
@@ -1715,7 +1715,7 @@ by Home Assistant to what the device accepts). Home Assistant's state for
 that player cannot say when the announcement ends -- with Sendspin music on
 the media pipeline it is "playing" throughout -- so the device says so
 itself: a new device-to-app message, `DEVICE_EVENT` (0x09, `{"type":
-"announcing" | "announced"}`), sent by a `voice_labs.send_event` action from
+"announcing" | "announced"}`), sent by a `voice_incubator.send_event` action from
 the media player's `on_announcement` and `on_state`. The app keeps the call
 open until `announced`, as it does until `PLAYBACK_DRAINED` for Piper, so the
 ring, the LED and hang-up keep their timing. A new call stops an
@@ -1800,7 +1800,7 @@ Assistant's own media players.
 (`up54cb3d39`; an older player was `up` + its MAC), and Home Assistant's
 device for it has no MAC and no area, so nothing in Home Assistant's
 registries ties it to the satellite. Music Assistant's own player data does:
-the Voice Labs integration reads the players from the Music Assistant
+the Voice Incubator integration reads the players from the Music Assistant
 integration's client (`entry.runtime_data.mass.players`), finds the one whose
 device has the satellite's MAC -- or wraps the Sendspin protocol player that
 has it -- and returns its entity with the satellite
@@ -1845,7 +1845,7 @@ Assistant.
 
 ## When nothing matches: meaning, then GLiNER
 
-`voice_labs/fallback.py`. After the CTC matcher (keywords and examples), in
+`voice_incubator/fallback.py`. After the CTC matcher (keywords and examples), in
 order, each only when the one before found nothing -- and each only for the
 commands chosen for it (`fallback: [meaning, llm]` on the command; ticked on
 its page, or many at once on the Settings page). None are chosen to begin
@@ -1874,7 +1874,7 @@ decided it may be.
    nothing until a command is chosen for it); `fallback_top_k`.
 3. **The hint**, as before.
 
-**GLiNER** (`voice_labs/gliner.py`): GLiNER2.5 small (fastino, 74M
+**GLiNER** (`voice_incubator/gliner.py`): GLiNER2.5 small (fastino, 74M
 parameters, Apache-2.0), an encoder that in one pass classifies a sentence
 among labels and finds spans of named types in it. The labels are the
 commands' descriptions plus "something else: a question, small talk or
@@ -2068,7 +2068,7 @@ Ported from llama.cpp's smart-home-qa-bench (`router.py`, and its model
 results). When no command is meant -- after the CTC matcher, and around the
 command fallback -- a question still gets an answer:
 
-1. **Skills** (`voice_labs/skills/`, one module each, Questions on the Home
+1. **Skills** (`voice_incubator/skills/`, one module each, Questions on the Home
    page): spelling, dates, time from now, unit conversions, arithmetic --
    grammars that must parse the whole question *and* compute an answer, or
    let it fall through -- heard, a transcript may first lose one or two words
@@ -2084,32 +2084,32 @@ command fallback -- a question still gets an answer:
    "Twelve times eight is 96." -- the question said back where the skill
    can't say it with the answer); `settings.json` `skill_responses` picks
    one and may give a template per level, which the server renders through
-   Home Assistant (`VoiceLabsApp._skill_says`, the built-in sentence when it
+   Home Assistant (`VoiceIncubatorApp._skill_says`, the built-in sentence when it
    can't). The "can't look it up" skill, which answered questions about now
    or here, is gone: those go to the agent, or the Unknown command.
-2. **A Home Assistant conversation agent** (`voice_labs/agent.py`;
+2. **A Home Assistant conversation agent** (`voice_incubator/agent.py`;
    `settings.json` `agent`, none unless chosen): everything else -- not only
    questions -- with the satellite's `device_id` and the `conversation_id` of
    its area (`conversation_key`: every satellite there shares one; one in no
    area has its own), kept for `agent_keep_minutes` (5, the Voice PE's
    `conversation_timeout`) after the agent's last answer there. An LLM's
    answer is streamed through the integration
-   (`voice_labs/conversation/stream`: the agent asked in a chat log opened
+   (`voice_incubator/conversation/stream`: the agent asked in a chat log opened
    with a delta listener, as Assist's pipeline asks it, so the log keeps the
    turn), and said a sentence at a time as it comes (`agent.Streamed`,
    `tts.stream_sentences`): by Piper, or by a TTS entity through a TTS
-   stream played on the satellite (`voice_labs/tts/stream`, its text given a
+   stream played on the satellite (`voice_incubator/tts/stream`, its text given a
    sentence at a time). Home Assistant's own agent, and every agent with an
    integration from before it streamed, through `conversation/process`
    (`device_id` from Home Assistant 2026.10). An answer that is Home
    Assistant's `no_intent_match` counts as none. A dry run never asks it: an
    agent can act. When it asks something back (`continue_conversation`),
    the satellite listens for the answer without the wake word, and the
-   answer goes to it as said (`voice_labs/follow_up.py`). Its answers --
+   answer goes to it as said (`voice_incubator/follow_up.py`). Its answers --
    an `agent.Answered` or `Streamed` -- are said in its own voice when it
    has one (`agent_voice`: `tts: builtin` with a Piper `voice` and
    `speaker`, else a TTS entity with `tts_language` and `tts_voice`;
-   `VoiceLabsApp.agent_voice`). This replaced a small question LLM (Granite 4.0 350M or
+   `VoiceIncubatorApp.agent_voice`). This replaced a small question LLM (Granite 4.0 350M or
    Gemma 3 1B in llama.cpp, for what read as a question); the benchmark
    numbers below are from then.
 
@@ -2173,7 +2173,7 @@ by `dates.when`: a date, the nth or last weekday of a month, Easter or days
 or weeks before or after one of those, or a date with its year (once).
 Settings that can't be read -- edited by hand -- are logged and the built-in
 ones used (`skills.configure`); the skill's page says why. The engine gets
-them as `Engine.skill_settings` (`VoiceLabsApp.configure_skills`, at start
+them as `Engine.skill_settings` (`VoiceIncubatorApp.configure_skills`, at start
 and when a page saves).
 
 From the benchmark (Q8_0, the "plain" prompt the app uses), on the 148
@@ -2257,7 +2257,7 @@ It has no pronunciation for `nabu` and an overwhelming prior for a common word,
 which is exactly what the lexicon entry in `wake.yaml` exists to supply.
 
 So the second opinion is an accept path for `prefix` and `last` rejections
-**only** (`voice_labs/wake_ratio.py`). A `confusable` rejection stands: that is
+**only** (`voice_incubator/wake_ratio.py`). A `confusable` rejection stands: that is
 Kaldi being right about the thing it is for.
 
 That does not keep confusables away from it. Kaldi applies `prefix` and `last`
@@ -2627,8 +2627,8 @@ is only needed for the benchmarks of the old chain now.) Then:
 
 ```bash
 rsync -a --exclude .venv --exclude var --exclude 'models/wake-kaldi-tools' \
-      --exclude 'models/wake-kaldi-decoderd' voice_labs/ pi:~/voice_labs/
-ssh pi 'cd ~/voice_labs && python3 -m venv .venv &&
+      --exclude 'models/wake-kaldi-decoderd' voice_incubator/ pi:~/voice_incubator/
+ssh pi 'cd ~/voice_incubator && python3 -m venv .venv &&
         .venv/bin/python -m pip install -r requirements.txt &&
         .venv/bin/python -m pip install -e _src/wyoming-wake-kaldi &&
         .venv/bin/python setup.py build_ext --inplace'

@@ -36,14 +36,14 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from voice_labs import languages  # noqa: E402
-from voice_labs.fallback import (  # noqa: E402
+from voice_incubator import languages  # noqa: E402
+from voice_incubator.fallback import (  # noqa: E402
     DEFAULT_FALLBACK_MODEL,
     GLINER_MODELS,
     GLINER_THRESHOLD,
     GlinerPicker,
 )
-from voice_labs.store import compile_store  # noqa: E402
+from voice_incubator.store import compile_store  # noqa: E402
 
 UTTERANCES = ROOT / "tests/fallback_utterances.yaml"
 """English's; another language's is ``fallback_utterances.<code>.yaml``."""
@@ -73,7 +73,7 @@ def library_store(chosen: list[str] | None = None, home: dict[str, Any] | None =
     library -- with the value lists they use, in HOME: each chosen for
     meaning and the model step, or only those in ``chosen`` (a version's id,
     or a command's for all its versions)."""
-    from voice_labs.web import load_library  # pylint: disable=import-outside-toplevel
+    from voice_incubator.web import load_library  # pylint: disable=import-outside-toplevel
 
     commands: dict[str, Any] = {}
     lists: dict[str, Any] = {}
@@ -133,9 +133,9 @@ def run_fallback(args, compiled, utterances) -> dict[str, Any]:
     ``Engine._fall_back`` runs them, without speech or the CTC matcher."""
     from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.commands import command_of  # pylint: disable=import-outside-toplevel
-    from voice_labs.fallback import Fallback, label_of  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.commands import command_of  # pylint: disable=import-outside-toplevel
+    from voice_incubator.fallback import Fallback, label_of  # pylint: disable=import-outside-toplevel
 
     utterances = _for_chosen(utterances, _chosen(args))
     engine = Engine(languages.current().ctc_dir(ROOT), None, DEFAULT_EMBEDDING_MODEL, threads=args.threads)
@@ -202,10 +202,10 @@ def _rate(rows: list[dict[str, Any]]) -> float | None:
 async def run_chain(args, compiled, utterances) -> dict[str, Any]:
     from adapt_ctc.embedding import DEFAULT_EMBEDDING_MODEL  # pylint: disable=import-outside-toplevel
 
-    from voice_labs.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
-    from voice_labs.fallback import Fallback  # pylint: disable=import-outside-toplevel
-    from voice_labs.server import _pcm_to_float  # pylint: disable=import-outside-toplevel
-    from voice_labs.tts import Speech  # pylint: disable=import-outside-toplevel
+    from voice_incubator.engine import Engine, Satellite  # pylint: disable=import-outside-toplevel
+    from voice_incubator.fallback import Fallback  # pylint: disable=import-outside-toplevel
+    from voice_incubator.server import _pcm_to_float  # pylint: disable=import-outside-toplevel
+    from voice_incubator.tts import Speech  # pylint: disable=import-outside-toplevel
 
     pack = languages.current()
     engine = Engine(pack.ctc_dir(ROOT), pack.transducer_dir(ROOT), DEFAULT_EMBEDDING_MODEL, threads=args.threads)

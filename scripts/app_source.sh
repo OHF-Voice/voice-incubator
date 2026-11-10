@@ -3,7 +3,7 @@
 # built from in place of the release its Dockerfile pins: for building the app,
 # or deploying it, from a checkout of OHF-Voice/app-voice-incubator.
 #
-#   scripts/app_source.sh ~/opt/app-voice-incubator/voice_labs
+#   scripts/app_source.sh ~/opt/app-voice-incubator/voice_incubator
 #
 # Uncommitted changes are not in it.
 set -euo pipefail
