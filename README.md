@@ -75,8 +75,8 @@ to flash -- or, through [Wyoming](#other-satellites-through-wyoming), any
 satellite Home Assistant has.
 
 1. **The app.**
-   [![Add the repository to your Home Assistant.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FOHF-Voice%2Fapps-experimental)
-   Add `https://github.com/OHF-Voice/apps-experimental` to Home Assistant's app
+   [![Add the repository to your Home Assistant.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FOHF-Voice%2Fapp-voice-incubator)
+   Add `https://github.com/OHF-Voice/app-voice-incubator` to Home Assistant's app
    repositories, then install **Voice Incubator** and start it. The first time it
    starts, it downloads its speech models -- about 530 MB: Parakeet (speech),
    EmbeddingGemma 2 (meaning), GLiNER (the command fallback) and Piper's
@@ -90,7 +90,7 @@ satellite Home Assistant has.
    It gives each satellite a device and its timers, and runs Assist's intents
    for the app.
 3. **The satellites.** Flash a Home Assistant Voice Preview Edition from its
-   [install page](https://ohf-voice.github.io/voice-pe-alt-firmware/voice-pe-voice-labs/)
+   [install page](https://ohf-voice.github.io/firmware-voice-incubator/voice-pe/)
    and give it your Wi-Fi. The app finds it on the network and connects to it.
 
 Then open **Voice Incubator** in Home Assistant's sidebar to make commands, name
@@ -172,3 +172,7 @@ Only with the Voice Incubator firmware:
 - [DESIGN.md](DESIGN.md): how it works, what was measured to get it there,
   and how to work on it.
 - [CHANGELOG.md](CHANGELOG.md): what changed, version by version.
+- [The app](https://github.com/OHF-Voice/app-voice-incubator): the Home
+  Assistant app, built from a release of this source.
+- [The firmware](https://github.com/OHF-Voice/firmware-voice-incubator), and its
+  [install page](https://ohf-voice.github.io/firmware-voice-incubator/voice-pe/).
