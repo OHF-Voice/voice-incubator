@@ -2587,9 +2587,10 @@ async function pageSatellite(key, opened) {
         h("div", { class: "kv", style: "margin-top:6px" },
           h("div", {}, "Id"), h("div", {}, h("code", {}, s.key)),
           h("div", {}, "Satellite"), h("div", {}, s.esphome_name || "—", s.host ? ` at ${s.host}` : ""),
+          s.device ? [h("div", {}, "Firmware"), h("div", {}, deviceModel(s.device.model), " · ", s.device.firmware || "version not said", ` · protocol ${s.device.protocol}`)] : null,
           h("div", {}, "In Home Assistant"), h("div", {}, s.device_id ? ["device ", h("code", {}, s.device_id), s.timer_list ? [" · timers ", h("code", {}, s.timer_list)] : null] : "not registered (needs the Voice Labs integration)"),
           h("div", {}, "Floor"), h("div", {}, s.floor_name || "—"),
-          h("div", {}, "Wake words"), h("div", {}, wakeWordNames(wake, s.wake_words_used), s.wake_words ? " (its own)" : " (preferred)",
+          h("div", {}, "Wake words"), s.device && !s.device.wake_format ? h("div", {}, "None from here: it runs none the app can send") : h("div", {}, wakeWordNames(wake, s.wake_words_used), s.wake_words ? " (its own)" : " (preferred)",
             (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordNames(wake, s.wake_words_need_firmware)} needs newer firmware`) : null,
             " · ", h("a", { href: "#/wake" }, "change")),
           s.timers && s.timers.length ? [h("div", {}, "Timers"), h("div", {}, s.timers.map((t) => `${t.name || "unnamed"} (${t.status}, ${Math.round(t.remaining)} s left)`).join(" · "))] : null))),
@@ -3492,6 +3493,12 @@ function wakeWordName(wake, id) {
 }
 
 // The wake words a satellite listens for, by name: "Okay Nabu, Hey Jarvis".
+// What a satellite is (its HELLO's model), as people call it.
+const DEVICE_MODELS = { "voice-pe": "Voice PE", "box-3": "ESP32-S3-BOX-3", linux: "Linux" };
+function deviceModel(model) {
+  return DEVICE_MODELS[model] || model || "Unknown device";
+}
+
 function wakeWordNames(wake, ids) {
   return (ids || []).length ? ids.map((id) => wakeWordName(wake, id)).join(", ") : "none";
 }
@@ -5100,7 +5107,7 @@ function liveSection(s) {
   }
   button.addEventListener("click", () => (socket ? stop() : start()));
   play.addEventListener("change", () => { if (gain) gain.gain.value = play.checked ? 1 : 0; });
-  const why = !s.connected ? "It is offline." : s.can_listen === false ? "Its firmware can't stream outside calls: flash the newer voice_labs firmware to listen live." : "";
+  const why = !s.connected ? "It is offline." : s.can_listen === false ? "Its firmware can't stream outside calls: update it to listen live." : "";
   if (why) button.disabled = true;
   return h("div", {},
     heading("h3", "Listen live", "Hear what its microphone hears, now, and see what its voice activity and wake word models make of it. It streams only while you listen, its ring blinks red the whole time, and it doesn't answer a wake word meanwhile: a detection is only marked here. Near the satellite, use headphones or untick “Play it here”: it would hear itself."),

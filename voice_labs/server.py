@@ -56,6 +56,7 @@ from .protocol import (
     HEADER,
     MAX_PAYLOAD,
     SAMPLE_RATE,
+    Hello,
     Message,
     encode,
     encode_json,
@@ -192,7 +193,7 @@ STT_MAX_GAIN = 10 ** (30 / 20)
 def _aec_shift(call: Call) -> int:
     """Bytes to add to a position in the AGC capture for the same moment in
     the AEC one: each pre-roll ends at the detection, less the AEC tap's lead."""
-    return (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - AEC_LEAD_SAMPLES * 2
+    return (call.aec_preroll_bytes or call.preroll_bytes) - call.preroll_bytes - call.aec_lead * 2
 
 
 def stt_audio_for(
@@ -357,7 +358,7 @@ class Options:
     speaker_threshold: float = 0.45
     speaker_channel: str = "aec"
     """Which capture to identify from. AEC benchmarked at half the EER of AGC,
-    provided the firmware streams it with gain (see voice-pe-alt-firmware's voice-labs.yaml)."""
+    provided the firmware streams it with gain (see the firmware's devices/voice-pe.yaml)."""
     speaker_learn: bool = True
     timer_ring_seconds: float = 900.0
     """How long a finished timer (or an alarm) rings if nobody stops it: 15
@@ -445,6 +446,9 @@ class Call:
     speaker is identified from."""
     aec_preroll_bytes: int = 0
     """Where the detection falls in ``aec``; its pre-roll can differ from AGC's."""
+    aec_lead: int = AEC_LEAD_SAMPLES
+    """How far ``aec`` runs ahead of ``audio``, in samples: what the satellite
+    says (HELLO ``aec_lead_samples``), else the VPE's."""
     command: bytearray = field(default_factory=bytearray)
     last_audio: float | None = None
     """When the AGC capture last arrived (monotonic)."""
@@ -520,6 +524,7 @@ class Session:
     satellite: str = ""
     """The satellite's key (its MAC) once it has said HELLO."""
     hello: dict = field(default_factory=dict)
+    """Its HELLO, as sent."""
     warned_quiet_aec: bool = False
     ringing: asyncio.Task | None = None
     """A finished timer ringing on this satellite."""
@@ -562,6 +567,11 @@ class Session:
 
     def __str__(self) -> str:
         return self.device_id
+
+    @property
+    def device(self) -> Hello:
+        """What it is and can do, from its HELLO, the same for every protocol."""
+        return Hello.parse(self.hello)
 
 
 @dataclass
@@ -1548,11 +1558,11 @@ class VoiceLabsApp:
         The device has no TFLite interpreter and no flatbuffer parser, so each
         graph is walked here and sent as a flat op table plus weights.
         """
-        slots = int(session.hello.get("model_slots") or DEFAULT_MODEL_SLOTS)
+        slots = session.device.model_slots or DEFAULT_MODEL_SLOTS
         room = max(1, slots - RESERVED_SLOTS)
         wanted = self.satellite_wake_words(session.satellite)
         models = [m for m in (self.wake_words.model(w) for w in wanted) if m is not None]
-        if not session.hello.get("max_pool"):
+        if not session.device.max_pool:
             # A word trained here pools its last layer, which older firmware's
             # executor refuses.
             for model in [m for m in models if m.max_pool]:
@@ -1577,6 +1587,11 @@ class VoiceLabsApp:
         while session.call is not None and session.writer is not None:
             await asyncio.sleep(0.5)
         if session.writer is None:
+            return
+        if session.device.wake_format != "mixednet":
+            # Press to talk, or wake words of its own: nothing here it can run.
+            _LOGGER.info("[%s] Runs no wake word models from here (%s)", session, session.device.wake_format or "none")
+            session.wake_words, session.wake_cutoffs = [], {}
             return
         models = self._wake_models_for(session)
         session.wake_words = [m.model_id for m in models if not m.is_vad]
@@ -1604,7 +1619,7 @@ class VoiceLabsApp:
         while it arms it -- a response, a ringing timer -- and ends the call
         on it (HELLO ``stop_word``). Older firmware has it pushed for each
         ring, since it would run it all the time."""
-        return self.wake_words.model(STOP) if session.hello.get("stop_word") else None
+        return self.wake_words.model(STOP) if session.device.stop_word else None
 
     def wake_words_changed(self, key: str | None = None) -> None:
         """A satellite's pick (or every satellite's), or a cutoff, changed:
@@ -1996,7 +2011,7 @@ class VoiceLabsApp:
         session = self.sessions.get(key)
         if session is None or session.writer is None:
             raise ConnectionError("The satellite is not connected")
-        if not session.hello.get("monitor"):
+        if not session.device.monitor:
             raise ConfigError("This satellite's firmware can't stream outside calls: update it to listen live")
         queue: asyncio.Queue = asyncio.Queue(maxsize=self.LIVE_QUEUE)
         session.listeners.add(queue)
@@ -2043,7 +2058,7 @@ class VoiceLabsApp:
         session = self.sessions.get(key)
         if session is None or session.writer is None:
             raise ConfigError("The satellite is not connected")
-        if not session.hello.get("monitor_aec"):
+        if not session.device.monitor_aec:
             raise ConfigError("This satellite's firmware can't stream for enrollment: update it")
         self._not_listening()
         self.enrollment = Enrollment(key, self.satellite(key).name, self.speakers.profiles.find(speaker) or speaker)
@@ -2151,7 +2166,7 @@ class VoiceLabsApp:
         session = self.sessions.get(key)
         if session is None or session.writer is None:
             raise ConfigError("The satellite is not connected")
-        if not session.hello.get("monitor_aec"):
+        if not session.device.monitor_aec:
             raise ConfigError("This satellite's firmware can't stream for recording: update it")
         self._not_listening()
         # The satellite's own model of the word, if it runs one: did it hear each take?
@@ -2240,6 +2255,9 @@ class VoiceLabsApp:
             wake_word=self.wake_words.resolve(heard) or heard,
             aec_preroll_bytes=int(info.get("aec_preroll_bytes", 0)),
         )
+        lead = session.device.aec_lead_samples
+        if lead is not None:
+            session.call.aec_lead = lead
         session.drained.clear()
         if session.announcing_now is not None and not session.announcing_now.done():
             session.announcing_now.cancel()  # someone wants it: the announcement waits no more
@@ -2280,7 +2298,7 @@ class VoiceLabsApp:
             **detection,
             preroll=round(session.call.preroll_bytes / BYTE_RATE, 3),
             aec_preroll=round(session.call.aec_preroll_bytes / BYTE_RATE, 3),
-            aec_lead=AEC_LEAD_SAMPLES,
+            aec_lead=session.call.aec_lead,
         )
         session.call.utterance = self.arbiter.heard(session.satellite, session.call.wake_word, detection.get("probability"))
         _LOGGER.info(
@@ -2929,7 +2947,7 @@ class VoiceLabsApp:
                 (call.aec_preroll_bytes or call.preroll_bytes) // 2,
                 capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
                 boost=satellite.voice.stt_audio == "aec_boost",
-                lead=AEC_LEAD_SAMPLES,
+                lead=call.aec_lead,
             )
         async with self._model_lock:
             assert self.engine is not None
@@ -2983,7 +3001,7 @@ class VoiceLabsApp:
             await self._hang_up(session, "timer_stopped")
             return
         # Firmware that can't hear an answer isn't asked a question.
-        listens = bool(session.hello.get("listen")) and not dry_run
+        listens = session.device.listen and not dry_run
         if asked is not None:
             speech, outcome, summary = await self._answer(
                 asked, decision, satellite, dry_run, record, cue=lambda sound: self._cue(session, sound), listens=listens,
@@ -2993,7 +3011,7 @@ class VoiceLabsApp:
             decision = await self._listed(decision, satellite, record)
             speech, outcome, summary = await self._carry_out(
                 decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
-                cue=lambda sound: self._cue(session, sound), confirmed=not session.hello.get("listen"), listens=listens,
+                cue=lambda sound: self._cue(session, sound), confirmed=not session.device.listen, listens=listens,
             )
         if outcome in ("not recognized", "error"):
             await self._cue(session, "not_understood")
@@ -3041,7 +3059,7 @@ class VoiceLabsApp:
         (voice_labs/follow_up.py): a command's question before it acts, or
         the conversation agent's -- on firmware that can open its microphone
         again."""
-        if dry_run or not session.hello.get("listen"):
+        if dry_run or not session.device.listen:
             return None
         if outcome == "asked" and decision.choices:
             kind, question = "which", str(speech or "")
@@ -4259,7 +4277,7 @@ class VoiceLabsApp:
             while session.call is not None and time.monotonic() < deadline:
                 await asyncio.sleep(0.2)
             stop = self.wake_words.model(STOP)
-            if stop is not None and self._kept_stop(session) is None:
+            if stop is not None and self._kept_stop(session) is None and session.device.wake_format == "mixednet":
                 await self._push_models(session, [stop], first_slot=len(session.wake_words) + 1)
             ringing = list(session.ringing_timers)
             names = [t.get("name") for t in ringing]
@@ -4386,7 +4404,7 @@ class VoiceLabsApp:
         a, b = self.sessions.get(source), self.sessions.get(target)
         if a is None or b is None or a.writer is None or b.writer is None:
             return "busy"
-        if not (a.hello.get("intercom") and b.hello.get("intercom")):
+        if not (a.device.intercom and b.device.intercom):
             return "needs_firmware"
         recording = [s.satellite for s in (self.enrollment, self.wake_recording) if s is not None and s.listening]
         if a.intercom is not None or (b.call is not None or b.intercom is not None) or self._busy(b) or {source, target} & set(recording):
@@ -4507,7 +4525,7 @@ class VoiceLabsApp:
                 _LOGGER.warning(
                     "[%s] The AEC capture peaks at %d/32768 -- too quiet to identify "
                     "speakers reliably. Give aec_microphone a gain_factor (16 in "
-                    "voice-labs.yaml) or run with --speaker-channel agc.",
+                    "the firmware's devices/voice-pe.yaml) or run with --speaker-channel agc.",
                     session,
                     peak,
                 )

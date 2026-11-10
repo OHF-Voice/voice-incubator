@@ -1,8 +1,13 @@
-"""mDNS discovery of ESPHome voice_labs devices.
+"""mDNS discovery of satellites (protocol.SERVICE_TYPES).
 
 The browser stays alive for the lifetime of the app rather than resolving once:
 satellites get power-cycled, reflashed and added, and a list captured at startup
 goes stale the first time one of those happens.
+
+A satellite can be found under more than one name -- protocol 2 firmware
+answers to protocol 1's too, for apps from before the rename -- and is one
+satellite all the same: it comes and goes by its key, at the address of the
+first name it has.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from dataclasses import dataclass
 from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
-SERVICE_TYPE = "_voice-labs._tcp.local."
+from .protocol import SERVICE_TYPES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +37,7 @@ class Device:
     host: str
     port: int
     service: str
+    service_type: str = SERVICE_TYPES[0]
 
     def __str__(self) -> str:
         return f"{self.key} at {self.host}:{self.port}"
@@ -52,15 +58,17 @@ class Discovery:
     def __init__(self) -> None:
         self.events: asyncio.Queue[tuple[str, Device]] = asyncio.Queue()
         self._by_service: dict[str, Device] = {}
+        self._by_key: dict[str, Device] = {}
+        """What was last announced for each satellite."""
         self._azc: AsyncZeroconf | None = None
         self._browser: AsyncServiceBrowser | None = None
 
     async def start(self) -> None:
         self._azc = AsyncZeroconf()
         self._browser = AsyncServiceBrowser(
-            self._azc.zeroconf, SERVICE_TYPE, handlers=[self._on_change]
+            self._azc.zeroconf, list(SERVICE_TYPES), handlers=[self._on_change]
         )
-        _LOGGER.info("Browsing for %s", SERVICE_TYPE)
+        _LOGGER.info("Browsing for %s", ", ".join(SERVICE_TYPES))
 
     async def stop(self) -> None:
         if self._browser is not None:
@@ -74,7 +82,7 @@ class Discovery:
         if state_change is ServiceStateChange.Removed:
             device = self._by_service.pop(name, None)
             if device is not None:
-                self.events.put_nowait(("removed", device))
+                self._settle(device.key)
             return
 
         async def resolve() -> None:
@@ -83,14 +91,36 @@ class Discovery:
             addresses = info.parsed_addresses()
             if not addresses or info.port is None:
                 return
-            device = Device(_key(name, info), addresses[0], info.port, name)
+            device = Device(_key(name, info), addresses[0], info.port, name, service_type)
             previous = self._by_service.get(name)
             if previous == device:
                 return
-            if previous is not None:
-                # Same service, new address: drop the old session first.
-                self.events.put_nowait(("removed", previous))
             self._by_service[name] = device
-            self.events.put_nowait(("added", device))
+            if previous is not None and previous.key != device.key:
+                self._settle(previous.key)
+            self._settle(device.key)
 
         asyncio.ensure_future(resolve())
+
+    def _settle(self, key: str) -> None:
+        """Announce what changed for one satellite: found, gone, or at a new
+        address (gone, then found: the old session is dropped first)."""
+        found = [d for d in self._by_service.values() if d.key == key]
+        best = min(found, key=_rank, default=None)
+        current = self._by_key.get(key)
+        if best is not None and current is not None and (best.host, best.port) == (current.host, current.port):
+            self._by_key[key] = best  # the same satellite, under whichever name
+            return
+        if current is not None:
+            del self._by_key[key]
+            self.events.put_nowait(("removed", current))
+        if best is not None:
+            self._by_key[key] = best
+            self.events.put_nowait(("added", best))
+
+
+def _rank(device: Device) -> int:
+    try:
+        return SERVICE_TYPES.index(device.service_type)
+    except ValueError:
+        return len(SERVICE_TYPES)

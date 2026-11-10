@@ -1474,6 +1474,63 @@ async def _cancelled(tmp_path):
         hass_server.close()
 
 
+def test_a_satellite_with_one_capture_and_no_wake_words(tmp_path):
+    asyncio.run(_one_capture(tmp_path))
+
+
+async def _one_capture(tmp_path):
+    """Protocol 2 (PROTOCOL.md): a satellite that says neither ``aec`` nor
+    ``wake_format`` -- a BOX-3 or a Linux one, say -- is pushed no models,
+    and its calls (press to talk) are heard on the one capture it sends."""
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    satellite = FakeSatellite(
+        mac=":".join(MAC[i : i + 2] for i in range(0, 12, 2)), speed=8.0, aec=False, monitor_aec=False,
+        hello_extra={"protocol": 2, "model": "box-3", "firmware": "2026.11.9.1", "aec_lead_samples": 0},
+    )
+    satellite_server = await serve(satellite)
+    (tmp_path / "commands.yaml").write_text(COMMANDS)
+    (tmp_path / "settings.yaml").write_text("sounds: false\n")
+    http_port = free_port()
+    app = VoiceLabsApp(Options(
+        host="127.0.0.1", port=satellite_server.sockets[0].getsockname()[1], hass_url=f"http://127.0.0.1:{hass_port}",
+        hass_token=fake_hass.TOKEN, data_dir=tmp_path, http_port=http_port, speaker_profiles=tmp_path / "speakers.json",
+        threads=4,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await asyncio.wait_for(satellite.ready.wait(), 30)
+        await wait_for(lambda: MAC in app.sessions and app.sessions[MAC].hello)
+        assert await satellite.call(read_call(CALLS / "call-15788.wav"), wake_word="manual") == "done"
+        assert satellite.models == [] and satellite.clears == 0
+        record = app.calls.recent[-1]
+        started = next(s for s in record.stages if s["stage"] == "call_start")
+        assert started["aec_lead"] == 0 and started["aec_preroll"] == 0
+        async with aiohttp.ClientSession(f"http://127.0.0.1:{http_port}") as http:
+            [shown] = (await (await http.get("/api/satellites")).json())["satellites"]
+        assert shown["device"] == {
+            "protocol": 2, "model": "box-3", "firmware": "2026.11.9.1", "wake_format": None, "aec": False,
+        }
+
+        # A timer rings without "stop" pushed: it couldn't run it.
+        timer_list = f"voice_timer_list.{MAC}_timers"
+        await hass._call_service({
+            "domain": "voice_timer_list", "service": "create_timer",
+            "target": {"entity_id": timer_list}, "service_data": {"duration": 30},
+        })
+        [timer_id] = hass.timers[timer_list]
+        await wait_for(lambda: app.integration.running(MAC))
+        played = satellite.played
+        await hass.finish_timer(timer_list, timer_id)
+        await wait_for(lambda: app.sessions[MAC].ringing is not None and satellite.played > played + 32000)
+        assert satellite.models == [] and satellite.clears == 0
+    finally:
+        runner.cancel()
+        await app.stop()
+        satellite_server.close()
+
+
 def test_firmware_that_keeps_stop_loaded(tmp_path):
     asyncio.run(_stop_kept(tmp_path))
 

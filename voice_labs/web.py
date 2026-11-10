@@ -1215,11 +1215,16 @@ class Api:
                     "wake_words_used": (
                         session.wake_words if session and session.wake_words else app.satellite_wake_words(key)
                     ),
-                    "model_slots": (session.hello.get("model_slots") if session else None),
+                    "model_slots": (session.device.model_slots if session else None),
+                    # What it is, from its HELLO (PROTOCOL.md): absent offline.
+                    "device": (
+                        {k: getattr(session.device, k) for k in ("protocol", "model", "firmware", "wake_format", "aec")}
+                        if session else None
+                    ),
                     # Its pick, trained here, which its firmware can't run (no max pooling).
                     "wake_words_need_firmware": [
                         w for w in app.satellite_wake_words(key)
-                        if session and not session.hello.get("max_pool")
+                        if session and not session.device.max_pool
                         and (model := app.wake_words.model(w)) is not None and model.max_pool
                     ],
                     # As stored (absent: as every satellite) and as it comes out.
@@ -1250,7 +1255,7 @@ class Api:
                     "host": session.host if session else None,
                     "in_call": bool(session and session.call is not None),
                     # Its firmware can stream outside calls: it can be listened to live.
-                    "can_listen": bool(session and session.hello.get("monitor")),
+                    "can_listen": bool(session and session.device.monitor),
                     "listeners": len(session.listeners) if session else 0,
                     "debug": app.calls.sessions[key].to_json() if key in app.calls.sessions else None,
                 }
@@ -2017,7 +2022,7 @@ class Api:
             satellites.append({
                 "key": key,
                 "name": self.app.satellite(key).name,
-                "enroll": bool(session.hello.get("monitor_aec")),
+                "enroll": session.device.monitor_aec,
                 "wake_word": next((w.name for w in words if w is not None), None),
             })
         voices = {sp["name"]: sp for sp in self.app.speaker_list()}

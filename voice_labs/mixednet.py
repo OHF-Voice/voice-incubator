@@ -62,6 +62,7 @@ class WakeModel:
     def header(self, slot: int) -> dict:
         """The JSON the device needs before the first byte of ``blob``."""
         return {
+            "format": "mixednet",
             "slot": slot,
             "id": self.model_id,
             "wake_word": self.wake_word,

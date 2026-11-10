@@ -1,4 +1,4 @@
-"""A stand-in for an ESPHome voice_labs device, replaying recorded calls.
+"""A stand-in for a satellite (PROTOCOL.md), replaying recorded calls.
 
 It listens like the device does, says HELLO when the app connects, accepts the
 wake word models it is pushed, and then places calls: each WAV is a call as the
@@ -98,6 +98,8 @@ class FakeSatellite:
         hello.update(self.hello_extra)
         writer.write(encode_json(Message.HELLO, hello))
         await writer.drain()
+        if hello.get("protocol", 1) >= 2 and not hello.get("wake_format"):
+            self.ready.set()  # no wake words to wait for: press to talk
         try:
             while True:
                 header = await reader.readexactly(HEADER.size)

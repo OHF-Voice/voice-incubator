@@ -331,6 +331,14 @@
 - **Clear sessions**: a button on the Sessions page deletes every session
   and its audio (on a satellite's sessions, only its own). One still going
   is kept.
+- **Satellites speaking protocol 2**, the Voice Incubator firmware's
+  ([PROTOCOL.md](https://github.com/OHF-Voice/firmware-voice-incubator/blob/main/PROTOCOL.md)):
+  found under its new name (`_voice-incubator._tcp`) as well as the old one,
+  one satellite either way. A satellite says what it is and its firmware's
+  version (under **About it**), whether it sends a second capture (speaker ID
+  uses the call's when it doesn't, and the second capture is lined up by the
+  lead it says), and which wake word models it runs: one that runs none the
+  app can send is pushed none. The Voice Labs firmware is protocol 1: a VPE.
 - **What's on the list confirms a doubtful command on it.** "Check coffee
   filters off the shopping list", heard as "to check cffee filters off the
   shopping list" -- a word left over, in the transcript too -- did nothing.

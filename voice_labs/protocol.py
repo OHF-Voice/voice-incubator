@@ -1,4 +1,5 @@
-"""Wire protocol spoken with the ESPHome voice_labs component.
+"""Wire protocol spoken with satellites (the Voice Incubator firmware's
+PROTOCOL.md; the ESPHome component voice_incubator, voice_labs before it).
 
 Frames are ``uint8 type | uint16 big-endian length | payload``. Audio payloads
 are raw 16 kHz, 16-bit, mono PCM; control payloads are JSON.
@@ -8,7 +9,9 @@ from __future__ import annotations
 
 import json
 import struct
+from dataclasses import dataclass
 from enum import IntEnum
+from typing import Any
 
 HEADER = struct.Struct(">BH")
 MAX_PAYLOAD = 4096
@@ -18,10 +21,23 @@ BYTES_PER_SAMPLE = 2
 BYTE_RATE = SAMPLE_RATE * BYTES_PER_SAMPLE
 
 
+PROTOCOL = 2
+"""What this app speaks. Protocol 2 added HELLO's ``model``, ``firmware``,
+``aec`` and ``wake_format``, and the service name ``_voice-incubator``; a
+protocol 1 satellite (the Voice Labs firmware) is a VPE: both captures, and
+mixednet wake words."""
+
+SERVICE_TYPES = ("_voice-incubator._tcp.local.", "_voice-labs._tcp.local.")
+"""Where satellites are found: protocol 2's name first, then protocol 1's
+(the Voice Labs firmware), which protocol 2 firmware also answers to for apps
+from before the rename."""
+
+
 class Message(IntEnum):
     """Device to app."""
 
     HELLO = 0x01
+    """What the satellite is and can do (``Hello``)."""
     CALL_START = 0x02
     """A wake word was detected: {"wake_word": id, "preroll_bytes",
     "aec_preroll_bytes", "probability", "max_probability", "cutoff"} -- the
@@ -72,6 +88,60 @@ class Message(IntEnum):
     MODEL_DATA = 0x21
     MODEL_END = 0x22
     MODEL_CLEAR = 0x23
+
+
+@dataclass(frozen=True)
+class Hello:
+    """A satellite's HELLO, read the same for every protocol."""
+
+    protocol: int
+    name: str
+    mac: str
+    model: str | None
+    """What it is: voice-pe, box-3, linux, ... (protocol 1: a VPE)."""
+    firmware: str | None
+    """Its firmware's version, when it says."""
+    aec: bool
+    """It sends a second capture of each call (AUDIO_IN_AEC): echo-cancelled,
+    before gain control, what speakers are identified on."""
+    aec_lead_samples: int | None
+    """How far the second capture runs ahead of the first; None: the VPE's."""
+    monitor_aec: bool
+    """It sends the second capture while monitored too (AUDIO_MONITOR_AEC):
+    what speakers are enrolled on."""
+    wake_format: str | None
+    """The wake word models it runs, pushed by the app; None: it runs none
+    the app can push (press to talk, or its own)."""
+    model_slots: int | None
+    max_pool: bool
+    stop_word: bool
+    monitor: bool
+    intercom: bool
+    listen: bool
+
+    @classmethod
+    def parse(cls, info: dict[str, Any]) -> Hello:
+        protocol = int(info.get("protocol") or 1)
+        first = protocol < 2
+        slots = info.get("model_slots")
+        lead = info.get("aec_lead_samples")
+        return cls(
+            protocol=protocol,
+            name=str(info.get("name") or ""),
+            mac=str(info.get("mac") or ""),
+            model=str(info.get("model") or "") or ("voice-pe" if first else None),
+            firmware=str(info.get("firmware") or "") or None,
+            aec=first or bool(info.get("aec")),
+            aec_lead_samples=int(lead) if isinstance(lead, (int, float)) and lead >= 0 else None,
+            monitor_aec=bool(info.get("monitor_aec")),
+            wake_format=str(info.get("wake_format") or "") or ("mixednet" if first else None),
+            model_slots=int(slots) if isinstance(slots, (int, float)) and slots > 0 else None,
+            max_pool=bool(info.get("max_pool")),
+            stop_word=bool(info.get("stop_word")),
+            monitor=bool(info.get("monitor")),
+            intercom=bool(info.get("intercom")),
+            listen=bool(info.get("listen")),
+        )
 
 
 def encode(msg_type: Message, payload: bytes = b"") -> bytes:
