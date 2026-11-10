@@ -109,7 +109,9 @@ For work on the UI without a satellite or a real Home Assistant,
 `scripts/dev_ui.sh --replay calls/call-15788.wav ... --` adds a fake satellite
 (`tests/fake_satellite.py`) that places those recorded calls in a loop.
 
-With no `--host` it browses `_voice-labs._tcp` and serves **every** satellite it
+With no `--host` it browses `_voice-incubator._tcp` and `_voice-labs._tcp`
+(protocol 1's name, the Voice Labs firmware's; protocol 2 firmware answers to
+both, and is one satellite by its MAC) and serves **every** satellite it
 finds, connecting as they appear and dropping them as they go -- but one whose
 Voice Labs device is disabled in Home Assistant (`Catalog.disabled_satellites`,
 followed as the device registry changes), which it lets go of for another app
