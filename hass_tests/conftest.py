@@ -6,7 +6,7 @@ there.
 From a Home Assistant core checkout, with its test requirements installed:
 
     cd ~/opt/homeassistant && python -m pytest -c pyproject.toml --rootdir . \\
-        ~/opt/app-voice-incubator/voice_labs/hass_tests
+        ~/opt/voice-incubator/hass_tests
 
 (``HA_CORE`` points elsewhere than the current directory.) Home Assistant's
 tests keep their custom integrations in a package of their own
@@ -29,7 +29,7 @@ from tests.conftest import *  # noqa: E402,F403 - Home Assistant's fixtures and 
 # The integration, from a checkout of OHF-Voice/integration-voice-incubator:
 # VOICE_LABS, else beside this repository's.
 COMPONENTS = (
-    Path(os.environ.get("VOICE_LABS", Path(__file__).resolve().parents[3] / "integration-voice-incubator"))
+    Path(os.environ.get("VOICE_LABS", Path(__file__).resolve().parents[2] / "integration-voice-incubator"))
     / "custom_components"
 )
 

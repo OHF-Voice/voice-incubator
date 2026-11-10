@@ -1,15 +1,15 @@
-# Voice Labs' standalone image (voice_labs/Dockerfile, target "standalone"),
-# without wake word training: each architecture built on a runner of its own
-# (aarch64 under emulation would take hours: the image compiles Kaldi's
-# decoder), then published as one image to the GitHub Container Registry,
-# tagged with the app's version (voice_labs/config.yaml) and "latest".
+# The standalone image (Dockerfile, target "standalone"), without wake word
+# training: each architecture built on a runner of its own (aarch64 under
+# emulation would take hours: the image compiles Kaldi's decoder), then
+# published as one image to the GitHub Container Registry, tagged with this
+# source's version (voice_labs/__init__.py) and "latest".
 name: Voice Labs image
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - "voice_labs-v*"
+      - "v*"
 
 permissions:
   contents: read
@@ -40,7 +40,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: voice_labs
+          context: .
           target: standalone
           platforms: ${{ matrix.platform }}
           build-args: TRAINING=false
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: voice_labs/config.yaml
+          sparse-checkout: voice_labs/__init__.py
       - uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
@@ -84,7 +84,7 @@ jobs:
       - name: Publish both architectures as one image
         working-directory: /tmp/digests
         run: |
-          version="$(sed -n 's/^version: *//p' "$GITHUB_WORKSPACE/voice_labs/config.yaml")"
+          version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/voice_labs/__init__.py")"
           docker buildx imagetools create -t "$IMAGE:$version" -t "$IMAGE:latest" \
             $(printf "$IMAGE@sha256:%s " *)
           docker buildx imagetools inspect "$IMAGE:$version"

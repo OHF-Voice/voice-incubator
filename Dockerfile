@@ -1,9 +1,7 @@
-# Two images from one file:
-#
-# - the Home Assistant app (the last stage, what Home Assistant builds), from
-#   its Debian base (build.yaml), started by its s6 service (rootfs/);
-# - a standalone image (--target standalone), from Debian itself, started
-#   directly: see README.md, "Standalone".
+# The standalone image, from Debian itself, started directly: see README.md,
+# "Standalone". The Home Assistant app's image is built from a release of this
+# source by its own Dockerfile (OHF-Voice/app-voice-incubator), in the same
+# steps: a change here belongs there too.
 #
 # What is compiled -- adapt-ctc's Viterbi, the wake verifier's decoder,
 # FluidSynth -- and the Python packages are built in the first stage, so the
@@ -135,10 +133,3 @@ FROM runtime AS standalone
 VOLUME /data
 EXPOSE 8099 10800
 ENTRYPOINT ["python3", "-m", "voice_labs", "--data-dir", "/data", "--http-host", "0.0.0.0", "--wyoming-host", "0.0.0.0"]
-
-
-# The Home Assistant app: started by its s6 service, which reads its options
-# from /data/options.json.
-FROM runtime AS app
-WORKDIR /
-COPY rootfs /
