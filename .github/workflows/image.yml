@@ -3,7 +3,7 @@
 # emulation would take hours: the image compiles Kaldi's decoder), then
 # published as one image to the GitHub Container Registry, tagged with this
 # source's version (voice_labs/__init__.py) and "latest".
-name: Voice Labs image
+name: Image
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/ohf-voice/voice-labs
+  IMAGE: ghcr.io/ohf-voice/voice-incubator
 
 jobs:
   build:
@@ -46,11 +46,11 @@ jobs:
           build-args: TRAINING=false
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.title=Voice Labs
+            org.opencontainers.image.title=Voice Incubator
             org.opencontainers.image.description=Voice satellites with your own commands, and Home Assistant's speech-to-text, text-to-speech and conversation agent over Wyoming
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=voice-labs-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=voice-labs-${{ matrix.platform }}
+          cache-from: type=gha,scope=voice-incubator-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=voice-incubator-${{ matrix.platform }}
       - name: Keep the digest
         run: |
           mkdir -p /tmp/digests

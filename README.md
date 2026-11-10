@@ -102,13 +102,13 @@ everything it does, page by page.
 ### Standalone
 
 Without Home Assistant's app store, it runs as a container:
-`ghcr.io/ohf-voice/voice-labs` (amd64 and aarch64), given Home Assistant's
+`ghcr.io/ohf-voice/voice-incubator` (amd64 and aarch64), given Home Assistant's
 address and a long-lived access token. It has no wake word training.
 
 ```bash
-docker run -d --name voice-labs --network host \
+docker run -d --name voice-incubator --network host \
   -e HASS_URL=http://homeassistant.local:8123 -e HASS_TOKEN=... \
-  -v voice-labs:/data ghcr.io/ohf-voice/voice-labs
+  -v voice-incubator:/data ghcr.io/ohf-voice/voice-incubator
 ```
 
 The web UI (8099) and Wyoming (10800) listen on every address the container

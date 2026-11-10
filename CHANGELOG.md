@@ -228,12 +228,12 @@
   Time from now is "How long until a future time."
 - **A command the library no longer has is kept, not heard**: the others
   still are (before, none were), and the Home page says to delete it.
-- **A standalone image**, `ghcr.io/ohf-voice/voice-labs` (amd64 and
+- **A standalone image**, `ghcr.io/ohf-voice/voice-incubator` (amd64 and
   aarch64): the app without Home Assistant's Supervisor, given Home
   Assistant's address and a long-lived access token (`HASS_URL`,
   `HASS_TOKEN`), with no wake word training and no login (README.md,
   "Standalone"). Built and published by a workflow in this repository, on
-  demand or for a `voice_labs-v*` tag, each architecture on its own runner.
+  demand or for a `v*` tag, each architecture on its own runner.
 - **The image is a quarter of the size**: 3.8 GB was 2 GB of TensorFlow
   (the standalone image has none; the app keeps it, for training wake
   words), 300 MB of compilers -- now only in a build stage, where

@@ -158,9 +158,9 @@ long-lived access token) stand in for `--hass-url` and the token file; one of
 
 ## The standalone image
 
-`ghcr.io/ohf-voice/voice-labs` is built from the Dockerfile's `standalone`
-target and published by the Voice Labs image workflow
-(`.github/workflows/voice-labs-image.yml`), on demand or for a `v*` tag. It has no wake word training (TensorFlow, 2 GB).
+`ghcr.io/ohf-voice/voice-incubator` is built from the Dockerfile's
+`standalone` target and published by the Image workflow
+(`.github/workflows/image.yml`), on demand or for a `v*` tag. It has no wake word training (TensorFlow, 2 GB).
 
 The image is the app's without its Supervisor parts, and smaller: what is
 compiled -- adapt-ctc's Viterbi, the wake verifier's decoder, FluidSynth
