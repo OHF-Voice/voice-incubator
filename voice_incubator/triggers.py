@@ -110,6 +110,9 @@ class Trigger:
     transcript: tuple[str, ...] = ()
     """The templates matched on the transcript instead (free text, too many
     sentences, or ones adapt-ctc can't spell)."""
+    sentence: str = ""
+    """Its first sentence, said the shortest way, each slot by its name:
+    "how is the sport game going in city" (``_first_form``)."""
     description: str = ""
     """What it is, for hints: saying its first sentence."""
     free: tuple[tuple[str, ...], ...] = ()
@@ -131,8 +134,11 @@ class Trigger:
     @property
     def label(self) -> str:
         """What the fallback's steps know it by: its automation's
-        description, else its name."""
-        return self.about or self.title
+        description, else its first sentence, else its name. An automation's
+        name is a title GLiNER makes little of: "Game info" scored 0.27 for
+        "how's the basketball game going in New Orleans?", its sentence 0.96
+        (and 0.82 as the hint says it, in quotes)."""
+        return self.about or self.sentence or self.title
 
     @property
     def command_id(self) -> str:
@@ -263,9 +269,10 @@ def prepare(
                     examples.append(said)
                     if slots:
                         values.append((said, sent, slots))
-        description = languages.speech().saying(_first_form(readable[0])) if readable else trigger.title
+        sentence = _first_form(readable[0]) if readable else ""
+        description = languages.speech().saying(sentence) if sentence else trigger.title
         out.append(dataclasses.replace(
-            trigger, examples=tuple(examples), transcript=tuple(transcript), description=description,
+            trigger, examples=tuple(examples), transcript=tuple(transcript), sentence=sentence, description=description,
             free=tuple(free), lists=tuple(used), values=tuple(values), problems=tuple(problems),
         ))
     return out
@@ -395,7 +402,8 @@ def _speakable(sentences: list[str], language: str) -> bool:
 
 def _first_form(template: str) -> str:
     """A template said its shortest first way: the first alternative, no
-    optional words, free text as "…"."""
+    optional words, each slot by its name ("how is the sport game going in
+    city"), a rule as "…"."""
     try:
         expression = parse_sentence(template).expression
     except Exception:  # noqa: BLE001
@@ -406,7 +414,9 @@ def _first_form(template: str) -> str:
 def _render(expression: Expression) -> str:
     if isinstance(expression, TextChunk):
         return expression.text
-    if isinstance(expression, (ListReference, RuleReference)):
+    if isinstance(expression, ListReference):
+        return f" {expression.slot_name.replace('_', ' ')} "
+    if isinstance(expression, RuleReference):
         return " … "
     if isinstance(expression, Alternative):
         return "" if expression.is_optional else _render(expression.items[0]) if expression.items else ""

@@ -549,7 +549,8 @@ def label_of(command: Command) -> str:
     versions of a library command (in the satellite's area, on a device by name, in
     an area or floor by name), a copy on a satellite -- and what is heard in
     the sentence picks among them, as it picks a combination. A sentence
-    trigger is known by its automation's description, else its name."""
+    trigger is known by its automation's description, else its first
+    sentence, else its name (``Trigger.label``)."""
     return command.label or command.description or command.id
 
 

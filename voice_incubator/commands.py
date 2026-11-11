@@ -587,7 +587,8 @@ class Command:
     """The steps after keywords and examples that may run it (FALLBACK_STEPS)."""
     label: str = ""
     """What those steps know it by, when not its description (fallback.label_of):
-    a sentence trigger's automation's description, else its name."""
+    a sentence trigger's automation's description, else its first sentence,
+    else its name (``Trigger.label``)."""
     combinations: tuple[tuple[str, ...], ...] = ((),)
     """The sets of slots that may be heard together, each required whole."""
     intents: dict[str, dict[str, Any]] = field(default_factory=dict)

@@ -384,7 +384,13 @@ automation's page.
     that takes the most -- and sent only when hassil matches it back to the
     trigger with the same words in each slot, every list free text as
     Home Assistant reads it. Its label is the automation's
-    description, else its name (`Command.label`, `fallback.label_of`). A
+    description, else its first sentence said with its slots' names ("how
+    is the sport game going in city", `Trigger.sentence`), else its name
+    (`Command.label`, `fallback.label_of`): GLiNER makes little of an
+    automation's name, a title -- "Game info" scored 0.27 for "how's the
+    basketball game going in New Orleans?", under the 0.3 it needs, its
+    sentence 0.96, "tell how a sports game is going" 0.95. Hints say the
+    sentence the same way ("say “how is the sport game going in city”"). A
     trigger with free text only has no adapt-ctc intent, so the recognizer
     is given its label and its templates said with their slots' names
     ("play album by artist"; `triggers.meaning_texts`, adapt-ctc's

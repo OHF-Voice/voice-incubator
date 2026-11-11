@@ -115,7 +115,10 @@ def test_sentences_are_examples_or_matched_on_the_transcript():
     assert good_night.examples == ("good night everyone", "good night", "it's bed time", "it is bed time")
     assert good_night.transcript == () and good_night.description == "say “good night”"
     assert play.examples == () and play.transcript == ("play {album} by {artist}",)
-    assert play.description == "say “play … by …”"
+    # Hints say the first sentence, each slot by its name.
+    assert play.sentence == "play album by artist" and play.description == "say “play album by artist”"
+    [game] = triggers.prepare([trigger("sentence:g", "Game info", "how is the {sport} game going in {the_city}")])
+    assert game.description == "say “how is the sport game going in the city”"
     assert good_night.free == () and play.free == (("album", "artist"),)
     [put_on] = triggers.prepare([trigger("sentence:p", "p", "put on [the album] {album} [by {artist}]")])
     assert put_on.free == (("album", "artist"), ("album",))
@@ -211,8 +214,10 @@ def test_meaning_and_the_model_may_run_them():
     assert good_night.fallback == ("meaning",) and play.fallback == ("llm",)
     with pytest.raises(ConfigError, match=r"triggers.automation:1.fallback"):
         compile_store({**STORE, "triggers": {"automation:1": {"fallback": ["loud"]}}}, triggers.prepare([GOOD_NIGHT]))
-    # Known to them by the automation's description, else its name.
-    assert label_of(play) == "Plays an album" and label_of(good_night) == "Good night"
+    # Known to them by the automation's description, else its first
+    # sentence (GLiNER makes little of a name: "Game info"), else its name.
+    assert label_of(play) == "Plays an album" and label_of(good_night) == "good night"
+    assert dataclasses.replace(compiled.triggers["trigger_1"], sentence="").label == "Good night"
     assert good_night.combinations == ((),) and play.combinations == (("album", "artist"),)
     # What Home Assistant is sent: its sentence meaning found closest, else its first ...
     found = compiled.triggers
