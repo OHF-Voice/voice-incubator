@@ -22,6 +22,11 @@ Every window gets Kaldi's verdict and is scored by the new ratio, by the
 variants of it in VARIANTS (DESIGN.md's table of what carries the
 separation), and -- when speech_to_phrase is installed -- by the
 grammar-vs-free-loop ratio it replaced, all on the same log-probabilities.
+Each row also keeps Kaldi's confusable margin (``margin``, the verdict it
+never reports after a `last`/`prefix` failure) and how much better than
+"okay nabu" each of its confusables explains the window on the command model
+(``rivals``): what wake_words.RATIO_RIVALS was chosen from (DESIGN.md "When a
+near miss fails `last` first").
 
 The detector binary is mixednet-executor's host harness (see "Multi-microphone
 corpus" in DESIGN.md for how to build run_okay_nabu). The TTS confusables are
@@ -193,6 +198,39 @@ class Variants:
         }
 
 
+class Rivals:
+    """How much better than "okay nabu" each of Kaldi's confusables
+    (wake.yaml) explains the window, per frame, on the command model: what a
+    rival test in the second opinion would see."""
+
+    def __init__(self, vocab) -> None:
+        import yaml
+        from voice_incubator.wake_ratio import lowercase_vocabulary, strict_graph
+
+        lower = lowercase_vocabulary(vocab)
+        entry = yaml.safe_load((ROOT / "wake.yaml").read_text())["wake_words"]["okay_nabu"]
+        self.vocab = vocab
+        self.wake = strict_graph(lower, ["okay nabu"]).compile()
+        self.rivals = {}
+        for phrase in entry.get("confusables", []):
+            graph = strict_graph(lower, [phrase])
+            if not graph.unspeakable:
+                self.rivals[phrase] = graph.compile()
+
+    def scores(self, log_probs: np.ndarray) -> dict[str, float]:
+        from voice_incubator.wake_ratio import gain_over_blank, phrase_gain
+
+        over_blank = gain_over_blank(log_probs, self.vocab)
+        frames = over_blank.shape[0]
+        wake = phrase_gain(self.wake, over_blank)
+        if not np.isfinite(wake):
+            return {}
+        return {
+            phrase: round((phrase_gain(graph, over_blank) - wake) / frames, 3)
+            for phrase, graph in self.rivals.items()
+        }
+
+
 # --- workers -----------------------------------------------------------------
 
 
@@ -214,6 +252,7 @@ def worker_init(
         ratio=ratio,
         old=OldRatio(MODEL_DIR) if old else None,
         variants=Variants(model.vocab) if variants else None,
+        rivals=Rivals(model.vocab),
         loop=loop,
         verifier=verifier,
         wake=WakeWord(
@@ -243,11 +282,16 @@ def judge(piece: np.ndarray) -> dict:
         "accepted": bool(result.accepted),
         "rejected_by": result.rejected_by,
         "split": result.split,
+        # Kaldi tests `confusable` last, so on a `last`/`prefix` rejection
+        # this is the verdict it never reported.
+        "margin": None if result.confusable_margin is None else round(result.confusable_margin, 4),
+        "rival": result.confusable_words,
         "new": None if new is None else round(new, 4),
         "old": None if old is None else round(old, 4),
     }
     if _W["variants"] is not None:
         row["variants"] = _W["variants"].scores(log_probs)
+    row["rivals"] = _W["rivals"].scores(log_probs)
     return row
 
 
@@ -552,6 +596,59 @@ def report(rows: list[dict], new_thresholds: list[float], old_thresholds: list[f
             f"{len(lp)} | {sum(r.get('old') is not None and r['old'] <= OLD_THRESHOLD for r in lp)} | "
             f"{sum(r.get('new') is not None and r['new'] <= default for r in lp)} |"
         )
+
+    if any("rivals" in r for r in positives):
+        rivals_report(positives, by_speaker, speakers, speech, commands_lp, tts_lp, default)
+
+
+def rivals_report(positives, by_speaker, speakers, speech, commands_lp, tts_lp, default: float) -> None:
+    """What the rivals (wake_words.RATIO_RIVALS) keep of what the score
+    overturns, and Kaldi's unreported confusable margin as the alternative."""
+    from voice_incubator.wake_ratio import RIVAL_MARGIN
+    from voice_incubator.wake_words import RATIO_RIVALS
+
+    shipped = set(RATIO_RIVALS["okay_nabu"])
+
+    def overturned(r: dict) -> bool:
+        return r.get("new") is not None and r["new"] <= default
+
+    def closest(r: dict, rivals: set[str]) -> float:
+        return max([v for p, v in r.get("rivals", {}).items() if p in rivals] or [-99.0])
+
+    rules = [(f"score <= {default:g} (no rivals)", overturned)]
+    rules += [
+        (f"+ Kaldi margin <= {m:g}", lambda r, m=m: overturned(r) and (r.get("margin") or 0.0) <= m)
+        for m in (0.3, 0.6)
+    ]
+    rules += [
+        (f"+ {len(shipped)} rivals <= {at:g}", lambda r, at=at: overturned(r) and closest(r, shipped) <= at)
+        for at in (0.2, RIVAL_MARGIN, 0.4)
+    ]
+    categories = sorted({r["category"].split("/")[-1] for r in tts_lp})
+
+    def pct(group: list[dict], rule) -> float:
+        return 100.0 * float(np.mean([rule(r) for r in group])) if group else float("nan")
+
+    print(f"\n### Near misses that failed last/prefix first: overturned with rivals (shipped: {RIVAL_MARGIN:g})\n")
+    print(
+        "| rule | " + " | ".join(speakers) + " | speech/music | commands | TTS confusables | "
+        + " | ".join(categories) + " |"
+    )
+    print("|---" * (len(speakers) + 4 + len(categories)) + "|")
+    for name, rule in rules:
+        cells = [f"{pct(by_speaker[s], rule):.1f}%" for s in speakers]
+        cells += [f"{pct(speech, rule):.2f}%", f"{pct(commands_lp, rule):.2f}%", f"{pct(tts_lp, rule):.1f}%"]
+        cells += [f"{pct([r for r in tts_lp if r['category'].endswith(c)], rule):.0f}%" for c in categories]
+        print(f"| {name} | " + " | ".join(cells) + " |")
+
+    # Which confusables real wake words lose to: the ones left out of the rivals.
+    print(f"\n### Confusables beating \"okay nabu\" by more than {RIVAL_MARGIN:g} on overturned wake words\n")
+    print("| confusable | wake words | rival |")
+    print("|---|---|---|")
+    mine = [r for r in positives if overturned(r)]
+    share = {p: float(np.mean([r.get("rivals", {}).get(p, -99.0) > RIVAL_MARGIN for r in mine])) for p in mine[0].get("rivals", {})} if mine else {}
+    for phrase, value in sorted(share.items(), key=lambda kv: -kv[1])[:30]:
+        print(f"| {phrase} | {100 * value:.1f}% | {'yes' if phrase in shipped else 'no'} |")
 
 
 def timing(threads: int, calls: int = 50) -> float:

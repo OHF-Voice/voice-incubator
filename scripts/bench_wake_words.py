@@ -57,6 +57,7 @@ def _init(wake_word: str, binary: str, scratch: str, ratio_phrase: str | None) -
     from voice_incubator.engine import Engine
     from voice_incubator.wake import WakeVerifier
     from voice_incubator.wake_ratio import WakeRatio
+    from voice_incubator.wake_words import RATIO_RIVALS
 
     loop = asyncio.new_event_loop()
     verifier = WakeVerifier(ROOT / "wake.yaml", wake_word)
@@ -67,7 +68,7 @@ def _init(wake_word: str, binary: str, scratch: str, ratio_phrase: str | None) -
         if not (ctc_dir / "model.onnx").exists():
             ctc_dir = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m"
         engine = Engine(ctc_dir, None, None, threads=1)
-        ratio = WakeRatio(ratio_phrase)
+        ratio = WakeRatio(ratio_phrase, rivals=RATIO_RIVALS.get(wake_word, ()))
         ratio.train(engine.model)
     manifest = ROOT / "models/wake" / f"{wake_word}.json"
     _W.update(

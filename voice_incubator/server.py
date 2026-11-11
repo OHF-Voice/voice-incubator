@@ -71,11 +71,11 @@ from .piper_voices import catalog as piper_catalog
 from .tts import Speech, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
-from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, WakeRatio
+from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, RatioVerdict, WakeRatio
 from .wake_recordings import TAKE_SCORE, WakeRecording, WakeTakes
 from .wake_recordings import summary as wake_summary
 from .wake_training import WakeTraining, phrase_of, word_id
-from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
+from .wake_words import DEFAULT_MODEL_SLOTS, RATIO_RIVALS, RATIO_THRESHOLD, RESERVED_SLOTS, SPECIAL, STOP, WakeWords
 from .wyoming_server import CONTEXT_KEYS, Endpoints, Heard, HeardCache, Hearing, Remembered, Spoken, Turn, announce
 
 _LOGGER = logging.getLogger(__name__)
@@ -502,6 +502,9 @@ class WakeVerdict:
     window: bytes = b""
     ratio: float | None = None
     overturned: bool = False
+    rival: str | None = None
+    """The near miss that kept a rejection the ratio alone would have
+    overturned."""
 
 
 @dataclass
@@ -1476,6 +1479,11 @@ class VoiceIncubatorApp:
         tuned = (self.store.wake_tuning.get(word_id) or {}).get("second_opinion")
         return float(tuned) if tuned is not None else self.default_ratio(word_id)
 
+    def ratio_rivals(self, word_id: str) -> tuple[str, ...]:
+        """The near misses the second opinion will not overturn: the word's
+        own, or those of the built-in word it was trained from (same phrase)."""
+        return RATIO_RIVALS.get(word_id) or RATIO_RIVALS.get(self.wake_words.trained_from(word_id) or "", ())
+
     async def _ensure_ratios(self) -> None:
         """The second opinion for each verified wake word, at its threshold
         (none with ``--wake-ratio`` below 0, or for a language it is not
@@ -1494,7 +1502,7 @@ class VoiceIncubatorApp:
             if ratio is not None and ratio.wake_word == word.phrases[0]:
                 ratio.threshold = self.ratio_threshold(word.id)
                 continue
-            ratio = WakeRatio(word.phrases[0], threshold=self.ratio_threshold(word.id))
+            ratio = WakeRatio(word.phrases[0], threshold=self.ratio_threshold(word.id), rivals=self.ratio_rivals(word.id))
             try:
                 # Shares the recognizer's loaded net.
                 await asyncio.to_thread(ratio.train, self.engine.model)
@@ -2598,23 +2606,30 @@ class VoiceIncubatorApp:
             # wake words from other voices. Ask the recognizer, which is
             # already loaded, whether the window is the wake word at all --
             # but never about `confusable`, which is the one decision it gets
-            # wrong far more often than Kaldi does.
+            # wrong far more often than Kaldi does. A near miss that failed
+            # `last` first never got that far, so the recognizer's rivals
+            # (wake_words.RATIO_RIVALS) can keep the rejection.
             ratio = self.wake_ratios.get(verdict.result.wake_word_id)
             asked = time.perf_counter()
-            overturned, score = (
-                ratio.would_accept(verdict.result.rejected_by, verdict.window)
+            opinion = (
+                ratio.judge(verdict.result.rejected_by, verdict.window)
                 if ratio is not None
-                else (False, None)
+                else RatioVerdict(False)
             )
-            verdict.ratio = score
-            verdict.overturned = overturned
-            verdict.accepted = overturned
+            verdict.ratio = opinion.score
+            verdict.overturned = opinion.overturned
+            verdict.accepted = opinion.overturned
+            if opinion.kept_by == "rival":
+                verdict.rival = opinion.rival
             if call.record is not None:
                 call.record.stage(
                     "wake_ratio",
                     rejected_by=verdict.result.rejected_by,
-                    score=None if score is None else round(float(score), 4),
-                    overturned=overturned,
+                    score=None if opinion.score is None else round(float(opinion.score), 4),
+                    overturned=opinion.overturned,
+                    rival=opinion.rival,
+                    rival_margin=None if opinion.rival_margin is None else round(float(opinion.rival_margin), 4),
+                    kept_by=opinion.kept_by,
                     seconds=round(time.perf_counter() - asked, 3),
                 )
         return verdict
@@ -2821,7 +2836,15 @@ class VoiceIncubatorApp:
         if result.split:
             call.command += bytes(call.audio[ms_to_bytes(result.split * 1000) :])
         self._save(session, call, prefix="rejected-")
-        if verdict.ratio is not None:
+        if verdict.rival is not None:
+            _LOGGER.info(
+                "[%s] Ratio would have overturned the %s rejection (%.2f), but it sounds like %r",
+                session,
+                result.rejected_by,
+                verdict.ratio if verdict.ratio is not None else float("nan"),
+                verdict.rival,
+            )
+        elif verdict.ratio is not None:
             _LOGGER.info(
                 "[%s] Ratio agreed with the %s rejection (%.2f)",
                 session,
@@ -2833,10 +2856,11 @@ class VoiceIncubatorApp:
         )
         call.finished = True
         if call.record is not None:
+            heard = f", sounds like {verdict.rival!r}" if verdict.rival is not None else ""
             self.calls.finish(
                 call.record,
                 "wake rejected",
-                f"wake word rejected ({result.rejected_by or 'unknown'})",
+                f"wake word rejected ({result.rejected_by or 'unknown'}{heard})",
                 self._call_audio(call),
             )
         await self._hang_up(session, "wake_rejected")

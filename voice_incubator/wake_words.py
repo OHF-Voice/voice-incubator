@@ -88,6 +88,26 @@ RATIO_THRESHOLD: dict[str, float] = {
     "hey_mycroft": 1.2,
 }
 
+RATIO_RIVALS: dict[str, tuple[str, ...]] = {
+    # What keeps the second opinion from overturning a near miss that failed
+    # Kaldi's `last` or `prefix` before `confusable` ("okay natalie" with its
+    # last vowel drawn out): the verifier's confusables (wake.yaml) less the
+    # 25 that beat "okay nabu" by more than 0.3 per frame on over 1% of the
+    # real wake words it overturns -- "now", "new", "near", "night", "boo",
+    # "maybe", ... (DESIGN.md "When a near miss fails `last` first"). Only
+    # words calibrated here have rivals.
+    "okay_nabu": tuple(
+        f"okay {word}"
+        for word in (
+            "bamboo", "dabu", "knobby", "labu", "mabu", "naba", "nabil", "nabo",
+            "nadia", "nadu", "nagu", "nahbu", "nalu", "namu", "nancy", "nanu",
+            "naomi", "napkin", "napu", "naru", "naruto", "nasu", "natalie",
+            "natasha", "nature", "navu", "nebula", "neighbor", "nemo", "nina",
+            "nolan", "noodle", "north", "nova", "nozzle", "nugget", "taboo",
+        )
+    ),
+}
+
 TRAINED_SUFFIX = "_trained"
 """A built-in word's phrase trained here (with a household's recordings) is a
 custom word of its own beside it: okay_nabu_trained, unless it is given a

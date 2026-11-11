@@ -36,6 +36,15 @@ wake word"):
   a spoken "okay now" can arrive here as a `last` rejection; with "okay now" as
   a spelling, 98% of those were overturned.
 
+A near miss gets here too. Kaldi reports only the first test that fails, so
+"okay natalie" with its last vowel drawn out fails `last` and never reaches
+`confusable`, and the score cannot tell it from the wake word (0.7-1.2 on
+recorded ones). So the score is not the whole verdict: given **rivals** -- the
+verifier's confusables the command model does *not* prefer for real wake words
+-- an overturn stands only if none of them explains the window better than the
+wake phrase by more than ``RIVAL_MARGIN`` per frame. "okay now" is no rival
+for the same reason it is no spelling.
+
 Nothing here is specific to a recognizer beyond adapt-ctc's ``CtcModel``: the
 graph is built from ``model.vocab`` and scored with adapt-ctc's own Viterbi.
 """
@@ -43,6 +52,8 @@ graph is built from ``model.vocab`` and scored with adapt-ctc's own Viterbi.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -74,6 +85,30 @@ DEFAULT_THRESHOLD = 1.3
 FILLER_PIECES = 255
 """The filler is the words spelled by vocabulary pieces 1..N. 63 (what the
 speech-to-phrase version used) and 1023 both separate less well."""
+
+RIVAL_MARGIN = 0.3
+"""Per-frame nats. A rival that beats the wake phrase by more than this keeps
+the rejection. Measured with the rivals of ``wake_words.RATIO_RIVALS`` (DESIGN.md
+"When a near miss fails `last` first"): TTS "okay natalie" rejected on
+`last`/`prefix` is overturned 17% of the time instead of 66%, for 0.7-4.6
+points fewer of the real wake words recovered."""
+
+
+@dataclass
+class RatioVerdict:
+    """The second opinion on one rejection."""
+
+    overturned: bool
+    score: float | None = None
+    rival: str | None = None
+    """The rival that explains the window best, when there are rivals."""
+    rival_margin: float | None = None
+    """How much better than the wake phrase it does, per frame (negative:
+    worse)."""
+    kept_by: str | None = None
+    """Why a rejection it scored stands: ``score``, or ``rival`` when the
+    score alone would have overturned it."""
+
 
 def lowercase_vocabulary(vocab):
     """The same vocabulary with every piece that has a capital letter removed.
@@ -143,14 +178,36 @@ def loop_gain(tokens: np.ndarray | None, over_blank: np.ndarray) -> float:
     return float(np.maximum(best.max(axis=1), 0.0).sum())
 
 
+def best_phrase(graph, over_blank: np.ndarray) -> tuple[str | None, float]:
+    """The phrase of the graph that explains the window best, and its gain
+    over all-blank (as :func:`phrase_gain`)."""
+    from adapt_ctc.spotter import viterbi
+
+    frames = over_blank.shape[0]
+    score, _, _ = viterbi(graph, over_blank, np.zeros(frames, dtype=np.float32))
+    per_phrase = score.max(axis=0)
+    best = int(per_phrase.argmax())
+    meanings = graph.meanings[best]
+    return (meanings[0].phrase if meanings else None), float(per_phrase[best])
+
+
 class WakeRatio:
     """How much better than ordinary speech "okay nabu" explains a window."""
 
-    def __init__(self, wake_word: str = "okay nabu", threshold: float | None = None):
+    def __init__(
+        self,
+        wake_word: str = "okay nabu",
+        threshold: float | None = None,
+        rivals: Iterable[str] = (),
+        rival_margin: float = RIVAL_MARGIN,
+    ):
         self.wake_word = wake_word
         self.threshold = DEFAULT_THRESHOLD if threshold is None else threshold
+        self.rivals = tuple(rivals)
+        self.rival_margin = rival_margin
         self._model = None
         self._wake = None
+        self._rivals = None
         self._filler: np.ndarray | None = None
 
     def train(self, model) -> None:
@@ -168,12 +225,20 @@ class WakeRatio:
         # a better path existed.
         self._filler = filler_tokens(vocab)
         self._wake = wake.compile()
+        self._rivals = None
+        if self.rivals:
+            rivals = strict_graph(lowercase_vocabulary(vocab), self.rivals)
+            if rivals.unspeakable:
+                _LOGGER.warning("Wake ratio rivals this vocabulary cannot spell: %s", rivals.unspeakable)
+            if len(rivals.unspeakable) < len(self.rivals):
+                self._rivals = rivals.compile()
         self._model = model
         _LOGGER.info(
-            "Wake ratio ready (%r, threshold %.2f, %d filler pieces)",
+            "Wake ratio ready (%r, threshold %.2f, %d filler pieces, %d rivals)",
             self.wake_word,
             self.threshold,
             len(self._filler),
+            len(self.rivals) if self._rivals is not None else 0,
         )
 
     @property
@@ -192,19 +257,40 @@ class WakeRatio:
 
     def score_log_probs(self, log_probs: np.ndarray) -> float | None:
         """The same score from ``[T, V]`` log-probabilities already computed."""
+        return self.judge_log_probs(log_probs, rivals=False).score
+
+    def judge_log_probs(self, log_probs: np.ndarray, rivals: bool = True) -> RatioVerdict:
+        """Score, closest rival and verdict from ``[T, V]`` log-probabilities."""
         if not self.available or len(log_probs) == 0:
-            return None
+            return RatioVerdict(False)
         over_blank = gain_over_blank(log_probs, self._model.vocab)
+        frames = over_blank.shape[0]
         wake = phrase_gain(self._wake, over_blank)
         if not np.isfinite(wake):
-            return None  # too short to hold the phrase
-        return (loop_gain(self._filler, over_blank) - wake) / over_blank.shape[0]
+            return RatioVerdict(False)  # too short to hold the phrase
+        score = (loop_gain(self._filler, over_blank) - wake) / frames
+        verdict = RatioVerdict(score <= self.threshold, score, kept_by=None if score <= self.threshold else "score")
+        if rivals and self._rivals is not None:
+            rival, gain = best_phrase(self._rivals, over_blank)
+            if np.isfinite(gain):
+                verdict.rival, verdict.rival_margin = rival, (gain - wake) / frames
+                if verdict.overturned and verdict.rival_margin > self.rival_margin:
+                    verdict.overturned, verdict.kept_by = False, "rival"
+        return verdict
+
+    def judge(self, rejected_by: str | None, pcm: bytes) -> RatioVerdict:
+        """The second opinion on a rejection: whether it is overturned, the
+        score behind it and the closest rival. Nothing is scored for a
+        rejection it may not overturn."""
+        if rejected_by not in OVERRIDABLE or not self.available:
+            return RatioVerdict(False)
+        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        if audio.size == 0:
+            return RatioVerdict(False)
+        log_probs, _ = self._model.log_probs(audio)
+        return self.judge_log_probs(log_probs)
 
     def would_accept(self, rejected_by: str | None, pcm: bytes) -> tuple[bool, float | None]:
         """Whether this rejection should be overturned, and the score behind it."""
-        if rejected_by not in OVERRIDABLE or not self.available:
-            return False, None
-        score = self.score(pcm)
-        if score is None:
-            return False, None
-        return score <= self.threshold, score
+        verdict = self.judge(rejected_by, pcm)
+        return verdict.overturned, verdict.score

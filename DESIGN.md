@@ -2384,6 +2384,63 @@ are clean synthetic voices at the microphone, not room captures, but they are
 the class to watch: none of it is the `confusable` test's to catch, because
 Kaldi never gets that far.
 
+### When a near miss fails `last` first
+
+At home it got through. "Okay natalie" and "okay taboo" said with the last
+vowel drawn out were all accepted (2026-11-11), and the same phrases said
+short were all refused. Vowel length doesn't change the score: it changes
+which of Kaldi's tests fails first. Said short, the phrase aligns well
+enough to pass `prefix` and `last` and fails `confusable` (margin 0.13-0.26),
+a rejection that stands. Drawn out, "nabu" aligns badly and fails `last`,
+Kaldi stops there, and the second opinion scores 0.72-1.16. The short ones
+score 0.71-0.89 too, so the score has no idea. Three of the four overturned
+had a confusable margin of 0.20-0.40, which Kaldi never reported.
+
+Kaldi's own margin is the obvious gate, and it costs too much. A wake word
+that fails `last` or `prefix` aligns badly against every rival as well:
+of those the score overturns, the median margin is 0.13 and the 90th
+percentile 0.51, and the commonest rival is the bare "nabu" (the
+confusable graph has the last word alone). Refusing above 0.3 cuts the TTS
+"okay natalie" overturned from 66% to 16%, and mike-old (the held-out
+session) from 90.2% to 45.7% of its rejections recovered.
+
+The command model hears these near misses. On the full calls it writes
+"Okay, Natalie" and "Okay Taboo", and on the 1.5 s window "okay natalie" or
+"okay taboo" explains it better than "okay nabu" by 0.38-0.80 per frame.
+But it also prefers "okay now" over most real wake words, so the rivals
+are the verifier's confusables **less the ones real wake words lose to**:
+those beating "okay nabu" by more than 0.3 per frame on more than 1% of the
+wake words the score overturns (chosen on four speakers, mike-old held out).
+That leaves out 25 of 62: "now" (81% of wake words), "never", "number", "new",
+"name", "next", "need", "about", "nobody", "noor", "noah", "noel", "nice",
+"night", "nora", "nothing", "boo", "near", "noble", "nia", "maybe", "nadine",
+"neil", "nathan", "nabby". The 37 kept are `wake_words.RATIO_RIVALS`, and an
+overturn stands only if none of them beats the wake phrase by more than
+`RIVAL_MARGIN` (0.3) per frame:
+
+| rule | jenn | mike | natalie | oliver | mike-old | speech/music | commands | TTS | "okay natalie" | "okay naruto" | "okay nebula" | "okay neighbor" | "okay maybe" |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| score <= 1.3 | 89.6% | 94.6% | 93.5% | 97.2% | 90.2% | 0.69% | 0.23% | 14.8% | 66% | 33% | 43% | 42% | 12% |
+| + Kaldi margin <= 0.3 | 83.6% | 93.2% | 77.0% | 90.1% | 45.7% | 0.13% | 0.10% | 2.0% | 16% | 12% | 14% | 12% | 1% |
+| + Kaldi margin <= 0.6 | 88.2% | 94.6% | 92.9% | 94.9% | 81.2% | 0.56% | 0.22% | 7.9% | 57% | 22% | 32% | 35% | 3% |
+| + 37 rivals <= 0.2 | 87.6% | 90.2% | 76.3% | 80.4% | 84.4% | 0.46% | 0.19% | 6.9% | 6% | 6% | 11% | 5% | 1% |
+| **+ 37 rivals <= 0.3** | **88.7%** | **93.2%** | **89.3%** | **92.6%** | **89.5%** | **0.64%** | **0.22%** | **8.4%** | **17%** | **10%** | **14%** | **8%** | **3%** |
+| + 37 rivals <= 0.4 | 89.6% | 94.6% | 92.8% | 96.9% | 89.9% | 0.68% | 0.22% | 11.9% | 32% | 14% | 21% | 12% | 11% |
+
+(Speakers: the rejections on `last`/`prefix` overturned. The rest: windows
+overturned. TTS is the seven synthetic-negatives languages, 5,303 clips
+rejected on `last`/`prefix`; "naboo naboo" and "okay okay" are no rival's to
+catch and do not move.) Of every detection, verified end to end goes from
+90.8/95.0/91.1/93.6/92.4% to 90.6/94.8/88.4/92.6/92.2%. The four calls from
+home are all refused, as "okay natalie" or "okay taboo" at 0.38-0.80. The rival search adds 0.08 ms. The trace's `wake_ratio` stage
+records the closest rival and its margin. A rejection a rival kept is
+summarized as "wake word rejected (last, sounds like 'okay natalie')".
+
+What the rivals can't do is catch a near miss that isn't on the list. Every
+rival is a confusable the verifier already names, and only "okay nabu"
+(and words trained from its phrase) has any. "Hey jarvis" and "hey mycroft"
+have no calibration to choose theirs from.
+
 It costs one forward pass over the 1.5 s pre-roll on the model the commands
 already use: 15 ms on 4 threads on x86 (32 ms on one), of which the graph
 search is 0.1 ms. To reproduce every table here:

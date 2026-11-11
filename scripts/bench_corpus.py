@@ -106,6 +106,7 @@ def worker_init(
     from voice_incubator.engine import Engine
     from voice_incubator.wake import WakeVerifier
     from voice_incubator.wake_ratio import WakeRatio
+    from voice_incubator.wake_words import RATIO_RIVALS
 
     ctc_dir = ROOT / "models/speech-to-phrase/stt_en_parakeet_tdt_ctc_110m-int8"
     if not (ctc_dir / "model.onnx").exists():
@@ -122,7 +123,7 @@ def worker_init(
     # this is measuring a configuration that no longer ships.
     wake_ratio = None
     if ratio_threshold is None or ratio_threshold >= 0:
-        wake_ratio = WakeRatio(threshold=ratio_threshold)
+        wake_ratio = WakeRatio(threshold=ratio_threshold, rivals=RATIO_RIVALS["okay_nabu"])
         wake_ratio.train(engine.model)
 
     _W.update(

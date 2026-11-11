@@ -13,7 +13,7 @@ import aiohttp
 import pytest
 
 from voice_incubator.server import Options, VoiceIncubatorApp
-from voice_incubator.wake_words import WakeWords, spoken, trained_from
+from voice_incubator.wake_words import RATIO_RIVALS, WakeWords, spoken, trained_from
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -237,6 +237,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             async with http.put(f"{base}/wake_words/okay_nabu", json={"confusables": nabu["verifier"]["confusables"], "cutoff": 0.4}) as response:
                 assert response.status == 200
             assert "okay_nabu" not in app.store.wake_tuning and app.wake_ratios["okay_nabu"].threshold == 1.3
+            assert app.wake_ratios["okay_nabu"].rivals == RATIO_RIVALS["okay_nabu"] and not app.wake_ratios["hey_tater"].rivals
 
             # Several of its own: each one pushed. Six are refused.
             async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": ["hey_tater", "okay_nabu"]}) as response:
@@ -311,7 +312,7 @@ async def _per_satellite(tmp_path: Path) -> None:
             trained = app.wake_words.get("okay_nabu_trained")
             assert trained.custom and trained.verified and trained.phrases == app.wake_words.phrases("okay_nabu")
             assert "okay bamboo" in app.store.wake_tuning["okay_nabu_trained"]["confusables"]
-            assert app.default_ratio("okay_nabu_trained") == 1.3
+            assert app.default_ratio("okay_nabu_trained") == 1.3 and app.ratio_rivals("okay_nabu_trained") == RATIO_RIVALS["okay_nabu"]
             # Called something else ("Okay Nabu (Mike)"), it is known by the
             # phrase it was trained on.
             shutil.copy(ROOT / "tests/fixtures/pooled.tflite", tmp_path / "wake_words/okay_nabu_mike.tflite")
