@@ -270,6 +270,23 @@ def tdt_choice(value: Any) -> str:
 # the end of the pre-roll, and how close to that end counts as running into it.
 DEFAULT_WAKE_TAIL = 0.3
 TAIL_EDGE_SECONDS = 0.03
+AEC_WAIT_SECONDS = 0.5
+"""How long verification waits for the AEC capture's window once the AGC
+one is in (the satellite interleaves them), before verifying on AGC."""
+
+
+def _on_agc_timeline(result: Any, seconds: float) -> None:
+    """Move a Kaldi result's times from the window it was verified on to the
+    AGC capture's: the same moment is ``seconds`` later there (the AEC tap's
+    lead), so the split, the wake word's start and its words are where every
+    use of them expects."""
+    if not seconds:
+        return
+    if result.split is not None:
+        result.split += seconds
+    if result.wake_start is not None:
+        result.wake_start += seconds
+    result.aligned_words = [(word, start + seconds, end + seconds) for word, start, end in result.aligned_words]
 
 
 @dataclass
@@ -339,6 +356,11 @@ class Options:
     """Per-frame threshold for the second opinion on a rejected wake word
     (one set on the Wake words page wins).
     Negative disables it."""
+    wake_capture: str = "aec"
+    """The capture the wake word is verified on: ``aec`` when the call has
+    one (else the AGC one), or ``agc``. The XMOS AGC tap sometimes sits ~35 dB
+    down for many calls in a row, and there it loses what tells "natalie"
+    from "nabu" (DESIGN.md "Verified on the AEC capture")."""
     wake_probability_cutoff: float | None = None
     """Overrides the first-stage cutoff of every verified wake word (each has
     its own: wake_words.VERIFIED_CUTOFF), never a custom word's, which
@@ -2532,39 +2554,67 @@ class VoiceIncubatorApp:
         after the speaker's last word, when someone else's speech ended it."""
         return None if call.speaker_end is None else call.speaker_end + SPEAKER_END_MARGIN
 
-    def _ran_into_edge(self, result: Any, call: Call) -> bool:
+    def _ran_into_edge(self, result: Any, call: Call, lead: float = 0.0) -> bool:
         """Did the wake phrase end at the end of the pre-roll?
 
         The pre-roll ends *at* the detection, so a detector that fires before
         the speaker has finished leaves the last phoneme outside the window.
         The aligner then has nowhere to put the end of the word but the edge,
-        and the thresholds are applied to a truncated phrase.
+        and the thresholds are applied to a truncated phrase. ``lead``: how
+        much later the result's times are than the verified window's own
+        (``_verify_at``).
         """
         if self.options.wake_tail <= 0 or result.split is None:
             return False
-        return result.split >= (call.preroll_bytes / BYTE_RATE) - TAIL_EDGE_SECONDS
+        return result.split - lead >= (call.preroll_bytes / BYTE_RATE) - TAIL_EDGE_SECONDS
 
-    async def _audio_through(self, call: Call, want: int, timeout: float) -> bool:
-        """Wait for the call to have ``want`` bytes. False if it never does."""
+    async def _audio_through(self, call: Call, want: int, timeout: float, aec: bool = False) -> bool:
+        """Wait for the call to have ``want`` bytes (of the AEC capture with
+        ``aec``). False if it never does."""
         deadline = time.monotonic() + timeout
-        while len(call.audio) < want and not call.finished:
+
+        def have() -> int:
+            return len(call.aec if aec else call.audio)
+
+        while have() < want and not call.finished:
             if time.monotonic() >= deadline:
                 return False
             await asyncio.sleep(0.02)
-        return len(call.audio) >= want
+        return have() >= want
+
+    async def _wake_window(self, call: Call, offset: int) -> tuple[bytes, str, float]:
+        """The pre-roll-sized window to verify, ending ``offset`` bytes after
+        the detection: from the AEC capture when the call has one
+        (``Options.wake_capture``), else from the AGC capture. Also which
+        capture it is from, and how many seconds later the same moment is in
+        the AGC capture: AEC's pre-roll ends at the detection too, but its tap
+        runs ``aec_lead`` ahead, so it holds that much more of the wake word."""
+        agc = bytes(call.audio[offset : offset + call.preroll_bytes])
+        if self.options.wake_capture != "aec" or not call.aec_preroll_bytes:
+            return agc, "agc", 0.0
+        start = call.aec_preroll_bytes - call.preroll_bytes + offset
+        end = start + call.preroll_bytes
+        if start < 0 or not await self._audio_through(call, end, AEC_WAIT_SECONDS, aec=True):
+            return agc, "agc", 0.0
+        return bytes(call.aec[start:end]), "aec", call.aec_lead / SAMPLE_RATE
 
     async def _verify_at(
         self, label: str, call: Call, offset: int
-    ) -> tuple[Any, bytes]:
-        """Verify the pre-roll-sized window that starts ``offset`` bytes in."""
-        window = bytes(call.audio[offset : offset + call.preroll_bytes])
+    ) -> tuple[Any, bytes, float]:
+        """Verify the pre-roll-sized window ending ``offset`` bytes after the
+        detection (``_wake_window``). The result's times are the AGC
+        capture's; also the window, and how much later those times are than
+        the window's own."""
+        window, capture, lead = await self._wake_window(call, offset)
         result = await self.wake.verify(window, call.wake_word or None)
         assert result is not None
+        _on_agc_timeline(result, lead)
         _LOGGER.info(
-            "[%s] Wake verification%s: accepted=%s rejected_by=%s split=%s "
+            "[%s] Wake verification%s on %s: accepted=%s rejected_by=%s split=%s "
             "decode=%.0fms",
             label,
             f" (+{offset * 1000 // BYTE_RATE}ms)" if offset else "",
+            capture.upper(),
             result.accepted,
             result.rejected_by,
             result.split,
@@ -2572,9 +2622,9 @@ class VoiceIncubatorApp:
         )
         if call.record is not None:
             call.record.stage(
-                "wake_kaldi", offset=round(offset / BYTE_RATE, 3), **result.to_dict()
+                "wake_kaldi", offset=round(offset / BYTE_RATE, 3), capture=capture, **result.to_dict()
             )
-        return result, window
+        return result, window, lead
 
     async def _verify_wake(self, label: str, call: Call) -> WakeVerdict:
         """Kaldi on the pre-roll, retried with a tail when the wake word ran
@@ -2586,17 +2636,17 @@ class VoiceIncubatorApp:
                 call.record.stage("wake_unverified", wake_word=call.wake_word)
             return WakeVerdict(True, VerifyResult(call.wake_word, accepted=True), 0, window)
         offset = 0
-        result, window = await self._verify_at(label, call, offset)
+        result, window, lead = await self._verify_at(label, call, offset)
         verdict = WakeVerdict(result.accepted, result, 0, window)
 
-        if not result.accepted and self._ran_into_edge(result, call):
+        if not result.accepted and self._ran_into_edge(result, call, lead):
             tail = ms_to_bytes(self.options.wake_tail * 1000)
             # The retry needs audio the device has not sent yet: the call opens
             # at the detection, so this is a real wait rather than a slice.
             if await self._audio_through(
                 call, call.preroll_bytes + tail, self.options.wake_tail + 0.5
             ):
-                retry, retry_window = await self._verify_at(label, call, tail)
+                retry, retry_window, _ = await self._verify_at(label, call, tail)
                 if retry.accepted or retry.split is not None:
                     verdict = WakeVerdict(retry.accepted, retry, tail, retry_window)
 
@@ -4055,8 +4105,24 @@ class VoiceIncubatorApp:
             (s.get("wake_word") for s in old.stages if s.get("stage") == "call_start"), ""
         )
         wake_word = self.wake_words.resolve(str(heard or "")) or self.wake.wake_word
-        call = Call(preroll_bytes=ms_to_bytes(preroll * 1000), wake_word=wake_word, record=record)
+        started = next((s for s in old.stages if s.get("stage") == "call_start"), {})
+        aec_preroll = started.get("aec_preroll")
+        lead = int(started["aec_lead"]) if started.get("aec_lead") is not None else AEC_LEAD_SAMPLES
+        aec = b""
+        aec_path = self.calls.audio_path(call_id, "call-aec")
+        if aec_path is not None:
+            with wave.open(str(aec_path), "rb") as wav:
+                aec = wav.readframes(wav.getnframes())
+        # Both captures, as the call had them: verified as it was.
+        call = Call(
+            preroll_bytes=ms_to_bytes(preroll * 1000),
+            wake_word=wake_word,
+            record=record,
+            aec_preroll_bytes=ms_to_bytes((aec_preroll or preroll) * 1000) if aec else 0,
+            aec_lead=lead,
+        )
         call.audio = bytearray(pcm)
+        call.aec = bytearray(aec)
         record.marks["detection"] = preroll
         verdict = await self._verify_wake(f"replay {call_id}", call)
         if not verdict.accepted:
@@ -4065,19 +4131,14 @@ class VoiceIncubatorApp:
         self._place_split(call, verdict)
         transcriber = await self._transcriber(satellite)
         if isinstance(transcriber, HassTranscriber):
-            aec = b""
-            aec_path = self.calls.audio_path(call_id, "call-aec") if satellite.voice.stt_audio != "agc" else None
-            if aec_path is not None:
-                with wave.open(str(aec_path), "rb") as wav:
-                    aec = wav.readframes(wav.getnframes())
-            started = next((s for s in old.stages if s.get("stage") == "call_start"), {})
-            aec_preroll = started.get("aec_preroll")
+            if satellite.voice.stt_audio == "agc":
+                aec = b""
             transcriber.audio_for = stt_audio_for(
                 pcm, aec, call.split_bytes // 2, ms_to_bytes(preroll * 1000) // 2,
                 ms_to_bytes((aec_preroll or preroll) * 1000) // 2,
                 capture="agc" if satellite.voice.stt_audio == "agc" else "aec",
                 boost=satellite.voice.stt_audio == "aec_boost",
-                lead=int(started.get("aec_lead", AEC_LEAD_SAMPLES)),
+                lead=lead,
             )
         async with self._model_lock:
             assert self.engine is not None

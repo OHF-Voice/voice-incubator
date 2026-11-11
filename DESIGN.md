@@ -1013,7 +1013,7 @@ AEC.
 | channel | stage | used for |
 |---|---|---|
 | 0 | AGC | streamed to the app, command split, `call-*.wav` |
-| 1 | AEC | wake word detection (gain 4), speaker ID and `call-aec-*.wav` (gain 16) |
+| 1 | AEC | wake word detection (gain 4), wake word verification, speaker ID and `call-aec-*.wav` (gain 16) |
 
 Channel 1 carries two microphone sources because the two jobs want different
 levels. Leave `aec_microphone` out of the config and only the AGC capture is
@@ -1056,6 +1056,45 @@ Measure this with the talker at a realistic level. An earlier pass had AEC at
 1/4 and NS far ahead, which was an artifact of playing test audio normalized to
 a peak of 1226 out of 32767: everything was marginal and the ordering was
 noise. `scripts/make_cloud.py --gain 20` renders at a usable level.
+
+### Verified on the AEC capture
+
+The XMOS AGC tap has two states, and it stays in one for many calls at a time.
+Working, it sits 20-33 dB above the AEC capture, with speech near -9 dBFS (the
+mic_tap corpus, and some calls from home). Stuck, it sits 4-15 dB *below* it,
+with speech near -47 dBFS. The AEC capture stays at -28 to -42 dBFS either way,
+so the talker didn't change: something after the AEC stage turns the call
+channel down by ~35 dB. On 2026-10-23 it was still stuck after 3.5 idle hours
+and came back within two minutes of talking. What drives it down isn't known.
+
+Stuck, the AGC tap loses what tells a near miss from the wake word. Eleven
+"okay natalie" on 2026-11-11, all with the AGC tap stuck: verified on it, six
+got through, one accepted by Kaldi outright (margin 0.07) and five overturned
+by the second opinion with no rival close ("nolan", "nova", "nina", "naba",
+"nadu", none over 0.3). Brought up to the corpus's level, four still got
+through, so it isn't loudness. On the AEC capture Kaldi refuses all eleven as
+`confusable`, with "natalie" the rival at 0.37-0.74.
+
+Real wake words don't pay for it. Of this satellite's 31 calls from October,
+25 verify on the AGC capture and 28 on the AEC one. On the corpus, level-matched,
+the AEC tap verifies within a point of the AGC one for every speaker (AEC/AGC:
+jenn 90.8/90.6%, mike 95.0/94.5%, natalie 88.5/88.6%, oliver 92.8/93.7%,
+mike-old 95.0/93.0%), and lets through as much speech and music (0.83% of
+windows against 0.78%) and as many commands (1.21% against 1.23%). Kaldi on its own is level-sensitive: corpus wake words on
+the AEC tap turned down 20 dB, about where home's sit, verify 45-61% on
+Kaldi alone instead of 75-78%, and 87-93% with the second opinion, which isn't.
+(mike-old's AEC tap, recorded at gain 1, ~-68 dBFS, verifies 11.5% on Kaldi
+alone as captured.)
+
+The window is the AEC capture's own pre-roll. It ends at the detection, as the
+AGC one does, but that tap runs 56.5 ms ahead, so it holds 56.5 ms more of the
+wake word. Lining it up with the AGC window instead (56.5 ms of zeros in front,
+the end cut) cost up to 9 points of real wake words (jenn 91.3% to 82.0%).
+Kaldi's times are moved onto the AGC capture's (plus `aec_lead`), where the
+command is split, so nothing downstream changes. A call without an AEC capture,
+or whose AEC window isn't in 0.5 s after the AGC one, is verified on AGC.
+`--wake-capture agc` verifies on AGC always. The trace's `wake_kaldi` stage says
+which (`capture`). A replay verifies on both captures, as the call had them.
 
 ### learn-tv (set aside)
 

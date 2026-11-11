@@ -144,6 +144,7 @@ async def _scenario(tmp_path: Path) -> None:
         record = app.calls.recent[-1]
         stages = [s["stage"] for s in record.stages]
         assert stages[:2] == ["call_start", "wake_kaldi"]
+        assert record.stages[1]["capture"] == "aec"  # the satellite sends one
         # What the wake word came in with, 0-1, also in the list.
         start = record.stages[0]
         assert (start["probability"], start["max_probability"], start["cutoff"]) == (0.902, 1.0, 0.2)
@@ -990,11 +991,37 @@ async def _scenario(tmp_path: Path) -> None:
         gave_up = next(s for s in app.calls.recent[-1].stages if s["stage"] == "timeout")
         assert gave_up["why"] == "no speech was heard" and gave_up["seconds"] == 8.0
         assert 8.0 <= gave_up["command_seconds"] < 9.0
+
+        # The wake word is verified on the AEC capture: silent there, it is
+        # refused however clear the AGC one is. Verified on AGC, it is not.
+        silent = bytes(len(said))
+        assert await satellite.call(said, aec_pcm=silent) == "wake_rejected"
+        verified = next(s for s in app.calls.recent[-1].stages if s["stage"] == "wake_kaldi")
+        assert verified["capture"] == "aec" and not verified["accepted"]
+        app.options.wake_capture = "agc"
+        assert await satellite.call(said, aec_pcm=silent) != "wake_rejected"
+        verified = next(s for s in app.calls.recent[-1].stages if s["stage"] == "wake_kaldi")
+        assert verified["capture"] == "agc" and verified["accepted"]
     finally:
         runner.cancel()
         await app.stop()
         satellite_server.close()
         hass_server.close()
+
+
+def test_kaldi_times_move_to_the_agc_capture():
+    """Verified on the AEC capture, whose tap runs 56.5 ms ahead: the split,
+    the wake word's start and its words are where the AGC capture has them."""
+    from voice_incubator.server import _on_agc_timeline  # pylint: disable=import-outside-toplevel
+    from wyoming_wake_kaldi.verify import VerifyResult  # pylint: disable=import-outside-toplevel
+
+    result = VerifyResult("okay_nabu", accepted=True, wake_start=0.6, split=1.2,
+                          aligned_words=[("okay", 0.6, 0.9), ("nabu", 0.9, 1.2)])
+    _on_agc_timeline(result, 905 / 16000)
+    assert (round(result.wake_start, 4), round(result.split, 4)) == (0.6566, 1.2566)
+    assert [(w, round(a, 4), round(b, 4)) for w, a, b in result.aligned_words] == [("okay", 0.6566, 0.9566), ("nabu", 0.9566, 1.2566)]
+    _on_agc_timeline(result, 0.0)  # verified on AGC: as it was
+    assert round(result.split, 4) == 1.2566
 
 
 VOICE_COMMANDS = """\
@@ -1800,7 +1827,7 @@ async def _voices(tmp_path: Path) -> None:
         assert len(hass.stt_requests) == asked + 1, recognition.get("stt")
         # From Kaldi's split, where it ended the wake phrase.
         kaldi_split = app.calls.recent[-1].marks["kaldi_split"]
-        assert recognition["stt"]["audio"] == {"channel": "aec", "from": kaldi_split}
+        assert recognition["stt"]["audio"] == {"channel": "aec", "from": round(kaldi_split, 3)}
         requested = hass.stt_requests[-1]["bytes"]
         stored["stt_audio"] = "aec_boost"
         await satellite.call(read_call(CALLS / "call-15788.wav"))
@@ -1835,13 +1862,13 @@ async def _voices(tmp_path: Path) -> None:
         recognition = await recognized_after(asked + 1)
         assert len(hass.stt_requests) == asked + 2
         assert recognition["stt"]["asked"] and recognition["text_source"] == "stt.fake_whisper"
-        assert recognition["stt"]["audio"] == {"channel": "agc", "from": kaldi_split}
+        assert recognition["stt"]["audio"] == {"channel": "agc", "from": round(kaldi_split, 3)}
         assert streamed["bytes"] == requested  # streamed or asked for: the same stretch
         # The AEC capture, lined up; boosted by the wake word's level in it.
         stored["stt_audio"] = "aec"
         await satellite.call(read_call(CALLS / "call-15788.wav"))
         recognition = await recognized_after(asked + 2)
-        assert recognition["stt"]["audio"] == {"channel": "aec", "from": kaldi_split}
+        assert recognition["stt"]["audio"] == {"channel": "aec", "from": round(kaldi_split, 3)}
         assert abs(hass.stt_requests[-1]["bytes"] - streamed["bytes"]) < 3200, (hass.stt_requests[-1], streamed)
         stored["stt_audio"] = "aec_boost"
         await satellite.call(read_call(CALLS / "call-15788.wav"))

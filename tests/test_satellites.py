@@ -134,10 +134,11 @@ async def _scenario(tmp_path) -> None:
 
         # One "okay nabu" heard by both: the one that heard it better answers,
         # the other ends its call ("answered_elsewhere"). The bedroom's is
-        # farther: quieter, in more noise, on its echo-cancelled capture.
+        # farther: quieter, in more noise, on its echo-cancelled capture --
+        # still the wake word, which is verified on that capture too.
         said = read_call(CALLS / "call-15788.wav")
         near = np.frombuffer(said, dtype="<i2").astype(np.float64)
-        far = near * 0.1 + np.random.default_rng(2).normal(0, 300, near.size)
+        far = near * 0.3 + np.random.default_rng(2).normal(0, 200, near.size)
         far = np.clip(far, -32768, 32767).astype("<i2").tobytes()
         ended = await asyncio.gather(kitchen.call(said, aec_pcm=said), bedroom.call(said, aec_pcm=far))
         assert ended[0] != "answered_elsewhere" and ended[1] == "answered_elsewhere", ended

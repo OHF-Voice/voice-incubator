@@ -138,6 +138,12 @@ async def main() -> None:
         "very end of the pre-roll (default 0.3; 0 disables the retry)",
     )
     parser.add_argument(
+        "--wake-capture",
+        choices=("aec", "agc"),
+        help="the capture wake words are verified on: aec (the default; the "
+        "AGC one when a call has no AEC capture) or agc",
+    )
+    parser.add_argument(
         "--wake-ratio",
         type=float,
         metavar="R",
@@ -255,6 +261,7 @@ async def main() -> None:
             **({} if args.wake_cutoff is None else {"wake_probability_cutoff": args.wake_cutoff}),
             wake_ratio=args.wake_ratio,
             **({} if args.wake_tail is None else {"wake_tail": args.wake_tail}),
+            **({} if args.wake_capture is None else {"wake_capture": args.wake_capture}),
             speaker_id=not args.no_speaker_id,
             speaker_profiles=Path(args.speaker_profiles) if args.speaker_profiles else None,
             speaker_threshold=args.speaker_threshold,
