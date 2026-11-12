@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.1
+
+- **Wake words are verified on the AEC capture.** The VPE's AGC capture
+  sometimes sits about 35 dB down, and near misses ("okay natalie") got
+  through on it. The command is still heard on the AGC capture; a call
+  without AEC audio is verified as before, and `--wake-capture agc` puts it
+  back for every call.
+- **The second opinion doesn't overturn a near miss.** A wake word Kaldi
+  refused is no longer accepted on the ratio when it sounds more like one of
+  37 of "okay nabu"'s confusables ("okay natalie", "okay taboo" with a long
+  last vowel) than like it. The call's trace says which.
+- **Sentence triggers are known by their sentence.** An automation with no
+  description is known to the fallback by its first sentence, each slot by
+  its name ("how is the sport game going in city"), not its name: GLiNER
+  scored "Game info" 0.27 for "how's the basketball game going in New
+  Orleans?", too unsure to run it, and the sentence 0.96. Hints say it the
+  same way.
+
 ## 0.2.0
 
 - **Voice Labs is Voice Incubator**: the app (slug `voice_incubator`; its
