@@ -153,6 +153,11 @@ VAD_LEVEL_DBFS = -30.0
 MAX_VAD_GAIN = 16.0
 WAKE_SECONDS = 1.2
 """How much audio before the split holds the wake word."""
+WARM_LEAD = 0.5
+"""Silero's warm start begins this long before the wake word: from the quiet
+before it. Begun at the wake word's first sound, its state could keep it from
+hearing the command at all (0.36 at most for a command it scores 0.95 when
+begun on the quiet: "no speech" after 8 s)."""
 SETTLE_SECONDS = 0.2
 """After a warm start, Silero's chunks that count for nothing."""
 SEGMENT_GAP = 0.15
@@ -180,6 +185,14 @@ class Segment:
     start: float
     end: float
 _FRAME = 512
+
+
+def warm_start(split: int, wake_start: float | None) -> int:
+    """Where Silero's warm start begins (bytes, even): WARM_LEAD before the
+    wake word's start (seconds) where the recognizer found it, else before
+    the WAKE_SECONDS ahead of the ``split``; never after the split."""
+    start = wake_start if wake_start is not None else (split / BYTE_RATE) - WAKE_SECONDS
+    return min(split, max(0, round((start - WARM_LEAD) * BYTE_RATE))) & ~1
 
 
 def vad_gain(wake: bytes) -> float:

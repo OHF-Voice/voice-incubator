@@ -30,7 +30,7 @@ from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import HOME_TAKEN, VERBOSITY, command_of
 from .discover import Device, Discovery
-from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain
+from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain, warm_start
 from .endpoint import parse as parse_end_of_speech
 from .fallback import (
     DEFAULT_FALLBACK_MODEL,
@@ -2746,7 +2746,7 @@ class VoiceIncubatorApp:
 
         self._place_split(call, verdict)
         self._start_kaldi(call, kaldi_mode.CALL, 0)
-        wake = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
+        wake = bytes(call.audio[warm_start(call.split_bytes, call.wake_start) : call.split_bytes])
         await self._start_stt(session, call)
         call.endpointer = Endpointer(self.end_of_speech(session.satellite), gain=vad_gain(wake), warm=wake)
         # Someone else talking ends the command, once the speaker is
@@ -3180,7 +3180,7 @@ class VoiceIncubatorApp:
             gain, warm = call.follow_up.gain, call.follow_up.warm
         else:
             gain = call.endpointer.gain if call.endpointer is not None else 1.0
-            warm = bytes(call.audio[max(0, call.split_bytes - int(WAKE_SECONDS * BYTE_RATE)) : call.split_bytes])
+            warm = bytes(call.audio[warm_start(call.split_bytes, call.wake_start) : call.split_bytes])
         return FollowUp(
             kind, question, call.record.id if call.record is not None else None, who, gain=gain, warm=warm,
             decision=decision if kind in ("confirm", "which") else None,

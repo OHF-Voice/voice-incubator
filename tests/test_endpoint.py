@@ -18,9 +18,12 @@ from voice_incubator.endpoint import (
     Endpointer,
     MicroDetector,
     SileroDetector,
+    WAKE_SECONDS,
+    WARM_LEAD,
     micro_available,
     parse,
     vad_gain,
+    warm_start,
 )
 
 CALL = Path(__file__).resolve().parent.parent / "calls/call-15788.wav"
@@ -214,6 +217,20 @@ def test_silero_hears_the_wake_word_first():
     assert run_warm([0.9] * 10 + [0.9] * settle + [0.9] * 20 + [0.1] * 40) == settle + 20 + 30 - 1
     # microVAD starts as it did: its own window fills first.
     assert run_warm([0.9] * 20 + [0.1] * 40, vad="micro") == 20 + 30 - 1
+
+
+def test_the_warm_start_begins_in_the_quiet_before_the_wake_word():
+    # Begun at the wake word's first sound, Silero could miss the whole
+    # command: it begins WARM_LEAD before where the recognizer found it.
+    split = int(1.4665625 * 32000) & ~1
+    assert warm_start(split, 1.0) == int((1.0 - WARM_LEAD) * 32000)
+    assert warm_start(split, 0.2665625) == 0  # no earlier than the call
+    # Not found: before the WAKE_SECONDS ahead of the split.
+    split = 3 * 32000
+    assert warm_start(split, None) == int((3 - WAKE_SECONDS - WARM_LEAD) * 32000)
+    # Never after the split, and on a sample.
+    assert warm_start(32000, 5.0) == 32000
+    assert warm_start(32001, 0.7) % 2 == 0
 
 
 @pytest.mark.skipif(not CALL.exists(), reason="no recorded call")
