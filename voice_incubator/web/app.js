@@ -1752,26 +1752,37 @@ async function newCommandDialog(area) {
   const search = h("input", { type: "search", placeholder: "Search the library: lights, timer, play…", "aria-label": "Search the library" });
   const list = h("div", { class: "list" });
   const chips = h("div", { class: "row filter-chips" });
-  const add = async (entry) => {
+  // The button says it's adding until the commands are recognized (a
+  // rebuild: seconds on a small device), and can't be pressed again.
+  const adding = async (button, label, entries) => {
+    const old = button && button.textContent;
+    if (button) { button.disabled = true; button.textContent = label; }
     try {
-      const result = await addFromLibrary([entry], where);
-      close();
-      location.hash = opening(result.id);
-    } catch (err) { toast(err.message); }
+      return await addFromLibrary(entries, where);
+    } catch (err) {
+      toast(err.message);
+      if (button) { button.disabled = false; button.textContent = old; }
+      return null;
+    }
   };
-  const addSelected = async () => {
-    try {
-      await addFromLibrary([...selected.values()], where);
-      close();
-      route();
-    } catch (err) { toast(err.message); }
+  const add = async (entry, button) => {
+    const result = await adding(button, "Adding…", [entry]);
+    if (!result) return;
+    close();
+    location.hash = opening(result.id);
+  };
+  const addSelected = async (button) => {
+    const n = selected.size;
+    if (!await adding(button, n === 1 ? "Adding 1 command…" : `Adding ${n} commands…`, [...selected.values()])) return;
+    close();
+    route();
   };
   function renderFooter() {
     const n = selected.size;
     fill(footer, n ? [
       h("span", { class: "grow muted small" }, `${n} selected`),
       h("button", { type: "button", class: "link", onclick: () => { selected.clear(); render(); } }, "Clear"),
-      h("button", { type: "button", class: "primary", onclick: addSelected }, n === 1 ? "Add 1 command" : `Add ${n} commands`),
+      h("button", { type: "button", class: "primary", onclick: (e) => addSelected(e.currentTarget) }, n === 1 ? "Add 1 command" : `Add ${n} commands`),
     ] : null);
   }
   const custom = h("button", { type: "button", class: "custom-command", onclick: () => { close(); location.hash = where ? `#/command/?area=${encodeURIComponent(where)}` : "#/command/"; } },
@@ -1795,9 +1806,9 @@ async function newCommandDialog(area) {
       h("div", { class: "grow" },
         h("div", { class: "title" }, entry.title, added ? h("span", { class: "badge ok", style: "margin-left:8px" }, "added") : null),
         entry.error ? h("div", { class: "notice bad" }, entry.error) : null),
-      added ? h("button", { type: "button", class: "link", onclick: () => add(entry) }, "Add a copy") : null,
+      added ? h("button", { type: "button", class: "link", onclick: (e) => add(entry, e.currentTarget) }, "Add a copy") : null,
       added ? h("button", { type: "button", onclick: () => { close(); location.hash = opening(yours.id(entry.id)); } }, "Open")
-        : h("button", { type: "button", class: "primary", onclick: () => add(entry) }, "Add"));
+        : h("button", { type: "button", class: "primary", onclick: (e) => add(entry, e.currentTarget) }, "Add"));
   };
   // A command with versions: a row that opens to them -- opened while
   // searching, to show which matched.

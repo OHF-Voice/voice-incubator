@@ -396,13 +396,20 @@ class CachedEmbedder:
     """Embeds documents (examples, descriptions, everyday requests) once.
     Rebuilding after an edit then costs only the new sentences; with
     ``path``, kept there for the next start too, as long as the model is the
-    same (91 s for 25 commands on an HA Green, every start, without it)."""
+    same (91 s for 25 commands on an HA Green, every start, without it).
+
+    Sentences can also be embedded ahead (``keep_ahead``, ``embed_ahead``:
+    the library's, so adding its commands doesn't wait for them) and are
+    kept with the rest. Builds and the embedding ahead run in threads of
+    their own: the cache is shared under a lock."""
 
     def __init__(self, embedder, path: Path | None = None) -> None:
         self._embedder = embedder
         self._cache: dict[str, np.ndarray] = {}
         self._used: set[str] = set()
+        self._ahead: set[str] = set()
         self._added = False
+        self._lock = threading.Lock()
         self._path = Path(path) if path is not None else None
         self._model = _model_of(embedder)
         if self._path is not None and self._path.is_file():
@@ -411,15 +418,34 @@ class CachedEmbedder:
     def embed(self, texts: list[str], document: bool = False) -> np.ndarray:
         if not document:
             return self._embedder.embed(texts, document)
-        missing = [t for t in dict.fromkeys(texts) if t not in self._cache]
-        if missing:
-            for text, vector in zip(missing, self._embedder.embed(missing, True)):
-                self._cache[text] = vector
+        self._add(self.missing(texts))
+        with self._lock:
+            self._used.update(texts)
+            if not texts:
+                return np.zeros((0, 768), dtype=np.float32)
+            return np.stack([self._cache[t] for t in texts])
+
+    def missing(self, texts: Iterable[str]) -> list[str]:
+        """Those not embedded yet, once each."""
+        with self._lock:
+            return [t for t in dict.fromkeys(texts) if t not in self._cache]
+
+    def keep_ahead(self, texts: Iterable[str]) -> None:
+        """Kept, though no build uses them: these, not those before."""
+        with self._lock:
+            self._ahead = set(texts)
+
+    def embed_ahead(self, texts: list[str]) -> None:
+        """Embed these now, for a build to come (from a thread)."""
+        self._add(self.missing(texts))
+
+    def _add(self, missing: list[str]) -> None:
+        if not missing:
+            return
+        vectors = self._embedder.embed(missing, True)  # outside the lock: the slow part
+        with self._lock:
+            self._cache.update(zip(missing, vectors))
             self._added = True
-        self._used.update(texts)
-        if not texts:
-            return np.zeros((0, 768), dtype=np.float32)
-        return np.stack([self._cache[t] for t in texts])
 
     def _load(self, path: Path) -> None:
         try:
@@ -427,26 +453,75 @@ class CachedEmbedder:
                 if str(saved["model"]) != self._model:
                     _LOGGER.info("%s is another model's; embedding anew", path.name)
                     return
-                for text, vector in zip(saved["texts"].tolist(), saved["vectors"]):
-                    self._cache[str(text)] = vector
+                texts = [str(t) for t in saved["texts"].tolist()]
+                for text, vector in zip(texts, saved["vectors"]):
+                    self._cache[text] = vector
+                # Embedded ahead: kept until it's known what is now.
+                if "ahead" in saved.files:
+                    self._ahead = {t for t, ahead in zip(texts, saved["ahead"].tolist()) if ahead}
         except (OSError, KeyError, ValueError) as err:
             _LOGGER.warning("Could not read %s (%s); embedding anew", path, err)
+            self._cache.clear()
+            self._ahead.clear()
             return
         _LOGGER.info("%d embedded sentences from %s", len(self._cache), path.name)
 
     def save(self) -> None:
-        """Keep what the builds since starting used, if anything changed:
-        sentences no command says any more are left out."""
-        if self._path is None or not self._used or (not self._added and self._used >= set(self._cache)):
-            return
-        texts = [t for t in self._cache if t in self._used]
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self._path.with_name(f".{self._path.name}.tmp")
-        with open(temp, "wb") as out:
-            np.savez(out, model=np.array(self._model), texts=np.array(texts), vectors=np.stack([self._cache[t] for t in texts]))
-        temp.replace(self._path)
-        self._cache = {t: self._cache[t] for t in texts}
-        self._added = False
+        """Keep what the builds since starting used and what was embedded
+        ahead, if anything changed: sentences no command says any more are
+        left out."""
+        with self._lock:
+            keep = self._used | self._ahead
+            if self._path is None or not keep or (not self._added and keep >= set(self._cache)):
+                return
+            texts = [t for t in self._cache if t in keep]
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self._path.with_name(f".{self._path.name}.tmp")
+            with open(temp, "wb") as out:
+                np.savez(
+                    out, model=np.array(self._model), texts=np.array(texts),
+                    vectors=np.stack([self._cache[t] for t in texts]),
+                    ahead=np.array([t in self._ahead for t in texts], dtype=bool),
+                )
+            temp.replace(self._path)
+            self._cache = {t: self._cache[t] for t in texts}
+            self._added = False
+
+
+def embedded_texts(config: Any) -> list[str]:
+    """The sentences a build embeds for a parsed config's intents, as the
+    recognizer takes them (adapt_ctc.matcher.Recognizer._embed_examples):
+    each intent's meaning examples (or examples), then its description."""
+    intents = list(config.intents.values())
+    return [
+        *(text for intent in intents for text in intent.meaning_examples or intent.examples),
+        *(intent.description for intent in intents if intent.description),
+    ]
+
+
+def library_texts() -> list[str]:
+    """What a build embeds for each of the library's commands in the app's
+    language, each compiled alone, as adding it would. A version that
+    doesn't compile alone (its list turned off ...) is passed over."""
+    from .library import REFERENCE, load_library  # pylint: disable=import-outside-toplevel
+    from .store import compile_store  # pylint: disable=import-outside-toplevel
+
+    code = languages.current().code
+    texts: dict[str, None] = {}
+    for entry in load_library():
+        document = {
+            "language": code,
+            "lists": entry.get("lists") or {},
+            "commands": {entry["id"]: {REFERENCE: f"{entry['file']}/{entry['id']}"}},
+        }
+        try:
+            compiled = compile_store(document)
+            if compiled.config is None:
+                continue
+            texts.update(dict.fromkeys(embedded_texts(parse_config(compiled.config))))
+        except (ConfigError, ValueError, KeyError) as err:
+            _LOGGER.debug("Library %s/%s isn't embedded ahead: %s", entry["file"], entry["id"], err)
+    return list(texts)
 
 
 def _model_of(embedder) -> str:

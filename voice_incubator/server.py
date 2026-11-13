@@ -41,7 +41,7 @@ from .fallback import (
     chosen,
     needs_model,
 )
-from .engine import Decision, Engine, Satellite, model_note
+from .engine import CachedEmbedder, Decision, Engine, Satellite, library_texts, model_note
 from . import compound, context, follow_up, triggers
 from . import night as night_mode
 from .follow_up import FOLLOW_UP, FollowUp
@@ -91,6 +91,10 @@ disabled; past it, every satellite is served until it says."""
 # Running timers' names are recognized from a list rebuilt when they change;
 # a burst of changes makes one rebuild.
 TIMER_LIST_DEBOUNCE = 0.3
+
+LIBRARY_EMBED_BATCH = 2
+"""The library's sentences embedded ahead this many at a time (~0.8 s on an
+HA Green): a call or an edit that starts meanwhile waits no longer."""
 
 # The microWakeWord model the satellite listens with while a timer rings.
 STOP_MODEL = STOP
@@ -809,6 +813,7 @@ class VoiceIncubatorApp:
         self.configure_skills()
         await self.reload_commands()
         self._spawn(self.configure_fallback())
+        self._spawn(self._embed_library())
         self.configure_agent()
         await self._ensure_ratios()
         await self.speech.start()
@@ -920,6 +925,34 @@ class VoiceIncubatorApp:
         self.store.triggers = found
         if self.engine is not None:
             await self.reload_commands()
+
+    async def _embed_library(self) -> None:
+        """The library's sentences embedded ahead, so adding its commands
+        doesn't wait for them (0.4 s each on an HA Green: 23 s for 12
+        commands). Once per library and model: kept in embeddings.npz. A
+        few at a time, never during a call or a build."""
+        embedder = self.engine.embedder if self.engine is not None else None
+        if not isinstance(embedder, CachedEmbedder):
+            return
+        try:
+            texts = await asyncio.to_thread(library_texts)
+        except Exception:  # noqa: BLE001 -- only ever a head start
+            _LOGGER.exception("Could not read the library's sentences to embed ahead")
+            return
+        embedder.keep_ahead(texts)
+        todo = embedder.missing(texts)
+        if not todo:
+            await asyncio.to_thread(embedder.save)  # what the library no longer says, left out
+            return
+        _LOGGER.info("Embedding %d of the library's sentences ahead", len(todo))
+        started = time.perf_counter()
+        for start in range(0, len(todo), LIBRARY_EMBED_BATCH):
+            while any(s.call is not None for s in self.sessions.values()):
+                await asyncio.sleep(1)
+            async with self._build_lock:
+                await asyncio.to_thread(embedder.embed_ahead, todo[start : start + LIBRARY_EMBED_BATCH])
+        await asyncio.to_thread(embedder.save)
+        _LOGGER.info("The library's sentences embedded in %.0f s", time.perf_counter() - started)
 
     async def apply(self, compiled: Compiled) -> None:
         """Recognize these commands from now on. Raises ConfigError when
