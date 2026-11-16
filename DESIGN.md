@@ -458,7 +458,7 @@ automation's page.
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_incubator/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_incubator.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
+| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (Marketplace), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_incubator.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
 | [OHF-Voice/firmware-voice-incubator](https://github.com/OHF-Voice/firmware-voice-incubator) | the satellites' ESPHome firmware: `devices/voice-pe.yaml`, the `components/voice_incubator` component, the install page's build, and the protocol (PROTOCOL.md). Before: the Voice Labs firmware in [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) (protocol 1) |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from an integration-voice-incubator checkout (see its conftest) |
