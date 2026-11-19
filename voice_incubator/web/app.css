@@ -58,6 +58,7 @@ pre { background: var(--code); padding: 10px; border-radius: 6px; overflow: auto
   position: sticky; top: 0; z-index: 10;
 }
 .brand img { display: block; height: 32px; width: auto; }
+.version { color: var(--muted); font-size: 0.78rem; margin-left: -8px; }
 nav { display: flex; gap: 4px; flex-wrap: wrap; }
 nav a { padding: 6px 10px; border-radius: 6px; color: var(--text); }
 nav a.active { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
@@ -165,6 +166,16 @@ h2.row { gap: 8px; align-items: center; }
 a.session-row { color: inherit; flex-wrap: nowrap; }
 a.session-row:hover { text-decoration: none; background: var(--bg); }
 .session-row .heard { font-weight: 600; overflow-wrap: anywhere; }
+/* Home Assistant's speech-to-text and the conversation agent given its
+   words: one request, two sessions, bracketed together. */
+.session-pair { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+.session-pair:first-child { border-top: none; }
+.session-pair .pair-link { flex: none; display: flex; align-items: center; margin: 8px 0; padding: 0 2px; border: 2px solid var(--accent); border-right: none; border-radius: 6px 0 0 6px; width: 14px; }
+.session-pair .pair-link .icon { width: 16px; height: 16px; color: var(--accent); background: var(--panel); margin-left: -11px; }
+.session-pair .session-row + .session-row { border-top-style: dashed; }
+a.linked-session { display: flex; gap: 8px; align-items: center; color: inherit; margin: 10px 0; }
+a.linked-session:hover { text-decoration: none; filter: brightness(0.97); }
+a.linked-session .icon { color: var(--accent); }
 .session-side { flex: none; display: flex; align-items: center; gap: 10px; }
 .session-meta { display: flex; flex-direction: column; text-align: right; white-space: nowrap; }
 @media (max-width: 640px) {

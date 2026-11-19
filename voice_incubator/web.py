@@ -25,7 +25,7 @@ from ruamel.yaml import YAML
 from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
-from . import areas, languages, music, timers
+from . import __version__, areas, languages, music, timers
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
 from .endpoint import LIMITS
@@ -265,6 +265,7 @@ class Api:
         engine = app.engine
         return web.json_response(
             {
+                "version": __version__,
                 "hass": app.hass.connected.is_set(),
                 # Where its pages open: through ingress, in the frame around
                 # this one (none); run on its own, at its address.

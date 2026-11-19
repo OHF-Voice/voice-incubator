@@ -3962,6 +3962,8 @@ class VoiceIncubatorApp:
             "recognition", **decision.to_json(), from_home_assistant=True,
             **({"heard": heard.record_id} if heard is not None else {}),
         )
+        if heard is not None:
+            self._link_heard(heard.record_id, record)
         who = self.speaking()
         # Asked which of several timers, it answers in the same conversation.
         listens = bool(conversation)
@@ -4016,6 +4018,16 @@ class VoiceIncubatorApp:
         code = (response.get("data") or {}).get("code") if failed else None
         record.stage("timer", agent=HOME_ASSISTANT_AGENT, said=said, error=code)
         return said, "not recognized" if failed else "done", f"{text!r}: Home Assistant's timer"
+
+    def _link_heard(self, heard_id: str, record: CallRecord) -> None:
+        """The two records of one request through Wyoming: the speech-to-text
+        that heard it, and the conversation agent's (``record``) that was
+        given its words -- each pointing to the other (CallRecord.links)."""
+        record.links["heard"] = heard_id
+        heard = self.calls.get(heard_id)
+        if heard is not None:
+            heard.links["handled"] = record.id
+            self.calls.update(heard)
 
     async def hear(self, context: dict[str, Any] | None) -> Hearing:
         """Home Assistant's satellite starts to speak (Wyoming's audio-start):

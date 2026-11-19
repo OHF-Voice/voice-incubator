@@ -1382,8 +1382,8 @@ for this app:
     background heard no word (in a call, after the wake word). Speech-to-Phrase decoded with a trigram of its
     sentences and snapped the three best to the sentences; a fixed grammar
     and the background does without either.
-  - **The graphs**: the word pronunciations -- yours (the Pronunciations
-    page, `pronunciations.json`), the model's dictionary, phonetisaurus's
+  - **The graphs**: the word pronunciations -- yours (the Settings page's
+    Pronunciations tab, `pronunciations.json`), the model's dictionary, phonetisaurus's
     guess with the model's G2P model (kept in `kaldi/guesses.json`) --
     through prepare_lang and mkgraph (the wake verifier's tools); one
     resident decoder (`verify_decoderd`) holds the home's, the same with

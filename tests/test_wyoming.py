@@ -514,8 +514,14 @@ async def _pipelines(tmp_path: Path) -> None:
         assert next(s for s in transcribed.stages if s["stage"] == "transcript")["text"] == text
         [handled] = await reply(port, text, **KITCHEN)
         assert Handled.from_event(handled).text == "Turned on light.nanoleaf."
-        recognition = next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")
+        handling = app.calls.recent[-1]
+        recognition = next(s for s in handling.stages if s["stage"] == "recognition")
         assert recognition["heard"] == transcribed.id
+        # The two sessions of one request point to each other (the Sessions page pairs them).
+        assert handling.links == {"heard": transcribed.id} and transcribed.links == {"handled": handling.id}
+        glances = {c["id"]: c for c in app.calls.list()}
+        assert glances[transcribed.id]["step"] == "stt" and glances[handling.id]["step"] == "agent"
+        assert glances[handling.id]["links"] == {"heard": transcribed.id}
         # Heard once: the same words again are read as words.
         await reply(port, text, **KITCHEN)
         assert "heard" not in next(s for s in app.calls.recent[-1].stages if s["stage"] == "recognition")

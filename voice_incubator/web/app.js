@@ -406,8 +406,8 @@ async function refreshStatus() {
   if (s.unspeakable && s.unspeakable.length) notes.push(h("div", { class: "notice warn" }, "These phrases can't be spelled in the speech model's pieces and will never be heard: ", s.unspeakable.join(", ")));
   const kaldi = s.kaldi || {};
   if (kaldi.chosen && kaldi.error) notes.push(h("div", { class: "notice bad" }, "Kaldi can't hear commands, so Parakeet does: ", kaldi.error));
-  const pronunciations = document.getElementById("nav-pronunciations");
-  if (pronunciations) pronunciations.hidden = !kaldi.chosen;
+  const version = document.getElementById("version");
+  if (version && s.version) { version.textContent = `v${s.version}`; version.title = `Voice Incubator ${s.version}`; }
   fill(banner, ...notes.map((n) => h("div", {}, n)));
 }
 
@@ -1435,7 +1435,7 @@ async function pageCommand(id, prefill, query) {
       } }), label, hint(help),
       // Turned off for every command: ticked here, it still won't run.
       ((state.status || {}).fallback || {})[step] === false
-        ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” in Whole Home's Settings" }, "off in Settings") : null);
+        ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” on the Settings page" }, "off in Settings") : null);
   }
   // Kept out of an area on do not disturb, heard in another: announcements,
   // the intercom and music unless unticked, anything else when ticked. Drawn
@@ -1950,6 +1950,7 @@ const andList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(", ")}
 
 // The Home page at a place (an area's id; "home": the whole home) and tab.
 function placeHref(place, tab) {
+  if (tab === "settings" && (!place || place === "home")) return "#/settings";
   const query = new URLSearchParams();
   if (place && place !== "home") query.set("place", place);
   if (tab && tab !== "commands") query.set("tab", tab);
@@ -2100,7 +2101,7 @@ function triggerPage(store, id, query) {
         } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
       } }), label, hint(able ? help : why),
       ((state.status || {}).fallback || {})[name] === false
-        ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” in Whole Home's Settings" }, "off in Settings") : null);
+        ? h("a", { class: "badge warn", href: placeHref("home", "settings"), title: "Turned off for every command under “When nothing matches” on the Settings page" }, "off in Settings") : null);
   };
   return [
     h("div", { class: "row" },
@@ -2312,6 +2313,7 @@ function placesNav(places, sats, place, tab) {
 // The tab an area opens on: the one open, unless no satellite is there to
 // hear its commands and settings (then its names).
 function areaTab(id, tab) {
+  if (id === "home") return tab === "settings" ? "commands" : tab;
   const area = ((state.areas || {}).areas || []).find((a) => a.id === id);
   return area && !area.satellites.length ? "names" : tab;
 }
@@ -2355,14 +2357,16 @@ async function pageHome(query) {
   const here = sats.filter((s) => (area ? s.area === area.id : !s.area));
   // An area with no satellite hears nothing: no Commands, unless it has
   // its own (to reach them).
-  const tabs = [["commands", "Commands"], ["names", "Names"], ["settings", "Settings"]]
-    .filter(([id]) => id !== "commands" || !area || here.length || area.commands);
   const asked = params.get("tab") || (area ? areaTab(area.id, "commands") : "commands");
+  // The whole home's settings are a page of their own.
+  if (!area && asked === "settings") { location.hash = "#/settings"; return; }
+  const tabs = [["commands", "Commands"], ["names", "Names"], ...(area ? [["settings", "Settings"]] : [])]
+    .filter(([id]) => id !== "commands" || !area || here.length || area.commands);
   const tab = tabs.some(([id]) => id === asked) ? asked : tabs[0][0];
   const body = h("div");
   if (tab === "commands") fill(body, area ? areaCommands(store, skillData, area, here) : wholeCommands(store, skillData, params.get("q") || ""));
   else if (tab === "names") fill(body, await namesTab(store, area));
-  else fill(body, area ? areaSettingsPanel(area) : settingsPanels());
+  else fill(body, areaSettingsPanel(area));
   // Nothing in it: it can come off the list.
   const empty = area && area.listed && !area.satellites.length && !area.devices && !area.commands && !area.off;
   const remove = async () => {
@@ -2948,14 +2952,19 @@ function kaldiState(kaldi) {
   if (kaldi.building) return h("div", { class: "notice info" }, "Updating Kaldi's sentences. It hears the ones before meanwhile.");
   const guessed = asList(kaldi.guessed).length;
   return h("div", { class: "notice info" }, `Kaldi hears ${kaldi.sentences} sentence${kaldi.sentences === 1 ? "" : "s"}.`,
-    guessed ? [" ", h("a", { href: "#/pronunciations" }, `${guessed} pronunciation${guessed === 1 ? " is" : "s are"} guessed`), "."] : null,
+    guessed ? [" ", h("a", { href: "#/settings?tab=pronunciations" }, `${guessed} pronunciation${guessed === 1 ? " is" : "s are"} guessed`), "."] : null,
     asList(kaldi.unspeakable).length ? ` No pronunciation for ${andList(kaldi.unspeakable.map((w) => `“${w}”`))}: its sentences aren't heard.` : null);
 }
 
 // Kaldi mode's words: each one's pronunciations, the guessed ones first,
-// with the person's own in place of any.
-async function pagePronunciations() {
-  const data = await api("GET", "pronunciations");
+// with the person's own in place of any. Filled into `panel` (the Settings
+// page's Pronunciations tab), again after each save.
+function pronunciationsPanel(panel = h("div", { class: "panel" }, heading("h2", "Pronunciations"), h("p", { class: "muted small" }, "Loading…"))) {
+  api("GET", "pronunciations").then((data) => fillPronunciations(panel, data)).catch((err) => fill(panel, heading("h2", "Pronunciations"), errorBox(err)));
+  return panel;
+}
+
+function fillPronunciations(panel, data) {
   const kaldi = data.kaldi || {};
   const filter = h("input", { type: "search", placeholder: "Find a word", style: "width:220px" });
   const list = h("div", { class: "pron-list" });
@@ -2968,7 +2977,7 @@ async function pagePronunciations() {
         await api("PUT", `pronunciations/${encodeURIComponent(w.word)}`, { pronunciations: prons });
         toast("Saved: Kaldi's graphs are being built again");
         await refreshStatus();
-        pagePronunciations();
+        pronunciationsPanel(panel);
       } catch (err) { toast(err.message); }
     };
     return h("div", { class: "item" },
@@ -2981,19 +2990,18 @@ async function pagePronunciations() {
   function draw() {
     const wanted = filter.value.trim().toLowerCase();
     const words = data.words.filter((w) => !wanted || w.word.includes(wanted));
-    fill(list, words.length ? words.slice(0, 300).map(row) : h("p", { class: "muted" }, kaldi.chosen ? "No words yet." : "Choose Kaldi on the Settings page first."));
+    fill(list, words.length ? words.slice(0, 300).map(row) : h("p", { class: "muted" }, kaldi.chosen ? "No words yet." : "Choose Kaldi under “Commands heard by” first."));
   }
   filter.addEventListener("input", draw);
   draw();
-  fill($main,
-    h("div", { class: "panel" },
+  fill(panel,
       heading("h2", "Pronunciations", "How Kaldi says each word of the home's sentences, in the model's phones (below), the stress mark before the vowel it falls on. A word the dictionary lacks is guessed: check those first. Several pronunciations are separated by commas."),
       kaldi.chosen && !kaldi.guessing ? h("div", { class: "notice warn" }, "Nothing can be guessed here (no phonetisaurus): a word the dictionary lacks needs yours.") : null,
       h("div", { class: "row" }, filter),
       list,
       h("details", { class: "small" }, h("summary", {}, "The model's phones"),
         h("div", { class: "phones" }, (data.phones || []).map(([phone, example, said]) =>
-          h("span", { class: "chip", title: `${example}: ${said}` }, h("b", {}, phone), ` ${example}`))))));
+          h("span", { class: "chip", title: `${example}: ${said}` }, h("b", {}, phone), ` ${example}`)))));
 }
 
 // The built-in voice: Piper's, downloaded the first time it is used. What a
@@ -3934,8 +3942,20 @@ const OUTCOME_CLASS = { answered: "ok", asked: "accent", done: "ok", "dry run": 
 // Assistant's (its satellite's, through Wyoming).
 function sessionKind(record, sats) {
   if (record.kind === "call") return (sats && sats[record.satellite.id]) || record.satellite.name || "Session";
-  if (record.kind === "wyoming") return record.satellite.name || "Home Assistant";
+  if (record.kind === "wyoming") return [record.satellite.name || "Home Assistant", WYOMING_STEPS[wyomingStep(record)]].filter(Boolean).join(" · ");
   return record.kind === "try" ? "test" : record.kind;
+}
+
+// What a session through Wyoming was: Home Assistant's speech-to-text
+// ("stt") or its conversation agent ("agent").
+const WYOMING_STEPS = { stt: "speech-to-text", agent: "conversation agent" };
+function wyomingStep(record) {
+  if (record.kind !== "wyoming") return null;
+  if (record.step) return record.step;
+  const links = record.links || {};
+  if (links.handled || stageOf(record, "transcribe")) return "stt";
+  if (links.heard || stageOf(record, "typed")) return "agent";
+  return null;
 }
 
 // Its icon: its satellite's, or a test's or a replay's.
@@ -4295,9 +4315,32 @@ async function pageSessions(query) {
       c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
       h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome)));
 
+  // One request from Home Assistant through Wyoming: its speech-to-text and
+  // the conversation agent given its words, together where the first is.
+  function rows(calls) {
+    const byId = Object.fromEntries(calls.map((c) => [c.id, c]));
+    const shown = new Set();
+    const out = [];
+    for (const c of calls) {
+      if (shown.has(c.id)) continue;
+      const links = c.links || {};
+      const other = byId[links.heard || links.handled];
+      if (other && !shown.has(other.id)) {
+        shown.add(c.id).add(other.id);
+        out.push(h("div", { class: "session-pair", title: "One request from Home Assistant: what its speech-to-text heard went to its conversation agent." },
+          h("div", { class: "pair-link", "aria-hidden": "true" }, icon("mdi:link-variant")),
+          h("div", { class: "list grow" }, row(c), row(other))));
+      } else {
+        shown.add(c.id);
+        out.push(row(c));
+      }
+    }
+    return out;
+  }
+
   async function refresh() {
     const data = await api("GET", `calls${satellite ? `?satellite=${satellite}` : ""}`);
-    fill(list, ...(data.calls.length ? data.calls.map(row) : [h("p", { class: "muted" }, "No sessions yet.")]));
+    fill(list, ...(data.calls.length ? rows(data.calls) : [h("p", { class: "muted" }, "No sessions yet.")]));
   }
 
   const keep = h("input", { type: "checkbox", checked: settings.keep_audio, onchange: async (e) => { await api("PUT", "settings", { keep_audio: e.target.checked }); refreshStatus(); toast(e.target.checked ? "Keeping audio of every session" : "Not keeping audio"); } });
@@ -4858,6 +4901,7 @@ async function pageSession(id) {
         h("h1", { style: "margin:0" }, sessionKind(record)),
         h("div", { class: "muted small" }, [time(record.started), took !== null ? `${num(took, 1)} s` : null, record.dry_run && record.outcome !== "dry run" ? "dry run" : null].filter(Boolean).join(" · "))),
       h("span", { class: `badge ${OUTCOME_CLASS[record.outcome] || ""}` }, record.outcome)),
+    linkedSession(record),
     h("div", { class: "panel" },
       sessionGlance(record),
       h("div", { class: "row", style: "margin-top:12px" },
@@ -4871,6 +4915,22 @@ async function pageSession(id) {
     audioSection(record),
   );
   if (record.outcome === "in progress") poll(async () => { const next = await api("GET", `calls/${id}`); if (next.outcome !== "in progress") { stopPolling(); pageSession(id); } }, 1000);
+}
+
+// The other half of a request from Home Assistant through Wyoming: the
+// speech-to-text that heard it, or the conversation agent given its words.
+function linkedSession(record) {
+  const links = record.links || {};
+  const id = links.heard || links.handled;
+  if (!id) return null;
+  const box = h("a", { class: "notice info linked-session", href: `#/session/${id}` }, icon("mdi:link-variant"),
+    h("span", { class: "grow" }, links.heard ? "Heard by Home Assistant's speech-to-text: " : "Its words went to the conversation agent: ", h("span", { class: "muted" }, "…")));
+  api("GET", `calls/${id}`).then((other) => {
+    const glance = other.stages ? (stageOf(other, "transcript") || {}).text || (stageOf(other, "typed") || {}).text || other.summary : other.summary;
+    fill(box.lastChild, links.heard ? "Heard by Home Assistant's speech-to-text: " : "Its words went to the conversation agent: ",
+      h("b", {}, glance ? quoted(glance) : "session"), h("span", { class: "muted" }, ` · ${time(other.started)}`));
+  }).catch(() => fill(box.lastChild, links.heard ? "Heard by Home Assistant's speech-to-text " : "Its words went to the conversation agent ", h("span", { class: "muted" }, "(no longer kept)")));
+  return box;
 }
 
 // A session's audio, folded away: drawn when opened.
@@ -5302,6 +5362,22 @@ function areaSettingsPanel(area) {
   return panel;
 }
 
+// The whole home's settings: every satellite's, unless its area or its own
+// page changes them. In Kaldi mode, its pronunciations too (tab).
+async function pageSettingsTab(query) {
+  await refreshStatus();
+  const kaldi = (state.status && state.status.kaldi) || {};
+  const tabs = [["general", "General"], ...(kaldi.chosen ? [["pronunciations", "Pronunciations"]] : [])];
+  const asked = new URLSearchParams(query || "").get("tab") || "general";
+  const tab = tabs.some(([id]) => id === asked) ? asked : "general";
+  fill($main,
+    h("div", { class: "place-head" },
+      heading("h1", "Settings", "Every satellite's, unless its area (on the Home page) or its own page changes them.")),
+    tabs.length > 1 ? h("div", { class: "place-tabs", role: "tablist" }, tabs.map(([id, text]) => h("a", {
+      role: "tab", class: tab === id ? "on" : "", "aria-selected": String(tab === id), href: id === "general" ? "#/settings" : `#/settings?tab=${id}` }, text))) : null,
+    tab === "pronunciations" ? pronunciationsPanel() : settingsPanels());
+}
+
 // After a setting is saved: the page again, as it is now.
 async function pageSettings() {
   await refreshStatus();
@@ -5323,7 +5399,7 @@ async function route() {
   const [page, ...rest] = path.split("/");
   const arg = rest.join("/");
   for (const link of document.querySelectorAll("#nav a")) {
-    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "home", session: "sessions", person: "people" }[page];
+    const parent = { command: "home", skill: "home", satellite: "home", unknown: "home", fallback: "settings", pronunciations: "settings", session: "sessions", person: "people" }[page];
     link.classList.toggle("active", link.dataset.page === page || link.dataset.page === parent);
   }
   try {
@@ -5336,7 +5412,8 @@ async function route() {
     else if (page === "library") await pageLibrary();
     else if (page === "names") location.hash = placeHref("home", "names");
     else if (page === "wake") await pageWakeWords(query);
-    else if (page === "pronunciations") await pagePronunciations();
+    else if (page === "settings") await pageSettingsTab(query);
+    else if (page === "pronunciations") location.hash = "#/settings?tab=pronunciations";
     else if (page === "people") await pagePeople(new URLSearchParams(query || "").get("enroll"));
     else if (page === "person") await pagePerson(decodeURIComponent(arg));
     else if (page === "speakers") location.hash = "#/people";
@@ -5351,7 +5428,6 @@ async function route() {
     else if (["commands", "skills", "satellites", "group"].includes(page)) location.hash = "#/home";
     else if (page === "calls") location.hash = `#/sessions${query ? `?${query}` : ""}`;
     else if (page === "call") location.hash = `#/session/${arg}`;
-    else if (page === "settings") location.hash = placeHref("home", "settings");
     else await pageHome();
   } catch (err) {
     fill($main, errorBox(err));
