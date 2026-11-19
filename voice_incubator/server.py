@@ -29,6 +29,7 @@ from .agent import HOME_ASSISTANT_AGENT, KEEP_SECONDS, Agent, Answered, Streamed
 from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import HOME_TAKEN, VERBOSITY, command_of
+from . import addresses as satellite_addresses
 from .discover import Device, Discovery
 from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain, warm_start
 from .endpoint import parse as parse_end_of_speech
@@ -774,6 +775,12 @@ class VoiceIncubatorApp:
         self._found: dict[str, Device] = {}
         """The satellites discovery found, by key: each served unless its
         device is disabled in Home Assistant."""
+        self._addresses: dict[satellite_addresses.Address, str] = {}
+        """The Settings' satellite addresses, each with the key of the
+        satellite its HELLO came from ("" until one has)."""
+        self._serving = False
+        """Whether run_forever serves what it finds: until then, and pinned to
+        --host, the satellite addresses start nothing."""
         self._web = None
         self.wyoming: Endpoints | None = None
         """Home Assistant's pipelines' way in (voice_incubator/wyoming_server.py)."""
@@ -1765,6 +1772,8 @@ class VoiceIncubatorApp:
         # Which are disabled is Home Assistant's to say: don't take one
         # before it has (the models load first, so it seldom waits).
         await self.hass.wait_connected(HASS_FIRST_WAIT)
+        self._serving = True
+        self.follow_addresses()
         self._discovery = Discovery()
         await self._discovery.start()
         try:
@@ -1795,9 +1804,71 @@ class VoiceIncubatorApp:
             for task in list(self._sessions.values()):
                 task.cancel()
 
+    def follow_addresses(self) -> None:
+        """A session to each of the Settings' satellite addresses, beside what
+        mDNS finds: kept (and reconnected with the usual backoff) while the
+        address is listed, unless its satellite is disabled in Home Assistant.
+        A satellite also found by mDNS has two sessions, of which it lets one
+        connect: it refuses another client while it has one."""
+        if not self._serving or self.options.host:
+            return
+        # Each stored entry alone: one a stricter version refuses (saving
+        # checks them all) costs only itself.
+        wanted: list[satellite_addresses.Address] = []
+        for entry in self.store.settings.get("satellite_addresses") or []:
+            try:
+                address = satellite_addresses.parse(entry)
+            except ValueError as err:
+                _LOGGER.warning("Satellite address not used: %s", err)
+                continue
+            if address not in wanted:
+                wanted.append(address)
+        for address in list(self._addresses):
+            if address not in wanted:
+                del self._addresses[address]
+                self._stop_address(address, "no longer in the satellite addresses")
+        disabled = self.hass.catalog.disabled_satellites
+        for address in wanted:
+            key = self._addresses.setdefault(address, "")
+            if key and key in disabled:
+                self._stop_address(address, "disabled in Home Assistant")
+            elif address.key not in self._sessions:
+                _LOGGER.info("Satellite at its address: %s", address)
+                session = Session(key=address.key, host=address.host, port=address.port)
+                task = asyncio.ensure_future(self._run_session(session))
+                self._sessions[address.key] = task
+                task.add_done_callback(
+                    lambda t, k=address.key: self._sessions.pop(k, None) if self._sessions.get(k) is t else None
+                )
+
+    def _stop_address(self, address: "satellite_addresses.Address", why: str) -> None:
+        task = self._sessions.pop(address.key, None)
+        if task is not None:
+            _LOGGER.info("Satellite at %s %s", address, why)
+            task.cancel()
+
+    async def _served_elsewhere(self, session: Session) -> bool:
+        """Whether another session is connected to the IP and port this one
+        would reach (its host resolved, a name or an IP alike). A satellite
+        takes one client, so this one waits rather than dial: found by mDNS
+        or listed by address, a satellite is connected once."""
+        connected = {
+            tuple(other.writer.get_extra_info("peername") or ())[:2]
+            for other in self.sessions.values()
+            if other is not session and other.writer is not None
+        }
+        if not connected:
+            return False
+        try:
+            infos = await asyncio.get_running_loop().getaddrinfo(session.host, session.port, type=socket.SOCK_STREAM)
+        except OSError:
+            return False  # dialling will say what is wrong
+        return any(tuple(info[4])[:2] in connected for info in infos)
+
     def _follow_disabled(self) -> None:
         """Let go of a satellite disabled in Home Assistant, for another app
         to take; take one back when it's enabled."""
+        self.follow_addresses()
         disabled = self.hass.catalog.disabled_satellites
         for key, device in list(self._found.items()):
             if key in disabled and key in self._sessions:
@@ -1829,6 +1900,13 @@ class VoiceIncubatorApp:
         backoff = self.options.reconnect_seconds
         try:
             while True:
+                if await self._served_elsewhere(session):
+                    # No dial while another of this app's sessions has it: a
+                    # look at the app's own sessions, so a short one, and the
+                    # dial comes as soon as that one has gone.
+                    backoff = self.options.reconnect_seconds
+                    await asyncio.sleep(backoff)
+                    continue
                 try:
                     _LOGGER.info("Connecting to %s:%d", session.host, session.port)
                     reader, writer = await asyncio.open_connection(
@@ -1890,6 +1968,10 @@ class VoiceIncubatorApp:
                 # growing delay in the log is the clue that it is not the network.
                 if time.monotonic() - started >= STABLE_CONNECTION_SECONDS:
                     backoff = self.options.reconnect_seconds
+                elif await self._served_elsewhere(session):
+                    # Refused while another of this app's sessions has it: it
+                    # waits above, without dialling, until that one goes.
+                    _LOGGER.info("%s:%d is served by another session; waiting for it to go", session.host, session.port)
                 else:
                     _LOGGER.warning(
                         "[%s] Connection lasted under %.0fs; retrying in %.0fs. If "
@@ -2011,6 +2093,12 @@ class VoiceIncubatorApp:
             session.device_id = _device_id(info)
             session.hello = info
             session.satellite = _satellite_key(info, session.key)
+            for address in self._addresses:
+                if address.key == session.key:  # a listed address's session
+                    self._addresses[address] = session.satellite
+                    if session.satellite in self.hass.catalog.disabled_satellites:
+                        self.follow_addresses()  # let go of it, for another app
+                    break
             self.sessions[session.satellite] = session
             self._remember_satellite(session)
             _LOGGER.info("[%s] Device: %s", session, info)

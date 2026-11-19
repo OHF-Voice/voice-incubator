@@ -5172,7 +5172,28 @@ function liveSection(s) {
 // command: the fallback, the conversation agent, responses.
 // Whole Home's settings (the Home page's Settings tab).
 function settingsPanels() {
-  return [homePanel(), speechPanel(), piperPanel(), endOfSpeechPanel(), fallbackPanel(), agentPanel(), responsesPanel()];
+  return [homePanel(), addressesPanel(), speechPanel(), piperPanel(), endOfSpeechPanel(), fallbackPanel(), agentPanel(), responsesPanel()];
+}
+
+// Satellites the app connects to at an address, as well as those mDNS finds
+// (addresses.py): where mDNS doesn't reach them, as across VLANs.
+function addressesPanel() {
+  const area = h("textarea", { rows: 3, "aria-label": "Satellite addresses", placeholder: "kitchen-satellite.lan\n192.0.2.40\n[fd00::40]:6055" });
+  api("GET", "settings").then((s) => { area.value = (s.satellite_addresses || []).join("\n"); }).catch(() => {});
+  const errors = h("div");
+  async function save() {
+    fill(errors);
+    try {
+      const s = await api("PUT", "settings", { satellite_addresses: area.value });
+      area.value = (s.satellite_addresses || []).join("\n");
+      toast("Saved"); await refreshStatus();
+    } catch (err) { errors.append(errorBox(err)); }
+  }
+  return h("div", { class: "panel" },
+    heading("h2", "Satellites by address", ["Satellites to connect to at their address, besides those found on the network (mDNS). For a satellite mDNS doesn't reach, as on another VLAN. The app connects to each, and when one goes away it tries again: soon at first, then less often, up to once a minute. A satellite listed here and also found by mDNS is served once: it takes one connection, and the other waits. One disabled in Home Assistant is left alone."]),
+    field("Addresses", area, "One per line: a host name or an IP address, with :port when it isn't 6055 (an IPv6 address in [ ] then)."),
+    errors,
+    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "primary", onclick: save }, "Save")));
 }
 
 // The most a command says (areas.AT_MOST): none, or a cap.

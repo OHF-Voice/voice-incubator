@@ -120,6 +120,18 @@ to take. `--host` pins it to one device instead, for a different subnet or to
 test one satellite while others are on the network; that one is served even
 when disabled.
 
+**Satellites by address** (settings `satellite_addresses`, the Settings
+page; `addresses.py`) are served beside what mDNS finds, for satellites it
+doesn't reach -- another VLAN, a network that keeps mDNS out: a host name or
+an IP address each, with a port when it isn't 6055. Each gets a session,
+reconnecting with the usual backoff while it is listed; a host name is
+resolved at every connect. A satellite also found by mDNS has two sessions,
+and lets one connect: it refuses another client while it has one. The other
+then waits without dialling while one of the app's sessions is connected to
+the IP and port its host resolves to (`_served_elsewhere`), and dials as soon
+as that one goes: found by mDNS or listed, a satellite is connected once. One disabled in Home Assistant is let go of, as a discovered one is;
+pinned to `--host`, the list is not used.
+
 One set of models serves all of them. That is the point: the models are the
 expensive part (~450 MB resident), so a second satellite costs a socket and a
 buffer rather than another copy. Recognition is serialized by a shared lock --

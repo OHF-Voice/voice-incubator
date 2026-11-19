@@ -25,6 +25,7 @@ from ruamel.yaml import YAML
 from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
+from . import addresses as satellite_addresses
 from . import areas, languages, music, timers
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
@@ -1650,6 +1651,19 @@ class Api:
             else:
                 settings.pop("wake_words", None)
             self.app.wake_words_changed()
+        if "satellite_addresses" in body:
+            # Satellites connected to at an address, not only found by mDNS:
+            # a list, or one per line.
+            try:
+                wanted = satellite_addresses.parse_all(body["satellite_addresses"] or [])
+            except ValueError as err:
+                raise ConfigError(f"satellite_addresses: {err}") from err
+            if wanted:
+                settings["satellite_addresses"] = [str(a) for a in wanted]
+            else:
+                settings.pop("satellite_addresses", None)
+            self.app.store.save_settings()
+            self.app.follow_addresses()
         self.app.store.save_settings()
         return web.json_response(settings)
 
