@@ -3,11 +3,57 @@ home takes what it has one of."""
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from websockets.exceptions import ConnectionClosedError
 
 from voice_incubator.commands import HOME_TAKEN
 from voice_incubator.hass import Catalog, Entity, HomeAssistant
 from voice_incubator.server import VoiceIncubatorApp
+
+
+@pytest.mark.asyncio
+async def test_registry_burst_does_not_cancel_a_running_catalog_listener(monkeypatch):
+    hass = HomeAssistant("http://127.0.0.1:1", "token")
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def refresh():
+        calls.append("started")
+        if len(calls) == 1:
+            entered.set()
+            await release.wait()
+        calls.append("finished")
+
+    monkeypatch.setattr(hass, "refresh_catalog", refresh)
+    hass._schedule_refresh(0)
+    await asyncio.wait_for(entered.wait(), 1)
+    for _ in range(3):
+        hass._schedule_refresh(0)
+    release.set()
+    await asyncio.wait_for(hass._refresh_task, 1)
+    assert calls == ["started", "finished", "started", "finished"]
+
+
+@pytest.mark.asyncio
+async def test_closed_socket_during_send_is_a_recoverable_connection_error():
+    hass = HomeAssistant("http://127.0.0.1:1", "token")
+    hass._socket = SimpleNamespace(send=AsyncMock(side_effect=ConnectionClosedError(None, None)))
+    with pytest.raises(ConnectionError, match="disconnected"):
+        await hass.call({"type": "get_states"})
+    assert not hass._pending
+
+
+@pytest.mark.asyncio
+async def test_reads_only_recorded_assist_exposure(monkeypatch):
+    hass = HomeAssistant("http://127.0.0.1:1", "token")
+    call = AsyncMock(return_value={"exposed_entities": {"light.desk": {"conversation": True}, "light.cloud": {"alexa": True}}})
+    monkeypatch.setattr(hass, "call", call)
+    assert await hass.exposed_entities() == {"light.desk"}
+    call.assert_awaited_once_with({"type": "homeassistant/expose_entity/list"})
 
 
 def test_a_failing_event_handler_keeps_the_connection():
