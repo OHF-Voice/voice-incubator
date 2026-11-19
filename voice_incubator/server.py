@@ -42,7 +42,7 @@ from .fallback import (
     needs_model,
 )
 from .engine import CachedEmbedder, Decision, Engine, Satellite, library_texts, model_note
-from . import compound, context, follow_up, triggers
+from . import compound, context, follow_up, ha_names, triggers
 from . import night as night_mode
 from .follow_up import FOLLOW_UP, FollowUp
 from .hass import HassError, HomeAssistant
@@ -753,6 +753,8 @@ class VoiceIncubatorApp:
         self.hass.on_catalog_change(self._follow_disabled)
         self.hass.on_connect(self._take_cloud)
         self.hass.on_catalog_change(self._take_home)
+        self.hass.on_catalog_change(self._follow_ha_names)
+        self._ha_names_refresh: asyncio.Task | None = None
         self._timer_rebuild: asyncio.Task | None = None
         self.timer_colors: dict[str, dict[str, int]] = {}
         """Each timer list's running timers' colors on the rings (timers.colors)."""
@@ -855,6 +857,7 @@ class VoiceIncubatorApp:
         from .web import start_web  # pylint: disable=import-outside-toplevel
 
         self._web = await start_web(self)
+        self._ha_names_refresh = self._spawn(self._refresh_ha_names())
         if self.options.wyoming_port:
             await self._start_wyoming()
 
@@ -870,6 +873,14 @@ class VoiceIncubatorApp:
             await page.cleanup()
 
     async def stop(self) -> None:
+        if self._ha_names_refresh is not None:
+            self._ha_names_refresh.cancel()
+            try:
+                await self._ha_names_refresh
+            except asyncio.CancelledError:
+                pass
+            except Exception:  # noqa: BLE001 - shutdown still has resources to release
+                _LOGGER.exception("Home Assistant names poller stopped unexpectedly")
         await self.wake_training.stop()
         if self.wyoming is not None:
             await self.wyoming.stop()
@@ -886,6 +897,33 @@ class VoiceIncubatorApp:
         await self.hass.stop()
 
     # ------------------------------------------------------------- commands
+
+    async def _follow_ha_names(self) -> None:
+        """Registry changes update derived names, never the saved manual ones."""
+        if self.hass.catalog.exposed is None:
+            return  # a failed exposure read is not an empty authoritative list
+        previous = self.store.catalog
+        self.store.catalog = self.hass.catalog
+        try:
+            document = self.store.document()
+            if not ha_names.config(document).get("enabled"):
+                return
+            changed = ha_names.generated(document, previous) != ha_names.generated(document, self.store.catalog)
+        except (ConfigError, ValueError, OSError) as err:
+            self.store_error = str(err)
+            return
+        if self.engine is not None and changed:
+            await self.reload_commands()
+
+    async def _refresh_ha_names(self) -> None:
+        """Exposure preferences and state-only names need no registry event."""
+        while True:
+            await asyncio.sleep(ha_names.REFRESH_SECONDS)
+            try:
+                if self.hass.connected.is_set() and ha_names.config(self.store.document()).get("enabled"):
+                    await self.hass.refresh_catalog()
+            except (ConfigError, ValueError, HassError, ConnectionError, OSError, TimeoutError) as err:
+                _LOGGER.warning("Could not refresh HA names: %s", err)
 
     async def reload_commands(self) -> Compiled | None:
         """Load the commands and recognize them. Commands that do not
@@ -5034,5 +5072,3 @@ def _profile_json(name: str, profile: dict[str, Any]) -> dict[str, Any]:
         "enrolled": profile.get("enrolled", []),
         "wake": wake_summary(profile),
     }
-
-

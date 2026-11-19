@@ -25,7 +25,7 @@ from ruamel.yaml import YAML
 from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
-from . import areas, languages, music, timers
+from . import areas, ha_names, languages, music, timers
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
 from .endpoint import LIMITS
@@ -44,7 +44,7 @@ from .commands import (
     command_of,
     parse_command,
 )
-from .hass import VOICE_DOMAINS, HassError
+from .hass import VOICE_DOMAINS, Catalog, HassError
 from .triggers import ID_PREFIX as TRIGGER_PREFIX
 from .skills import LEVELS, SKILLS, available, skill_place, skill_removed
 from .skills import answer as skill_answer
@@ -139,6 +139,13 @@ async def start_web(app: "VoiceIncubatorApp") -> web.AppRunner:
             web.post("/api/yaml/dump", api.yaml_dump),
             web.put("/api/names/{kind}/{id}", api.put_name),
             web.delete("/api/names/{kind}/{id}", api.delete_name),
+            web.put("/api/ha-names", api.put_ha_names),
+            web.post("/api/ha-names/preview", api.preview_ha_names),
+            web.post("/api/ha-names/import", api.import_ha_names),
+            web.put("/api/ha-names/{kind}/{id}", api.put_ha_name_controls),
+            web.delete("/api/ha-names/{kind}/{id}", api.exclude_ha_name),
+            web.post("/api/ha-names/{kind}/{id}/take-control", api.take_ha_name_control),
+            web.post("/api/ha-names/entities/{id}/resume", api.resume_ha_name),
             web.put("/api/lists/{name}", api.put_list),
             web.put("/api/unknown", api.put_unknown),
             web.put("/api/fallback", api.put_fallback),
@@ -335,9 +342,12 @@ class Api:
 
     async def get_store(self, request: web.Request) -> web.Response:
         data: dict[str, Any] = {}
+        sync: dict[str, Any] = {}
         error = self.app.store_error
         try:
-            data = self.app.store.document()
+            document = self.app.store.document()
+            data = self.app.store.effective_document(document)
+            sync = self._ha_names_json(document)
         except (ConfigError, ValueError, OSError) as err:  # shown in the UI
             error = str(err)
         # The app's language's commands; the others are kept, not shown.
@@ -368,6 +378,7 @@ class Api:
         except ConfigError as err:
             names, hidden_names, lists, hidden_lists, error = {}, {}, {}, {}, error or str(err)
         details = {}
+        compiled = self.app.engine.compiled if self.app.engine else None
         for command_id, spec in commands.items():
             try:
                 command = parse_command(command_id, spec)
@@ -385,6 +396,8 @@ class Api:
                     "default_verbosity": command.behavior.default_verbosity,
                     "question": command.behavior.question,
                 }
+                if compiled and command_id in compiled.unavailable:
+                    details[command_id]["error"] = compiled.unavailable[command_id]
             except ConfigError as err:
                 details[command_id] = {
                     "error": str(err),
@@ -413,6 +426,7 @@ class Api:
                 "sections": library_sections()[0],
                 # What things are called in the app's language; other languages' are hidden.
                 "names": {kind: names.get(kind) or {} for kind in NAME_KINDS},
+                "ha_names": sync,
                 # Every device added (all voice acts on): its names in its area
                 # and in the whole house, whether it is part of its area and
                 # heard elsewhere with its area said, its area set here (None:
@@ -596,6 +610,92 @@ class Api:
         catalog = self.app.hass.catalog
         entity = catalog.entities.get(entity_id) if catalog is not None else None
         return entity.area_id if entity is not None else None
+
+    def _ha_names_json(self, document: dict) -> dict:
+        settings = ha_names.config(document)
+        catalog = self.app.store.catalog
+        generated = ha_names.generated(document, catalog)
+        excluded = settings.get("excluded") or {}
+        manual_entities = (document.get("names") or {}).get("entities") or {}
+        candidates = generated["entities"]
+        clashes = {}
+        if candidates:
+            here, default = languages.current().code, file_language(document)
+            devices = {i: device_of(e, here, default) for i, e in manual_entities.items()}
+            devices.update((i, device_of(e, here, here)) for i, e in candidates.items())
+            clashes = name_clashes(devices, lambda i: devices[i].area if devices[i].area is not None else self._ha_area(i))
+        return {
+            "enabled": bool(settings.get("enabled")),
+            "ready": self.app.hass.connected.is_set() and self.app.hass.catalog.exposed is not None,
+            "following": {kind: list(entries) if settings.get("enabled") else [] for kind, entries in generated.items()},
+            "preview": [{"id": i, "name": ", ".join(e["house"]) or e["name"] or catalog.entities[i].name,
+                         "area": catalog.entities[i].area_id,
+                         "clashes": [{**c, "area_name": catalog.areas[c["area"]].name if c["area"] in catalog.areas else c["area"]}
+                                     for c in clashes.get(i, [])]} for i, e in candidates.items()],
+            "excluded": excluded,
+            "excluded_manual_entities": [i for i in excluded.get("entities", []) if i in manual_entities],
+            "overrides": settings.get("overrides") or {},
+        }
+
+    async def _refresh_ha_names_catalog(self) -> Catalog:
+        """An explicit preview, import, enable, or resume needs current exposure."""
+        try:
+            catalog = await self.app.hass.refresh_catalog()
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            raise ConfigError(f"Could not refresh Home Assistant names: {err}") from err
+        if catalog.exposed is None:
+            raise ConfigError("Could not read Assist exposure; no changes made")
+        return catalog
+
+    async def preview_ha_names(self, request: web.Request) -> web.Response:
+        await self._refresh_ha_names_catalog()
+        return web.json_response(self._ha_names_json(self.app.store.document()))
+
+    async def put_ha_names(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+            raise ConfigError("enabled: true or false")
+        if body["enabled"]:
+            await self._refresh_ha_names_catalog()
+        return await self._saved(self.app.store.update(
+            lambda d: d.setdefault(ha_names.KEY, {}).update(enabled=body["enabled"])))
+
+    async def import_ha_names(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        ids = body.get("ids") if isinstance(body, dict) else None
+        if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
+            raise ConfigError("ids: a list of entity ids")
+        await self._refresh_ha_names_catalog()
+        return await self._saved(self.app.store.update(
+            lambda d: ha_names.import_once(d, self.app.store.catalog, ids)))
+
+    async def exclude_ha_name(self, request: web.Request) -> web.Response:
+        kind, item_id = request.match_info["kind"], request.match_info["id"]
+        return await self._saved(self.app.store.update(lambda d: ha_names.exclude(d, kind, item_id)))
+
+    async def put_ha_name_controls(self, request: web.Request) -> web.Response:
+        kind, item_id = request.match_info["kind"], request.match_info["id"]
+        document = self.app.store.document()
+        if kind != "entities" or not ha_names.following(document, self.app.store.catalog, kind, item_id):
+            raise ConfigError("This device is not following Home Assistant")
+        body = await request.json()
+        ha_names.check_controls(body)
+        return await self._saved(self.app.store.update(
+            lambda d: d.setdefault(ha_names.KEY, {}).setdefault("overrides", {}).update({item_id: body})))
+
+    async def take_ha_name_control(self, request: web.Request) -> web.Response:
+        kind, item_id = request.match_info["kind"], request.match_info["id"]
+        return await self._saved(self.app.store.update(
+            lambda d: ha_names.take_control(d, self.app.store.catalog, kind, item_id)))
+
+    async def resume_ha_name(self, request: web.Request) -> web.Response:
+        item_id = request.match_info["id"]
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("replace_manual", False), bool):
+            raise ConfigError("replace_manual: true or false")
+        catalog = await self._refresh_ha_names_catalog()
+        return await self._saved(self.app.store.update(
+            lambda d: ha_names.resume_following(d, catalog, item_id, body.get("replace_manual", False))))
 
     def _devices_json(self, data: dict[str, Any], here: str, default: str) -> dict[str, dict[str, Any]]:
         devices = {str(i): device_of(e, here, default) for i, e in ((data.get("names") or {}).get("entities") or {}).items()}
@@ -1045,7 +1145,7 @@ class Api:
         quiet = await app.integration.do_not_disturb()
         night = await app.integration.do_not_disturb("night")
         settings = app.store.settings
-        data = app.store.document()
+        data = app.store.effective_document()
         here, default = languages.current().code, file_language(data)
         try:
             names, _ = names_in(data.get("names") or {}, here, default)
@@ -1141,7 +1241,7 @@ class Api:
         name, and its aliases), unless it is named already -- or another has
         that name: then it is named on its page."""
         area = self.app.hass.catalog.areas.get(area_id)
-        names = (self.app.store.document().get("names") or {}).get("areas") or {}
+        names = (self.app.store.effective_document().get("names") or {}).get("areas") or {}
         if area is None or area_id in names:
             return
         aliases = [a for a in dict.fromkeys(area.aliases) if phrase_key(a) != phrase_key(area.name)]
