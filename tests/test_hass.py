@@ -3,11 +3,14 @@ home takes what it has one of."""
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 from voice_incubator.commands import HOME_TAKEN
 from voice_incubator.hass import Catalog, Entity, HomeAssistant
 from voice_incubator.server import VoiceIncubatorApp
+
+from . import fake_hass
 
 
 def test_a_failing_event_handler_keeps_the_connection():
@@ -22,6 +25,30 @@ def test_a_failing_event_handler_keeps_the_connection():
     hass._dispatch({"id": 1, "type": "event", "event": {"type": "timers"}})  # pylint: disable=protected-access
     hass._dispatch({"id": 2, "type": "event", "event": {"type": "timers"}})  # pylint: disable=protected-access
     assert heard == [{"type": "timers"}]
+
+
+def test_home_assistant_still_starting_is_waited_for():
+    """Home Assistant restarted, or started after the app: nothing is read
+    (its integration's state, its sentence triggers) until it has started."""
+
+    async def main() -> None:
+        fake, server = await fake_hass.serve()
+        fake.state = "STARTING"
+        hass = HomeAssistant(f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}", fake_hass.TOKEN)
+        connected = []
+        hass.on_connect(lambda: connected.append(True))
+        await hass.start()
+        try:
+            assert not await hass.wait_connected(0.5) and connected == []
+            await fake.started()
+            assert await hass.wait_connected(5)
+            await asyncio.sleep(0.1)
+            assert connected == [True] and hass.catalog.entities
+        finally:
+            await hass.stop()
+            server.close()
+
+    asyncio.run(main())
 
 
 def test_timers_before_the_engine_is_built():

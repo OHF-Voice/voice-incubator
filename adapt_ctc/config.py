@@ -415,6 +415,11 @@ class Config:
     contrasts: tuple[Contrast, ...] = ()
     """Keywords heard only when they clearly beat their opposites (``Contrast``)."""
 
+    text_ends: tuple[str, ...] = ()
+    """Fillers of one word that free text running to the end may end on: a
+    word said for something, not around it ("announce that I love it"),
+    where "please" or "the" at the end is no text."""
+
 
 class _Loader(yaml.SafeLoader):
     """YAML 1.2 booleans: only true/false.
@@ -477,7 +482,7 @@ def parse_config(data: Any) -> Config:
         data,
         {
             "language", "settings", "filler", "name_cues", "numbers", "names", "intents",
-            "wake", "lists", "name_endings", "compounds", "contrasts",
+            "wake", "lists", "name_endings", "compounds", "contrasts", "text_ends",
         },
         "config",
     )
@@ -550,9 +555,14 @@ def parse_config(data: Any) -> Config:
         _contrast(spec, language, f"contrasts[{index}]")
         for index, spec in enumerate(_list(data.get("contrasts") or [], "contrasts"))
     )
+    text_ends = tuple(
+        dict.fromkeys(_phrase(text, language, "text_ends") for text in _list(data.get("text_ends") or [], "text_ends"))
+    )
+    if odd := [word for word in text_ends if word not in filler]:
+        raise ConfigError(f"text_ends: {', '.join(map(repr, odd))}: each one a filler of one word")
     return Config(
         language, settings, filler, detect, names, intents, wake, name_cues, lists, compounds, name_endings,
-        contrasts,
+        contrasts, text_ends,
     )
 
 

@@ -1,8 +1,8 @@
 """The Voice Incubator integration in Home Assistant, from the app's side.
 
-The integration (OHF-Voice/integration-voice-incubator, installed with HACS) gives each
-satellite a device of its own -- with its own area -- and a voice_timer_list
-entity for its timers. The app:
+The integration (OHF-Voice/integration-voice-incubator, installed from the
+Marketplace) gives each satellite a device of its own -- with its own area -- and
+a voice_timer_list entity for its timers. The app:
 
 * sets the integration up if it is installed but not yet configured (its config
   flow asks nothing);
@@ -39,10 +39,21 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN, OLD_DOMAIN = INTEGRATION_DOMAINS
 RUNNING = ("active", "paused")
 
+STATES = {
+    "not_loaded": "is not loaded",
+    "setup_error": "failed to set up",
+    "setup_retry": "is retrying its setup",
+    "setup_in_progress": "is still setting up",
+    "migration_error": "failed to migrate",
+    "failed_unload": "failed to unload",
+}
+"""A config entry's state, as said in "The integration ___ in Home Assistant"."""
+
 NOT_INSTALLED = (
     "The Voice Incubator integration is not installed in Home Assistant. Install it "
-    "with HACS (github.com/OHF-Voice/integration-voice-incubator) and restart "
-    "Home Assistant to give satellites devices, areas and timers."
+    "from Home Assistant's Marketplace "
+    "(github.com/OHF-Voice/integration-voice-incubator) to give satellites devices, "
+    "areas and timers."
 )
 
 
@@ -129,7 +140,8 @@ class Integration:
                     _LOGGER.warning("The integration is the one from before the rename (%s): update it", OLD_DOMAIN)
             self.hass.integration_domain = domain
             if not any(e.get("state") == "loaded" for e in entries):
-                self.status = f"The Voice Incubator integration is {entries[0].get('state')}."
+                state = entries[0].get("state")
+                self.status = f"The Voice Incubator integration {STATES.get(state, f'is {state}')} in Home Assistant."
                 return
             self.status = "ready"
         except HassError as err:

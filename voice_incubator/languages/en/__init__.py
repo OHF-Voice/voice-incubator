@@ -17,6 +17,8 @@ PACK = Pack(
         "language": "en",
         "filler": ["the", "a", "an", "please", "my", "can you", "could you", "would you", "it", "of"],
         "name_cues": ["the", "my", "named", "called"],
+        # Fillers a message, a song or a reminder may end on: "I love it".
+        "text_ends": ["it"],
     },
     skills=("spelling", "dates", "clock", "units", "arithmetic"),
     gliner=True,

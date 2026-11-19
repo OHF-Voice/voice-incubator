@@ -82,6 +82,9 @@ VOICE_DOMAINS = (
 CONNECT_WAIT = 5.0
 """Seconds a command waits for a dropped connection to come back."""
 
+STARTUP_WAIT = 600.0
+"""Seconds to wait for Home Assistant to finish starting before going on."""
+
 REGISTRY_EVENTS = (
     "area_registry_updated",
     "floor_registry_updated",
@@ -329,6 +332,7 @@ class HomeAssistant:
 
             reader = asyncio.ensure_future(self._read(socket))
             try:
+                await self._until_started(reader)
                 for event_type in REGISTRY_EVENTS:
                     await self._subscribe_event(event_type)
                 await self.refresh_catalog()
@@ -342,6 +346,31 @@ class HomeAssistant:
                 reader.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await reader
+
+    async def _until_started(self, reader: asyncio.Future, timeout: float = STARTUP_WAIT) -> None:
+        """Home Assistant still starting (it restarted, or started after the
+        app) answers before its integrations are loaded and its automations
+        set up: the integration would say it isn't loaded, and sentence
+        triggers would be missing until the app restarted. So nothing is read
+        until it says it has started (or ``timeout``: then as it is)."""
+        started = asyncio.Event()
+        msg_id = await self._subscribe(
+            {"type": "subscribe_events", "event_type": "homeassistant_started"}, lambda _event: started.set()
+        )
+        config = await self.call({"type": "get_config"})
+        if (config or {}).get("state", "RUNNING") != "RUNNING":
+            _LOGGER.info("Home Assistant is starting: waiting for it")
+            waiting = asyncio.ensure_future(started.wait())
+            try:
+                await asyncio.wait({waiting, reader}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                waiting.cancel()
+            if reader.done():
+                reader.result()  # the connection ended: why
+                raise ConnectionError("Home Assistant closed the connection while starting")
+            if not started.is_set():
+                _LOGGER.warning("Home Assistant hasn't said it started after %.0f s: going on", timeout)
+        await self._unsubscribe(msg_id)
 
     async def _read(self, socket) -> None:
         async for raw in socket:
@@ -749,14 +778,15 @@ class HomeAssistant:
         device_macs: dict[str, list[str]] = {}
         disabled_satellites: dict[str, str] = {}
         for device in devices or []:
-            for kind, value in device.get("connections") or []:
-                if kind == "mac":
-                    device_macs.setdefault(str(value).lower(), []).append(device["id"])
+            # Integrations may register connections and identifiers with more than two parts.
+            for connection in device.get("connections") or []:
+                if len(connection) >= 2 and connection[0] == "mac":
+                    device_macs.setdefault(str(connection[1]).lower(), []).append(device["id"])
             if device.get("disabled_by"):
                 # The Voice Incubator integration's device: identified by the satellite's key.
-                for domain, identifier in device.get("identifiers") or []:
-                    if domain in INTEGRATION_DOMAINS:
-                        disabled_satellites[str(identifier)] = device["id"]
+                for identifier in device.get("identifiers") or []:
+                    if len(identifier) >= 2 and identifier[0] in INTEGRATION_DOMAINS:
+                        disabled_satellites[str(identifier[1])] = device["id"]
         friendly = {
             s["entity_id"]: s.get("attributes", {}).get("friendly_name") or s["entity_id"]
             for s in states or []

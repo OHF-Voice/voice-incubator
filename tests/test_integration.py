@@ -62,3 +62,12 @@ def test_the_integration_from_before_the_rename():
 
 def test_no_integration():
     assert _ensure(Hass(())).status == NOT_INSTALLED
+
+
+def test_an_entry_not_loaded_is_said_plainly():
+    class NotLoaded(Hass):
+        async def config_entries(self, domain: str) -> list[dict]:
+            return [{"state": "not_loaded"}]
+
+    status = _ensure(NotLoaded(("voice_incubator",))).status
+    assert status == "The Voice Incubator integration is not loaded in Home Assistant."

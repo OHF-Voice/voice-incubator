@@ -1,4 +1,4 @@
-# wyoming-wake-kaldi configuration.
+# Kaldi wake verifier configuration.
 #
 # Only the wake words listed under `wake_words` are recognized, and only words
 # the model can actually pronounce may be used: a word must either be in the

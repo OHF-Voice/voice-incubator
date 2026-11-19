@@ -2379,7 +2379,6 @@ async function pageHome(query) {
   const [nav, select] = placesNav(places, sats, place, tab);
   fill($main,
     store.error ? h("div", { class: "notice bad" }, store.error) : null,
-    state.integration && state.integration !== "ready" ? h("div", { class: "notice warn" }, state.integration) : null,
     h("div", { class: "home-layout" },
       nav,
       h("div", { class: "home-place" },

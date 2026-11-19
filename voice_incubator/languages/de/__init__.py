@@ -27,6 +27,8 @@ PACK = Pack(
             "kannst du", "könntest du", "würdest du",
         ],
         "name_cues": ["der", "die", "das", "den", "dem", "des", "mein", "meine", "meinen", "meinem", "namens"],
+        # Fillers a message, a song or a reminder may end on: "ich liebe es".
+        "text_ends": ["es"],
         # Keywords that may end a compound after a room or floor: "das
         # Küchenlicht", "die Wohnzimmerlampe", "die Schlafzimmerrollläden".
         # Only those a home's commands have count (commands.adapt_config).

@@ -1,6 +1,6 @@
 """Pronunciations for the wake word verifier.
 
-The verifier (wyoming-wake-kaldi) never guesses: every word of a wake phrase
+The verifier (wyoming_wake_kaldi) never guesses: every word of a wake phrase
 or a confusable must be in its model's dictionary, or be given a
 pronunciation in the model's own phones. For a word it does not have -- a
 name, "nabu" -- the Wake words page offers a guess from espeak-ng, which

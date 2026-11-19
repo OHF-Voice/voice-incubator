@@ -19,7 +19,7 @@ one call at a time on each:
    pre-roll audio that ends at the detection. This is the only stage that runs
    on the device, and it is deliberately the generous one;
 2. **verification, on the host** — the pre-roll is re-decoded with
-   [wyoming-wake-kaldi](https://github.com/OHF-Voice/wyoming-wake-kaldi). A
+   the Kaldi wake verifier (`wyoming_wake_kaldi/`). A
    rejection ends the call, unless the second opinion overturns it (below). An
    acceptance also yields the **split point**: where the wake phrase ends and
    the command begins;
@@ -90,8 +90,8 @@ verifier's resident decoder built against them:
 bash wyoming_wake_kaldi/decoderd/build.sh "$PWD/models/wake-kaldi-tools" "$PWD/models/wake-kaldi-decoderd/verify_decoderd"
 ```
 
-The rest it downloads the first time it starts. wyoming-wake-kaldi,
-microWakeWord and sentence-stream are vendored beside `voice_incubator/`: nothing
+The rest it downloads the first time it starts. The wake verifier is part of
+this folder, and microWakeWord and sentence-stream are vendored beside `voice_incubator/`: nothing
 comes from another checkout.
 
 Training wake words in the app needs `requirements-training.txt` too: in the
@@ -425,7 +425,7 @@ automation's page.
 | `voice_incubator/wake_recordings.py` | a speaker saying a wake phrase at a satellite: takes cut by Silero, kept when they sound like them, stored with their voice |
 | `voice_incubator/endpoint.py` | endpointing: Silero VAD, microVAD or both, with hysteresis |
 | `adapt_ctc/` | vendored from adapt-ctc (commit 07ef328) plus value lists, bounded free text, examples first, descriptions and structured rejections; its own README and tests (`tests/adapt_ctc_tests/`) |
-| `wyoming_wake_kaldi/` | vendored from wyoming-wake-kaldi (commit 9fda1ff): the Kaldi wake verifier `voice_incubator/wake.py` runs, and its resident decoder's source (`decoderd/`), which the image compiles; its own README |
+| `wyoming_wake_kaldi/` | the Kaldi wake verifier `voice_incubator/wake.py` runs, and its resident decoder's source (`decoderd/`), which the image compiles; its own README |
 | `microwakeword/` | vendored microWakeWord, as the app trains wake words with it (`VENDORED.md` says from where and what changed) |
 | `sentence_stream/` | vendored sentence-stream 1.4.0 (its markdown fixes, not yet on PyPI) |
 | `voice_incubator/engine.py` | where the command starts, recognition, where a command is available, free text from TDT, hints; the CTC model and the transducer as one when they share an encoder (`adapt_ctc/hybrid.py`) |
@@ -458,7 +458,7 @@ automation's page.
 | `scripts/bench_questions.py` | the smart-home quick-questions benchmark's skill answers through the app, spoken or as text |
 | `scripts/bench_fallback.py`, `tests/fallback_utterances.yaml` | the fallback chain on sentences the keywords miss, as text (any machine) or spoken |
 | `voice_incubator/timers.py` | timer commands: which timer is meant, the service call, what to say |
-| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (HACS), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_incubator.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
+| [OHF-Voice/integration-voice-incubator](https://github.com/OHF-Voice/integration-voice-incubator) | the Home Assistant integration (Marketplace), and the user guide: satellite devices, `voice_timer_list` (timer_list, renamed), `voice_incubator.timer_*` triggers, each satellite's area's timer list and do not disturb and night mode switches |
 | [OHF-Voice/firmware-voice-incubator](https://github.com/OHF-Voice/firmware-voice-incubator) | the satellites' ESPHome firmware: `devices/voice-pe.yaml`, the `components/voice_incubator` component, the install page's build, and the protocol (PROTOCOL.md). Before: the Voice Labs firmware in [OHF-Voice/voice-pe-alt-firmware](https://github.com/OHF-Voice/voice-pe-alt-firmware) (protocol 1) |
 | `firmware/` | set-aside firmware experiments: learn-tv, voice calls over the native API |
 | `hass_tests/` | the library's templates in Home Assistant itself, with a core checkout's fixtures and the integration from an integration-voice-incubator checkout (see its conftest) |
@@ -758,7 +758,7 @@ hey_tater:                    # custom: verified once it has confusables
 ```
 
 `WakeVerifier.build` merges it over `wake.yaml` and loads the result with
-wyoming-wake-kaldi's own validation, so a word with no pronunciation refuses
+the verifier's own validation, so a word with no pronunciation refuses
 the save and changes nothing. A custom word gets an entry under its id alone
 (its name could clash with a built-in one's), its manifest's phrase, and the
 first Kaldi model. On a save, `WakeVerifier.apply` rebuilds the graphs and
@@ -2587,7 +2587,7 @@ retry moves it; `call.split_bytes` carries the offset.
 Nearly all of it is `confusable`, which is the one class deliberately left
 alone — for Jenn, `okay now`. That is a real precision/recall trade rather than
 a bug. The lever would be a per-confusable margin (a higher bar for `now` than
-for `naruto`), which is a change in wyoming-wake-kaldi: `theta_competitor` is
+for `naruto`), which is a change in the verifier (`wyoming_wake_kaldi/`): `theta_competitor` is
 global today.
 
 ## Thresholds
@@ -2761,7 +2761,7 @@ Three dependencies are native and must match the architecture; everything else
 
 | piece | |
 |---|---|
-| Kaldi + OpenFST binaries | not portable. wyoming-wake-kaldi ships prebuilt `local/tools` per arch; point `models/wake-kaldi-tools` at the aarch64 copy |
+| Kaldi + OpenFST binaries | not portable. `voice_incubator.downloads` fetches them per arch (or `scripts/make_kaldi_tools_aarch64.sh`); point `models/wake-kaldi-tools` at the aarch64 copy |
 | `verify_decoderd` | build with `decoderd/build.sh <tools_dir>`, or symlink an existing aarch64 build |
 | adapt-ctc `_viterbi` | a C extension (limited API), built in place with `python setup.py build_ext --inplace`; without it a numpy fallback gives the same scores several times slower |
 
@@ -2773,7 +2773,6 @@ rsync -a --exclude .venv --exclude var --exclude 'models/wake-kaldi-tools' \
       --exclude 'models/wake-kaldi-decoderd' voice_incubator/ pi:~/voice_incubator/
 ssh pi 'cd ~/voice_incubator && python3 -m venv .venv &&
         .venv/bin/python -m pip install -r requirements.txt &&
-        .venv/bin/python -m pip install -e _src/wyoming-wake-kaldi &&
         .venv/bin/python setup.py build_ext --inplace'
 ```
 

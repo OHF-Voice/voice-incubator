@@ -446,7 +446,7 @@ intents:
 
 The device's wake word detector also fires on sound-alikes ("okay Natalie").
 A `wake` section in the config makes adapt-ctc the second-stage check that
-wyoming-wake-kaldi is in voice_incubator, using the same CTC model as the commands.
+the Kaldi wake verifier is in voice_incubator, using the same CTC model as the commands.
 
 - **What is checked:** the pre-roll, i.e. the audio up to the detection.
 - **Evidence is summed** (`scoring: sum`, the CTC forward score). Each

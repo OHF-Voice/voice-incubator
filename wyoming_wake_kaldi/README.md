@@ -1,13 +1,11 @@
-> Vendored into voice_incubator from wyoming-wake-kaldi (Michael Hansen's,
-> unpublished) at commit `9fda1ff`, under the Apache License 2.0 (`LICENSE`):
-> the package, and the resident decoder's source in `decoderd/`, which the
-> image's build compiles against the Kaldi tools it fetches
+> The Kaldi wake verifier of voice_incubator, under the Apache License 2.0
+> (`LICENSE`): the package, and the resident decoder's source in `decoderd/`,
+> which the image's build compiles against the Kaldi tools it fetches
 > (`voice_incubator/downloads.py`). Where this says `local/tools` and
 > `local/models`, voice_incubator has `models/wake-kaldi-tools` and
-> `models/wake-kaldi-models`; its configuration is `wake.yaml`. Its tests and
-> scripts are not vendored.
+> `models/wake-kaldi-models`; its configuration is `wake.yaml`.
 
-# wyoming-wake-kaldi
+# Kaldi wake verifier
 
 A [Wyoming](https://github.com/OHF-Voice/wyoming) wake service that **verifies**
 a wake word with Kaldi and reports **where the wake phrase ends**.

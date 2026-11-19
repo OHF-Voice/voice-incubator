@@ -29,10 +29,10 @@ settings:
 # Phrases are every way Parakeet writes the wake word: it has no word "Nabu",
 # so it writes "Naboo", "Nabu" or, about a quarter of the time, "now". That
 # makes a real "okay now" an accepted wake word -- record some to measure it.
-# Confusables are wyoming-wake-kaldi's list for okay_nabu, minus the nonsense
+# Confusables are the Kaldi wake verifier's list for okay_nabu, minus the nonsense
 # near-homophones ("okay napu"), which Parakeet cannot tell from "Nabu" by
 # spelling. Calibrated on 109 genuine calls and 7 false wakes (one speaker);
-# wyoming-wake-kaldi separates these more cleanly -- see the README.
+# the Kaldi verifier separates these more cleanly -- see the README.
 wake:
   phrases: [okay nabu, okay naboo, ok nabu, ok naboo, okay now]
   confusables: [

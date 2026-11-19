@@ -14,8 +14,15 @@ add pick up groceries to my to do list: {"command": "todo_add_mine", "slots": {"
 add renew my passport to my to do list: {"command": "todo_add_mine", "slots": {"item": "renew my passport"}}
 alarm at noon: null
 all the doors are locked: {"command": "all_locked", "slots": {"asked": "locked"}}
+announce come and get it in the kitchen: {"command": "announce", "slots": {"area": ["kitchen"], "message": "come and get it"}}
 announce dinner is ready in the kitchen: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
+announce dinner is ready in the kitchen please: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
+announce dinner is ready please: {"command": "announce", "slots": {"message": "dinner is ready"}}
+announce i love you: {"command": "announce", "slots": {"message": "i love you"}}
 announce in the kitchen dinner is ready: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
+announce in the kitchen that i love you: {"command": "announce", "slots": {"area": ["kitchen"], "message": "i love you"}}
+announce that i love it: {"command": "announce", "slots": {"message": "i love it"}}
+announce that i love it please: {"command": "announce", "slots": {"message": "i love it"}}
 announce the kitchen is clean: {"command": "announce", "slots": {"message": "the kitchen is clean"}}
 announce to the office that the pizza is here: {"command": "announce", "slots": {"area": ["office"], "message": "the pizza is here"}}
 are all the doors locked: {"command": "all_locked", "slots": {"asked": "locked"}}
@@ -36,6 +43,7 @@ cancel all timers: null
 cancel the 30 minute timer: null
 change the bedroom lamp to 14 percent: null
 change the bedroom lamp to 40 percent: null
+change the time: null
 check fix the gate off my to do list: {"command": "todo_check_mine", "slots": {"item": "fix the gate"}}
 check off call my mom on the to do list: {"command": "todo_check", "slots": {"item": "call my mom"}}
 check off call the plumber on the to do list: {"command": "todo_check", "slots": {"item": "call the plumber"}}
@@ -126,7 +134,9 @@ open the curtains to 50 percent: {"command": "cover_position_here", "slots": {"d
 pause: {"command": "pause_music_here"}
 pause my timer: null
 pause the music: {"command": "pause_music_here", "slots": {"kind": "music"}}
+play beat it: {"command": "play_music_here", "slots": {"query": "beat it"}}
 play in the kitchen some jazz: {"command": "play_music_place", "slots": {"area": ["kitchen"], "query": "some jazz"}}
+play jazz please: {"command": "play_music_here", "slots": {"query": "jazz"}}
 play party playlist: {"command": "play_music_here", "slots": {"query": "party playlist"}}
 play some classical music in the bedroom: {"command": "play_music_here", "slots": {"query": "some classical music in the bedroom"}}
 play some jazz in the kitchen: {"command": "play_music_place", "slots": {"area": ["kitchen"], "query": "some jazz"}}
@@ -147,6 +157,8 @@ raise the volume to 40: {"command": "set_volume_here", "slots": {"percentage": 4
 read me my to do list: {"command": "todo_items_mine"}
 read the to do list: {"command": "todo_items"}
 remind me in 3 hours to pick up the kids: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "in 3 hours to pick up the kids"}}
+remind me to call mom please: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "call mom"}}
+remind me to feed it: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "feed it"}}
 remind me to water the plants: {"command": "remind_me", "slots": {"entity": ["todo.reminders"], "reminder": "water the plants"}}
 remove call the plumber from my to do list: {"command": "todo_remove_mine", "slots": {"item": "call the plumber"}}
 resume: {"command": "resume_music_here"}
@@ -206,6 +218,7 @@ set the thermostat to 70: {"command": "set_temperature_here", "slots": {"tempera
 set the thermostat to 72 and a half degrees: {"command": "set_temperature_here", "slots": {"temperature": 72.5}}
 set the thermostat to 72.5 degrees: {"command": "set_temperature_here", "slots": {"temperature": 72.5}}
 set the thermostat to heat: {"command": "set_thermostat_mode", "slots": {"mode": "heat"}}
+set the time: null
 set the timer for 50 seconds: null
 set the timer for an hour and a half: null
 set the timer for half an hour: null
@@ -233,6 +246,8 @@ take my passport off my to do list: {"command": "todo_remove_mine", "slots": {"i
 tell me a joke: null
 tell me about the date: {"command": "what_date"}
 tell me the date: {"command": "what_date"}
+tell me the time: {"command": "what_time"}
+tell me what the time is: {"command": "what_time"}
 tell me what time it is right now: {"command": "what_time"}
 tell me what's on my to do list: {"command": "todo_items_mine"}
 thank you: null
@@ -383,8 +398,12 @@ we're out of coffee: null
 what is my name: {"command": "who_am_i"}
 what is on our to do list: {"command": "todo_items"}
 what is the temperature in the living room: null
+what is the time: {"command": "what_time"}
 what time is it: {"command": "what_time"}
+what time is it in the kitchen: null
 what time is it right now: {"command": "what_time"}
+what time was it: null
+what was the time: null
 what's my name: {"command": "who_am_i"}
 what's my schedule: {"command": "my_calendar", "slots": {"entity": ["calendar.family"]}}
 what's on my shopping list: {"command": "shopping_list_items"}
@@ -394,9 +413,16 @@ what's on the to do list: {"command": "todo_items"}
 what's the capital of france: null
 what's the temperature: null
 what's the thermostat set to: {"command": "thermostat"}
+what's the time: {"command": "what_time"}
+what's the time going to be in 45 minutes: null
+what's the time in the kitchen: null
+what's the time now: {"command": "what_time"}
+what's the time right now: {"command": "what_time"}
+what's the timer at: null
 what's today: null
 what's twelve times eight: null
 whats the temperature in the living room: null
+whats the time: {"command": "what_time"}
 whats the weather like in london: null
 whats the weather tomorrow: {"command": "weather_day", "slots": {"day": "tomorrow"}}
 who am i: {"command": "who_am_i"}

@@ -285,7 +285,7 @@ commands:
     icon: mdi:format-color-fill
     description: change the color of the lights
     supports: color
-    require: [[set, make, turn], [light, lights]]
+    require: [[set, change, make, turn], [light, lights]]
     optional: [[color], [to], [in, on], [the]]
     lists:
       color: {list: colors}
@@ -305,7 +305,7 @@ commands:
       device:
         <<: *device
         title: Set the color of a light by name
-        require: [[set, make, turn]]
+        require: [[set, change, make, turn]]
         names:
           entity: {count: 1, domains: [light]}
           area: {count: 1}
@@ -395,7 +395,7 @@ commands:
     supports: color_temp
     # By what the white is called: warm, soft, neutral, cool, daylight (the
     # color_temperatures list, in kelvin).
-    require: [[set, make, turn], [light, lights]]
+    require: [[set, change, make, turn], [light, lights]]
     optional: [[color temperature, temperature], [to], [in, on], [the]]
     lists:
       color_temperature: {list: color_temperatures}
@@ -415,7 +415,7 @@ commands:
       device:
         <<: *device
         title: Set the color temperature of a light by name
-        require: [[set, make, turn]]
+        require: [[set, change, make, turn]]
         names:
           entity: {count: 1, domains: [light]}
           area: {count: 1}

@@ -1,5 +1,5 @@
-# Runtime. wyoming-wake-kaldi, sentence-stream and microWakeWord are vendored
-# next to voice_incubator (wyoming_wake_kaldi/, sentence_stream/, microwakeword/).
+# Runtime. The wake verifier, sentence-stream and microWakeWord sit next to
+# voice_incubator (wyoming_wake_kaldi/, sentence_stream/, microwakeword/).
 aiohttp>=3.9
 # Home Assistant's sentence triggers, read and matched as it does (voice_incubator/triggers.py).
 hassil>=3.12,<4
@@ -9,7 +9,8 @@ onnxruntime>=1.20
 piper-tts>=1.8,<2
 pymicro-features>=2,<3
 pymicro-vad>=2,<3
-pysilero-vad>=3,<4
+# 3.4.1: picks its CPU instructions at runtime (3.4.0 needed AVX2: SIGILL, issue 5).
+pysilero-vad>=3.4.1,<4
 PyYAML>=6.0
 ruamel.yaml>=0.18
 scipy>=1.11

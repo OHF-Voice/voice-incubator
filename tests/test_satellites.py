@@ -385,3 +385,62 @@ async def _served(tmp_path) -> None:
         await app.stop()
         server.close()
         hass_server.close()
+
+
+def test_a_satellite_out_of_mdns_keeps_its_session(tmp_path, monkeypatch):
+    asyncio.run(_out_of_mdns(tmp_path, monkeypatch))
+
+
+async def _out_of_mdns(tmp_path, monkeypatch) -> None:
+    """Its mDNS record expiring (missed refreshes on weak Wi-Fi) is not the
+    satellite going away: the session stays, and stays when the record comes
+    back at the same address. Disconnected meanwhile, it reconnects to that
+    address by itself (issue #18)."""
+    from voice_incubator import server as server_module
+
+    class Discovery:
+        def __init__(self) -> None:
+            self.events: asyncio.Queue = asyncio.Queue()
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(server_module, "Discovery", Discovery)
+    _hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    kitchen = FakeSatellite(name="kitchen", mac=_mac(KITCHEN), speed=8.0)
+    server = await serve(kitchen)
+    found = Device(KITCHEN, "127.0.0.1", server.sockets[0].getsockname()[1], "test")
+    app = VoiceIncubatorApp(Options(
+        hass_url=f"http://127.0.0.1:{hass_port}", hass_token=fake_hass.TOKEN, data_dir=tmp_path,
+        http_port=free_port(), speaker_profiles=tmp_path / "speakers.json", threads=4, reconnect_seconds=0.1,
+    ))
+    await app.start()
+    runner = asyncio.ensure_future(app.run_forever())
+    try:
+        await wait_for(lambda: app._discovery is not None)
+        app._discovery.events.put_nowait(("added", found))
+        await asyncio.wait_for(kitchen.ready.wait(), 30)
+        session, writer = app.sessions[KITCHEN], kitchen._writer
+
+        app._discovery.events.put_nowait(("removed", found))
+        await asyncio.sleep(0.5)
+        assert app.sessions[KITCHEN] is session and kitchen._writer is writer
+        app._discovery.events.put_nowait(("added", found))
+        await asyncio.sleep(0.5)
+        assert app.sessions[KITCHEN] is session and kitchen._writer is writer
+
+        # Out of mDNS and disconnected: back on its own, at the last address.
+        app._discovery.events.put_nowait(("removed", found))
+        kitchen.ready.clear()
+        writer.close()
+        await wait_for(lambda: kitchen._writer is not None and kitchen._writer is not writer)
+        await asyncio.wait_for(kitchen.ready.wait(), 30)
+    finally:
+        runner.cancel()
+        await app.stop()
+        server.close()
+        hass_server.close()

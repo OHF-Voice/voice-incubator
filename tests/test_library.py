@@ -293,7 +293,10 @@ def test_a_name_in_several_rooms():
     # Not heard elsewhere, even with its area said.
     assert heard("turn on the overhead light", "office") == ["light.office_overhead"]
     assert heard("turn on the overhead light", "kitchen").endswith("but there's no Overhead Light here, only in the Office.")
-    assert heard("turn on the overhead light in the office", "kitchen").endswith("but there's no Overhead Light here, only in the Office.")
+    assert heard("turn on the overhead light in the office", "kitchen").endswith(
+        "but the Overhead Light in the Office can only be controlled from there.")
+    assert heard("turn on the office overhead light", "kitchen").endswith(
+        "but the Overhead Light in the Office can only be controlled from there.")
     # The same names in the whole house (left out): from anywhere.
     assert heard("turn on the porch light", "kitchen") == ["light.porch"]
     assert heard("turn on the desk light", "kitchen") == ["light.desk"]
@@ -444,6 +447,14 @@ ROUTES = [
     ("set the lights to 50", "set_brightness_here", {"percentage": 50}),
     ("turn on the lights in the kitchen to 50 percent", "set_brightness_place", {"area": ["kitchen"], "percentage": 50}),
     ("turn the desk lamp up to 80 percent", "set_brightness_device", {"entity": ["light.desk_lamp"], "percentage": 80}),
+    # "Change" sets brightness, color, and color temperature.
+    ("change the lights in the kitchen to 40 percent", "set_brightness_place", {"area": ["kitchen"], "percentage": 40}),
+    ("change the brightness of the desk lamp to 30 percent", "set_brightness_device", {"entity": ["light.desk_lamp"], "percentage": 30}),
+    ("change the lights to blue", "light_color_here", {"color": "blue"}),
+    ("change the desk lamp to red", "light_color_device", {"entity": ["light.desk_lamp"], "color": "red"}),
+    ("change the kitchen lights to red", "light_color_place", {"area": ["kitchen"], "color": "red"}),
+    ("change the lights to warm white", "light_temperature_here", {"color_temperature": "2700"}),
+    ("change the desk lamp to daylight", "light_temperature_device", {"entity": ["light.desk_lamp"], "color_temperature": "6500"}),
     ("set the ecobee to 70 degrees", "set_temperature_device", {"entity": ["climate.ecobee"], "temperature": 70}),
     ("turn up the heat", "heat_up", {"step": 1}),
     ("turn the thermostat down", "heat_down", {"step": -1}),

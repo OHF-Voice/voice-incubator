@@ -476,6 +476,16 @@ async def _pipelines(tmp_path: Path) -> None:
         await reply(port, "no thanks", conversation_id="c3", **KITCHEN)
         assert app.calls.recent[-1].stages[-2]["stage"] == "answer"  # the agent's question, answered
         hass.asks_back = False
+
+        # The conversation agent is the app itself (its Wyoming agent in Home
+        # Assistant): what it's asking comes back, refused at once, not
+        # asked again and again.
+        hass.wyoming_agents["conversation.voice_incubator"] = port
+        app.store.settings["agent"] = "conversation.voice_incubator"
+        app.configure_agent()
+        asked = len(hass.conversations)
+        [looped] = await asyncio.wait_for(reply(port, "what is the tallest mountain", **KITCHEN), 20)
+        assert NotHandled.is_type(looped.type) and len(hass.conversations) == asked + 1
         app.store.settings["agent"] = None
         app.configure_agent()
 

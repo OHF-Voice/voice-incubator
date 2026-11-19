@@ -37,6 +37,7 @@ def trigger(key, title, *sentences, **more):
 
 GOOD_NIGHT = trigger("automation:1", "Good night", "good night [everyone]", "(it's|it is) bed time", automation="automation.good_night", automation_id="1")
 PLAY = trigger("automation:2", "Play an album", "play {album} by {artist}")
+LIGHTS_OFF = trigger("automation:5", "Lights off", "turn off the lights")
 
 
 # ------------------------------------------------------------------ reading
@@ -178,6 +179,7 @@ STORE = {
         "night": {"description": "wish good night", "examples": ["good night [all]"], "response": "Sleep well."},
         "bed": {"description": "go to bed", "examples": ["it's bed time"], "response": "Bed."},
         "bed_kitchen": {"description": "go to bed", "examples": ["it's bed time"], "area": "kitchen", "response": "Kitchen bed."},
+        "lights_off_kitchen": {"description": "turn off the lights", "require": [["turn off"], ["lights"]], "area": "kitchen", "response": "Off."},
     },
 }
 
@@ -301,7 +303,7 @@ def fixture_engine():
     languages.use("en")
     engine = Engine(CTC, None, None, threads=2)
     data = {**STORE, "triggers": {"automation:1": {"off": ["office"]}}}
-    engine.build(compile_store(data, triggers.prepare([GOOD_NIGHT, PLAY])))
+    engine.build(compile_store(data, triggers.prepare([GOOD_NIGHT, PLAY, LIGHTS_OFF])))
     return engine
 
 
@@ -330,6 +332,9 @@ def test_a_trigger_beats_a_command_saying_the_same(engine):
     assert decision.command.id == "trigger_1" and decision.slots == {"sentence": "good night"}
     # Even an area's own copy: the trigger goes first.
     assert engine.recognize_text("it's bed time", KITCHEN).command.id == "trigger_1"
+    # And the area's own keywords as good as its sentence.
+    assert engine.recognize_text("turn off the lights", KITCHEN).command.id == "trigger_5"
+    assert engine.recognize_text("turn off all the lights", KITCHEN).command.id == "lights_off_kitchen"
     # Turned off in the office: the command there.
     assert engine.recognize_text("good night", OFFICE).command.id == "night"
     assert engine.recognize_text("it's bed time", OFFICE).command.id == "bed"

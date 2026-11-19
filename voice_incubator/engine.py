@@ -26,8 +26,9 @@ The command is recognized with adapt-ctc on Parakeet's CTC output:
    light to green", heard as "set and light to green").
 4. **Where it is available.** Matches are taken best first, skipping commands
    that are not heard here: another area's own, or the whole home's turned
-   off in this one. Of matches as good as each other, and of example
-   sentences a copy also has, this area's own goes first.
+   off in this one. Of matches as good as each other, a sentence trigger's
+   goes first, then this area's own; of example sentences a copy also has,
+   this area's own.
 5. **Free text** is re-read from the TDT transcript over the same stretch of
    audio, which spells far better than the CTC head ("lasagna", not "Lasaga").
 6. **When nothing matched**, the closest command is named: from the keyword
@@ -1428,16 +1429,22 @@ class Engine:
     ) -> None:
         """The first of ``recognition``'s matches this satellite may run:
         its command, behavior and slots into ``decision`` (or a refusal).
-        Of matches that cost the same, the area's own goes first.
+        Of matches that cost the same, a sentence trigger's goes first, then
+        the area's own.
 
         A device name not heard as said (``fit_devices``) gives way to a
         match as good as it: in "turn off utility room light", with only the
         Exercise Room's light called "Light", "light" is the lights' keyword,
         not that name. The refusal is said when no match as good runs."""
 
-        def mine_first(result) -> tuple[float, bool]:
+        def mine_first(result) -> tuple[float, bool, bool]:
+            # Home Assistant runs a sentence trigger before its intents: of
+            # matches as good, a trigger's goes before even the area's own
+            # ("turn on the lights", a trigger's sentence and the Kitchen's
+            # keywords).
             command = compiled.commands.get(command_of(result.intent))
-            return (result.cost, not (command is not None and satellite.picked(command)))
+            trigger = command is not None and command.behavior.trigger
+            return (result.cost, not trigger, not (command is not None and satellite.picked(command)))
 
         recognizer = self.recognizer
         margin = recognizer.config.settings.ambiguity_margin if recognizer is not None else 0.0
@@ -1655,7 +1662,7 @@ class Engine:
                     heard_there = [e for area in said_areas for e in in_area(phrase, area)]
                     anywhere = [e for e in devices if phrase in here_keys.get(e, ()) or phrase in house_keys.get(e, ())]
                     if heard_there:  # a name heard only there
-                        return refused(say.not_here(label, [room(said_areas[0])]))
+                        return refused(say.only_there(label, room(said_areas[0])))
                     if all(area_of(e) is None for e in anywhere):
                         return refused(say.no_room(label))
                     return refused(say.not_in(label, room(said_areas[0])))
@@ -1736,9 +1743,11 @@ class Engine:
             # a room, a floor, a device ("on the Mark 2").
             places = [use.meaning.phrase for use in decision.intent.spans if use.role == "name"]
             config = self.recognizer.config if self.recognizer is not None else None
-            filler = list(config.filler) if config is not None else []
+            kept = self._text_ends(wildcard)
+            filler = [f for f in config.filler if f not in kept] if config is not None else []
             text = without_place(text, places, filler, config.language if config is not None else None)
-            text = " ".join(trimmed(text.split(), self._edge_words(decision.intent.intent, wildcard, decision.behavior))).strip()
+            edges = self._edge_words(decision.intent.intent, wildcard, decision.behavior)
+            text = " ".join(trimmed(text.split(), edges, kept)).strip()
         else:
             use = uses[0]
             start = use.hit.start * frame_seconds - frame_seconds
@@ -1749,11 +1758,12 @@ class Engine:
             # what says a place follows is no text, as the CTC matcher reads
             # it ("pizza for", "jazz in").
             edges = self._edge_words(decision.intent.intent, wildcard, decision.behavior)
-            inside = trimmed(within(words, start, end), edges)
+            kept = self._text_ends(wildcard)
+            inside = trimmed(within(words, start, end), edges, kept)
             # A keyword it misspelled is the keyword's, not the text's: "and
             # pick up groceries" for "add pick up groceries", the transducer's
             # "and" a few frames late.
-            inside = trimmed(misheard_off(inside, str(decision.slots.get(slot) or ""), wildcard), edges)
+            inside = trimmed(misheard_off(inside, str(decision.slots.get(slot) or ""), wildcard), edges, kept)
             text = " ".join(inside).strip()
         if text and slot in decision.slots and text != str(decision.slots[slot]):
             # The transcript's words, and its case ("Kind of Blue").
@@ -1773,7 +1783,10 @@ class Engine:
         if config is not None:
             spec = config.intents.get(intent)
             phrases = [p for group in (spec.require + spec.optional if spec else ()) for p in group]
-            words |= {part for phrase in [*phrases, *config.filler, *config.name_cues] for part in phrase.split()}
+            words |= {part for phrase in phrases for part in phrase.split()}
+            # Fillers of one word, as the matcher's free text: "you" of "can
+            # you" is no filler alone ("announce that I love you").
+            words |= {f for f in [*config.filler, *config.name_cues] if " " not in f}
         read = languages.reading()
         edges = words | set(read.PLACE_BEFORE) | set(read.ARTICLES)
         if behavior is not None and behavior.timer in alarms.OPERATIONS:
@@ -1781,6 +1794,12 @@ class Engine:
         if behavior is not None and behavior.announce:
             edges -= set(read.ARTICLES)
         return edges
+
+    def _text_ends(self, wildcard: dict[str, Any]) -> set[str]:
+        """Fillers free text to the end may end on, as the matcher's: "it" of
+        "announce that I love it" (the language's ``text_ends``)."""
+        config = self.recognizer.config if self.recognizer is not None else None
+        return set(config.text_ends) if config is not None and wildcard.get("to_end") else set()
 
     # --------------------------------------------------------------- hints
 
@@ -1945,13 +1964,14 @@ def _one_off(a: str, b: str) -> bool:
     return any(long[:i] + long[i + 1:] == short for i in range(len(long)))
 
 
-def trimmed(words: list[str], edges: set[str]) -> list[str]:
-    """Free text's words without ``edges`` (lowercase) at either end; never
-    none of them."""
+def trimmed(words: list[str], edges: set[str], ends_on: set[str] | None = None) -> list[str]:
+    """Free text's words without ``edges`` (lowercase) at either end, but
+    those of ``ends_on`` at its end, after other words; never none of them."""
     start, end = 0, len(words)
     while end - start > 1 and words[start].lower() in edges:
         start += 1
-    while end - start > 1 and words[end - 1].lower() in edges:
+    last = edges - (ends_on or set())
+    while end - start > 1 and words[end - 1].lower() in last:
         end -= 1
     return words[start:end]
 

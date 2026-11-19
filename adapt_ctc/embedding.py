@@ -49,6 +49,9 @@ DEFAULT_EMBEDDING_MODEL = _default_model()
 QUERY_PROMPT = "task: search result | query: "
 DOCUMENT_PROMPT = "title: none | text: "
 
+EMBED_BATCH = 16
+"""Sentences per run of the model (``Embedder.embed``)."""
+
 
 class Embedder:
     """EmbeddingGemma 2's text model: ``onnx/model_q4.onnx`` and
@@ -74,11 +77,20 @@ class Embedder:
         }
 
     def embed(self, texts: list[str], document: bool = False) -> np.ndarray:
-        """Unit vectors ``[len(texts), 768]``."""
+        """Unit vectors ``[len(texts), 768]``, a few sentences per run: one
+        run's memory grows with its size (300 sentences at once: +713 MB,
+        enough to have an HA Blue's app killed; 16 at a time: none, and no
+        slower)."""
         if not texts:
             return np.zeros((0, 768), dtype=np.float32)
         prompt = DOCUMENT_PROMPT if document else QUERY_PROMPT
-        encoded = self._tokenizer.encode_batch([prompt + text for text in texts])
+        return np.concatenate([
+            self._embed([prompt + text for text in texts[start : start + EMBED_BATCH]])
+            for start in range(0, len(texts), EMBED_BATCH)
+        ])
+
+    def _embed(self, texts: list[str]) -> np.ndarray:
+        encoded = self._tokenizer.encode_batch(texts)
         length = max(len(e.ids) for e in encoded)
         ids = np.zeros((len(encoded), length), dtype=np.int64)
         mask = np.zeros_like(ids)

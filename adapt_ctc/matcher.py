@@ -1151,7 +1151,9 @@ class Recognizer:
             # Free text to the end may stop before a place this intent takes:
             # "play jazz | in the kitchen", "play jazz | on the Mark 2".
             cuts = {start for start, _, meaning in trailing or [] if _name_allowed(intent, meaning)}
-            items += _wildcard_items(wild, spotting, settings.wildcard_cost, stop, lead, cuts)
+            items += _wildcard_items(
+                wild, spotting, settings.wildcard_cost, stop, lead, cuts, set(self.config.text_ends)
+            )
             items.sort(key=lambda item: (item.end, item.start))
         # Free text with both edges (or running to the end) may have fillers
         # between it and its keywords: "add [the] milk", "remind me [to] ...".
@@ -1713,14 +1715,22 @@ def _name_allowed(intent: Intent, meaning: Meaning) -> bool:
 
 
 def _wildcard_items(
-    wild: Wildcard, spotting: Spotting, cost: float, stop: set[str], lead: set[str], cuts: set[int] | None = None
+    wild: Wildcard,
+    spotting: Spotting,
+    cost: float,
+    stop: set[str],
+    lead: set[str],
+    cuts: set[int] | None = None,
+    ends_on: set[str] | None = None,
 ) -> list[_Item]:
     """Every run of 1 to ``max_words`` transcript words, as free text. Fillers
     and name cues are not part of it: "set a bread timer" misheard as "setet a
     bread timer" names the timer "bread", not "setet a bread". A run is `led`
     when the word before it is in ``lead``: "a", "the", "minute". Text that
     runs to the end may instead end before a word starting at one of
-    ``cuts`` (frames): a place the sentence ends on."""
+    ``cuts`` (frames): a place the sentence ends on; and it may end on a
+    filler of ``ends_on``, after other words ("I love it"), or before
+    nothing but other fillers ("dinner is ready | please")."""
     words = [
         (word, text)
         for word in spotting.words
@@ -1729,6 +1739,12 @@ def _wildcard_items(
         # on the word before it.
         if (text := word.text.lower().strip(".,?!;:\"'").replace("'", ""))
     ]
+    # Where the sentence's own words end: fillers after them ("please") are
+    # no text, and text to the end may end before them.
+    trailing = set(stop) - set(ends_on or ())
+    last = len(words) - 1
+    while last > 0 and words[last][1] in trailing:
+        last -= 1
     items = []
     inner = wild.bounded or wild.to_end
     for i, (first, _) in enumerate(words):
@@ -1739,8 +1755,10 @@ def _wildcard_items(
                 break
             texts.append(text)
             at = i + offset
-            ends = at == len(words) - 1 or bool(cuts and words[at + 1][0].start in cuts)
-            if text in stop or (wild.to_end and not ends):
+            ends = at in (last, len(words) - 1) or bool(cuts and words[at + 1][0].start in cuts)
+            if wild.to_end and not ends:
+                continue
+            if text in stop and not (wild.to_end and text in (ends_on or ()) and len(texts) > 1):
                 continue  # a filler may be inside the text, not at its edge
             meaning = Meaning("wildcard", " ".join(texts))
             hit = Hit(-1, [meaning], first.start, word.end, cost * len(texts), len(texts))

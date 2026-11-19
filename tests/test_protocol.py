@@ -3,8 +3,10 @@ either name (discover.Discovery)."""
 
 from __future__ import annotations
 
+import asyncio
+
 from voice_incubator.discover import Device, Discovery
-from voice_incubator.protocol import SERVICE_TYPES, Hello
+from voice_incubator.protocol import SERVICE_TYPES, Hello, Message
 
 NEW, OLD = SERVICE_TYPES
 
@@ -73,3 +75,87 @@ def test_a_new_address():
     # Another satellite is another satellite.
     _found(discovery, Device("ddeeff", "10.0.0.7", 6055, f"other.{OLD}", OLD))
     assert _events(discovery) == [("added", "10.0.0.7", OLD)]
+
+
+def test_audio_cut_mid_sample_is_realigned():
+    """Firmware could cut an audio frame mid-sample when its outgoing buffer
+    was nearly full; each stream carries the half sample to its next frame."""
+    import numpy as np
+
+    from voice_incubator.server import Session, _whole_samples
+
+    session = Session(key="k", host="h", port=1)
+    samples = np.arange(-500, 500, dtype="<i2")
+    stream = samples.tobytes()
+    cuts = [0, 7, 8, 301, 1001, 1999, len(stream)]
+    got = b"".join(
+        _whole_samples(session, Message.AUDIO_MONITOR_AEC, stream[a:b])
+        for a, b in zip(cuts, cuts[1:])
+    )
+    assert np.array_equal(np.frombuffer(got, dtype="<i2"), samples)
+    assert not session.split_samples
+
+    # Streams are realigned apart.
+    assert _whole_samples(session, Message.AUDIO_IN, b"\x01\x02\x03") == b"\x01\x02"
+    assert _whole_samples(session, Message.AUDIO_IN_AEC, b"\x04\x05") == b"\x04\x05"
+    assert _whole_samples(session, Message.AUDIO_IN, b"\x06") == b"\x03\x06"
+
+
+class _Info:
+    """AsyncServiceInfo, answering only from the given attempt on."""
+
+    attempts = 0
+    answers_from = 3
+
+    def __init__(self, service_type: str, name: str) -> None:
+        self.properties = {b"mac": b"aa:bb:cc:dd:ee:ff"}
+        self.port = None
+
+    async def async_request(self, zeroconf, timeout: float) -> bool:
+        type(self).attempts += 1
+        if type(self).attempts >= self.answers_from:
+            self.port = 6055
+        return self.port is not None
+
+    def parsed_addresses(self) -> list[str]:
+        return ["10.0.0.5"] if self.port is not None else []
+
+
+def test_a_lost_answer_is_asked_again(monkeypatch):
+    """A weak link loses the answer to the first ask, and the browser says a
+    name once: asked again until it comes (issue #18, after a restart)."""
+    from voice_incubator import discover
+
+    monkeypatch.setattr(discover, "AsyncServiceInfo", _Info)
+    monkeypatch.setattr(discover, "RESOLVE_RETRY_SECONDS", 0.01)
+    _Info.attempts = 0
+
+    async def scenario() -> list:
+        discovery = Discovery()
+        discovery._on_change(None, NEW, f"vpe.{NEW}", discover.ServiceStateChange.Added)
+        change, device = await asyncio.wait_for(discovery.events.get(), 5)
+        await asyncio.sleep(0)
+        assert not discovery._resolving
+        return [change, device.key, device.host, _Info.attempts]
+
+    assert asyncio.run(scenario()) == ["added", "aabbccddeeff", "10.0.0.5", 3]
+
+
+def test_a_name_gone_is_not_asked_after(monkeypatch):
+    from voice_incubator import discover
+
+    monkeypatch.setattr(discover, "AsyncServiceInfo", _Info)
+    monkeypatch.setattr(discover, "RESOLVE_RETRY_SECONDS", 0.01)
+    _Info.attempts = 0
+    monkeypatch.setattr(_Info, "answers_from", 10**6)
+
+    async def scenario() -> None:
+        discovery = Discovery()
+        discovery._on_change(None, NEW, f"vpe.{NEW}", discover.ServiceStateChange.Added)
+        await asyncio.sleep(0.05)
+        task = discovery._resolving[f"vpe.{NEW}"]
+        discovery._on_change(None, NEW, f"vpe.{NEW}", discover.ServiceStateChange.Removed)
+        await asyncio.sleep(0)
+        assert task.cancelled() and not discovery._resolving and discovery.events.empty()
+
+    asyncio.run(scenario())

@@ -192,6 +192,8 @@ class Agent:
         """Whether Home Assistant takes ``device_id`` (2026.10 and later)."""
         self._streams = True
         """Whether the integration streams answers (asked again on reconnecting)."""
+        self._asking: dict[str, int] = {}
+        """What is being asked now (``key_of``), how many times."""
         if hasattr(hass, "on_connect"):
             hass.on_connect(self._reconnected)
 
@@ -229,6 +231,15 @@ class Agent:
                 })
         return out
 
+    @staticmethod
+    def key_of(text: str) -> str:
+        return " ".join(text.lower().split())
+
+    def asking(self, text: str) -> bool:
+        """``text`` is being asked of the agent now: the app hearing it from
+        Home Assistant meanwhile is the agent being the app itself."""
+        return self.key_of(text) in self._asking
+
     async def agents(self) -> list[dict[str, Any]]:
         """Home Assistant's conversation agents: ``[{id, name}]``."""
         result = await self.hass.call({"type": "conversation/agent/list"})
@@ -252,7 +263,9 @@ class Agent:
         if language:
             message["language"] = language
         started = time.perf_counter()
-        streaming = on_text is not None and self._streams and agent_id != HOME_ASSISTANT_AGENT
+        streaming = on_text is not None and self._streams and self.agent_id != HOME_ASSISTANT_AGENT
+        asked = self.key_of(text)
+        self._asking[asked] = self._asking.get(asked, 0) + 1
         try:
             if streaming:
                 assert on_text is not None
@@ -271,6 +284,11 @@ class Agent:
             reply.seconds = time.perf_counter() - started
             _LOGGER.warning("Conversation agent %s could not be asked: %s", agent_id, reply.error)
             return reply
+        finally:
+            if self._asking[asked] > 1:
+                self._asking[asked] -= 1
+            else:
+                del self._asking[asked]
         reply.seconds = time.perf_counter() - started
         response = (result or {}).get("response") or {}
         reply.response_type = response.get("response_type")

@@ -137,6 +137,23 @@ SPEAKER = object()
 """A fallback agent's name unless given (``_carry_out``'s ``agent_name``): the
 speaker's own."""
 
+_AUDIO_STREAMS = frozenset(
+    {Message.AUDIO_IN, Message.AUDIO_IN_AEC, Message.AUDIO_MONITOR, Message.AUDIO_MONITOR_AEC}
+)
+
+
+def _whole_samples(session: "Session", msg_type: int, payload: bytes) -> bytes:
+    """The frame's audio in whole 16-bit samples, joined with the half sample
+    the stream's last frame ended on and holding back the one it ends on."""
+    carried = session.split_samples.pop(msg_type, b"")
+    if carried:
+        payload = carried + payload
+    if len(payload) % 2:
+        session.split_samples[msg_type] = payload[-1:]
+        payload = payload[:-1]
+    return payload
+
+
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -551,6 +568,8 @@ class Session:
     host: str
     port: int
     writer: asyncio.StreamWriter | None = None
+    quiet_retries: bool = False
+    """Failed connects past the longest delay go to the debug log, until one works."""
     call: Call | None = None
     drained: asyncio.Event = field(default_factory=asyncio.Event)
     device_id: str = "unknown-device"
@@ -583,6 +602,10 @@ class Session:
     speaker is enrolled from it."""
     monitoring_intercom: bool = False
     """And whether it was told that is the intercom."""
+    split_samples: dict[int, bytes] = field(default_factory=dict)
+    """Each audio stream's half of a sample its last frame ended on, by message
+    type: firmware before 2026-11-16 could cut a frame mid-sample when its
+    outgoing buffer was nearly full (the frame header is 3 bytes)."""
     intercom: "Intercom | None" = None
     """Joined to another satellite: each one's microphone on the other's speaker."""
     announcements: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -1760,14 +1783,25 @@ class VoiceIncubatorApp:
             while True:
                 change, device = await self._discovery.events.get()
                 if change == "added":
+                    known = self._found.get(device.key)
                     self._found[device.key] = device
                     if device.key in self.hass.catalog.disabled_satellites:
                         _LOGGER.info("Satellite appeared: %s; disabled in Home Assistant, so left alone", device)
+                    elif (
+                        known is not None
+                        and (known.host, known.port) == (device.host, device.port)
+                        and device.key in self._sessions
+                    ):
+                        _LOGGER.info("Satellite answering mDNS again: %s", device)
                     else:
                         self._start_session(device)
                 else:
-                    self._found.pop(device.key, None)
-                    self._stop_session(device)
+                    # Its mDNS record expired: missed refreshes on a weak
+                    # link do that to a satellite that's still there. The
+                    # session ends on its own connection, not this, and
+                    # keeps reconnecting to the last address it had --
+                    # kept in _found, for enabling it in Home Assistant.
+                    _LOGGER.info("Satellite stopped answering mDNS: %s; staying with its last address", device)
         finally:
             await self._discovery.stop()
             for task in list(self._sessions.values()):
@@ -1797,7 +1831,7 @@ class VoiceIncubatorApp:
             else None
         )
 
-    def _stop_session(self, device: Device, why: str = "went away") -> None:
+    def _stop_session(self, device: Device, why: str) -> None:
         task = self._sessions.pop(device.key, None)
         if task is not None:
             _LOGGER.info("Satellite %s: %s", why, device)
@@ -1813,13 +1847,23 @@ class VoiceIncubatorApp:
                         session.host, session.port
                     )
                 except OSError as err:
-                    _LOGGER.warning("Connect failed (%s); retrying in %.0fs", err, backoff)
+                    # Retried for good -- a satellite unplugged for a while
+                    # comes back without a restart -- so said until the
+                    # delay stops growing, then only in the debug log.
+                    if backoff < self.options.max_reconnect_seconds:
+                        _LOGGER.warning("Connect failed (%s); retrying in %.0fs", err, backoff)
+                    elif not session.quiet_retries:
+                        session.quiet_retries = True
+                        _LOGGER.warning("Connect failed (%s); retrying every %.0fs", err, backoff)
+                    else:
+                        _LOGGER.debug("Connect failed (%s); retrying in %.0fs", err, backoff)
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, self.options.max_reconnect_seconds)
                     continue
 
                 self._enable_keepalive(writer)
                 session.writer = writer
+                session.quiet_retries = False
                 started = time.monotonic()
                 try:
                     await self._read_loop(session, reader)
@@ -1924,6 +1968,11 @@ class VoiceIncubatorApp:
         )
 
     async def _handle(self, session: Session, msg_type: int, payload: bytes) -> None:
+        if msg_type in _AUDIO_STREAMS:
+            payload = _whole_samples(session, msg_type, payload)
+            if not payload:
+                return
+
         if msg_type == Message.AUDIO_IN:
             if session.listeners:
                 self._live_call_audio(session, payload)
@@ -1997,6 +2046,9 @@ class VoiceIncubatorApp:
                     info.get("error"),
                 )
         elif msg_type == Message.CALL_START:
+            # A new stream: whatever half sample the last call ended on is not its.
+            session.split_samples.pop(Message.AUDIO_IN, None)
+            session.split_samples.pop(Message.AUDIO_IN_AEC, None)
             self._on_call_start(session, info)
             session.live_call = True
             self._live(session, {"type": "call", "active": True, "wake_word": session.call.wake_word if session.call else None})
@@ -2122,6 +2174,10 @@ class VoiceIncubatorApp:
             for s in (self.enrollment, self.wake_recording)
         )
         if (wanted, intercom) != (session.monitoring, session.monitoring_intercom) and session.writer is not None:
+            if wanted and not session.monitoring:
+                # The device starts the monitored streams afresh.
+                session.split_samples.pop(Message.AUDIO_MONITOR, None)
+                session.split_samples.pop(Message.AUDIO_MONITOR_AEC, None)
             session.monitoring, session.monitoring_intercom = wanted, intercom and wanted
             await self._send_json(session, Message.MONITOR, {"active": wanted, "intercom": intercom and wanted})
 
@@ -3892,6 +3948,11 @@ class VoiceIncubatorApp:
         An answer to what it asked back in the conversation is that answer;
         a timer is Home Assistant's own agent's, to ring on its satellite. An
         LLM's answer goes to ``on_text`` a piece at a time, as it comes."""
+        if self.agent.asking(text):
+            # The conversation agent the app asks is the app itself (Wyoming's,
+            # in Home Assistant): asking it again would never end.
+            _LOGGER.warning("The conversation agent %s is Voice Incubator itself: choose another on the Settings page", self.agent.agent_id)
+            return Turn("", False)
         context = {k: v for k, v in (context or {}).items() if k in CONTEXT_KEYS and v}
         satellite = self.assist_satellite(context)
         record = self.calls.begin("wyoming", satellite.as_dict())

@@ -251,6 +251,12 @@ def not_in(device: str, room: str) -> str:
     return f"ma {device} non è {_place('area', room)}"
 
 
+def only_there(device: str, room: str) -> str:
+    """Why: the device said with its room is heard only from that room
+    (not with its area said elsewhere)."""
+    return f"ma {device} {_place('area', room)} si può controllare solo da lì"
+
+
 def not_here(device: str, rooms: list[str]) -> str:
     """Why: the device said, by a name several share or one heard only in
     its room, isn't in the satellite's, and no room was said: where it is."""

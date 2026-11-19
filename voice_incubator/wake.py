@@ -1,4 +1,4 @@
-"""Second-stage wake word verification via wyoming-wake-kaldi.
+"""Second-stage wake word verification via the Kaldi verifier (wyoming_wake_kaldi).
 
 The on-device detector has already fired; this re-decodes the pre-roll window
 against explicit wake/background/prefix/confusable grammars. It answers both
