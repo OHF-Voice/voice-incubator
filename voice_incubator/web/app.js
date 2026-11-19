@@ -3130,8 +3130,9 @@ function devicesPanel(store, areas, only) {
       here = label ? [bare, ...aliases.map((a) => withoutArea(a, label)).filter((a) => a && !sameName(a, bare))] : [];
       house = label ? [`${label} ${bare}`] : [suggestion.name, ...aliases];
     }
-    const area = h("select", {},
+    const area = h("select", { value: device.area === "" ? "__none__" : device.area || "" },
       h("option", { value: "" }, `${areaName(haArea)} (Home Assistant's)`),
+      h("option", { value: "__none__", selected: device.area === "" }, "No area (set here)"),
       ...Object.entries(areas).map(([id, text]) => h("option", { value: id, selected: device.area === id }, text)));
     const wide = areaWide(itemId);
     const implicit = h("input", { type: "checkbox", checked: device.implicit !== false });
@@ -3145,7 +3146,7 @@ function devicesPanel(store, areas, only) {
       h("label", {}, withArea, withAreaText, hint("From a satellite elsewhere, one of these with the area said (“the lamp in the office”).")));
     const implicitRow = wide ? h("label", {}, implicit, implicitText) : null;
     function shown() {
-      const where = area.value || haArea;
+      const where = area.value === "__none__" ? null : area.value || haArea;
       const name = where ? areaName(where) : null;
       inside.hidden = !where;
       insideTitle.textContent = `In the ${name}`;
@@ -3164,7 +3165,7 @@ function devicesPanel(store, areas, only) {
       implicitRow,
       h("div", { class: "row" },
         h("button", { class: "primary", onclick: async () => {
-          const where = area.value || haArea;
+          const where = area.value === "__none__" ? null : area.value || haArea;
           if (!(where && here.length) && !house.length && !(wide && implicit.checked)) {
             form.append(errorBox(wide ? "Give it a name, or make it part of its area." : "Give it a name."));
             return;
@@ -3172,7 +3173,7 @@ function devicesPanel(store, areas, only) {
           try {
             await api("PUT", `names/entities/${encodeURIComponent(itemId)}`, {
               name: here[0] || "", aliases: here.slice(1), house, with_area: withArea.checked,
-              ...(wide ? { implicit: implicit.checked } : {}), area: area.value || null,
+              ...(wide ? { implicit: implicit.checked } : {}), area: area.value === "__none__" ? "" : area.value || null,
             });
             toast("Saved"); pageNames(); refreshStatus();
           } catch (err) { form.append(errorBox(err)); }
@@ -3180,7 +3181,7 @@ function devicesPanel(store, areas, only) {
         h("button", { onclick: () => fill(form) }, "Cancel"))));
   }
   // Those in the area for voice.
-  const ids = Object.keys(devices).filter((itemId) => (devices[itemId].area || devices[itemId].ha_area || "") === (only || ""));
+  const ids = Object.keys(devices).filter((itemId) => (devices[itemId].area ?? devices[itemId].ha_area ?? "") === (only || ""));
   const listed = (names) => (names.length ? names.join(", ") : h("span", { class: "muted" }, "none"));
   // A name another device has where it is heard.
   const clash = (clashes) => (clashes.length ? h("span", { class: "badge bad", style: "margin-left:6px",
@@ -3198,7 +3199,7 @@ function devicesPanel(store, areas, only) {
         const clashes = device.clashes || [];
         return h("tr", {},
           h("td", {}, h("code", {}, itemId),
-            device.area ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+            device.area != null ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
           h("td", { "data-label": only ? `In the ${name}` : "" }, only ? [listed(device.here), clash(clashes.filter((c) => c.area)),
             device.here.length && !device.with_area ? h("span", { class: "badge", style: "margin-left:6px", title: "Not heard from other areas, even with its area said." }, "only there") : null]
             : null),
@@ -3289,7 +3290,7 @@ function commandWord(names, where) {
 function heardEverywherePanel(store, areas) {
   const rows = [];
   for (const [itemId, device] of Object.entries(store.devices || {})) {
-    for (const name of device.house) rows.push({ name, itemId, where: device.area || device.ha_area || "", clashes: (device.clashes || []).filter((c) => !c.area && sameName(c.name, name)),
+    for (const name of device.house) rows.push({ name, itemId, where: device.area ?? device.ha_area ?? "", clashes: (device.clashes || []).filter((c) => !c.area && sameName(c.name, name)),
       word: (device.command_words || []).some((w) => sameName(w, name)) });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));

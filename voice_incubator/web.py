@@ -599,7 +599,7 @@ class Api:
 
     def _devices_json(self, data: dict[str, Any], here: str, default: str) -> dict[str, dict[str, Any]]:
         devices = {str(i): device_of(e, here, default) for i, e in ((data.get("names") or {}).get("entities") or {}).items()}
-        clashes = name_clashes(devices, lambda e: devices[e].area or self._ha_area(e))
+        clashes = name_clashes(devices, lambda e: devices[e].area if devices[e].area is not None else self._ha_area(e))
         words = self._command_words()
         return {
             item_id: {
@@ -653,7 +653,8 @@ class Api:
                 raise ConfigError(f"“{name}” is already {self._device_label(taken)}'s whole house name")
 
     async def put_name(self, request: web.Request) -> web.Response:
-        body = _clean(await request.json())
+        raw = await request.json()
+        body = _clean(raw)
         kind, item_id = request.match_info["kind"], request.match_info["id"]
         name = str(body.get("name") or "").strip()
         aliases = [str(a).strip() for a in body.get("aliases") or [] if str(a).strip()]
@@ -664,13 +665,14 @@ class Api:
             return await self._saved(self.app.store.put_name(kind, item_id, spec))
         # A device: its names in its area and in the whole house (left out:
         # the same), whether it is part of its area and heard elsewhere with
-        # it said, and its area for voice (empty: Home Assistant's).
+        # it said, and its area for voice (null: HA's; empty: explicitly none).
         house = [str(h).strip() for h in body.get("house") or [] if str(h).strip()] if "house" in body else None
         own = {k: body[k] for k in ("implicit", "with_area") if k in body}
-        if "area" in body:
-            own["area"] = body.get("area") or None
+        if "area" in raw:
+            own["area"] = raw["area"]
         area = own.get("area") if "area" in own else self.app.entity_area(item_id)
-        area = area or self._ha_area(item_id)
+        if area is None:
+            area = self._ha_area(item_id)
         here = [n for n in [name, *aliases] if n]
         self._unique(item_id, here, house if house is not None else here, area)
         spec = {"name": name, **({"aliases": aliases} if aliases else {}), **({"house": house} if house is not None else {}), **own}
@@ -1005,7 +1007,7 @@ class Api:
                     continue
                 if wanted_area is not None:
                     device = added.get(entity.entity_id)
-                    where = (device.area if device is not None and device.area else entity.area_id) or ""
+                    where = (device.area if device is not None and device.area is not None else entity.area_id) or ""
                     if device is not None and where == wanted_area:
                         continue  # in the area's list already
                     if not query and where != wanted_area:
@@ -1055,7 +1057,8 @@ class Api:
             satellites.setdefault(app.satellite(key).area_id, []).append(key)
         devices: dict[str | None, int] = {}
         for item_id, entry in ((data.get("names") or {}).get("entities") or {}).items():
-            where = device_of(entry, here, default).area or self._ha_area(str(item_id))
+            device = device_of(entry, here, default)
+            where = (device.area if device.area is not None else self._ha_area(str(item_id))) or None
             devices[where] = devices.get(where, 0) + 1
         own: dict[str, int] = {}
         off: dict[str, int] = {}

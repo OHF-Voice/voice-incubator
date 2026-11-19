@@ -1100,8 +1100,8 @@ class VoiceIncubatorApp:
         """A device's area for voice: the Names page's, else Home Assistant's
         (its own, else its device's)."""
         device = self.voice_devices().get(entity_id)
-        if device is not None and device.area:
-            return device.area
+        if device is not None and device.area is not None:
+            return device.area or None
         catalog = self.hass.catalog
         entity = catalog.entities.get(entity_id) if catalog is not None else None
         return entity.area_id if entity is not None else None

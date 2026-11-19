@@ -309,8 +309,8 @@ def voice_catalog(catalog: Any, devices: dict[str, Any]) -> Any:
     entities = dict(catalog.entities)
     for entity_id, device in devices.items():
         entity = entities.get(entity_id)
-        if entity is not None and device.area and device.area != entity.area_id:
-            entities[entity_id] = replace(entity, area_id=device.area)
+        if entity is not None and device.area is not None and device.area != entity.area_id:
+            entities[entity_id] = replace(entity, area_id=device.area or None)
     exposed = {e for e, device in devices.items() if device.implicit}
     return replace(catalog, entities=entities, exposed=exposed, voiced=True)
 

@@ -199,7 +199,7 @@ class Device:
     with its names in the app's language."""
 
     area: str | None = None
-    """Its area for voice, set on the Names page; None: Home Assistant's."""
+    """Its area for voice; None: Home Assistant's, empty: explicitly none."""
     here: tuple[str, ...] = ()
     """Its names in its area: from a satellite there."""
     house: tuple[str, ...] = ()
@@ -231,7 +231,7 @@ def device_of(entry: Any, here: str, default: str) -> Device:
     inside = tuple(dict.fromkeys(str(n) for n in [said.get("name"), *(said.get("aliases") or [])] if n))
     house = tuple(dict.fromkeys(str(n) for n in said["house"] if n)) if "house" in said else inside
     return Device(
-        area=str(entry["area"]) if entry.get("area") else None, here=inside, house=house,
+        area=str(entry["area"]) if entry.get("area") is not None else None, here=inside, house=house,
         implicit=entry.get("implicit") is not False, with_area=entry.get("with_area") is not False,
     )
 
@@ -357,8 +357,8 @@ def _check_own(kind: str, item_id: str, key: str, value: Any) -> None:
     where = f"names.{kind}.{item_id}.{key}"
     if kind != "entities":
         raise ConfigError(f"{where}: only a device has one")
-    if key == "area" and not (isinstance(value, str) and value):
-        raise ConfigError(f"{where}: an area id")
+    if key == "area" and not isinstance(value, str):
+        raise ConfigError(f"{where}: an area id, or empty for no area")
     if key in ("implicit", "with_area") and not isinstance(value, bool):
         raise ConfigError(f"{where}: true or false")
 
