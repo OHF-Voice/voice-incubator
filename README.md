@@ -123,6 +123,50 @@ after the image name.
 
 See [Running from source](DESIGN.md#running-from-source) in the design notes.
 
+### Optional Home Assistant names
+
+On **Whole Home > Names**, manual naming remains the default. Open the
+**Home Assistant names** panel to preview supported entities exposed to Assist,
+then **Import once** to save editable manual names, or **Follow Home
+Assistant** to keep names, aliases, areas and floors in sync. Sync is one-way:
+nothing here changes Home Assistant. Incubator reads the exposure decisions HA
+has recorded, including automatic exposure once HA records it. It does not
+guess or write defaults for newly seen entities. While following, registry changes
+follow automatically; exposure and state-only name changes are checked every
+30 seconds while connected. Import and sync only add area names where at least
+one supported device is exposed to Assist. Exposed devices without an area can
+still be imported or followed, and manually added areas are kept.
+
+Following uses all supported devices exposed to Assist, including devices Home
+Assistant exposes automatically. A large set of names can make local recognition
+slower or less reliable, especially on a lower-powered host. Review the read-only
+preview and limit Assist exposure before following. **Import once** opens
+a separate device picker using current Assist exposure. Use **Exclude** after
+turning on Follow to skip a device in Incubator without changing its Assist exposure.
+
+The preview flags shared names in the same room or across the whole home,
+including clashes with existing manual entries. Sync does not choose a winner:
+Incubator refuses commands that would be ambiguous. Fix the name or alias in
+Home Assistant and let it sync, or take control of a followed device and give
+it a distinct name in Incubator.
+
+Synced devices retain local controls for implicit room commands, whole-home
+names, room-qualified references and additional aliases. **Take control** saves
+an independent manual entry, including its current area (or no area). It stops
+following HA names, area changes and Assist exposure. **Exclude** removes a synced
+device persistently. Under **Whole Home > Names**, **Resume following** brings an
+excluded device back if sync is on and the device is exposed to Assist. It asks
+before replacing that device's manual entry. Otherwise, manual entries take
+precedence, and stopping sync removes only generated names. Rooms and devices
+have independent ownership. Commands still need to be added from the library.
+A custom command that pins a name by ID pauses if that name is no longer
+available and becomes active again when the name returns.
+
+This option lives in `voice_incubator/ha_names.py`, with hooks in the existing
+catalog refresh, store compilation and Names UI. It needs no integration or
+firmware changes. The published app image does not include local source changes;
+a custom build must use this source revision.
+
 ## Other satellites, through Wyoming
 
 Without the Voice Incubator firmware, a satellite can still use the app: it is
