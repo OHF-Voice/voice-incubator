@@ -107,6 +107,18 @@ def load_library() -> list[dict[str, Any]]:
 
 
 @functools.cache
+def named_device_entries(code: str) -> dict[str, dict[str, Any]]:
+    """Library entries that always require a named entity, by id. Read-only."""
+    return {
+        entry["id"]: entry
+        for entry in _library(code)
+        if not entry.get("error")
+        and ((entry["spec"].get("names") or {}).get("entity") or {}).get("domains")
+        and all("entity" in combination for combination in entry["spec"].get("combinations") or [])
+    }
+
+
+@functools.cache
 def library_sentences(code: str) -> dict[str, list[str]]:
     """Kaldi mode's sentences for the library's commands in ``code``
     (``sentences.yaml`` beside the library), by ``file/id``."""

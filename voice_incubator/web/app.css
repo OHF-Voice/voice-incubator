@@ -255,6 +255,8 @@ th { color: var(--muted); font-weight: 600; border-top: none; }
 .dialog.compact { height: auto; max-height: 90vh; overflow: auto; width: min(560px, 100%); }
 .dialog input[type=search] { width: 100%; }
 .dialog-list { overflow: auto; min-height: 0; flex: 1; border-top: 1px solid var(--line); }
+.ha-import-picker { display: flex; flex-direction: column; min-height: 0; }
+.ha-import-picker > .dialog-list { flex: 0 1 auto; padding-block: 6px; border-bottom: 1px solid var(--line); overscroll-behavior: contain; }
 .custom-command { display: flex; gap: 12px; align-items: center; text-align: left; width: 100%; padding: 10px 12px; border: 1px dashed var(--accent); background: var(--accent-soft); }
 .custom-command .title { display: block; font-weight: 600; }
 .custom-command .muted { display: block; }

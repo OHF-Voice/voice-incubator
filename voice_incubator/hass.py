@@ -262,6 +262,8 @@ class HomeAssistant:
         self._subscriptions: dict[int, Callable[[dict], None]] = {}
         self._task: asyncio.Task | None = None
         self._refresh_task: asyncio.Task | None = None
+        self._refresh_requested = False
+        self._catalog_lock = asyncio.Lock()
         self._catalog_listeners: list[Callable[[], Awaitable[None] | None]] = []
         self._connect_listeners: list[Callable[[], Awaitable[None] | None]] = []
 
@@ -413,9 +415,14 @@ class HomeAssistant:
         msg_id = next(self._ids)
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = future
-        await self._socket.send(json.dumps({**message, "id": msg_id}))
         try:
+            socket = self._socket
+            if socket is None:
+                raise ConnectionError("Home Assistant disconnected")
+            await socket.send(json.dumps({**message, "id": msg_id}))
             return await asyncio.wait_for(future, timeout)
+        except websockets.ConnectionClosed as err:
+            raise ConnectionError("Home Assistant disconnected") from err
         finally:
             self._pending.pop(msg_id, None)
 
@@ -670,20 +677,15 @@ class HomeAssistant:
             raise HassError(f"{err.code}: {err.read().decode(errors='replace')[:200]}") from err
 
     async def exposed_entities(self) -> set[str] | None:
-        """The entities exposed to Assist: as the Voice Incubator integration reads
-        them (Assist's own decision), else from Home Assistant's exposure
-        settings; None when neither says."""
+        """Recorded Assist exposure, without materializing defaults in HA."""
         try:
-            return set((await self.call({"type": self.command("exposed")}) or {}).get("entities") or [])
-        except HassError as err:
-            if "unknown_command" not in str(err) and "Unknown command" not in str(err):
-                _LOGGER.warning("Could not read what is exposed to Assist: %s", err)
-        try:
-            listed = await self.call({"type": "homeassistant/expose_entity/list"}) or {}
+            listed = await self.call({"type": "homeassistant/expose_entity/list"})
         except HassError as err:
             _LOGGER.warning("Could not read what is exposed to Assist: %s", err)
             return None
-        return {e for e, assistants in (listed.get("exposed_entities") or {}).items() if (assistants or {}).get("conversation")}
+        if not isinstance(listed, dict) or not isinstance(listed.get("exposed_entities"), dict):
+            return None
+        return {e for e, assistants in listed["exposed_entities"].items() if (assistants or {}).get("conversation")}
 
     async def fire_event(self, event_type: str, data: dict) -> None:
         await self.call({"type": "fire_event", "event_type": event_type, "event_data": data})
@@ -745,21 +747,28 @@ class HomeAssistant:
     # -------------------------------------------------------------- catalog
 
     def _schedule_refresh(self, delay: float = 1.0) -> None:
-        """Registry edits come in bursts; refresh once they settle."""
+        """Coalesce bursts without cancelling a refresh already rebuilding commands."""
+        self._refresh_requested = True
         if self._refresh_task is not None and not self._refresh_task.done():
-            self._refresh_task.cancel()
+            return
 
         async def later() -> None:
-            await asyncio.sleep(delay)
-            try:
-                await self.refresh_catalog()
-            except (HassError, ConnectionError, OSError, TimeoutError) as err:
-                _LOGGER.warning("Could not refresh Home Assistant registries: %s", err)
+            while self._refresh_requested:
+                await asyncio.sleep(delay)
+                self._refresh_requested = False
+                try:
+                    await self.refresh_catalog()
+                except (HassError, ConnectionError, OSError, TimeoutError) as err:
+                    _LOGGER.warning("Could not refresh Home Assistant registries: %s", err)
 
         self._refresh_task = asyncio.ensure_future(later())
 
     async def refresh_catalog(self) -> Catalog:
         """Re-read areas, floors and voice-domain entities."""
+        async with self._catalog_lock:
+            return await self._refresh_catalog()
+
+    async def _refresh_catalog(self) -> Catalog:
         floors = await self.call({"type": "config/floor_registry/list"})
         areas = await self.call({"type": "config/area_registry/list"})
         devices = await self.call({"type": "config/device_registry/list"})
