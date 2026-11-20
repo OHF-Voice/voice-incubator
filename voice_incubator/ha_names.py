@@ -8,13 +8,14 @@ materializes one entry using the ordinary Names format.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any
 
 from adapt_ctc.config import ConfigError
 
-from . import languages
-from .hass import VOICE_DOMAINS, Catalog
-from .store import NAME_KINDS, file_language, name_in, phrase_key
+from . import capabilities, languages, library, music
+from .hass import VOICE_DOMAINS, Catalog, Entity
+from .store import NAME_KINDS, command_language, file_language, list_in, name_in, phrase_key
 
 KEY = "ha_names"
 DOMAINS = set(VOICE_DOMAINS) - {"weather", "todo", "shopping_list", "calendar"}
@@ -24,10 +25,14 @@ CONTROLS = ("implicit", "with_area", "whole_home")
 
 def config(document: dict) -> dict:
     value = document.get(KEY) or {}
-    if not isinstance(value, dict) or set(value) - {"enabled", "excluded", "overrides"}:
-        raise ConfigError("ha_names: enabled, excluded and overrides only")
-    if "enabled" in value and not isinstance(value["enabled"], bool):
-        raise ConfigError("ha_names.enabled: true or false")
+    if not isinstance(value, dict) or set(value) - {"enabled", "excluded", "overrides", "auto_add_commands", "handled_commands"}:
+        raise ConfigError("ha_names: enabled, excluded, overrides, auto_add_commands and handled_commands only")
+    for key in ("enabled", "auto_add_commands"):
+        if key in value and not isinstance(value[key], bool):
+            raise ConfigError(f"ha_names.{key}: true or false")
+    handled = value.get("handled_commands", [])
+    if not isinstance(handled, list) or any(not isinstance(ref, str) for ref in handled):
+        raise ConfigError("ha_names.handled_commands: a list of command references")
     excluded = value.get("excluded") or {}
     if not isinstance(excluded, dict) or set(excluded) - set(NAME_KINDS):
         raise ConfigError("ha_names.excluded: entities, areas or floors")
@@ -114,6 +119,97 @@ def generated(document: dict, catalog: Catalog | None) -> dict[str, dict[str, di
     return out
 
 
+def pending_commands(document: dict, catalog: Catalog | None) -> list[str]:
+    """The applicable by-name commands to set up once in the current language."""
+    settings = config(document)
+    if not settings.get("enabled") or not settings.get("auto_add_commands") or catalog is None:
+        return []
+    return _applicable_commands(document, catalog, generated(document, catalog)["entities"])
+
+
+def _applicable_commands(document: dict, catalog: Catalog, names: dict[str, dict]) -> list[str]:
+    devices = [catalog.entities[i] for i, name in names.items() if name["name"] or name["house"]]
+    if not devices:
+        return []
+    pack = languages.current()
+    default = file_language(document)
+    handled = set(config(document).get("handled_commands", []))
+    lists = document.get("lists") or {}
+    pending = []
+    for base, entry in library.named_device_entries(pack.code).items():
+        ref = f"{entry['file']}/{base}"
+        if f"{pack.code}:{ref}" in handled:
+            continue
+        spec = entry["spec"]
+        # Don't enable commands that listen for a turned-off or missing list.
+        used = [v.get("list") if isinstance(v, dict) else v for v in (spec.get("lists") or {}).values()]
+        if any(isinstance(name, str) and (lists.get(name) is False or
+               (name not in pack.lists and list_in(lists.get(name), pack.code, default) is None)) for name in used):
+            continue
+        if any(_applies(base, spec, entity) for entity in devices):
+            pending.append(ref)
+    return pending
+
+
+def _applies(command_id: str, spec: dict, entity: Entity) -> bool:
+    if entity.domain not in spec["names"]["entity"]["domains"]:
+        return False
+    if command_id == "is_locked" and entity.domain == "binary_sensor":
+        return (entity.attributes or {}).get("device_class") == "lock"
+    if operation := spec.get("music"):
+        if operation not in music.CONTROLS and entity.platform != "music_assistant":
+            return False
+        if operation == "volume_set" and capabilities.can(entity, "volume_set") is not True:
+            return False
+    needs = spec.get("supports") or ()
+    return all(capabilities.can(entity, need) is True for need in ((needs,) if isinstance(needs, str) else needs))
+
+
+def _device_ref(command_id: str, spec: dict, code: str) -> str | None:
+    if not isinstance(spec, dict):
+        return None
+    entries = library.named_device_entries(code)
+    if library.follows(spec):
+        # The library also resolves references whose section moved.
+        base = str(spec[library.REFERENCE]).partition("/")[2]
+        return f"{entries[base]['file']}/{base}" if base in entries else None
+    # Older commands that took control have no reference. Recognize their
+    # standard id (also a numbered, translated or copied one in its section).
+    for base, entry in entries.items():
+        if command_id == base or (spec.get("library") == entry["file"] and re.fullmatch(base + library.COPY_SUFFIX, command_id)):
+            return f"{entry['file']}/{base}"
+    return None
+
+
+def remember_command(document: dict, command_id: str, spec: dict) -> None:
+    """Editing or removing a device command is a choice, even before opting in."""
+    code = command_language(spec, file_language(document))
+    if (ref := _device_ref(command_id, spec, code)) is not None:
+        key = f"{code}:{ref}"
+        handled = document.setdefault(KEY, {}).setdefault("handled_commands", [])
+        if key not in handled:
+            handled.append(key)
+
+
+def add_commands(document: dict, refs: list[str]) -> None:
+    """Save ordinary library references; never re-add a command the user removed."""
+    if not refs:
+        return
+    here, default = languages.current().code, file_language(document)
+    commands = document["commands"]
+    installed = {_device_ref(i, spec, here) for i, spec in commands.items() if command_language(spec, default) == here}
+    handled = document.setdefault(KEY, {}).setdefault("handled_commands", [])
+    for ref in refs:
+        handled.append(f"{here}:{ref}")
+        if ref in installed:
+            continue
+        base = ref.split("/")[1]
+        command_id, n = base, 2
+        while command_id in commands:
+            command_id, n = f"{base}_{n}", n + 1
+        commands[command_id] = {library.REFERENCE: ref, **({"language": here} if here != default else {})}
+
+
 def resolve(document: dict, catalog: Catalog | None) -> dict:
     """Supply ordinary Names entries without changing the saved document."""
     settings = config(document)
@@ -174,7 +270,7 @@ def resume_following(document: dict, catalog: Catalog, entity_id: str, replace_m
     settings["excluded"]["entities"] = [i for i in excluded if i != entity_id]
 
 
-def import_once(document: dict, catalog: Catalog | None, ids: list[str]) -> None:
+def import_once(document: dict, catalog: Catalog | None, ids: list[str], *, add_library_commands: bool = False) -> None:
     if config(document).get("enabled"):
         raise ConfigError("Stop following Home Assistant before importing manual names")
     if catalog is None or catalog.exposed is None:
@@ -187,6 +283,8 @@ def import_once(document: dict, catalog: Catalog | None, ids: list[str]) -> None
     if unknown:
         raise ConfigError(f"Not eligible for import: {', '.join(sorted(unknown))}")
     entries["entities"] = {i: e for i, e in entries["entities"].items() if i in wanted}
+    if add_library_commands:
+        add_commands(document, _applicable_commands(document, catalog, entries["entities"]))
     for kind, items in entries.items():
         for item_id, entry in items.items():
             if kind == "entities":

@@ -3137,6 +3137,8 @@ function haNamesPanel(store) {
   return panel;
 }
 
+const HA_VOICE_UNLOCK_WARNING = "This can enable voice unlocking for locks. Anyone a satellite hears can use it unless the command is disabled there.";
+
 async function importHANames() {
   const body = h("div", { class: "stack ha-import-picker" }, h("p", { role: "status" }, "Checking Assist exposure…"));
   const close = openDialog("Import Home Assistant names once", body, "compact");
@@ -3156,6 +3158,7 @@ async function importHANames() {
     const deselectAll = h("button", { onclick: () => setAll(false) }, "Deselect all");
     const errors = h("div", { role: "alert" });
     const count = h("span", { class: "grow muted small", role: "status" });
+    const addCommands = h("input", { type: "checkbox" });
     let saving = false;
     const save = h("button", { class: "primary", onclick: async () => {
       const ids = preview.filter((_, i) => checkboxes[i].checked).map((entry) => entry.id);
@@ -3163,7 +3166,7 @@ async function importHANames() {
       update();
       fill(errors);
       try {
-        await api("POST", "ha-names/import", { ids });
+        await api("POST", "ha-names/import", { ids, add_library_commands: addCommands.checked });
         close(); toast("Imported as manual names"); await pageNames(); refreshStatus();
       } catch (err) { fill(errors, errorBox(err)); saving = false; update(); }
     } }, "Import selected devices");
@@ -3174,7 +3177,7 @@ async function importHANames() {
     function update() {
       const selected = checkboxes.filter((checkbox) => checkbox.checked).length;
       save.disabled = saving || !selected;
-      list.inert = selectAll.disabled = deselectAll.disabled = saving;
+      list.inert = selectAll.disabled = deselectAll.disabled = addCommands.disabled = saving;
       count.textContent = `${selected} selected`;
     }
     update();
@@ -3182,6 +3185,8 @@ async function importHANames() {
       h("p", { class: "row" }, "Choose devices to save as manual names.",
         hint("Their names and rooms won’t follow later changes in Home Assistant. Eligible areas and floors are also saved as manual names.")),
       h("div", { class: "row" }, selectAll, deselectAll), list,
+      h("label", { class: "row" }, addCommands, "Also add library commands for the selected devices"),
+      h("p", { class: "muted small" }, HA_VOICE_UNLOCK_WARNING),
       errors,
       h("div", { class: "row" }, count, h("button", { onclick: close }, "Cancel"), save));
   } catch (err) { fill(body, errorBox(err)); }
@@ -3193,9 +3198,24 @@ function haNamesControls(sync) {
   const excludedDevices = sync.excluded?.entities || [];
   const excludedPlaces = [...(sync.excluded?.areas || []), ...(sync.excluded?.floors || [])];
   const errors = h("div");
+  const autoAdd = h("input", { type: "checkbox", checked: sync.auto_add_commands,
+    disabled: !sync.ready && !sync.auto_add_commands,
+    onchange: async (event) => {
+      if (!sync.enabled) return;
+      const input = event.currentTarget;
+      const checked = input.checked;
+      input.disabled = true;
+      fill(errors);
+      try {
+        await api("PUT", "ha-names", { auto_add_commands: checked });
+        toast(checked ? "Automatic command setup on" : "Automatic command setup off; existing commands kept");
+        refreshStatus();
+      } catch (err) { input.checked = !checked; fill(errors, errorBox(err)); }
+      finally { input.disabled = !sync.ready && !input.checked; }
+    } });
   return h("div", {},
     h("p", { class: "row" }, h("span", { class: "badge" }, sync.enabled ? "Following Home Assistant" : "Manual mode"),
-      hint(sync.enabled ? "Renames, room moves and removals follow automatically. Exposure changes are checked within 30 seconds. Room-specific command settings stay unchanged; commands still need to be added from the library."
+      hint(sync.enabled ? "Renames, room moves and removals follow automatically. Exposure changes are checked within 30 seconds. Room-specific command settings stay unchanged."
         : "Import or follow supported devices whose Assist exposure Home Assistant has recorded. Manual entries are kept and nothing writes back to Home Assistant."),
       !sync.ready ? h("span", { class: "muted small" }, "Assist exposure unavailable") : null),
     h("div", { class: "notice warn row" }, "Large name lists can slow local recognition.",
@@ -3209,10 +3229,14 @@ function haNamesControls(sync) {
           h("li", {}, `“${clash.name}” (${clash.area_name || "whole home"}) is also used by `,
             h("code", {}, clash.with.join(", "))))) : null))),
     errors,
+    h("p", { class: "row" },
+      h("label", {}, autoAdd, "Automatically add library commands for synced devices"),
+      hint("Adds shared by-name commands based on the devices and capabilities that sync. Added commands keep following the library and stay in your command list if sync stops.")),
+    h("p", { class: "muted small" }, HA_VOICE_UNLOCK_WARNING),
     h("div", { class: "row" },
       h("button", { class: "primary", disabled: !sync.ready && !sync.enabled, onclick: async () => {
         try {
-          await api("PUT", "ha-names", { enabled: !sync.enabled });
+          await api("PUT", "ha-names", sync.enabled ? { enabled: false } : { enabled: true, auto_add_commands: autoAdd.checked });
           toast(sync.enabled ? "Sync off; manual names kept" : "Following Home Assistant");
           await pageNames(); refreshStatus();
         } catch (err) { fill(errors, errorBox(err)); }

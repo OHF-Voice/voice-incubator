@@ -158,9 +158,23 @@ device persistently. Under **Whole Home > Names**, **Resume following** brings a
 excluded device back if sync is on and the device is exposed to Assist. It asks
 before replacing that device's manual entry. Otherwise, manual entries take
 precedence, and stopping sync removes only generated names. Rooms and devices
-have independent ownership. Commands still need to be added from the library.
-A custom command that pins a name by ID pauses if that name is no longer
-available and becomes active again when the name returns.
+have independent ownership. A custom command that pins a name by ID pauses
+if that name is no longer available and becomes active again when the name returns.
+
+**Automatically add library commands for synced devices** is off by default.
+When enabled with Follow, it adds shared by-name commands that apply to at
+least one synced device: for example, opening a cover, setting its position
+if supported, or checking whether a lock is locked. It does not add commands
+that target a whole room or home without naming a device. It can enable voice
+unlocking for synced locks; anyone a satellite hears can use that command
+unless it is disabled there.
+
+The added commands follow the library just as if you added them yourself.
+Neither mode overwrites existing commands, turns disabled ones back on, or re-adds
+commands whose deletion this version recorded. Turning off auto-add or stopping
+Follow leaves the added commands in your command list. With **Import once**, you
+can check **Also add library commands for the selected devices** to apply the
+same rules to that selection, without enabling Follow or changing its settings.
 
 This option lives in `voice_incubator/ha_names.py`, with hooks in the existing
 catalog refresh, store compilation and Names UI. It needs no integration or

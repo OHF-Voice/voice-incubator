@@ -626,6 +626,7 @@ class Api:
             clashes = name_clashes(devices, lambda i: devices[i].area if devices[i].area is not None else self._ha_area(i))
         return {
             "enabled": bool(settings.get("enabled")),
+            "auto_add_commands": bool(settings.get("auto_add_commands")),
             "ready": self.app.hass.connected.is_set() and self.app.hass.catalog.exposed is not None,
             "following": {kind: list(entries) if settings.get("enabled") else [] for kind, entries in generated.items()},
             "preview": [{"id": i, "name": ", ".join(e["house"]) or e["name"] or catalog.entities[i].name,
@@ -653,21 +654,33 @@ class Api:
 
     async def put_ha_names(self, request: web.Request) -> web.Response:
         body = await request.json()
-        if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
-            raise ConfigError("enabled: true or false")
-        if body["enabled"]:
+        keys = ("enabled", "auto_add_commands")
+        if not isinstance(body, dict) or not any(key in body for key in keys):
+            raise ConfigError("Expected enabled or auto_add_commands")
+        settings = {key: body[key] for key in keys if key in body}
+        for key, value in settings.items():
+            if not isinstance(value, bool):
+                raise ConfigError(f"{key}: true or false")
+        before = ha_names.config(self.app.store.document())
+        enabled = settings.get("enabled", before.get("enabled", False))
+        starting = enabled and not before.get("enabled")
+        adding = enabled and settings.get("auto_add_commands") and not before.get("auto_add_commands")
+        if starting or adding:
             await self._refresh_ha_names_catalog()
         return await self._saved(self.app.store.update(
-            lambda d: d.setdefault(ha_names.KEY, {}).update(enabled=body["enabled"])))
+            lambda d: d.setdefault(ha_names.KEY, {}).update(settings)))
 
     async def import_ha_names(self, request: web.Request) -> web.Response:
         body = await request.json()
         ids = body.get("ids") if isinstance(body, dict) else None
         if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
             raise ConfigError("ids: a list of entity ids")
+        add_library_commands = body.get("add_library_commands", False)
+        if not isinstance(add_library_commands, bool):
+            raise ConfigError("add_library_commands: true or false")
         await self._refresh_ha_names_catalog()
         return await self._saved(self.app.store.update(
-            lambda d: ha_names.import_once(d, self.app.store.catalog, ids)))
+            lambda d: ha_names.import_once(d, self.app.store.catalog, ids, add_library_commands=add_library_commands)))
 
     async def exclude_ha_name(self, request: web.Request) -> web.Response:
         kind, item_id = request.match_info["kind"], request.match_info["id"]

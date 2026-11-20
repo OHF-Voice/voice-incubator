@@ -899,21 +899,27 @@ class VoiceIncubatorApp:
     # ------------------------------------------------------------- commands
 
     async def _follow_ha_names(self) -> None:
-        """Registry changes update derived names, never the saved manual ones."""
+        """Update derived names and set up newly applicable library commands."""
         if self.hass.catalog.exposed is None:
             return  # a failed exposure read is not an empty authoritative list
         previous = self.store.catalog
         self.store.catalog = self.hass.catalog
+        compiled = None
         try:
             document = self.store.document()
             if not ha_names.config(document).get("enabled"):
                 return
+            if ha_names.pending_commands(document, self.store.catalog):
+                compiled = self.store.update(lambda _: None)
             changed = ha_names.generated(document, previous) != ha_names.generated(document, self.store.catalog)
         except (ConfigError, ValueError, OSError) as err:
             self.store_error = str(err)
             return
-        if self.engine is not None and changed:
-            await self.reload_commands()
+        if self.engine is not None:
+            if compiled is not None:
+                await self.apply(compiled)
+            elif changed:
+                await self.reload_commands()
 
     async def _refresh_ha_names(self) -> None:
         """Exposure preferences and state-only names need no registry event."""

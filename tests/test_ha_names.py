@@ -9,8 +9,9 @@ import pytest
 from aiohttp.test_utils import make_mocked_request
 
 from adapt_ctc.config import ConfigError
-from voice_incubator import actions, ha_names, languages
+from voice_incubator import actions, ha_names, languages, library
 from voice_incubator.hass import Area, Catalog, Entity, Floor
+from voice_incubator.server import VoiceIncubatorApp
 from voice_incubator.store import Device, Store
 from voice_incubator.web import Api
 
@@ -46,6 +47,83 @@ def test_sync_is_opt_in_and_normal_saves_keep_it_derived(store):
     saved = store.put_command("hello", {"description": "say hello", "examples": ["hello"], "response": "Hello"})
     assert saved.devices == compiled.devices
     assert Store(store.data_dir, catalog=store.catalog).load().devices == compiled.devices
+
+
+@pytest.mark.asyncio
+async def test_auto_add_uses_synced_light_capabilities_even_when_only_state_changes(store):
+    catalog = store.catalog
+    desk = catalog.entities["light.desk"]
+    private = replace(catalog.entities["light.private"], attributes={"supported_color_modes": ["rgb"]})
+    catalog.entities["light.private"] = private
+    applied = []
+
+    async def apply(compiled):
+        applied.append(set(compiled.commands))
+
+    app = SimpleNamespace(store=store, hass=SimpleNamespace(catalog=catalog), engine=object(), apply=apply)
+    original = set(enable(store).commands)
+    assert "turn_on_device" not in original
+    store.update(lambda d: d["ha_names"].update(auto_add_commands=True))
+    on_off = {"turn_on_device", "turn_off_device", "any_lights_on_device"}
+    assert set(store.load().commands) == original | on_off  # no known capability on the exposed light
+    assert store.document()["commands"]["turn_on_device"] == {"from": "lights/turn_on_device"}
+
+    brightness = {"set_brightness_device", "brighter_device", "dimmer_device"}
+    for mode, extra in [("brightness", brightness), ("rgb", brightness | {"light_color_device", "light_temperature_device"})]:
+        app.hass.catalog = replace(catalog, entities={**catalog.entities, "light.desk": replace(desk, attributes={"supported_color_modes": [mode]})})
+        await VoiceIncubatorApp._follow_ha_names(app)
+        assert applied[-1] == original | on_off | extra
+
+    saved = store.document()["commands"]
+    store.update(lambda d: d["ha_names"].update(enabled=False))
+    assert store.document()["commands"] == saved
+    assert not store.load().devices
+
+
+def test_auto_add_preserves_customization_disabling_and_deletion(store):
+    catalog = store.catalog
+    catalog.entities["cover.shade"] = Entity("cover.shade", "Shade", attributes={"supported_features": 7})
+    catalog.exposed = {"cover.shade"}
+    disabled = {"from": "home/open_covers_device", "disabled": True, "title": "My open command", "area": "office"}
+    store.put_command("open_my_way", disabled)
+    store.put_command("my_close", {"from": "home/close_covers_device"})
+    custom = {**library.base("home/close_covers_device"), "title": "My close command"}
+    store.put_command("local_close", custom, old_id="my_close")
+    store.put_command("position", {"from": "home/cover_position_device"})
+    store.delete_command("position")
+    original = store.document()["commands"]
+
+    store.update(lambda d: d.update(ha_names={**d.get("ha_names", {}), "enabled": True, "auto_add_commands": True}))
+    assert store.document()["commands"] == {**original, "are_covers_open_device": {"from": "home/are_covers_open_device"}}
+    store.delete_command("are_covers_open_device")
+    restarted = Store(store.data_dir, catalog=catalog)
+    restarted.update(lambda d: d["ha_names"].update(auto_add_commands=False))
+    restarted.update(lambda d: d["ha_names"].update(auto_add_commands=True))
+    assert restarted.document()["commands"] == original
+
+
+def test_auto_add_matches_named_device_domains_and_capabilities(store):
+    catalog = store.catalog
+    catalog.entities.update({
+        "cover.shade": Entity("cover.shade", "Shade", attributes={"supported_features": 3}),
+        "cover.private": Entity("cover.private", "Private Shade", attributes={"supported_features": 7}),
+        "lock.front": Entity("lock.front", "Front Door"),
+        "sensor.temperature": Entity("sensor.temperature", "Outside Temperature"),
+    })
+    catalog.exposed = {"cover.shade", "cover.private", "lock.front", "sensor.temperature"}
+    original = set(store.load().commands)
+    compiled = store.update(lambda d: d.update(ha_names={
+        "enabled": True, "auto_add_commands": True, "excluded": {"entities": ["cover.private"]},
+    }))
+    expected = {
+        "open_covers_device", "close_covers_device", "are_covers_open_device",
+        "lock", "unlock", "is_locked", "sensor_value",
+    }
+    assert set(compiled.commands) - original == expected
+    assert store.document()["commands"]["unlock"] == {"from": "home/unlock"}
+
+    catalog.entities["cover.shade"] = replace(catalog.entities["cover.shade"], attributes={"supported_features": 7})
+    assert set(store.update(lambda _: None).commands) - original == expected | {"cover_position_device"}
 
 
 def test_only_areas_with_supported_assist_exposure_are_imported_or_followed(store):
@@ -199,7 +277,9 @@ def test_manual_entries_win_and_exclusions_survive_restart(store):
 
 def test_import_once_is_selected_manual_and_unknown_exposure_is_not_all(store):
     store.catalog.exposed.add("light.private")
+    commands = store.document()["commands"]
     store.update(lambda d: ha_names.import_once(d, store.catalog, ["light.desk"]))
+    assert store.document()["commands"] == commands
     store.catalog.entities["light.desk"] = replace(store.catalog.entities["light.desk"], name="Renamed", area_id="kitchen")
     assert store.load().devices == {"light.desk": Device("office", ("Desk Lamp", "Task Light"), ("Office Desk Lamp", "Office Task Light"))}
     assert not store.document().get("ha_names", {}).get("enabled")
@@ -208,6 +288,27 @@ def test_import_once_is_selected_manual_and_unknown_exposure_is_not_all(store):
         store.update(lambda d: ha_names.import_once(d, store.catalog, ["light.desk"]))
     enable(store)
     assert set(store.load().devices) == {"light.desk"}  # the manually imported one only
+
+
+def test_import_once_can_add_commands_for_selected_devices_only(store):
+    catalog = store.catalog
+    catalog.entities["cover.shade"] = Entity("cover.shade", "Shade", attributes={"supported_features": 7})
+    catalog.exposed.add("cover.shade")
+    store.put_command("my_open", {"from": "home/open_covers_device", "disabled": True})
+    store.put_command("my_close", {"from": "home/close_covers_device"})
+    store.delete_command("my_close")
+    before = store.document()["commands"]
+
+    compiled = store.update(lambda d: ha_names.import_once(d, catalog, ["cover.shade"], add_library_commands=True))
+
+    assert set(compiled.devices) == {"cover.shade"}
+    assert store.document()["commands"] == {
+        **before,
+        "are_covers_open_device": {"from": "home/are_covers_open_device"},
+        "cover_position_device": {"from": "home/cover_position_device"},
+    }
+    settings = ha_names.config(store.document())
+    assert not settings.get("enabled") and not settings.get("auto_add_commands")
 
 
 def test_room_ownership_and_local_aliases_are_independent_of_language(store):

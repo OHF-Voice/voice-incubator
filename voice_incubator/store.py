@@ -654,13 +654,20 @@ class Store:
         """Apply ``edit(document)`` to a copy of the commands, validate the
         result and save it. ``edit`` changes the document in place (or
         replaces its parts)."""
+        from . import ha_names  # pylint: disable=import-outside-toplevel
+
         document = self.document()
         before = plain(document.get("commands") or {})
         for key in ("names", "lists", "commands"):
             if document.get(key) is None:
                 document[key] = {}
         edit(document)
-        edited = [i for i, spec in (document.get("commands") or {}).items() if i not in before or before[i] != spec]
+        commands = document.get("commands") or {}
+        edited = [i for i, spec in commands.items() if i not in before or before[i] != spec]
+        for i, spec in before.items():
+            if i not in commands or i in edited:
+                ha_names.remember_command(document, i, spec)
+        ha_names.add_commands(document, ha_names.pending_commands(document, self.catalog))
         compiled = compile_store(self.effective_document(plain(document)), self.triggers, edited_commands=edited)
         self._write(document)
         return compiled
