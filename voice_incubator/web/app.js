@@ -3138,7 +3138,7 @@ function haNamesPanel(store) {
 }
 
 async function importHANames() {
-  const body = h("div", { class: "stack" }, h("p", { role: "status" }, "Checking Assist exposure…"));
+  const body = h("div", { class: "stack ha-import-picker" }, h("p", { role: "status" }, "Checking Assist exposure…"));
   const close = openDialog("Import Home Assistant names once", body, "compact");
   try {
     const sync = await api("POST", "ha-names/preview");
@@ -3148,30 +3148,40 @@ async function importHANames() {
       fill(body, h("p", { class: "muted" }, "No eligible devices are exposed to Assist."));
       return;
     }
-    const selected = new Set(preview.map((e) => e.id));
+    const checkboxes = preview.map(() => h("input", { type: "checkbox", checked: true, onchange: update }));
+    const list = h("div", { class: "dialog-list stack", role: "region", "aria-label": "Eligible devices", tabindex: 0 },
+      preview.map((entry, i) => h("label", { class: "row" }, checkboxes[i],
+        h("span", {}, entry.name, " ", h("code", {}, entry.id)))));
+    const selectAll = h("button", { onclick: () => setAll(true) }, "Select all");
+    const deselectAll = h("button", { onclick: () => setAll(false) }, "Deselect all");
     const errors = h("div", { role: "alert" });
     const count = h("span", { class: "grow muted small", role: "status" });
+    let saving = false;
     const save = h("button", { class: "primary", onclick: async () => {
-      save.disabled = true;
+      const ids = preview.filter((_, i) => checkboxes[i].checked).map((entry) => entry.id);
+      saving = true;
+      update();
       fill(errors);
       try {
-        await api("POST", "ha-names/import", { ids: [...selected] });
+        await api("POST", "ha-names/import", { ids });
         close(); toast("Imported as manual names"); await pageNames(); refreshStatus();
-      } catch (err) { fill(errors, errorBox(err)); save.disabled = !selected.size; }
+      } catch (err) { fill(errors, errorBox(err)); saving = false; update(); }
     } }, "Import selected devices");
+    function setAll(checked) {
+      for (const checkbox of checkboxes) checkbox.checked = checked;
+      update();
+    }
     function update() {
-      save.disabled = !selected.size;
-      count.textContent = `${selected.size} selected`;
+      const selected = checkboxes.filter((checkbox) => checkbox.checked).length;
+      save.disabled = saving || !selected;
+      list.inert = selectAll.disabled = deselectAll.disabled = saving;
+      count.textContent = `${selected} selected`;
     }
     update();
     fill(body,
       h("p", { class: "row" }, "Choose devices to save as manual names.",
         hint("Their names and rooms won’t follow later changes in Home Assistant. Eligible areas and floors are also saved as manual names.")),
-      ...preview.map((entry) => h("label", { class: "row" },
-        h("input", { type: "checkbox", checked: true, onchange: (event) => {
-          if (event.target.checked) selected.add(entry.id); else selected.delete(entry.id);
-          update();
-        } }), h("span", {}, entry.name, " ", h("code", {}, entry.id)))),
+      h("div", { class: "row" }, selectAll, deselectAll), list,
       errors,
       h("div", { class: "row" }, count, h("button", { onclick: close }, "Cancel"), save));
   } catch (err) { fill(body, errorBox(err)); }
