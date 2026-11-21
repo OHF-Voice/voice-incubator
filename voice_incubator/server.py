@@ -18,6 +18,7 @@ from typing import Any
 
 import aiohttp
 import numpy as np
+import soxr
 
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
@@ -55,6 +56,7 @@ from .protocol import (
     BYTES_PER_SAMPLE,
     HEADER,
     MAX_PAYLOAD,
+    OUTPUT_RATE,
     SAMPLE_RATE,
     Hello,
     Message,
@@ -68,7 +70,7 @@ from .speaker import PALETTE, Identification, SpeakerId
 from .store import Compiled, Device, Store
 from .piper_voices import Voice
 from .piper_voices import catalog as piper_catalog
-from .tts import Speech, sentences_of
+from .tts import Speech, pcm_at, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, RatioVerdict, WakeRatio
@@ -449,6 +451,7 @@ class Cues:
             if not self.sent:
                 self._session.drained.clear()  # an earlier "drained" must not answer for this
             self.until = max(self.until, asyncio.get_running_loop().time()) + len(sound) / BYTE_RATE
+            sound = pcm_at(sound, SAMPLE_RATE, self._session.output_rate)
             for offset in range(0, len(sound), MAX_PAYLOAD):
                 chunk = sound[offset : offset + MAX_PAYLOAD]
                 await self._app._send(self._session, Message.AUDIO_OUT, chunk)  # pylint: disable=protected-access
@@ -574,6 +577,9 @@ class Session:
     """The satellite's key (its MAC) once it has said HELLO."""
     hello: dict = field(default_factory=dict)
     """Its HELLO, as sent."""
+    output_rate: int = SAMPLE_RATE
+    """What its AUDIO_OUT is sampled at: OUTPUT_RATE once it was told
+    (CONFIG), when it offers it; else the microphone's."""
     warned_quiet_aec: bool = False
     ringing: asyncio.Task | None = None
     """A finished timer ringing on this satellite."""
@@ -638,6 +644,10 @@ class Intercom:
     started: float = field(default_factory=time.monotonic)
     record: CallRecord | None = None
     limit: asyncio.Task | None = None
+    resamplers: dict[str, Any] = field(default_factory=dict)
+    """Each satellite's microphone at the other's output rate, by the
+    satellite it plays on: one stream each, so the chunks join without a
+    seam (soxr.ResampleStream)."""
     ended: bool = False
     duplex: Duplex = field(default_factory=Duplex)
     """What each sends the other: no squeal (voice_incubator/duplex.py)."""
@@ -2010,6 +2020,11 @@ class VoiceIncubatorApp:
         if msg_type == Message.HELLO:
             session.device_id = _device_id(info)
             session.hello = info
+            # Before any audio (protocol 3): replies at the speaker's own rate.
+            session.output_rate = SAMPLE_RATE
+            if OUTPUT_RATE in session.device.output_sample_rates:
+                await self._send_json(session, Message.CONFIG, {"output_sample_rate": OUTPUT_RATE})
+                session.output_rate = OUTPUT_RATE
             session.satellite = _satellite_key(info, session.key)
             self.sessions[session.satellite] = session
             self._remember_satellite(session)
@@ -3712,16 +3727,17 @@ class VoiceIncubatorApp:
             async def spoken():
                 async for piece in each():
                     begun = time.perf_counter()
+                    rate = session.output_rate  # made at it: not resampled twice
                     async with self._model_lock:
-                        audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model)
+                        audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model, rate)
                     if quiet:
                         audio = night_mode.quieter(audio)
                     timing["synthesis"] += time.perf_counter() - begun
                     if timing["first"] is None:
                         timing["first"] = time.perf_counter() - started
                         await self._quiet(session, close=False)  # the reply follows the sounds
-                    timing["seconds"] += len(audio)
-                    yield audio
+                    timing["seconds"] += len(audio) * SAMPLE_RATE // rate
+                    yield audio, rate
                 if timing["first"] is None:
                     timing["first"], timing["seconds"] = 0.0, len(acknowledge)
                     await self._quiet(session, close=False)
@@ -4655,8 +4671,16 @@ class VoiceIncubatorApp:
         if peer is None or peer.writer is None or peer.intercom is not intercom:
             return
         chunk = intercom.duplex.relay(session.satellite, peer.satellite, chunk)
+        if peer.output_rate != SAMPLE_RATE:
+            stream = intercom.resamplers.get(peer.satellite)
+            if stream is None:
+                stream = intercom.resamplers[peer.satellite] = soxr.ResampleStream(
+                    SAMPLE_RATE, peer.output_rate, 1, dtype="int16"
+                )
+            chunk = stream.resample_chunk(np.frombuffer(chunk, dtype="<i2")).astype("<i2").tobytes()
         if peer.writer.transport.get_write_buffer_size() < INTERCOM_BACKLOG:
-            peer.writer.write(encode(Message.AUDIO_OUT, chunk))
+            for offset in range(0, len(chunk), MAX_PAYLOAD):
+                peer.writer.write(encode(Message.AUDIO_OUT, chunk[offset : offset + MAX_PAYLOAD]))
 
     async def end_intercom(self, intercom: Intercom, by: str) -> None:
         """Both satellites back to themselves: no more streaming, the end tone,
@@ -4787,8 +4811,10 @@ class VoiceIncubatorApp:
         await self._play_stream(session, once(), paced)
 
     async def _play_stream(self, session: Session, pieces, paced: bool = False) -> None:
-        """Stream audio as its pieces come (an async iterable of PCM), one
-        stream however many, and wait until the device has played it out.
+        """Stream audio as its pieces come (an async iterable of PCM: the
+        app's sounds at SAMPLE_RATE, or ``(pcm, rate)``), one stream however
+        many, at the satellite's output rate, and wait until the device has
+        played it out.
 
         ``paced``: stay at most PLAY_LEAD ahead of the device's clock, for
         audio outside a call (a ringing timer). The device's buffer only
@@ -4800,13 +4826,16 @@ class VoiceIncubatorApp:
         loop = asyncio.get_running_loop()
         started = None
         sent = 0
-        async for pcm in pieces:
+        byte_rate = session.output_rate * BYTES_PER_SAMPLE
+        async for piece in pieces:
+            pcm, rate = piece if isinstance(piece, tuple) else (piece, SAMPLE_RATE)
+            pcm = pcm_at(pcm, rate, session.output_rate)
             if started is None:
                 started = loop.time()
             for offset in range(0, len(pcm), MAX_PAYLOAD):
                 chunk = pcm[offset : offset + MAX_PAYLOAD]
                 if paced:
-                    ahead = sent / BYTE_RATE - (loop.time() - started)
+                    ahead = sent / byte_rate - (loop.time() - started)
                     if ahead > PLAY_LEAD:
                         await asyncio.sleep(ahead - PLAY_LEAD)
                 await self._send(session, Message.AUDIO_OUT, chunk)

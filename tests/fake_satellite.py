@@ -75,6 +75,8 @@ class FakeSatellite:
     """More to say in HELLO (``intercom``, ``listen``)."""
     listens: list[bool] = field(default_factory=list)
     """Every HANGUP's ``listen``: whether the app wanted an answer."""
+    configs: list[dict] = field(default_factory=list)
+    """Every CONFIG, with ``"models_before"``: how many MODEL_CLEARs came first."""
 
     def __post_init__(self) -> None:
         self.ready = asyncio.Event()
@@ -139,6 +141,8 @@ class FakeSatellite:
             self.ends += 1
             self._writer.write(encode(Message.PLAYBACK_DRAINED))
             await self._writer.drain()
+        elif msg_type == Message.CONFIG:
+            self.configs.append({**json.loads(payload), "models_before": self.clears})
         elif msg_type == Message.EVENT:
             event = json.loads(payload)
             self.events.append(event)

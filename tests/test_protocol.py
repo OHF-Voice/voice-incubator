@@ -32,6 +32,16 @@ def test_protocol_2_says_what_it_has():
     # Not said: not there.
     bare = Hello.parse({"protocol": 2, "name": "kitchen"})
     assert (bare.model, bare.aec, bare.wake_format, bare.model_slots) == (None, False, None, None)
+    assert bare.output_sample_rates == (16000,)
+
+
+def test_protocol_3_offers_output_rates():
+    """The speaker's own rate besides the microphone's: the app may play at it
+    (CONFIG). Nonsense is ignored; nothing said, 16 kHz."""
+    vpe = Hello.parse({"protocol": 3, "name": "vpe", "output_sample_rates": [16000, 48000]})
+    assert vpe.output_sample_rates == (16000, 48000)
+    assert Hello.parse({"protocol": 3, "output_sample_rates": "48000"}).output_sample_rates == (16000,)
+    assert Hello.parse({"protocol": 3, "output_sample_rates": [0, "x"]}).output_sample_rates == (16000,)
 
 
 def _events(discovery: Discovery) -> list[tuple[str, str, str]]:
