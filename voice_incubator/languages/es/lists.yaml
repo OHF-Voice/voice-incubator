@@ -107,3 +107,7 @@ binary_states:
   low: [bajo, baja]
   cold: [frío, fría]
   hot: [caliente]
+everywhere:
+  # Where an announcement goes when no area or floor is said: only with one of
+  # these.
+  everywhere: [todos, todo el mundo, toda la casa, todas partes, todas las habitaciones]

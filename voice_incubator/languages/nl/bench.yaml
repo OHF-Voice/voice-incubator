@@ -94,7 +94,8 @@ sentences:
   - ["Zet de tv zachter.", volume_down_here, {kind: tv}, "the TV, quieter"]
   - ["Speel mijn afspeellijst.", play_my_playlist, {}, "an example sentence"]
   # Satellites.
-  - ["Kondig aan dat we gaan eten.", announce, {message: we gaan eten}, "free text to the end"]
+  - ["Vertel iedereen dat we gaan eten.", announce, {everywhere: everywhere, message: we gaan eten}, "free text to the end"]
+  - ["Kondig aan dat we gaan eten in de keuken.", announce, {area: [keuken], message: we gaan eten}, "an area last"]
   - ["Verbind me met de keuken.", intercom, {area: [keuken]}, "an area"]
   - ["Praat harder.", own_volume_up, {}, "its own volume"]
   - ["Zet je volume op veertig procent.", own_volume_set, {percentage: 40}, "its own volume, a number"]

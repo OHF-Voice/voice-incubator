@@ -135,9 +135,10 @@ sentences:
   - ["Що в моєму списку справ?", todo_items_mine, {}, "what's on my own"]
 
   # The satellites, and people.
-  - ["Оголоси, що вечеря готова.", announce, {message: вечеря готова}, "an announcement"]
+  - ["Скажи всім, що вечеря готова.", announce, {everywhere: everywhere, message: вечеря готова}, "an announcement everywhere"]
+  - ["Оголоси, що вечеря готова, на кухні.", announce, {area: [kukhnia], message: вечеря готова}, "an announcement, a place last"]
   - ["Оголоси на кухні, що вечеря готова.", announce, {area: [kukhnia], message: вечеря готова}, "an announcement, a place"]
-  - ["Оголоси, що моя мама приїхала.", announce, {message: моя мама приїхала}, "a possessive kept at the message's start"]
+  - ["Оголоси скрізь, що моя мама приїхала.", announce, {everywhere: everywhere, message: моя мама приїхала}, "a possessive kept at the message's start"]
   - ["З'єднай з кухнею.", intercom, {area: [kukhnia]}, "an area in the instrumental"]
   - ["Подзвони на кухню.", intercom, {area: [kukhnia]}, "an area in the accusative"]
   - ["Говори голосніше.", own_volume_up, {}, "the satellite's own"]

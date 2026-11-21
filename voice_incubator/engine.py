@@ -1740,9 +1740,15 @@ class Engine:
             language = self.recognizer.config.language if self.recognizer is not None else ""
             text = free_text(transcript, wildcard, str(decision.slots.get(slot) or ""), language) or ""
             # Text to the end stops before the place it was told apart from:
-            # a room, a floor, a device ("on the Mark 2").
-            places = [use.meaning.phrase for use in decision.intent.spans if use.role == "name"]
+            # a room, a floor, a device ("on the Mark 2") -- or a value of the
+            # intent's own list, said as one ("to the whole house").
             config = self.recognizer.config if self.recognizer is not None else None
+            spec = config.intents.get(decision.intent.intent) if config is not None else None
+            values = {phrase for lst in (spec.lists if spec is not None else ()) for phrase in lst.phrases}
+            places = [
+                use.meaning.phrase for use in decision.intent.spans
+                if use.role == "name" or (use.role in ("require", "optional") and use.meaning.phrase in values)
+            ]
             kept = self._text_ends(wildcard)
             filler = [f for f in config.filler if f not in kept] if config is not None else []
             text = without_place(text, places, filler, config.language if config is not None else None)

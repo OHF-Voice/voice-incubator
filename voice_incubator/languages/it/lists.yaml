@@ -107,3 +107,7 @@ binary_states:
   low: [scarico, scarica]
   cold: [freddo, fredda]
   hot: [caldo, calda]
+everywhere:
+  # Where an announcement goes when no area or floor is said: only with one of
+  # these.
+  everywhere: [ovunque, dappertutto, tutti, tutta la casa, tutte le stanze]

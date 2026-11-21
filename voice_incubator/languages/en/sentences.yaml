@@ -357,10 +357,11 @@ reminders/cancel_reminder:
 
 # --------------------------------------------------------------- satellites
 satellites/announce:
-  - announce {message}
   - announce {message} in [the] {area}
   - announce in [the] {area} {message}
   - announce {message} on [the] {floor}
+  - announce {message} {everywhere}
+  - (announce to|tell) {everywhere} {message}
 satellites/intercom:
   - (connect|call) [to] [the] {area}
   - intercom [the] {area}

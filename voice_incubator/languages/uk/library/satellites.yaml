@@ -2,9 +2,10 @@
 # announcements between them, the intercom, a satellite's own volume, and
 # never mind.
 #
-# An announcement is said on the other satellites, after a chime: every one, or
-# those in the area or on the floor named. One in a call, ringing a timer or
-# joined by the intercom says it once that is over (within a minute).
+# An announcement is said on the other satellites, after a chime: those in the
+# area or on the floor named, or every one when that is said ("everywhere").
+# One in a call, ringing a timer or joined by the intercom says it once that is
+# over (within a minute).
 #
 # The intercom joins this satellite and the one in the area named, once this
 # call ends: what is said at each is heard at the other. Both stop answering
@@ -24,19 +25,21 @@ commands:
     title: Announce
     icon: mdi:bullhorn
     description: оголосити щось на інших пристроях
-    # "Оголоси, що вечеря готова", "скажи всім, що вечеря готова", "оголоси
-    # нагорі, що вечеря готова", "оголоси на кухні вечеря готова".
-    require: [[оголоси, оголосіть, скажи всім, скажи усім, скажіть усім, повідом усім, повідом всім, передай усім,
-               передай всім]]
-    optional: [[що], [на, в, у, до]]
+    # In the area or on the floor said, before or after the message: "оголоси на
+    # кухні, що вечеря готова", "оголоси, що вечеря готова, на кухні". Every one
+    # only when said: "скажи всім, що вечеря готова", "оголоси по всьому
+    # будинку, що вечеря готова".
+    require: [[оголоси, оголосіть, скажи, скажіть, повідом, передай]]
+    optional: [[що], [на, в, у, до, по]]
     names:
       area: {count: 1}
       floor: {count: 1}
-    combinations: [[message], [area, message], [floor, message]]
+    lists:
+      everywhere: {list: everywhere}
+    combinations: [[area, message], [floor, message], [everywhere, message]]
     wildcard:
       slot: message
-      after: [оголоси, оголосіть, скажи всім, скажи усім, скажіть усім, повідом усім, повідом всім, передай усім,
-              передай всім, що]
+      after: [оголоси, оголосіть, скажи, скажіть, повідом, передай, що]
       to_end: true
       max_words: 15
     announce: "{{ slots.message }}"

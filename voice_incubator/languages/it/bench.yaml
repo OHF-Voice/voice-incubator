@@ -100,9 +100,9 @@ sentences:
   - ["Quanto segna la temperatura esterna?", sensor_value, {entity: [sensor.temperatura_esterna]}, "a sensor"]
   - ["La cassetta della posta è aperta?", binary_sensor_state, {entity: [binary_sensor.cassetta_posta], asked: open}, "a binary sensor"]
   # Satellites
-  - ["Annuncia che stiamo uscendo.", announce, {message: stiamo uscendo}, "an announcement"]
+  - ["Di' a tutti che stiamo uscendo.", announce, {everywhere: everywhere, message: stiamo uscendo}, "an announcement everywhere"]
   - ["Annuncia in cucina che si mangia.", announce, {area: [cucina], message: si mangia}, "an announcement, an area"]
-  - ["Annuncia che la cena è pronta.", announce, {message: la cena è pronta}, "an announcement keeps its article"]
+  - ["Annuncia che la cena è pronta in cucina.", announce, {area: [cucina], message: la cena è pronta}, "an announcement keeps its article, an area last"]
   - ["Collegati con la cucina.", intercom, {area: [cucina]}, "the intercom"]
   - ["Parla più forte.", own_volume_up, {}, "the satellite's own volume"]
   - ["Abbassa la voce.", own_volume_down, {}, "the satellite's own volume"]

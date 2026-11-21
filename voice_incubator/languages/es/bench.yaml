@@ -111,7 +111,8 @@ sentences:
   - ["Pon la lista de reproducción de jazz.", play_music_here, {query: lista de reproducción de jazz}, "a playlist by name"]
   # People, satellites and sensors.
   - ["¿Quién soy?", who_am_i, {}, "who is speaking"]
-  - ["Anuncia que la cena está lista.", announce, {message: la cena está lista}, "an announcement"]
+  - ["Anuncia en toda la casa que la cena está lista.", announce, {everywhere: everywhere, message: la cena está lista}, "an announcement everywhere"]
+  - ["Anuncia que la cena está lista en la cocina.", announce, {area: [cocina], message: la cena está lista}, "an announcement, an area last"]
   - ["Anuncia en la cocina que la cena está lista.", announce, {area: [cocina], message: la cena está lista}, "an announcement, an area"]
   - ["Conecta con la cocina.", intercom, {area: [cocina]}, "the intercom"]
   - ["Habla más alto.", own_volume_up, {}, "its own volume"]

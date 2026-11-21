@@ -105,3 +105,7 @@ hvac_modes:
   auto: [auto, automatic]
   dry: [dry, dehumidify]
   fan_only: [fan only, just the fan]
+everywhere:
+  # Where an announcement goes when no area or floor is said: only with one of
+  # these ("announce dinner is ready" alone goes nowhere).
+  everywhere: [everywhere, everyone, everybody, whole house, whole home, entire house, every room, all rooms, all the rooms]

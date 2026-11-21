@@ -106,3 +106,7 @@ hvac_modes:
   auto: [automatique, auto]
   dry: [déshumidification, déshumidifier]
   fan_only: [ventilation, ventilateur seul]
+everywhere:
+  # Where an announcement goes when no area or floor is said: only with one of
+  # these.
+  everywhere: [partout, tout le monde, toute la maison, toutes les pièces]
