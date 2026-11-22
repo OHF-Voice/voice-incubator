@@ -6,6 +6,8 @@ a voice_timer_list entity for its timers. The app:
 
 * sets the integration up if it is installed but not yet configured (its config
   flow asks nothing);
+* listens for Home Assistant's requests (``voice_incubator/requests/subscribe``):
+  ``voice_incubator.ask_question`` has a satellite ask and hear the reply;
 * registers each satellite it serves (``voice_incubator/satellites/sync``), which
   makes its device, and learns its device and timer list -- for one it only
   remembers (away, disabled, or not the satellite ``--host`` names), it looks
@@ -100,6 +102,10 @@ class Integration:
         self._subscriptions: dict[str, int] = {}
         self._sync_task: asyncio.Task | None = None
         self._said_no_quiet = False
+        self.on_request: Callable[[dict[str, Any]], None] | None = None
+        """Gets each request Home Assistant makes (``requests/subscribe``):
+        ``voice_incubator.ask_question``'s."""
+        self._said_no_requests = False
         hass.on_connect(self._on_connect)
         # A player Music Assistant adds later (a satellite's Sendspin client
         # found after it registered) shows up as a registry change.
@@ -117,6 +123,31 @@ class Integration:
         self._night_switches, self._night_watch = {}, None
         await self.ensure()
         await self.sync()
+        await self._follow_requests()
+
+    async def _follow_requests(self) -> None:
+        """Hear Home Assistant's requests (``ask_question``), on every
+        connection. An integration from before them doesn't know the command."""
+        if not self.ready or self.on_request is None:
+            return
+        try:
+            await self.hass.subscribe({"type": self.hass.command("requests/subscribe")}, self.on_request)
+        except HassError as err:
+            if not self._said_no_requests:
+                self._said_no_requests = True
+                _LOGGER.info("The integration takes no requests (update it for ask_question): %s", err)
+        except (ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Could not subscribe to Home Assistant's requests: %s", err)
+
+    async def request_result(self, request_id: str, text: str | None = None, error: str | None = None) -> None:
+        """What a request (``ask_question``) came to: what was heard, or why not."""
+        try:
+            await self.hass.call(
+                {"type": self.hass.command("requests/result"), "request_id": request_id, "text": text, "error": error},
+                timeout=10,
+            )
+        except (HassError, ConnectionError, OSError, TimeoutError) as err:
+            _LOGGER.warning("Could not return request %s's result: %s", request_id, err)
 
     async def ensure(self) -> None:
         """Set the integration up if it is installed but not configured.

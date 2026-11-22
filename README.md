@@ -165,6 +165,8 @@ Only with the Voice Incubator firmware:
   timer is Home Assistant's own, and rings on that satellite; the rest play
   only on Voice Incubator satellites.
 - **Night mode, the ring and the app's sounds.**
+- **Questions from automations** (`voice_incubator.ask_question`). Elsewhere
+  use Home Assistant's own `assist_satellite.ask_question`.
 
 ## More
 

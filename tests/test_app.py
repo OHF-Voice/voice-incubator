@@ -1352,6 +1352,37 @@ async def _follow_ups(tmp_path):
         assert session.follow_up is None and not satellite.listens[-1]
         assert await satellite.answer(await said("Who wrote the Iliad?")) == "nothing_asked"
 
+        # Home Assistant asks (ask_question): the chime and the question,
+        # then the satellite listens; what is said goes back as said, and
+        # nothing is done -- not even "no thanks" ends anything.
+        conversations = len(hass.conversations)
+        await hass.request({"request_id": "q1", "kind": "ask", "satellite": MAC, "question": "Close the garage?",
+                            "sentences": ["yes", "no"], "preannounce": True})
+        await wait_for(lambda: session.follow_up is not None and session.follow_up.kind == "ask")
+        assert satellite.listens[-1] and app.calls.recent[-1].kind == "question"
+        assert await satellite.answer(await said("No thanks.")) == "done"
+        assert hass.request_results["q1"]["text"].lower().startswith("no") and hass.request_results["q1"]["error"] is None
+        assert len(hass.conversations) == conversations and session.follow_up is None and not satellite.listens[-1]
+        assert stage(app.calls.recent[-1], "answer")["kind"] == "ask"
+        # Nothing said: nothing comes back.
+        await hass.request({"request_id": "q2", "kind": "ask", "satellite": MAC, "question": "Close it?"})
+        await wait_for(lambda: session.follow_up is not None)
+        assert await satellite.answer(b"") == "no_answer"
+        await wait_for(lambda: "q2" in hass.request_results)
+        assert hass.request_results["q2"] == {"text": None, "error": None}
+        # A wake word instead: interrupted.
+        await hass.request({"request_id": "q3", "kind": "ask", "satellite": MAC, "question": "Close it?"})
+        await wait_for(lambda: session.follow_up is not None)
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        await wait_for(lambda: "q3" in hass.request_results)
+        assert hass.request_results["q3"]["error"] == "interrupted"
+        # Home Assistant gave up: it is asked no more.
+        await hass.request({"request_id": "q4", "kind": "ask", "satellite": MAC, "question": "Close it?"})
+        await wait_for(lambda: session.follow_up is not None)
+        await hass.request({"request_id": "q4", "kind": "cancel"})
+        await wait_for(lambda: session.follow_up is None)
+        assert await satellite.answer(await said("yes")) == "nothing_asked" and "q4" not in hass.request_results
+
         # Two commands said together: both, said as one sentence; with one
         # that asks first, neither.
         record = await app.try_text("turn on the lights and lock the front door", MAC, run_actions=True)

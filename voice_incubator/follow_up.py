@@ -49,6 +49,11 @@ then runs on that one (or each). The same command said again runs as said
 (its own words pick); another runs instead; "never mind" ends it; anything
 else does nothing. Kaldi hears the answers its language's ``WHICH_SAID``
 templates say, with the home's lengths, timers' names and times.
+
+A Home Assistant automation's question (``ask``: the integration's
+``voice_incubator.ask_question``) is answered with what was heard, given back
+to Home Assistant as said -- even "never mind" -- and nothing is done or said:
+the automation decides. No answer gives back nothing (``text`` null).
 """
 
 from __future__ import annotations
@@ -84,7 +89,8 @@ class FollowUp:
 
     kind: str
     """``agent``: the conversation agent asked something back; ``confirm``: a
-    command asks before it acts."""
+    command asks before it acts; ``which``: which of several; ``ask``: a
+    Home Assistant automation asked (``request_id``)."""
     question: str
     """What was asked, as it was said."""
     after: str | None
@@ -104,6 +110,8 @@ class FollowUp:
     choices: list[dict[str, Any]] | None = None
     """What ``which`` chooses among (``id``, ``label``), in the order said;
     the command it runs on the one chosen is ``decision``."""
+    request_id: str | None = None
+    """``ask``: Home Assistant's request, which the answer goes back to."""
 
     def stale(self, now: float | None = None) -> bool:
         """Its call didn't start in time: nobody is answering."""
