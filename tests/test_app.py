@@ -17,6 +17,7 @@ import pytest
 
 from voice_incubator import people as people_mod
 from voice_incubator.agent import Streamed, conversation_key
+from voice_incubator.hass import HassError
 from voice_incubator.instruments import Instruments
 from voice_incubator.server import Options, VoiceIncubatorApp
 from voice_incubator.store import styled
@@ -1236,11 +1237,11 @@ async def _night(tmp_path):
         hass_server.close()
 
 
-def test_follow_up_turns(tmp_path):
-    asyncio.run(_follow_ups(tmp_path))
+def test_follow_up_turns(tmp_path, monkeypatch):
+    asyncio.run(_follow_ups(tmp_path, monkeypatch))
 
 
-async def _follow_ups(tmp_path):
+async def _follow_ups(tmp_path, monkeypatch):
     hass, hass_server = await fake_hass.serve()
     hass_port = hass_server.sockets[0].getsockname()[1]
     satellite = FakeSatellite(
@@ -1376,7 +1377,21 @@ async def _follow_ups(tmp_path):
             return [m for m in hass.services if m["service"] == "cancel_timer"]
 
         await two_timers()
-        assert await satellite.call(wake + await said("Cancel all the timers.")) == "done"
+        cancel_all = wake + await said("Cancel all the timers.")
+
+        async def failed_tts(*_args):
+            raise HassError("TTS unavailable")
+
+        # The satellite must not listen for an answer to an unheard question.
+        with monkeypatch.context() as patch:
+            patch.setitem(app.store.settings, "tts", "tts.fake_cloud")
+            patch.setattr(app.hass.catalog, "device_media_player", lambda _key: None)
+            patch.setattr(app.hass, "text_to_speech", failed_tts)
+            assert await satellite.call(cancel_all) == "done"
+            assert stage(app.calls.recent[-1], "speech_failed")["error"] == "TTS unavailable"
+            assert not satellite.listens[-1] and session.follow_up is None and not cancelled()
+
+        assert await satellite.call(cancel_all) == "done"
         question = app.calls.recent[-1]
         assert question.outcome == "asked" and stage(question, "speech")["text"] == "Cancel all 2 timers?"
         assert satellite.listens[-1] and session.follow_up.kind == "confirm" and not cancelled()

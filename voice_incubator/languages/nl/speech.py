@@ -35,6 +35,10 @@ def confirm_question(description: str) -> str:
     return f"{description[:1].upper()}{description[1:]}?"
 
 
+CONFIRM_UNAVAILABLE = "Met deze stem kan ik hier geen bevestiging ontvangen. Ik heb de opdracht niet uitgevoerd."
+REPEAT_WITH_DETAIL = "Herhaal de hele opdracht en zeg welke je bedoelt."
+REPLY_WITH_WAKE_WORD = "Zeg het activeringswoord voordat je antwoordt."
+
 CONFIRM_NO = "Oké."
 CONFIRM_UNCLEAR = "Sorry, dat antwoord heb ik niet verstaan."
 NO_COMMANDS = "Er zijn nog geen spraakopdrachten ingesteld. Voeg ze toe in de Voice Incubator app."

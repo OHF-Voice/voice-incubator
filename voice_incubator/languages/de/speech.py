@@ -38,6 +38,10 @@ def confirm_question(description: str) -> str:
     return f"{description[:1].upper()}{description[1:]}?"
 
 
+CONFIRM_UNAVAILABLE = "Mit dieser Stimme kann ich hier keine Bestätigung entgegennehmen. Ich habe den Befehl nicht ausgeführt."
+REPEAT_WITH_DETAIL = "Sag den ganzen Befehl noch einmal und gib an, welchen du meinst."
+REPLY_WITH_WAKE_WORD = "Sag das Aktivierungswort, bevor du antwortest."
+
 CONFIRM_NO = "Okay."
 CONFIRM_UNCLEAR = "Entschuldigung, die Antwort habe ich nicht verstanden."
 NO_COMMANDS = "Es sind noch keine Sprachbefehle eingerichtet. Füge welche in der Voice Incubator App hinzu."

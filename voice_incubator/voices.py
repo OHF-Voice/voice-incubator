@@ -18,8 +18,10 @@ entity's best match for the app's language.
   needed, and sooner when it is.
 * **TTS.** Responses are spoken by ``tts.speak`` on the satellite's own media
   player (the firmware's announcement pipeline: Home Assistant sends the URL,
-  the device fetches it) or on ``speak_on``. The acknowledgement sound, for a
-  command with nothing to say, is still the satellite's own.
+  the device fetches it) or on ``speak_on``. Without a media player, Voice
+  Incubator fetches the selected TTS entity's audio and plays it over the call.
+  The acknowledgement sound, for a command with nothing to say, is still the
+  satellite's own.
 """
 
 from __future__ import annotations

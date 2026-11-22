@@ -4305,7 +4305,8 @@ async function pageSessions(query) {
     icon(sessionIcon(c), "big", null),
     h("div", { class: "grow" },
       h("div", { class: "heard" }, c.heard ? quoted(c.heard) : c.summary ? c.summary[0].toUpperCase() + c.summary.slice(1) : "…"),
-      c.command || c.said ? h("div", { class: "muted small" }, [c.command_title || c.command, c.said ? quoted(c.said) : null].filter(Boolean).join(" · ")) : null),
+      c.command || c.said ? h("div", { class: "muted small" }, [c.command_title || c.command,
+        c.said ? `${c.speech_unverified ? "Playback unverified: " : ""}${quoted(c.said)}` : null].filter(Boolean).join(" · ")) : null),
     h("div", { class: "session-side" },
       h("div", { class: "session-meta muted small" },
         h("span", {}, time(c.started)),
@@ -4313,6 +4314,7 @@ async function pageSessions(query) {
           c.wake ? ` · ${c.wake.name || c.wake.wake_word}${c.wake.probability !== undefined ? ` ${prob(c.wake.probability)}` : ""}` : c.follow_up ? " · follow-up" : "")),
       c.kept ? icon("mdi:waveform", "", "Audio kept") : null,
       c.dry_run && c.outcome !== "dry run" ? h("span", { class: "badge" }, "dry run") : null,
+      c.speech_failed ? h("span", { class: "badge bad" }, "Playback failed") : null,
       h("span", { class: `badge ${OUTCOME_CLASS[c.outcome] || ""}` }, c.outcome)));
 
   // One request from Home Assistant through Wyoming: its speech-to-text and
@@ -4482,7 +4484,7 @@ function sessionResult(record) {
     // A sentence trigger by its automation's name.
     const ran = (r) => [h("a", { href: `#/command/${r.command}` }, r.title || r.command),
       r.slots && Object.keys(r.slots).length ? h("span", { class: "muted" }, ` (${slotsText(r.slots)})`) : null];
-    return ["mdi:flash-outline", [record.dry_run ? "Would run " : "Ran ", ...ran(rec),
+    return ["mdi:flash-outline", [record.dry_run ? "Would run " : record.outcome === "follow-up unavailable" ? "Did not run " : "Ran ", ...ran(rec),
       ...(rec.then && rec.then.command ? [" and ", ...ran(rec.then)] : [])]];
   }
   if (rec && rec.answer) return ["mdi:comment-question-outline", [`Answered by the ${rec.answer.skill || rec.answer.solver || rec.answer.kind} skill`]];
@@ -4517,8 +4519,9 @@ function sessionGlance(record) {
       ? icon("mdi:home-assistant", "", "From Home Assistant")
       : icon(typed || (rec && rec.text_source === "typed") ? "mdi:keyboard-outline" : "mdi:ear-hearing", "", typed ? "Typed" : "Heard"), h("span", {}, quoted(heard))) : null,
     h("div", { class: "glance-line" }, icon(resultIcon, "", "Result"), h("span", {}, ...result)),
-    speech ? h("div", { class: "glance-line" }, icon("mdi:volume-high", "", "Said"),
-      h("span", {}, speech.text ? quoted(speech.text) : h("span", { class: "muted" }, speech.silent ? "Nothing: it's silent" : "A short sound"))) : null,
+    speech ? h("div", { class: "glance-line" }, icon("mdi:volume-high", "", speech.unverified ? null : "Said"),
+      h("span", {}, speech.unverified ? "Playback unverified: " : "",
+        speech.text ? quoted(speech.text) : h("span", { class: "muted" }, speech.silent ? "Nothing: it's silent" : "A short sound"))) : null,
     errors.map((e) => h("div", { class: "notice bad" }, e)));
 }
 
@@ -4770,7 +4773,7 @@ function stepGlance(stage) {
     case "unknown":
       return { title: "Unknown command", status: d.error ? "warn" : "", line: `${d.error ? "its response failed: said the default" : "said its response"}${inTime(d.seconds)}` };
     case "speech":
-      return { title: "Said", status: "ok", line: (d.text ? quoted(d.text) : d.silent ? "nothing (silent)" : "a short sound") + speechTime(d) };
+      return { title: d.unverified ? "Playback unverified" : "Said", status: d.unverified ? "" : "ok", line: (d.text ? quoted(d.text) : d.silent ? "nothing (silent)" : "a short sound") + speechTime(d) };
     case "speech_failed":
       return { title: "Speaking", status: "bad", line: d.error || "failed" };
     case "timer_ringing":
@@ -4822,7 +4825,7 @@ function stepDetails(stage) {
   }
   if (name === "agent") {
     return h("div", { class: "small" }, !data.asked ? "Not asked: a dry run, and an agent can act in the home." : data.error ? ["Could not be asked: ", data.error] : [
-      data.understood ? ["Said “", data.text || "", "”"] : ["Understood nothing (", data.code || data.response_type, "): said the default."],
+      data.understood ? ["Returned “", data.text || "", "”"] : ["Understood nothing (", data.code || data.response_type, ")."],
       h("div", { class: "muted" }, `${data.response_type || ""} in ${took(data.seconds || 0)} · ${data.continued ? "conversation kept from before" : "new conversation"}${data.conversation_id ? ` ${data.conversation_id}` : ""}${data.wants_answer ? " · it asked something back" : ""}`)]);
   }
   if (name === "unknown") return h("div", { class: "small" }, data.error ? ["Could not render it (", data.error, "): said the default."] : data.said ? ["Said “", data.said, "”"] : "Rendered to nothing: said the default.");

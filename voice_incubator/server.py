@@ -14,10 +14,11 @@ import wave
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import aiohttp
 import numpy as np
+from soundfile import SoundFileError
 
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
@@ -68,7 +69,7 @@ from .speaker import PALETTE, Identification, SpeakerId
 from .store import Compiled, Device, Store
 from .piper_voices import Voice
 from .piper_voices import catalog as piper_catalog
-from .tts import Speech, sentences_of
+from .tts import Speech, audio_to_pcm, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, RatioVerdict, WakeRatio
@@ -3183,6 +3184,13 @@ class VoiceIncubatorApp:
                 decision, satellite, speaker, dry_run, record, self._wake_json(call.wake_word),
                 cue=lambda sound: self._cue(session, sound), confirmed=not session.device.listen, listens=listens,
             )
+        if outcome == "asked" and not satellite.night and satellite.voice.tts and not (
+            satellite.voice.speak_on or satellite.device_media_player
+        ):
+            # The action already stopped to ask. Do not bypass that guard or
+            # ask a question when direct HA TTS can't safely reopen the mic.
+            speech = self.language.speech.REPEAT_WITH_DETAIL if decision.choices else self.language.speech.CONFIRM_UNAVAILABLE
+            outcome, summary = "follow-up unavailable", speech
         if outcome in ("not recognized", "error"):
             await self._cue(session, "not_understood")
         answered = outcome == "answered"
@@ -3197,6 +3205,7 @@ class VoiceIncubatorApp:
             await self._event(session, "not_recognized", heard=decision.transcript)
         else:
             await self._event(session, "recognized", text=decision.transcript, command=decision.command.id)
+        reply: Literal["played", "unverified", "failed"] = "played"
         if speech is None or (satellite.night and not night_mode.says(outcome, decision)):
             # Silent: not even the acknowledgement sound ("never mind"). At
             # night, a command that acts blinks how it went instead.
@@ -3209,11 +3218,19 @@ class VoiceIncubatorApp:
         else:
             await self._event(session, "responding", text=speech if isinstance(speech, str) else "")
             # In the speaker's voice (voice_for); the agent's answer in its own.
-            said_by = self.agent_voice(satellite) if isinstance(speech, (Answered, Streamed)) else satellite
-            await self._say(session, speech, record, quiet=satellite.night, satellite=said_by)
+            agent_answer = isinstance(speech, (Answered, Streamed))
+            said_by = self.agent_voice(satellite) if agent_answer else satellite
+
+            def agent_question() -> bool:
+                return decision.asked is not None and decision.asked.understood and decision.asked.wants_answer
+
+            reply = await self._say(
+                session, speech, record, quiet=satellite.night, satellite=said_by,
+                agent_question=agent_question if agent_answer else None,
+            )
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
-        again = self._asks_back(session, call, decision, who, dry_run, outcome, speech)
+        again = self._asks_back(session, call, decision, who, dry_run, outcome, speech) if reply == "played" else None
         if again is not None:
             # Its turn, heard after the question: the satellite's call for the
             # answer starts once this has played out.
@@ -3659,86 +3676,118 @@ class VoiceIncubatorApp:
     async def _say(
         self, session: Session, text: str | Streamed, record: CallRecord | None = None, paced: bool = False,
         quiet: bool = False, satellite: Satellite | None = None,
-    ) -> None:
+        agent_question: Callable[[], bool] | None = None,
+    ) -> Literal["played", "unverified", "failed"]:
         """Say ``text`` on the satellite: with Home Assistant's TTS entity
         when it has one, else Piper, a sentence at a time. An LLM agent's
         answer (Streamed) is said a sentence at a time as it comes, by either.
         ``quiet`` (at night): by Piper, quieter (voice_incubator/night.py).
-        ``satellite``: as it says this (voice_for, agent_voice); else as it is."""
+        ``satellite``: as it says this (voice_for, agent_voice); else as it is.
+        Direct HA TTS can detect a reported failure, but the proxy can end a
+        truncated synthesis with a clean HTTP 200. Its audio is unverified
+        and must not be used to open the microphone for a follow-up. Check
+        ``agent_question`` after the reply, when a stream's result is known,
+        to tell the user to wake the satellite before replying."""
         satellite = satellite or self.satellite(session.satellite)
         voice = satellite.voice
         streamed = text if isinstance(text, Streamed) else None
         pieces = sentences_of(text) if streamed is None else []
         coming = streamed.sentences() if streamed is not None else None
         # What is said, without markup: a streamed answer's as it comes.
-        said = list(pieces)
+        said: list[str] = []
+        target = voice.speak_on or satellite.device_media_player
+        tts = voice.tts if not quiet else None
         try:
-            if (pieces or coming is not None) and voice.tts and not quiet:
-                target = voice.speak_on or satellite.device_media_player
-                if target is None:
-                    _LOGGER.warning("[%s] No media player of its own in Home Assistant; speaking with Piper", session)
-                else:
-                    try:
-                        await self._quiet(session, close=True)
-                        if coming is None:
-                            await self._speak(session, satellite, target, " ".join(pieces), record)
-                        else:
-                            await self._speak_stream(session, satellite, target, coming, said, record)
-                        return
-                    except (HassError, ConnectionError, OSError, TimeoutError) as err:
-                        # (A streamed answer: Piper says what is still to come.)
-                        _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, voice.tts, err)
-                        if record is not None:
-                            record.stage("speech_failed", tts=voice.tts, on=target, error=str(err))
-            # Piper, a sentence at a time, each played while the next is made
-            # (or comes); or -- with nothing to say -- the acknowledgement
-            # sound, which stays on the satellite even when its responses are
-            # spoken elsewhere.
+            if tts and target and (pieces or coming is not None):
+                try:
+                    await self._quiet(session, close=True)
+                    if coming is None:
+                        await self._speak(session, satellite, target, " ".join(pieces), record)
+                    else:
+                        await self._speak_stream(session, satellite, target, coming, said, record)
+                    return "played"
+                except (HassError, ConnectionError, OSError, TimeoutError) as err:
+                    # (A streamed answer: Piper says what is still to come.)
+                    _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, tts, err)
+                    if record is not None:
+                        record.stage("speech_failed", tts=tts, on=target, error=str(err))
+                    tts = None
+            # Without a media player, the satellite plays the TTS entity's
+            # audio over the call, just like Piper's. No text: acknowledge.
             started = time.perf_counter()
             timing = {"seconds": 0, "synthesis": 0.0, "first": None}
-            acknowledge = await self.speech.sound(
-                "acknowledge", satellite.settings.get("instrument"), satellite.settings.get("pitch")
-            )
-            model, synthesis = await self._area_voice(satellite) if pieces or coming is not None else (None, None)
+            model, synthesis = await self._area_voice(satellite) if not tts and (pieces or coming is not None) else (None, None)
+            complete = True
 
             async def each() -> AsyncIterator[str]:
                 for piece in pieces:
                     yield piece
                 if coming is not None:
                     async for piece in coming:
-                        said.append(piece)
                         yield piece
+                if tts and said and agent_question is not None and agent_question():
+                    yield self.language.speech.REPLY_WITH_WAKE_WORD
 
             async def spoken():
+                nonlocal complete
+                language = None
                 async for piece in each():
-                    begun = time.perf_counter()
-                    async with self._model_lock:
-                        audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model)
-                    if quiet:
-                        audio = night_mode.quieter(audio)
-                    timing["synthesis"] += time.perf_counter() - begun
+                    if tts:
+                        try:
+                            if timing["first"] is None:
+                                language = await self.voices.tts_language(tts, voice.tts_language)
+                            encoded = await self.hass.text_to_speech(tts, piece, language, voice.tts_voice)
+                            audio = await asyncio.to_thread(audio_to_pcm, encoded)
+                            if not audio:
+                                raise HassError("empty TTS audio")
+                        except (HassError, OSError, TimeoutError, SoundFileError) as err:
+                            error = str(err) or ("TTS request timed out" if isinstance(err, TimeoutError) else type(err).__name__)
+                            _LOGGER.warning("[%s] %s could not speak (%s)", session, tts, error)
+                            if record is not None:
+                                record.stage("speech_failed", tts=tts, error=error)
+                            complete = False
+                            if not said:
+                                await self._quiet(session, close=True)  # only the cues need to drain
+                            return  # _play_stream ends and drains the audio already queued
+                    else:
+                        begun = time.perf_counter()
+                        async with self._model_lock:
+                            audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model)
+                        if quiet:
+                            audio = night_mode.quieter(audio)
+                        timing["synthesis"] += time.perf_counter() - begun
+                    if not audio:
+                        continue
                     if timing["first"] is None:
                         timing["first"] = time.perf_counter() - started
                         await self._quiet(session, close=False)  # the reply follows the sounds
                     timing["seconds"] += len(audio)
+                    said.append(piece)
                     yield audio
                 if timing["first"] is None:
+                    acknowledge = await self.speech.sound(
+                        "acknowledge", satellite.settings.get("instrument"), satellite.settings.get("pitch")
+                    )
                     timing["first"], timing["seconds"] = 0.0, len(acknowledge)
-                    await self._quiet(session, close=False)
+                    await self._quiet(session, close=not acknowledge)
                     await self._after_cues(session, ACKNOWLEDGE_GAP)
                     yield acknowledge
 
             try:
                 await self._play_stream(session, spoken(), paced)
+                if not complete:
+                    return "failed"
+                return "unverified" if tts and said else "played"
             finally:
-                if record is not None:
-                    # How long it is, how long Piper took to say it, and how long
-                    # until it began.
+                if record is not None and (complete or said):
+                    source = {"tts": tts, "voice": voice.tts_voice} if tts else {
+                        "synthesis": _seconds(timing["synthesis"]),
+                    }
                     record.stage(
                         "speech", text=" ".join(said), seconds=round(timing["seconds"] / BYTE_RATE, 3),
-                        synthesis=_seconds(timing["synthesis"]),
                         first=_seconds(timing["first"]) if timing["first"] is not None else None,
-                        pieces=len(said), **({"streamed": True} if streamed is not None else {}),
+                        pieces=len(said), **source, **({"streamed": True} if streamed is not None else {}),
+                        **({"unverified": True} if tts and said else {}),
                     )
         finally:
             if streamed is not None:
@@ -4488,7 +4537,7 @@ class VoiceIncubatorApp:
             here = self.satellite(session.satellite).settings
             ring = await self.speech.ring(here["instrument"], here["pitch"])
             await self._play(session, ring, paced=True)
-            await self._say(session, " ".join(said), paced=True)
+            reply = await self._say(session, " ".join(said), record, paced=True)
             while (
                 time.monotonic() < deadline
                 and session.writer is not None
@@ -4496,19 +4545,22 @@ class VoiceIncubatorApp:
             ):
                 await self._play(session, ring, paced=True)
             if all(t.get("once") for t in session.ringing_timers):
-                stopped_by = "said"
+                stopped_by = {"played": "said", "unverified": "speech_unverified", "failed": "speech_failed"}[reply]
         except asyncio.CancelledError:
             stopped_by = session.ring_stopped_by or "stop"
             raise
         finally:
             record.stage("timer_stopped", by=stopped_by)
-            ending = {"timeout": "timer rang out", "said": "reminder said"}.get(stopped_by, "timer stopped")
+            ending = {
+                "timeout": "timer rang out", "said": "reminder said", "speech_failed": "reminder not said",
+                "speech_unverified": "reminder delivery unverified",
+            }.get(stopped_by, "timer stopped")
             self.calls.finish(record, ending, ", ".join(
                 str(t.get("name") or self.language.speech.duration(float(t.get("created_duration") or 0))) for t in session.ringing_timers
             ))
             rung = {t["timer_id"] for t in session.ringing_timers if t.get("timer_id")}
             session.ringing_timers = []
-            if stopped_by not in ("timeout", "said", "elsewhere"):
+            if stopped_by not in ("timeout", "said", "speech_unverified", "speech_failed", "elsewhere"):
                 self._stop_rings(session, rung)
             self._spawn(self._after_ring(session))
 
@@ -4585,7 +4637,8 @@ class VoiceIncubatorApp:
             try:
                 await self._event(session, "announcement", active=True)
                 await self._play(session, tones.CHIME, paced=True)
-                await self._say(session, text, record, paced=True)
+                reply = await self._say(session, text, record, paced=True)
+                ending = {"played": "announced", "unverified": "announcement delivery unverified", "failed": "not announced"}[reply]
             except asyncio.CancelledError:
                 ending = "cut off by a call"
                 raise
@@ -4811,6 +4864,8 @@ class VoiceIncubatorApp:
                         await asyncio.sleep(ahead - PLAY_LEAD)
                 await self._send(session, Message.AUDIO_OUT, chunk)
                 sent += len(chunk)
+        if not sent:
+            return  # the device only acknowledges a stream with audio
         await self._send(session, Message.AUDIO_OUT_END)
         try:
             await asyncio.wait_for(

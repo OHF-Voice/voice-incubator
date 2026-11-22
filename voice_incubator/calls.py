@@ -137,8 +137,15 @@ class CallRecord:
                     out["command"] = stage["command"]
                     if stage.get("title"):
                         out["command_title"] = stage["title"]  # a sentence trigger's automation
+            elif kind == "speech_failed" and not stage.get("on"):
+                # Direct TTS stops the reply; a media-player error may recover via Piper.
+                out["speech_failed"] = True
             elif kind == "speech" and stage.get("text"):
                 out["said"] = stage["text"]
+                if stage.get("unverified"):
+                    out["speech_unverified"] = True
+                else:
+                    out.pop("speech_unverified", None)
         return out
 
     @classmethod

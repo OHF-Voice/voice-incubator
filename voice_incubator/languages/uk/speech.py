@@ -49,6 +49,10 @@ def confirm_question(description: str) -> str:
     return f"{description[:1].upper()}{description[1:]}?"
 
 
+CONFIRM_UNAVAILABLE = "З цим голосом я не можу тут отримати підтвердження. Команду не виконано."
+REPEAT_WITH_DETAIL = "Повтори всю команду й уточни, що саме маєш на увазі."
+REPLY_WITH_WAKE_WORD = "Перед відповіддю скажи слово активації."
+
 CONFIRM_NO = "Добре."
 CONFIRM_UNCLEAR = "Вибач, відповідь незрозуміла."
 NO_COMMANDS = "Голосових команд ще немає. Додай їх у застосунку Voice Incubator."

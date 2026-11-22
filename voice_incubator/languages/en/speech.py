@@ -50,6 +50,10 @@ def confirm_question(description: str) -> str:
     return f"{description[:1].upper()}{description[1:]}?"
 
 
+CONFIRM_UNAVAILABLE = "I can't listen for confirmation with this voice here. I didn't run the command."
+REPEAT_WITH_DETAIL = "Say the full command again and specify which one you mean."
+REPLY_WITH_WAKE_WORD = "Use the wake word before replying."
+
 CONFIRM_NO = "Okay."
 """The question answered no: nothing is done."""
 
