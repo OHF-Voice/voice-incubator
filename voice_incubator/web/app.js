@@ -4854,15 +4854,18 @@ function stepDetails(stage) {
   return Object.keys(data).length ? h("div", { class: "small muted" }, Object.entries(data).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")) : null;
 }
 
-// One step: when (seconds into the session), its icon, its name and how it
-// went; open it for the details. `extra`: more in its details.
-function stepRow(stage, before, extra) {
+// One step: when (seconds into the session and after speech), its icon, its
+// name and how it went; open it for the details.
+function stepRow(stage, before, speechEnd, extra) {
   const glance = stepGlance(stage);
   const status = STATUS[glance.status];
   const at = Number(stage.at) || 0;
   return h("details", { class: `step ${glance.status}` },
     h("summary", {},
-      h("span", { class: "step-at", title: `${num(at - before, 2)} s after the step before` }, `+${at.toFixed(2)} s`),
+      h("span", { class: "step-at" },
+        h("span", { title: `${num(at - before, 2)} s after the step before` }, `+${at.toFixed(2)} s`),
+        Number.isFinite(speechEnd) && Number.isFinite(stage.at) && at >= speechEnd
+          ? h("span", { class: "step-after-speech" }, `+${(at - speechEnd).toFixed(2)} s`) : null),
       h("span", { class: "step-icon" }, icon(STEP_ICONS[stage.stage] || "mdi:circle-medium", "", null)),
       h("span", { class: "step-text" }, h("span", { class: "step-title" }, glance.title), glance.line ? h("span", { class: "step-line" }, glance.line) : null),
       status ? icon(status[0], "step-status", status[1]) : h("span", { class: "step-status" })),
@@ -4875,7 +4878,10 @@ function stepRow(stage, before, extra) {
 // A session's steps, in order. `extras`: more for a step's details, by its name.
 function pipeline(record, extras) {
   const stages = record.stages || [];
-  return h("div", { class: "steps" }, stages.map((stage, i) => stepRow(stage, i ? Number(stages[i - 1].at) || 0 : 0, (extras || {})[stage.stage])));
+  const speechEnd = stageOf(record, "endpoint")?.speech_end_at;
+  return h("div", { class: "steps" },
+    Number.isFinite(speechEnd) ? h("p", { class: "small muted" }, "Top: since session start · Bottom: since speech ended (estimated)") : null,
+    stages.map((stage, i) => stepRow(stage, i ? Number(stages[i - 1].at) || 0 : 0, speechEnd, (extras || {})[stage.stage])));
 }
 
 async function pageSession(id) {

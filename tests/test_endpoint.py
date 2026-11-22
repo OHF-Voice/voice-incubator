@@ -81,11 +81,24 @@ def test_nothing_said_yet_is_skipped():
     assert run([None] * 30 + [0.9] * 20 + [0.1] * 40, speech_seconds=0.2, silence_seconds=0.3) == 30 + 20 + 30 - 1
 
 
+def test_speech_end_is_the_last_word_not_the_endpoint_decision():
+    # Initial quiet, two stretches of speech, and a detector gap during the
+    # trailing quiet. None advances audio time but not the silence counter.
+    probabilities = [0.1] * 12 + [0.9] * 24 + [0.1] * 18 + [0.9] * 13 + [None] * 6 + [0.1] * 49
+    ended = Endpointer(EndOfSpeech(speech_seconds=0.2, silence_seconds=0.3), lambda _: Scripted(probabilities))
+    assert not ended.process(bytes(CHUNK * 67))
+    assert ended.speech_end is None
+    assert ended.process(bytes(CHUNK * 55))
+    assert ended.elapsed == pytest.approx(1.03)
+    assert ended.speech_end == pytest.approx(0.67)
+
+
 def test_nothing_said_ends_the_call():
     # No speech 8 s after the wake word: nothing was said.
     endpointer = Endpointer(EndOfSpeech(no_speech_seconds=8.0), lambda vad: Scripted([0.1] * 900))
     ended = next(i for i in range(900) if endpointer.process(bytes(CHUNK)))
     assert ended == 799 and endpointer.no_speech
+    assert endpointer.speech_end is None
     # Speech by then: it waits for the end of it, as ever.
     endpointer = Endpointer(EndOfSpeech(no_speech_seconds=8.0), lambda vad: Scripted([0.1] * 700 + [0.9] * 300 + [0.1] * 200))
     ended = next(i for i in range(1200) if endpointer.process(bytes(CHUNK)))
@@ -280,6 +293,7 @@ def test_someone_else_talking_ends_the_command():
     assert ended == 2.0
     assert endpointer.cut == {"last_word": 1.2, "at": 2.0, "scores": [0.1, 0.1]}
     assert endpointer.other_from == pytest.approx(1.2)
+    assert endpointer.speech_end == pytest.approx(1.2)
     # After a pause (1.5-1.7 s): its start is their last word.
     paused = [0.9] * 150 + [0.1] * 20 + [0.9] * 180 + [0.1] * 100
     voice = lambda start, end: 0.6 if end <= 2.0 + 1e-9 else 0.1  # noqa: E731

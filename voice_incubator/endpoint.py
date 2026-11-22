@@ -355,6 +355,13 @@ class Endpointer:
         if warm and self.vad in ("silero", "both"):
             self._warm(warm)
 
+    @property
+    def speech_end(self) -> float | None:
+        """Estimated end of the speaker's last word, in seconds from the split."""
+        if not self.ended or not self.speech_started:
+            return None
+        return self.other_from if self.other_from is not None else self.segments[-1].end
+
     def _warm(self, pcm: bytes) -> None:
         """Silero's state from ``pcm`` (the audio before the split); what it says
         of it, and of the first SETTLE_SECONDS after, counts for nothing.
