@@ -3060,9 +3060,19 @@ class VoiceIncubatorApp:
         )
         if record is not None:
             ended = call.endpointer
+            speech_end = ended.speech_end if ended is not None else None
+            timing = {}
+            if speech_end is not None and call.last_audio is not None:
+                # Project the last word onto the session clock from the last
+                # AGC packet. The VAD can process buffered audio long after it
+                # arrives, and can stop partway through that buffer.
+                trailing = (len(call.audio) - call.split_bytes) / BYTE_RATE - speech_end
+                received_at = time.time() - record.started - (time.monotonic() - call.last_audio)
+                timing["speech_end_at"] = round(received_at - trailing, 3)
             record.stage(
                 "endpoint",
                 command_seconds=round(len(call.command) / BYTE_RATE, 3),
+                **timing,
                 **(
                     {
                         "vad": ended.vad,

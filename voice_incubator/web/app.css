@@ -194,6 +194,8 @@ details.step > summary { list-style: none; display: flex; align-items: center; g
 details.step > summary::-webkit-details-marker { display: none; }
 details.step > summary:hover { background: var(--bg); }
 .step-at { flex: none; width: 4.6em; text-align: right; color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.step-at > span { display: block; white-space: nowrap; }
+.step-at .step-after-speech { font-size: 0.9em; }
 .step-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--chip); }
 .step-icon .icon { width: 18px; height: 18px; }
 details.step.ok .step-icon { background: var(--ok-soft); }
@@ -209,7 +211,6 @@ details.step.warn .step-icon .icon, details.step.warn .step-status { color: var(
 .step-body { margin: 2px 0 10px calc(4.6em + 28px); padding: 4px 0 4px 16px; border-left: 2px solid var(--line); }
 .step-body details.raw { margin-top: 6px; }
 @media (max-width: 640px) {
-  .step-at { width: 3.9em; }
   .step-body { margin-left: 4px; }
 }
 /* A panel that opens: its title is the summary. */
