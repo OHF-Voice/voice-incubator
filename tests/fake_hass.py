@@ -124,6 +124,10 @@ class FakeHass:
         """Devices disabled (by the user): a satellite's, left to another app."""
         self._event_subscribers: dict[str, list] = {}
         """subscribe_events's subscribers by event type: socket, id."""
+        self._request_subscribers: list = []
+        """voice_incubator/requests/subscribe's subscribers: socket, id."""
+        self.request_results: dict[str, dict[str, Any]] = {}
+        """What the app returned for each request (requests/result), by id."""
         self.do_not_disturb: dict[str, bool] = {}
         """Each satellite's area's do not disturb switch: on or off, by area id."""
         self.night: dict[str, bool] = {}
@@ -249,6 +253,15 @@ class FakeHass:
             await result(self.handle_intent(message["intent"], message.get("slots") or {}, message.get("variables") or {},
                                             how="websocket", device_id=message.get("device_id"),
                                             exposed_only=message.get("assistant") == "conversation"))
+        elif kind == "voice_incubator/requests/subscribe":
+            if not self.integration:
+                await result(success=False, error="unknown_command: Unknown command.")
+                return
+            self._request_subscribers.append((socket, msg_id))
+            await result()
+        elif kind == "voice_incubator/requests/result":
+            self.request_results[message["request_id"]] = {"text": message.get("text"), "error": message.get("error")}
+            await result({"known": True})
         elif kind == "voice_incubator/exposed":
             if not (self.integration and self.intent_command):
                 await result(success=False, error="unknown_command: Unknown command.")
@@ -538,6 +551,11 @@ class FakeHass:
         else:
             await result(success=False, error=f"unknown command {kind}")
 
+
+    async def request(self, event: dict[str, Any]) -> None:
+        """A request to the app, as the integration's ask_question sends it."""
+        for socket, msg_id in list(self._request_subscribers):
+            await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
 
     async def _push(self, entity_id: str, event: dict[str, Any]) -> None:
         for socket, msg_id in list(self._timer_subscribers.get(entity_id, [])):

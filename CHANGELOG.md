@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Automations can ask a question and hear the answer.** The
+  integration's new `voice_incubator.ask_question` action has a satellite
+  chime, say the question and listen without a wake word; what was said
+  comes back as a response variable, matched to the automation's answers
+  as Home Assistant's own `assist_satellite.ask_question` does: `id`,
+  `sentence`, `slots`. Nothing said gives `id: null`. Needs the updated
+  integration and the Voice Incubator firmware (#20).
+
 ## 0.3.3
 
 - **Satellites stay connected on a weak Wi-Fi link.** Missed mDNS

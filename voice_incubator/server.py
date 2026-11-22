@@ -736,6 +736,10 @@ class VoiceIncubatorApp:
             _LOGGER.warning("Speaker model %s not found; speaker ID disabled", speaker_model)
         self.calls = CallLog(self.store.calls_dir, self.store.settings)
         self.integration = Integration(self.hass, self._timer_finished, self._timers_changed, self._night_changed)
+        self.integration.on_request = self._on_request
+        self._asks: dict[str, str] = {}
+        """Home Assistant's questions waiting on an answer (``ask_question``):
+        request id -> satellite."""
         self.alarms = (
             alarms.AlarmCalendar(self.hass, self._calendar_due, self.alarm_place)
             if languages.current().calendar is not None else None
@@ -1861,6 +1865,9 @@ class VoiceIncubatorApp:
                     _LOGGER.warning("[%s] Connection lost: %s", session, err)
                 finally:
                     _cancel_stt(session.call)
+                    self._resolve_ask(session.call.follow_up if session.call is not None else None, error="disconnected")
+                    self._resolve_ask(session.follow_up, error="disconnected")
+                    session.follow_up = None
                     session.call = None
                     session.writer = None
                     if session.satellite:
@@ -2051,6 +2058,7 @@ class VoiceIncubatorApp:
                                   "cancelled on the satellite" if cancelled else reason)
             _cancel_stt(call)
             session.call = None
+            self._resolve_ask(call.follow_up if call is not None else None, error="cancelled")
             if call is not None and call.responding is not None and not call.responding.done():
                 # Its button: no more of the reply, nor of what led to it.
                 call.responding.cancel()
@@ -2374,6 +2382,7 @@ class VoiceIncubatorApp:
         if heard == FOLLOW_UP:
             self._on_follow_up(session, info)
             return
+        self._resolve_ask(session.follow_up, error="interrupted")
         session.follow_up = None  # a wake word: whatever was asked, it starts over
         session.call = Call(
             preroll_bytes=int(info.get("preroll_bytes", 0)),
@@ -2456,6 +2465,7 @@ class VoiceIncubatorApp:
         session.drained.clear()
         if asked is None or asked.stale():
             _LOGGER.info("[%s] Opened for an answer to nothing; ending", session)
+            self._resolve_ask(asked)
             call.finished = True
             self._spawn(self._hang_up(session, "nothing_asked"))
             return
@@ -2493,6 +2503,7 @@ class VoiceIncubatorApp:
 
     def _give_up(self, session: Session, call: Call, why: str, seconds: float, details: dict[str, Any]) -> None:
         """The call ends with nothing done: it ran out of time, or nobody spoke."""
+        self._resolve_ask(call.follow_up)
         self._drop_kaldi(call)
         if call.record is not None:
             call.record.stage("timeout", why=why, seconds=seconds, **details)
@@ -2506,6 +2517,7 @@ class VoiceIncubatorApp:
         if call.endpointer is not None and call.endpointer.no_speech and call.follow_up is not None:
             # Not answered: nothing to keep.
             _LOGGER.info("[%s] No answer to %r", session, call.follow_up.question)
+            self._resolve_ask(call.follow_up)
             self._drop_kaldi(call)
             if call.record is not None:
                 self.calls.delete(call.record.id)
@@ -3047,6 +3059,8 @@ class VoiceIncubatorApp:
             with contextlib.suppress(Exception):
                 await self._hang_up(session, "error")
         finally:
+            # Home Assistant hears back whatever happened: once (_resolve_ask).
+            self._resolve_ask(call.follow_up, error="failed")
             self._drop_kaldi(call)  # not recognized: an error, or the call ended
             if call.cues is not None:
                 await call.cues.stop(close=False)  # the call is over: nothing left to end
@@ -3267,6 +3281,13 @@ class VoiceIncubatorApp:
         its conversation -- unless it only ends the conversation, and then
         nothing is said. ``listens``: the satellite hears another answer."""
         words = decision.transcript
+        if asked.kind == "ask":
+            # Home Assistant's: what was said goes back as said, and the
+            # automation decides what it means. Nothing is done or said.
+            if record is not None:
+                record.stage("answer", kind="ask", heard=words)
+            self._resolve_ask(asked, text=words.strip() or None)
+            return None, "answered", f"{words!r}: returned to Home Assistant"
         ended = follow_up.ends(words) or (decision.behavior is not None and decision.behavior.does == "nothing")
         if asked.kind == "confirm":
             return await self._confirmed(asked, decision, words, ended, satellite, dry_run, record, cue, listens)
@@ -4558,6 +4579,108 @@ class VoiceIncubatorApp:
             session = self.sessions.get(key)
             if session is not None:
                 self._spawn(self._announce(session, text, source))
+
+    # ------------------------------------------------- Home Assistant asks
+
+    def _on_request(self, request: dict[str, Any]) -> None:
+        """A request from Home Assistant (integration ``requests/subscribe``)."""
+        request_id = str(request.get("request_id") or "")
+        kind = request.get("kind")
+        if not request_id:
+            return
+        if kind == "ask":
+            self._spawn(self.ask(
+                str(request.get("satellite") or ""), request_id, str(request.get("question") or ""),
+                bool(request.get("preannounce", True)),
+            ))
+        elif kind == "cancel":
+            # Home Assistant gave up waiting: it is asked no more.
+            key = self._asks.pop(request_id, None)
+            session = self.sessions.get(key) if key is not None else None
+            if session is not None and session.follow_up is not None and session.follow_up.request_id == request_id:
+                session.follow_up = None
+        else:
+            self._spawn(self.integration.request_result(request_id, error=f"unknown request: {kind}"))
+
+    def _resolve_ask(self, asked: FollowUp | None, text: str | None = None, error: str | None = None) -> None:
+        """Give Home Assistant what its question came to -- once: later
+        calls for the same question do nothing."""
+        if asked is None or asked.kind != "ask" or asked.request_id is None:
+            return
+        if self._asks.pop(asked.request_id, None) is None:
+            return
+        self._spawn(self.integration.request_result(asked.request_id, text=text, error=error))
+
+    @staticmethod
+    def _awaiting(session: Session) -> bool:
+        """Listening for the answer to a question: told to, and in time."""
+        return session.follow_up is not None and not session.follow_up.stale()
+
+    async def ask(self, key: str, request_id: str, question: str, preannounce: bool = True) -> None:
+        """Say Home Assistant's question on a satellite, once it is free (as
+        an announcement waits), then listen for the answer with no wake word
+        (voice_incubator/follow_up.py ``ask``)."""
+        session = self.sessions.get(key)
+        if session is None or session.writer is None:
+            await self.integration.request_result(request_id, error="satellite not connected")
+            return
+        if not session.device.listen:
+            await self.integration.request_result(request_id, error="satellite firmware cannot listen for an answer")
+            return
+        self._asks[request_id] = key
+        satellite = self.satellite(session.satellite)
+        record = self.calls.begin("question", satellite.as_dict())
+        record.stage("question", text=question, request_id=request_id)
+        asked = FollowUp("ask", question, record.id, self.speaking(), request_id=request_id)
+        async with session.announcements:
+            deadline = time.monotonic() + ANNOUNCE_WAIT
+            while (self._busy(session) or self._awaiting(session)) and session.writer is not None and time.monotonic() < deadline:
+                if request_id not in self._asks:
+                    break
+                await asyncio.sleep(0.2)
+            if request_id not in self._asks:
+                self.calls.finish(record, "not asked", "cancelled")
+                return
+            if session.writer is None or self._busy(session) or self._awaiting(session):
+                why = "disconnected" if session.writer is None else "busy"
+                self.calls.finish(record, "not asked", why)
+                self._resolve_ask(asked, error=why)
+                return
+            session.announcing_now = asyncio.current_task()
+            try:
+                await self._event(session, "announcement", active=True)
+                if preannounce:
+                    await self._play(session, tones.CHIME, paced=True)
+                if question:
+                    await self._say(session, question, record, paced=True)
+            except asyncio.CancelledError:
+                # A call started over it: that call is not the answer.
+                self.calls.finish(record, "not asked", "cut off by a call")
+                self._resolve_ask(asked, error="interrupted")
+                raise
+            except (ConnectionError, OSError) as err:
+                self.calls.finish(record, "not asked", repr(err))
+                self._resolve_ask(asked, error="disconnected")
+                return
+            finally:
+                session.announcing_now = None
+                with contextlib.suppress(ConnectionError, OSError):
+                    await self._event(session, "announcement", active=False)
+        if request_id not in self._asks:
+            self.calls.finish(record, "not asked", "cancelled")
+            return
+        here = satellite.settings
+        if here["sounds"] and not satellite.night:
+            # Its turn, as after any question; no call to play it in.
+            cues = Cues(self, session, here["instrument"], here["pitch"])
+            with contextlib.suppress(ConnectionError, OSError):
+                await cues.sound("listening")
+                await cues.stop(close=True)
+        self.calls.finish(record, "asked", question)
+        try:
+            await self._hang_up(session, "asked", listen=asked)
+        except (ConnectionError, OSError):
+            self._resolve_ask(asked, error="disconnected")
 
     def _busy(self, session: Session) -> bool:
         """In a call, ringing a timer or joined by the intercom."""
