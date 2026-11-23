@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- **Announcements need a place.** "Announce dinner is ready" alone no
+  longer goes to every satellite: say an area or a floor ("announce dinner
+  is ready in the kitchen"), or a whole-house word from the new
+  "everywhere" list ("tell everyone dinner is ready", "announce dinner is
+  ready to the whole house"). The same in all 9 languages, with their own
+  words.
+- **Each person's own conversation agent.** What nothing here understood
+  goes to the speaker's agent, picked on their page under People, else the
+  home's; its answers can have a voice of their own. Conversations are kept
+  by agent and area, and an agent's question is answered to the agent that
+  asked it. Test it can take a person as the speaker (#7).
+- **The chosen voice on satellites without a media player.** A satellite
+  set to one of Home Assistant's text-to-speech voices but with no media
+  player there was answered by Piper; that voice's audio is now played over
+  the call. If it fails on a sentence, Piper says the rest (#30).
+- **Satellites are found after the app restarts, even if they answer no
+  mDNS queries.** Each one's last address is kept and dialled at start; a
+  satellite on weak Wi-Fi stayed unfound until it was power-cycled (#21).
+- **Replies at 48 kHz on firmware that takes it.** Firmware with protocol 3
+  gets replies at 48 kHz, so speech keeps what's above 8 kHz; Piper is
+  resampled once, straight from its own rate. Older firmware stays at
+  16 kHz.
+- **Settings is a page of its own,** no longer a tab of Whole Home, with
+  Pronunciations as one of its tabs in Kaldi mode. The app's version is
+  shown at the top right.
+- **Sessions:** through Wyoming, Home Assistant's speech-to-text and the
+  conversation agent given its words are paired on the Sessions list and
+  link to each other. Each step also shows its time since speech ended
+  (#29).
+
 ## 0.3.3
 
 - **Satellites stay connected on a weak Wi-Fi link.** Missed mDNS
