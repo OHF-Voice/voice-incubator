@@ -2032,6 +2032,36 @@ class VoiceIncubatorApp:
             session, Message.EVENT, {"type": event_type, "data": data}
         )
 
+    @staticmethod
+    def _display_event(session: Session, call: Call, writer: asyncio.StreamWriter, kind: str, text: str) -> bool:
+        """Best-effort text for this turn only; don't queue behind backed-up audio."""
+        if session.call is not call or session.writer is not writer or writer.is_closing():
+            return False
+        try:
+            frame = encode_json(Message.EVENT, {"type": kind, "data": {"text": text}})
+            transport = writer.transport
+            if transport.get_write_buffer_size() + len(frame) > transport.get_write_buffer_limits()[1]:
+                return False
+            writer.write(frame)
+        except (ValueError, OSError):
+            return False
+        return True
+
+    def _flush_reply_chunks(self, session: Session, call: Call, writer: asyncio.StreamWriter, reply: Streamed) -> bool:
+        # JSON ASCII escaping can use 12 bytes per code point (a surrogate pair).
+        size = (MAX_PAYLOAD - 64) // 12
+        text = reply.take_display_text()
+        return all(
+            self._display_event(session, call, writer, "reply_chunk", text[offset : offset + size])
+            for offset in range(0, len(text), size)
+        )
+
+    async def _reply_chunks(self, session: Session, call: Call, writer: asyncio.StreamWriter, reply: Streamed) -> None:
+        while True:
+            await reply.display_ready.wait()
+            if not self._flush_reply_chunks(session, call, writer, reply):
+                return  # do not resume after dropping part of an append-only reply
+
     async def _handle(self, session: Session, msg_type: int, payload: bytes) -> None:
         if msg_type in _AUDIO_STREAMS:
             payload = _whole_samples(session, msg_type, payload)
@@ -3244,6 +3274,8 @@ class VoiceIncubatorApp:
             if call.stt is not None and not call.stt.asked:
                 # Not needed, and so not waited for: kept when it comes.
                 self._spawn(self._keep_streamed(record, recognized, call.stt))
+        if session.device.early_transcript and decision.transcript and session.writer is not None:
+            self._display_event(session, call, session.writer, "transcript", decision.transcript)
         ident = await speaker_task if speaker_task is not None else None
 
         self._after_identify(session, ident)
@@ -3304,7 +3336,17 @@ class VoiceIncubatorApp:
             await self._event(session, "responding", text=speech if isinstance(speech, str) else "")
             # In the speaker's voice (voice_for); the agent's answer in its own.
             said_by = self.agent_voice(satellite, who) if isinstance(speech, (Answered, Streamed)) else satellite
-            await self._say(session, speech, record, quiet=satellite.night, satellite=said_by)
+            writer = session.writer
+            captions = None
+            if isinstance(speech, Streamed) and session.device.reply_chunks and writer is not None:
+                captions = self._spawn(self._reply_chunks(session, call, writer, speech))
+            try:
+                await self._say(session, speech, record, quiet=satellite.night, satellite=said_by)
+                if captions is not None and not captions.done():
+                    self._flush_reply_chunks(session, call, writer, speech)
+            finally:
+                if captions is not None:
+                    captions.cancel()
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
         again = self._asks_back(session, call, decision, who, dry_run, outcome, speech)
@@ -4542,7 +4584,9 @@ class VoiceIncubatorApp:
         running = self.integration.running(session.satellite)
         # By list: every satellite in an area shows its timers alike.
         kept = timers.colors(running, self.timer_colors.setdefault(self.integration.timer_list(session.satellite) or session.satellite, {}))
-        shown = timers.progress(running, kept)
+        shown = timers.progress(running, kept, names=session.device.timer_names)
+        if session.device.timer_names and len(json.dumps({"type": "timer_progress", "data": shown})) > MAX_PAYLOAD:
+            shown = {key: value for key, value in shown.items() if not key.startswith("name")}
         last = session.timer_progress
         # The device counts what it was sent down: compare where that is now.
         if last is not None and not force and timers.same_progress(last, shown, time.monotonic() - session.timer_progress_at):
@@ -4616,7 +4660,12 @@ class VoiceIncubatorApp:
             ringing = list(session.ringing_timers)
             names = [t.get("name") for t in ringing]
             record.stage("timer_ringing", timers=ringing)
-            await self._event(session, "timer_ringing", timers=len(names), name=names[-1] or "")
+            alert = {"timers": len(names), "name": names[-1] or ""}
+            if session.device.timer_names and len(names) > 1:
+                alert["names"] = [name or "" for name in names]
+                if len(json.dumps({"type": "timer_ringing", "data": alert})) > MAX_PAYLOAD:
+                    del alert["names"]
+            await self._event(session, "timer_ringing", **alert)
             # Timers by their names; the calendar's alarms and reminders by their own sentences.
             plain = [t for t in ringing if not t.get("announce")]
             said = [self.language.speech.timers_ringing(plain)] if plain else []

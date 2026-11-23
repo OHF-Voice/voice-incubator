@@ -213,18 +213,24 @@ def test_the_ring_shows_every_timer_soonest_on_top():
     from datetime import UTC, datetime, timedelta
 
     now = datetime(2026, 10, 15, 20, 0, tzinfo=UTC)
-    soon = {"timer_id": "a", "status": "active", "total_duration": 600, "finishes_at": (now + timedelta(seconds=90)).isoformat()}
-    later = {"timer_id": "b", "status": "active", "total_duration": 300, "finishes_at": (now + timedelta(seconds=200)).isoformat()}
+    soon = {"timer_id": "a", "name": "Tea", "status": "active", "total_duration": 600, "finishes_at": (now + timedelta(seconds=90)).isoformat()}
+    later = {"timer_id": "b", "name": "Oven", "status": "active", "total_duration": 300, "finishes_at": (now + timedelta(seconds=200)).isoformat()}
     paused = {"timer_id": "c", "status": "paused", "total_duration": 60, "remaining": 5}
     kept: dict[str, int] = {}
     assert timers.colors([soon, later, paused], kept) == {"a": 0, "b": 1, "c": 2}
     # The soonest, for firmware from before; then each, soonest first, on the
     # longest's scale. Paused: not shown (but it keeps its color).
-    assert timers.progress([later, soon, paused], kept, now) == {
+    legacy = timers.progress([later, soon, paused], kept, now)
+    assert legacy == {
         "shown": 1, "remaining": 90.0, "total": 600.0, "paused": 0,
         "count": 2, "scale": 600.0, "left0": 90.0, "color0": -1, "left1": 200.0, "color1": timers.COLORS[1],
     }
-    assert timers.progress([paused], kept, now) == {"shown": 0}
+    shown = timers.progress([later, soon, paused], kept, now, names=True)
+    assert shown == {**legacy, "name0": "Tea", "name1": "Oven"}
+    renamed = timers.progress([later, {**soon, "name": ""}, paused], kept, now, names=True)
+    assert renamed == {**legacy, "name1": "Oven"}
+    assert not timers.same_progress(shown, renamed, 0)
+    assert timers.progress([paused], kept, now, names=True) == {"shown": 0}
     assert timers.progress([], now=now) == {"shown": 0}
     # Without an end time (a fake), what was left when it was reported.
     assert timers.progress([{"status": "active", "created_duration": 15, "remaining": 15}], now=now)["remaining"] == 15.0
