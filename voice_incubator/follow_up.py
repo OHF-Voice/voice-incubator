@@ -91,6 +91,9 @@ class FollowUp:
     """The call it follows: its record's id."""
     who: Any
     """Who was answered (people.Speaker): the speaker of the answer too."""
+    agent: str | None = None
+    """The conversation agent that asked (``kind`` agent): the answer goes to
+    it, whatever the person's own is now."""
     gain: float = 1.0
     """What the call's VAD heard the speaker louder by (endpoint.vad_gain)."""
     warm: bytes = b""

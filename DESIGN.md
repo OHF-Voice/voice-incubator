@@ -448,7 +448,7 @@ automation's page.
 | `voice_incubator/voices.py` | Home Assistant STT and TTS entities in place of TDT and Piper |
 | `voice_incubator/fallback.py` | when nothing matched: the closest command by meaning, then GLiNER (`voice_incubator/gliner.py`) -- each only for the commands chosen for it |
 | `voice_incubator/skills/` | skills: questions answered without an LLM, one module each (spelling, dates, clock, units, arithmetic, live) -- their settings and what they compute -- on or off for the home or a satellite; how each is asked and answered is the language's (`voice_incubator/languages/<code>/skills/`, with `numbers` and `live`) |
-| `voice_incubator/agent.py` | what nothing here understood: a Home Assistant conversation agent, a conversation kept per area, an LLM's answer streamed |
+| `voice_incubator/agent.py` | what nothing here understood: a Home Assistant conversation agent -- the home's or the speaker's own -- a conversation kept per area and agent, an LLM's answer streamed |
 | `voice_incubator/follow_up.py` | follow-up turns: the satellite's microphone opened again, with no wake word, for an answer -- the agent's question, a command's yes or no (`confirm`), which of several timers, alarms or reminders (`which`) -- and how the answer is read |
 | `voice_incubator/context.py` | "it": what each area last spoke of by name, and a sentence with a pronoun heard again as it |
 | `voice_incubator/compound.py` | two commands said together ("and", "then"; English's `languages/en/compound.py`): where to split, what a clause borrows, what both say as one |
@@ -1145,7 +1145,14 @@ processed, once someone's voice is enrolled. Who is speaking
 and matched nobody's. Each person's own
 to-do list, calendar and playlist (`people.json`, the People page) are what
 a command with `mine` acts on (`people.mine`, in `actions.run`), and their
-own text-to-speech voice is the reply's (`VoiceIncubatorApp.voice_for`). [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
+own text-to-speech voice is the reply's (`VoiceIncubatorApp.voice_for`). What
+nothing here understood goes to the conversation agent of the person
+speaking -- theirs if they picked one (`people.json` `agent`), else the
+home's (`VoiceIncubatorApp.agent_for`; a sentence typed in Try has no
+speaker unless one is picked there, so it is the home's or the picked
+person's) -- and its answers are said in a voice
+of theirs if they picked one (`people.json` `agent_voice`, else
+`settings.json` `agent_voice`; `VoiceIncubatorApp.agent_voice`). [ReDimNet-b2](models/speaker/) (22 MB, raw waveform in, mel frontend
 inside the graph) embeds the AEC capture from 1.2 s before the end of the wake
 word to the end of the command -- "okay nabu" plus the command -- and the
 closest profile wins if its cosine clears `--speaker-threshold` (0.45).
@@ -2162,7 +2169,13 @@ command fallback -- a question still gets an answer:
    `settings.json` `agent`, none unless chosen): everything else -- not only
    questions -- with the satellite's `device_id` and the `conversation_id` of
    its area (`conversation_key`: every satellite there shares one; one in no
-   area has its own), kept for `agent_keep_minutes` (5, the Voice PE's
+   area has its own) with that agent: a person's own agent
+   (`people.json` `agent`, the People page) has its own conversation there, so
+   neither is sent the other's. A sentence goes to the agent of the person
+   speaking -- theirs, else the home's (`VoiceIncubatorApp.agent_for`); one
+   typed in Try has no speaker unless one is picked there, so it goes to the
+   home's (or the picked person's). Each is kept for
+   `agent_keep_minutes` (5, the Voice PE's
    `conversation_timeout`) after the agent's last answer there. An LLM's
    answer is streamed through the integration
    (`voice_incubator/conversation/stream`: the agent asked in a chat log opened
@@ -2176,11 +2189,13 @@ command fallback -- a question still gets an answer:
    Assistant's `no_intent_match` counts as none. A dry run never asks it: an
    agent can act. When it asks something back (`continue_conversation`),
    the satellite listens for the answer without the wake word, and the
-   answer goes to it as said (`voice_incubator/follow_up.py`). Its answers --
+   answer goes to it as said (`voice_incubator/follow_up.py`) -- the same
+   agent, whatever the person's is then. Its answers --
    an `agent.Answered` or `Streamed` -- are said in its own voice when it
    has one (`agent_voice`: `tts: builtin` with a Piper `voice` and
    `speaker`, else a TTS entity with `tts_language` and `tts_voice`;
-   `VoiceIncubatorApp.agent_voice`). This replaced a small question LLM (Granite 4.0 350M or
+   `VoiceIncubatorApp.agent_voice`), or in the speaking person's own when
+   they picked one (`people.json` `agent_voice`). This replaced a small question LLM (Granite 4.0 350M or
    Gemma 3 1B in llama.cpp, for what read as a question); the benchmark
    numbers below are from then.
 

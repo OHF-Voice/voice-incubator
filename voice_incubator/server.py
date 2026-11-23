@@ -137,6 +137,9 @@ ASKED_SECONDS = 60.0
 FROM_HOME_ASSISTANT = "home_assistant"
 """Who wrote the words recognized (Decision.text_source): Home Assistant,
 which sent them to the conversation agent."""
+SPEAKER = object()
+"""A fallback agent's name unless given (``_carry_out``'s ``agent_name``): the
+speaker's own."""
 
 _AUDIO_STREAMS = frozenset(
     {Message.AUDIO_IN, Message.AUDIO_IN_AEC, Message.AUDIO_MONITOR, Message.AUDIO_MONITOR_AEC}
@@ -1467,13 +1470,22 @@ class VoiceIncubatorApp:
         )
         return replace(satellite, voice=voice)
 
-    def agent_voice(self, satellite: Satellite) -> Satellite:
-        """The satellite as the conversation agent's answers are said: in its
-        own voice (settings.json ``agent_voice``) when it has one -- Piper's
-        (``tts: builtin``, its ``voice`` and ``speaker``; no voice: the
-        area's or the whole home's), or a TTS entity's, on the satellite's
-        player for it."""
-        own = self.store.settings.get("agent_voice") or {}
+    def agent_for(self, name: str | None) -> str | None:
+        """The conversation agent that gets what nothing here understood from
+        ``name`` speaking: their own (people.json ``agent``), else the home's
+        (settings.json ``agent``). None: nothing is asked."""
+        key = people.find(self.store.people, name)
+        own = self.store.people[key].get("agent") if key is not None else None
+        return own or self.agent.agent_id
+
+    def agent_voice(self, satellite: Satellite, who: people.Speaker | None = None) -> Satellite:
+        """The satellite as the conversation agent's answers are said: in the
+        speaking person's own voice for them when they have one (people.json
+        ``agent_voice``), else the agent's own (settings.json ``agent_voice``)
+        when it has one -- Piper's (``tts: builtin``, its ``voice`` and
+        ``speaker``; no voice: the area's or the whole home's), or a TTS
+        entity's, on the satellite's player for it."""
+        own = (who.own.get("agent_voice") if who is not None else None) or self.store.settings.get("agent_voice") or {}
         if not own.get("tts"):
             return satellite
         if own["tts"] == BUILTIN:
@@ -3236,7 +3248,7 @@ class VoiceIncubatorApp:
         else:
             await self._event(session, "responding", text=speech if isinstance(speech, str) else "")
             # In the speaker's voice (voice_for); the agent's answer in its own.
-            said_by = self.agent_voice(satellite) if isinstance(speech, (Answered, Streamed)) else satellite
+            said_by = self.agent_voice(satellite, who) if isinstance(speech, (Answered, Streamed)) else satellite
             await self._say(session, speech, record, quiet=satellite.night, satellite=said_by)
         if record is not None:
             self.calls.finish(record, outcome, summary, self._call_audio(call))
@@ -3274,6 +3286,7 @@ class VoiceIncubatorApp:
         return FollowUp(
             kind, question, call.record.id if call.record is not None else None, who, gain=gain, warm=warm,
             decision=decision if kind in ("confirm", "which") else None,
+            agent=decision.asked.agent if kind == "agent" and decision.asked is not None else None,
             wake_word=call.follow_up.wake_word if call.follow_up is not None else self._wake_json(call.wake_word),
             choices=decision.choices if kind == "which" else None,
         )
@@ -3305,14 +3318,15 @@ class VoiceIncubatorApp:
             return None, "ended", f"{words!r}: the conversation ended"
         if record is not None:
             record.stage("answer", kind=asked.kind, heard=words)
-        if not self.agent.agent_id or not words.strip():
+        agent = asked.agent or self.agent_for(asked.who.name)
+        if not agent or not words.strip():
             return self.language.speech.SORRY, "not recognized", f"{words!r}: no agent to answer"
         if not dry_run:
             await cue("asking")
-        said = await self._ask_agent(decision, satellite, dry_run, record)
+        said = await self._ask_agent(decision, satellite, dry_run, record, agent)
         if not said:
-            return self.language.speech.SORRY, "not recognized", f"{words!r}: {self.agent.agent_id} understood nothing"
-        return said, "answered", f"{words!r}: {self.agent.agent_id}'s answer"
+            return self.language.speech.SORRY, "not recognized", f"{words!r}: {agent} understood nothing"
+        return said, "answered", f"{words!r}: {agent}'s answer"
 
     async def _carry_out(
         self,
@@ -3326,6 +3340,7 @@ class VoiceIncubatorApp:
         confirmed: bool = False,
         listens: bool = False,
         picked: list[str] | None = None,
+        agent_name: Any = SPEAKER,
     ) -> tuple[str | Streamed | None, str, str]:
         """Run (or show) the decided command. Returns what to say (None: a
         silent command, not even the acknowledgement sound; an LLM agent's
@@ -3336,22 +3351,25 @@ class VoiceIncubatorApp:
         see it; ``cue``: plays one of its sounds (asking the conversation
         agent); ``confirmed``: its question was answered yes (or can't be
         heard); ``listens``: the satellite hears an answer (which is asked);
-        ``picked``: which was answered. Two commands said together
+        ``picked``: which was answered; ``agent_name``: whose conversation
+        agent gets what nothing understood (the speaker's, unless given: a
+        typed test has no speaker). Two commands said together
         (``then``; voice_incubator/compound.py): each, and what both say as one."""
         if decision.command is not None and decision.then is not None:
             return await self._carry_out_both(decision, satellite, speaker, dry_run, record, wake_word)
+        agent = self.agent_for(speaker.get("name") if agent_name is SPEAKER else agent_name)
         if (
             decision.command is None
             and decision.answer is None
             and decision.refused is None
-            and self.agent.agent_id
+            and agent
             and decision.transcript.strip()
         ):
             if cue is not None and not dry_run:
                 await cue("asking")
-            said = await self._ask_agent(decision, satellite, dry_run, record)
+            said = await self._ask_agent(decision, satellite, dry_run, record, agent)
             if said:
-                return said, "answered", f"{decision.transcript!r}: {self.agent.agent_id}'s answer"
+                return said, "answered", f"{decision.transcript!r}: {agent}'s answer"
         if decision.command is None and decision.answer is not None and decision.answer.get("text"):
             answer = decision.answer
             said = await self._skill_says(answer, satellite, speaker, record, wake_word)
@@ -3486,19 +3504,20 @@ class VoiceIncubatorApp:
         return said
 
     async def _ask_agent(
-        self, decision: Decision, satellite: Satellite, dry_run: bool, record: CallRecord | None
+        self, decision: Decision, satellite: Satellite, dry_run: bool, record: CallRecord | None, agent: str
     ) -> str | Streamed | None:
-        """What the conversation agent answers, in its conversation for the
-        satellite's area: an LLM's said as it comes (Streamed), from its
-        first piece; None when it understood nothing, could not be asked, or
-        (a dry run) was not: it could act in the home."""
+        """What ``agent`` answers, in its conversation for the satellite's
+        area: an LLM's said as it comes (Streamed), from its first piece;
+        None when it understood nothing, could not be asked, or (a dry run)
+        was not: it could act in the home."""
         if dry_run:
             if record is not None:
-                record.stage("agent", agent=self.agent.agent_id, asked=False, text=decision.transcript)
+                record.stage("agent", agent=agent, asked=False, text=decision.transcript)
             return None
         streamed = Streamed()
         asking = asyncio.ensure_future(self.agent.ask(
             conversation_key(satellite), decision.transcript, satellite.device_id, self.language.code, on_text=streamed.put,
+            agent_id=agent,
         ))
         first = asyncio.ensure_future(streamed.started.wait())
         try:
@@ -3510,9 +3529,9 @@ class VoiceIncubatorApp:
             first.cancel()
         if streamed.started.is_set():
             streamed.task = asking
-            asking.add_done_callback(lambda task: self._agent_answered(decision, record, task, streamed))
+            asking.add_done_callback(lambda task: self._agent_answered(decision, record, agent, task, streamed))
             return streamed
-        return self._agent_answered(decision, record, asking)
+        return self._agent_answered(decision, record, agent, asking)
 
     async def _referring(
         self, decision: Decision, satellite: Satellite, record: CallRecord | None, referred: list[str] | None = None
@@ -3660,7 +3679,7 @@ class VoiceIncubatorApp:
         return self.language.speech.CONFIRM_UNCLEAR, "not recognized", f"{words!r}: none of {asked.question!r}"
 
     def _agent_answered(
-        self, decision: Decision, record: CallRecord | None, task: asyncio.Task, streamed: Streamed | None = None
+        self, decision: Decision, record: CallRecord | None, agent: str, task: asyncio.Task, streamed: Streamed | None = None
     ) -> str | None:
         """The agent's reply, in the call's record and the log: what it said,
         when it understood. A streamed answer has all come."""
@@ -3668,7 +3687,7 @@ class VoiceIncubatorApp:
             streamed.end()
         if task.cancelled() or task.exception() is not None:
             if record is not None:
-                record.stage("agent", agent=self.agent.agent_id, asked=True, asked_text=decision.transcript,
+                record.stage("agent", agent=agent, asked=True, asked_text=decision.transcript,
                              cancelled=task.cancelled(), error=None if task.cancelled() else str(task.exception()))
             if not task.cancelled():
                 _LOGGER.error("Asking the agent failed: %s", task.exception())
@@ -4215,19 +4234,31 @@ class VoiceIncubatorApp:
 
     async def try_text(
         self, text: str, satellite_key: str | None, run_actions: bool = False, speak: bool = False,
-        area: str | None = None,
+        area: str | None = None, speaker: str | None = None,
     ) -> CallRecord:
         """``text`` as a command said on this satellite (else as on one in
         ``area``): as if heard word for word (no speech recognition), or
         (``speak``) said by Piper and recognized -- the whole pipeline after
-        the wake word."""
+        the wake word. ``speaker``: a person to take as the speaker, as if
+        their voice were recognized (their own agent, and what "my" means).
+        Without one, a typed sentence has no speaker to identify: what
+        nothing understood goes to the home's conversation agent, though
+        commands still see the only person, if there is one."""
         if satellite_key:
             satellite = self.satellite(satellite_key)
         else:
             satellite = self.place(area)
+        said_by: str | None = None
+        if speaker:
+            said_by = next((name for name in self.people_names() if name.lower() == speaker.strip().lower()), None)
+            if said_by is None:
+                raise ConfigError(f"speaker: nobody called {speaker}")
+            who = people.speaking(self.store.people, self.voice_names(), said_by)
+        else:
+            who = self.speaking()
         record = self.calls.begin("try", satellite.as_dict())
         record.dry_run = not run_actions
-        record.stage("typed", text=text, spoken=speak)
+        record.stage("typed", text=text, spoken=speak, **({"speaker": said_by} if said_by else {}))
         assert self.engine is not None
         pcm = b""
         if speak:
@@ -4242,10 +4273,11 @@ class VoiceIncubatorApp:
             async with self._model_lock:
                 decision = await asyncio.to_thread(self.engine.recognize_text, text, satellite)
         record.stage("recognition", **decision.to_json(), stt=_stt_json(transcriber))
-        who = self.speaking()
         decision = await self._referring(decision, satellite, record)
         decision = await self._listed(decision, satellite, record)
-        speech, outcome, summary = await self._carry_out(decision, self.voice_for(satellite, who), who.as_dict(), not run_actions, record)
+        speech, outcome, summary = await self._carry_out(
+            decision, self.voice_for(satellite, who), who.as_dict(), not run_actions, record, agent_name=said_by,
+        )
         if isinstance(speech, Streamed):
             speech = await speech.text()
         record.stage("speech", text=speech or "", **({"silent": True} if speech is None else {}))

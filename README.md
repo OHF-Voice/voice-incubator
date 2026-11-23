@@ -46,7 +46,8 @@ speaks English.
 
 - **It knows who's speaking.** Enroll voices on the People page, and "add
   call mom to my to-do list", "remind me" and "play my playlist" are the
-  speaker's own.
+  speaker's own. Their own conversation agent, and the voice its answers are
+  said in, are picked there too.
 - **By area.** A command is the whole home's or one area's, and the whole
   home's can be turned off where they don't belong ("That command isn't
   available in the Kitchen"). Do not disturb and night mode, area by area.
