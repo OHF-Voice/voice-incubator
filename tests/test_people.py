@@ -50,4 +50,20 @@ def test_clean():
         clean({"todo_list": "calendar.mike"})
     with pytest.raises(ValueError, match="unknown: color"):
         clean({"color": "red"})
+    # Their own conversation agent, and the voice its answers are said in: as
+    # Settings has it, and refused when neither of its kinds.
+    assert clean({"agent": " conversation.pa "}) == {"agent": "conversation.pa"}
+    assert clean({"agent_voice": {"tts": "tts.cloud", "tts_voice": "GuyNeural", "tts_language": ""}}) == {
+        "agent_voice": {"tts": "tts.cloud", "tts_voice": "GuyNeural"}}
+    assert clean({"agent_voice": {"tts": "builtin", "voice": "en_US-kristin-medium", "speaker": "0"}}) == {
+        "agent_voice": {"tts": "builtin", "voice": "en_US-kristin-medium", "speaker": "0"}}
+    assert clean({"agent_voice": None}) == {} and clean({"agent_voice": {"tts": ""}}) == {}
+    with pytest.raises(ValueError, match="agent: a conversation agent's id"):
+        clean({"agent": "conversation pa"})
+    with pytest.raises(ValueError, match="agent: a conversation agent's id"):
+        clean({"agent": "conversation." + "x" * 255})
+    with pytest.raises(ValueError, match="agent_voice: a mapping"):
+        clean({"agent_voice": "tts.cloud"})
+    with pytest.raises(ValueError, match="agent_voice: tts is builtin or a tts entity"):
+        clean({"agent_voice": {"tts": "light.kitchen"}})
     assert person_name("  mike o'brien! ") == "Mike O'brien" and person_name("") is None

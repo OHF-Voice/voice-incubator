@@ -82,6 +82,9 @@ VOICE_DOMAINS = (
 CONNECT_WAIT = 5.0
 """Seconds a command waits for a dropped connection to come back."""
 
+STARTUP_WAIT = 600.0
+"""Seconds to wait for Home Assistant to finish starting before going on."""
+
 REGISTRY_EVENTS = (
     "area_registry_updated",
     "floor_registry_updated",
@@ -331,6 +334,7 @@ class HomeAssistant:
 
             reader = asyncio.ensure_future(self._read(socket))
             try:
+                await self._until_started(reader)
                 for event_type in REGISTRY_EVENTS:
                     await self._subscribe_event(event_type)
                 await self.refresh_catalog()
@@ -344,6 +348,31 @@ class HomeAssistant:
                 reader.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await reader
+
+    async def _until_started(self, reader: asyncio.Future, timeout: float = STARTUP_WAIT) -> None:
+        """Home Assistant still starting (it restarted, or started after the
+        app) answers before its integrations are loaded and its automations
+        set up: the integration would say it isn't loaded, and sentence
+        triggers would be missing until the app restarted. So nothing is read
+        until it says it has started (or ``timeout``: then as it is)."""
+        started = asyncio.Event()
+        msg_id = await self._subscribe(
+            {"type": "subscribe_events", "event_type": "homeassistant_started"}, lambda _event: started.set()
+        )
+        config = await self.call({"type": "get_config"})
+        if (config or {}).get("state", "RUNNING") != "RUNNING":
+            _LOGGER.info("Home Assistant is starting: waiting for it")
+            waiting = asyncio.ensure_future(started.wait())
+            try:
+                await asyncio.wait({waiting, reader}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                waiting.cancel()
+            if reader.done():
+                reader.result()  # the connection ended: why
+                raise ConnectionError("Home Assistant closed the connection while starting")
+            if not started.is_set():
+                _LOGGER.warning("Home Assistant hasn't said it started after %.0f s: going on", timeout)
+        await self._unsubscribe(msg_id)
 
     async def _read(self, socket) -> None:
         async for raw in socket:
@@ -694,6 +723,35 @@ class HomeAssistant:
         if result.get("result") != "success":
             raise HassError(f"{entity_id} could not transcribe the audio")
         return str(result.get("text") or "")
+
+    async def text_to_speech(
+        self, entity_id: str, text: str, language: str | None, voice: str | None,
+    ) -> bytes:
+        """Ask a TTS entity for audio without sending it to a media player."""
+        import aiohttp  # pylint: disable=import-outside-toplevel
+
+        options = {"preferred_format": "wav"}
+        if voice:
+            options["voice"] = voice
+        data = {"engine_id": entity_id, "message": text, "cache": True, "options": options}
+        if language:
+            data["language"] = language
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as http:
+                async with http.post(f"{self.url}/api/tts_get_url", json=data, headers=headers) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+                path = result.get("path") if isinstance(result, dict) else None
+                if not isinstance(path, str) or not path.startswith("/api/tts_proxy/"):
+                    raise HassError(f"{entity_id} did not return a TTS audio path")
+                # Use the same reachable HA origin (or Supervisor proxy), not
+                # the absolute URL HA advertises to media players.
+                async with http.get(f"{self.url}{path}", headers=headers) as response:
+                    response.raise_for_status()
+                    return await response.read()
+        except (aiohttp.ClientError, ValueError) as err:
+            raise HassError(f"{entity_id}: {err}") from err
 
     async def stt_engines(self, language: str | None) -> list[dict]:
         """STT entities and the languages they support that match ``language``

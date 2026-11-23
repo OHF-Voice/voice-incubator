@@ -101,7 +101,8 @@ sentences:
   - ["Поставь громкость телевизора на двадцать процентов.", set_volume_here, {kind: tv, percentage: 20}, "the TV's volume, a number"]
   - ["Включи мой плейлист.", play_my_playlist, {}, "an example sentence"]
   # The satellites.
-  - ["Объяви, что ужин готов.", announce, {message: ужин готов}, "free text after что"]
+  - ["Скажи всем, что ужин готов.", announce, {everywhere: everywhere, message: ужин готов}, "free text after что"]
+  - ["Объяви, что ужин готов, на кухне.", announce, {area: [kuhnya], message: ужин готов}, "free text, then a place"]
   - ["Объяви на кухне, что ужин готов.", announce, {area: [kuhnya], message: ужин готов}, "a place, then free text"]
   - ["Соедини с кухней.", intercom, {area: [kuhnya]}, "an area in the instrumental"]
   - ["Позвони на кухню.", intercom, {area: [kuhnya]}, "an area in the accusative"]

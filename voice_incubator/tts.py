@@ -9,7 +9,7 @@ import re
 from collections import OrderedDict
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import numpy as np
 import onnxruntime as ort
@@ -27,15 +27,37 @@ from .protocol import SAMPLE_RATE
 _LOGGER = logging.getLogger(__name__)
 
 
-def _to_device_pcm(samples: np.ndarray, rate: int) -> bytes:
-    """Mono 16-bit PCM at the device's sample rate."""
+def _to_device_pcm(samples: np.ndarray, rate: int, out_rate: int = SAMPLE_RATE) -> bytes:
+    """Mono 16-bit PCM at ``out_rate`` (the satellite's: SAMPLE_RATE, or the
+    OUTPUT_RATE it was told). Turned down rather than clipped where
+    resampling overshoots: Piper's sentences peak at full scale, and their
+    top octave, kept at 48 kHz, overshoots by up to a fifth."""
     if samples.ndim > 1:
         samples = samples.mean(axis=1)
     samples = samples.astype(np.float32, copy=False)
-    if rate != SAMPLE_RATE:
-        samples = soxr.resample(samples, rate, SAMPLE_RATE)
+    if rate != out_rate:
+        samples = soxr.resample(samples, rate, out_rate)
+        peak = float(np.max(np.abs(samples))) if len(samples) else 0.0
+        if peak > 1.0:
+            samples = samples / peak
     clipped = np.clip(samples, -1.0, 1.0)
     return (clipped * 32767.0).astype("<i2").tobytes()
+
+
+def pcm_at(pcm: bytes, rate: int, out_rate: int) -> bytes:
+    """16-bit mono PCM made at ``rate`` (the app's sounds: SAMPLE_RATE), at
+    the satellite's ``out_rate``."""
+    if rate == out_rate or not pcm:
+        return pcm
+    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+    return _to_device_pcm(samples, rate, out_rate)
+
+
+def audio_to_pcm(source: Path | BinaryIO, out_rate: int = SAMPLE_RATE) -> bytes:
+    """An audio file (a path or a file object) as 16-bit mono PCM at
+    ``out_rate``, resampled once, straight from its own rate."""
+    samples, rate = sf.read(source, dtype="float32", always_2d=False)
+    return _to_device_pcm(samples, rate, out_rate)
 
 
 EMOJI = re.compile(
@@ -130,7 +152,7 @@ class Speech:
     async def start(self) -> None:
         await self.use(self.voice_path)
         if self.alarm_path is not None:
-            sound = await asyncio.to_thread(self._load_file, self.alarm_path)
+            sound = await asyncio.to_thread(audio_to_pcm, self.alarm_path)
             self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
         await asyncio.to_thread(self.instruments.load)
         _LOGGER.info("Speech ready (%s)", self.voice_path.name)
@@ -164,11 +186,6 @@ class Speech:
         speakers = sorted(config.speaker_id_map or {}, key=lambda name: config.speaker_id_map[name])
         return {"length_scale": config.length_scale, "noise_scale": config.noise_scale,
                 "noise_w_scale": config.noise_w_scale, "volume": 1.0, "speakers": speakers}
-
-    @staticmethod
-    def _load_file(path: Path) -> bytes:
-        samples, rate = sf.read(path, dtype="float32", always_2d=False)
-        return _to_device_pcm(samples, rate)
 
     async def sound(self, name: str, instrument: str | None = None, pitch: str | None = None) -> bytes:
         """One of instruments.SOUNDS (``sounds``'); none without the SoundFont."""
@@ -219,12 +236,16 @@ class Speech:
         release_memory()  # a big instrument's samples (the grand piano's, about 90 MB)
         return made
 
-    def synthesize(self, text: str, settings: dict[str, Any] | None = None, voice: PiperVoice | None = None) -> bytes:
-        """``text`` (a sentence of ``sentences_of``) as device PCM, as the
-        settings say (``settings``, else the Settings page's), in ``voice``
-        (``other``'s; else the one replies are said in)."""
-        audio, rate = self.synthesized(text, settings, voice)
-        return _to_device_pcm(audio, rate) if len(audio) else b""
+    def synthesize(
+        self, text: str, settings: dict[str, Any] | None = None, voice: PiperVoice | None = None,
+        rate: int = SAMPLE_RATE,
+    ) -> bytes:
+        """``text`` (a sentence of ``sentences_of``) as device PCM at ``rate``
+        (the satellite's), as the settings say (``settings``, else the
+        Settings page's), in ``voice`` (``other``'s; else the one replies are
+        said in)."""
+        audio, made_at = self.synthesized(text, settings, voice)
+        return _to_device_pcm(audio, made_at, rate) if len(audio) else b""
 
     def synthesized(
         self, text: str, settings: dict[str, Any] | None = None, voice: PiperVoice | None = None

@@ -984,6 +984,33 @@ class Recognizer:
                     out.append((words[first][0].start, hit, meaning))
         return out
 
+    def _trailing_values(
+        self, intent: Intent, values: set[str], spotting: Spotting, heard: list[Hit]
+    ) -> set[int]:
+        """Where free text to the end may stop before a value of the intent's
+        own list that the sentence ends on, with the intent's optional words
+        and fillers right before it: "announce dinner is ready | to the whole
+        house". First frames of the words it may stop before."""
+        filler = {f for f in self.config.filler if " " not in f}
+        lead = filler | set(self.config.name_cues) | {
+            phrase for group in intent.optional for phrase in group if " " not in phrase
+        }
+        words = [(w, text) for w in spotting.words if w.frames if (text := w.text.lower().strip(".,?!;:\"'"))]
+        while words and words[-1][1] in filler:
+            words.pop()
+        if not words:
+            return set()
+        last = words[-1][0]
+        cuts: set[int] = set()
+        for hit in heard:
+            if hit.end < last.start or not any(m.kind == "keyword" and m.phrase in values for m in hit.meanings):
+                continue
+            first = next((i for i, (w, _) in enumerate(words) if w.end >= hit.start), None)
+            while first is not None and first > 0:
+                cuts.add(words[first][0].start)
+                first = first - 1 if words[first - 1][1] in lead else None
+        return cuts
+
     def _example_text(self, result: IntentResult) -> str:
         phrase = next(use.meaning.phrase for use in result.spans if use.role == "require")
         return self._example_phrases[phrase][1]
@@ -1144,13 +1171,18 @@ class Recognizer:
         items, cond_bits = self._items(intent, heard)
         num_frames = spotting.num_frames
         wild = intent.wildcard
+        values = {phrase for lst in intent.lists for phrase in lst.phrases}
         if wild is not None:
             stop = {p for p in self.config.filler if " " not in p} | set(self.config.name_cues)
             units = intent.number.units if intent.number else ()
             lead = stop | set(units) | {w for unit in units for w in unit_words(unit, self.config.language)}
             # Free text to the end may stop before a place this intent takes:
-            # "play jazz | in the kitchen", "play jazz | on the Mark 2".
+            # "play jazz | in the kitchen", "play jazz | on the Mark 2" -- or
+            # before a value of its own list: "announce dinner is ready | to
+            # the whole house".
             cuts = {start for start, _, meaning in trailing or [] if _name_allowed(intent, meaning)}
+            if wild.to_end and values:
+                cuts |= self._trailing_values(intent, values, spotting, heard)
             items += _wildcard_items(
                 wild, spotting, settings.wildcard_cost, stop, lead, cuts, set(self.config.text_ends)
             )
@@ -1241,6 +1273,10 @@ class Recognizer:
                         return None
                 elif taken in ("after", "place") and free_edges and use.role == "filler":
                     pass
+                elif taken in ("after", "place") and wild.to_end and cue and use.meaning.phrase in values:
+                    # A value of its own list, said where a place would be:
+                    # "tell | everyone | dinner is ready".
+                    taken = "after"
                 elif (
                     taken in ("after", "place") and wild.to_end and cue
                     and use.meaning.phrase not in wild.after and use.meaning.phrase not in stop

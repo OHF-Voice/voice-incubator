@@ -101,7 +101,8 @@ sentences:
   - ["Ścisz telewizor na dwadzieścia procent.", set_volume_here, {kind: tv, percentage: 20}, "turned down to a number"]
   - ["Wycisz telewizor.", mute_music_here, {kind: tv}, "mute a kind"]
   # The satellites.
-  - ["Ogłoś, że obiad jest gotowy.", announce, {message: obiad jest gotowy}, "free text after że"]
+  - ["Ogłoś wszędzie, że obiad jest gotowy.", announce, {everywhere: everywhere, message: obiad jest gotowy}, "free text after że"]
+  - ["Ogłoś, że obiad jest gotowy, w kuchni.", announce, {area: [kuchnia], message: obiad jest gotowy}, "an area last"]
   - ["Ogłoś w kuchni, że obiad jest gotowy.", announce, {area: [kuchnia], message: obiad jest gotowy}, "an area, then the message"]
   - ["Połącz z kuchnią.", intercom, {area: [kuchnia]}, "an area in the instrumental"]
   - ["Mów głośniej.", own_volume_up, {}, "the satellite's own, not the music"]

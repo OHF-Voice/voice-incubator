@@ -25,7 +25,7 @@ from ruamel.yaml import YAML
 from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
-from . import areas, ha_names, languages, music, timers
+from . import __version__, areas, ha_names, languages, music, timers
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
 from .endpoint import LIMITS
@@ -272,6 +272,7 @@ class Api:
         engine = app.engine
         return web.json_response(
             {
+                "version": __version__,
                 "hass": app.hass.connected.is_set(),
                 # Where its pages open: through ingress, in the frame around
                 # this one (none); run on its own, at its address.
@@ -2255,10 +2256,17 @@ class Api:
         """``{own, name?}``: someone's things (people.KEYS, in full), and a
         new name; someone new when nobody has the name."""
         body = await request.json()
+        own = dict(body.get("own") or {})
+        # Their own voice for the agent's answers: as the Settings page has one.
+        voice = _agent_voice(own.pop("agent_voice", None))
+        if voice:
+            own["agent_voice"] = voice
         name = self.app.put_person(
-            request.match_info["name"], body.get("own") or {},
+            request.match_info["name"], own,
             None if body.get("name") is None else str(body["name"]),
         )
+        if (piper := piper_catalog().get(voice.get("voice") or "")) is not None:
+            self.app.fetch_area_voice(piper)
         return web.json_response({"ok": True, "name": name})
 
     async def delete_person(self, request: web.Request) -> web.Response:
@@ -2280,6 +2288,7 @@ class Api:
             bool(body.get("run_actions")),
             bool(body.get("speak")),
             area=str(body.get("area") or "") or None,
+            speaker=str(body.get("speaker") or "") or None,
         )
         return web.json_response(record.to_json(), dumps=_dumps)
 

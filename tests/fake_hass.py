@@ -112,6 +112,8 @@ class FakeHass:
         self.fail_scripts = False
         self.integration = True
         """Whether the Voice Incubator integration is installed and set up."""
+        self.state = "RUNNING"
+        """Home Assistant's own (get_config): "STARTING" until ``started``."""
         self.services: list[dict[str, Any]] = []
         self.satellites: dict[str, dict[str, Any]] = {}
         """The integration's satellites, each with a device."""
@@ -158,6 +160,9 @@ class FakeHass:
         """Whether the conversation agent ends its answers with a question
         (``continue_conversation``), as an LLM's may; ``"emoji"``: with an
         emoji after it, and continue_conversation false."""
+        self.wyoming_agents: dict[str, int] = {}
+        """Conversation agents that are a Wyoming handle service, by its port
+        (Home Assistant's Wyoming integration): asked what was said there."""
         self.tts_streams: dict[str, dict[str, Any]] = {}
         """voice_incubator/tts/stream's, by stream: what was asked, its ``pieces``, ``ended``."""
         self.on_tts_stream: Any = None
@@ -252,7 +257,7 @@ class FakeHass:
         elif kind == "homeassistant/expose_entity/list":
             await result({"exposed_entities": {e: {"conversation": e in self.exposed()} for e in self.known()}})
         elif kind == "get_config":
-            await result({"time_zone": self.time_zone, "version": "fake"})
+            await result({"time_zone": self.time_zone, "version": "fake", "state": self.state})
         elif kind == "calendar/event/subscribe":
             entity_id = message["entity_id"]
             if entity_id not in self.calendar_events:
@@ -406,7 +411,7 @@ class FakeHass:
             ]})
         elif kind == "conversation/process":
             self.conversations.append(message)
-            await result(self._agent_answer(message))
+            await result(await self._wyoming_answer(message) if message["agent_id"] in self.wyoming_agents else self._agent_answer(message))
         elif kind == "voice_incubator/conversation/stream":
             # The answer a word at a time, as an LLM's comes; one that
             # understood nothing, only in its result.
@@ -415,7 +420,7 @@ class FakeHass:
                 return
             self.conversations.append(message)
             await result()
-            answer = self._agent_answer(message)
+            answer = await self._wyoming_answer(message) if message["agent_id"] in self.wyoming_agents else self._agent_answer(message)
             events: list[dict[str, Any]] = []
             if answer["response"]["response_type"] != "error":
                 words = answer["response"]["speech"]["plain"]["speech"].split(" ")
@@ -540,6 +545,31 @@ class FakeHass:
                 await socket.send(json.dumps({"id": msg_id, "type": "event", "event": event}))
             except websockets.ConnectionClosed:
                 self._timer_subscribers[entity_id].remove((socket, msg_id))
+
+    async def _wyoming_answer(self, message: dict[str, Any]) -> dict[str, Any]:
+        """A Wyoming handle service's answer, as Home Assistant's Wyoming
+        conversation agent gives it: handled, or failed to handle."""
+        from wyoming.asr import Transcript  # pylint: disable=import-outside-toplevel
+        from wyoming.client import AsyncTcpClient  # pylint: disable=import-outside-toplevel
+        from wyoming.handle import Handled, NotHandled  # pylint: disable=import-outside-toplevel
+
+        async with AsyncTcpClient("127.0.0.1", self.wyoming_agents[message["agent_id"]]) as client:
+            await client.write_event(Transcript(message["text"]).event())
+            while (event := await asyncio.wait_for(client.read_event(), 30)) is not None:
+                if Handled.is_type(event.type):
+                    speech, response_type, data = Handled.from_event(event).text or "", "query_answer", {}
+                    break
+                if NotHandled.is_type(event.type):
+                    speech, response_type, data = NotHandled.from_event(event).text or "", "error", {"code": "failed_to_handle"}
+                    break
+            else:
+                raise ConnectionError("the Wyoming service closed the connection")
+        return {
+            "response": {"speech": {"plain": {"speech": speech, "extra_data": None}}, "card": {}, "language": "en",
+                         "response_type": response_type, "data": data},
+            "conversation_id": message.get("conversation_id") or f"conversation-{next(self._conversation_ids)}",
+            "continue_conversation": False,
+        }
 
     def _agent_answer(self, message: dict[str, Any]) -> dict[str, Any]:
         """A conversation agent's: "<agent> heard <text>", nothing understood
@@ -685,6 +715,11 @@ class FakeHass:
             self.disabled_devices.add(device_id)
         else:
             self.disabled_devices.discard(device_id)
+
+    async def started(self) -> None:
+        """Finished starting, as Home Assistant says it."""
+        self.state = "RUNNING"
+        await self.registry_changed("homeassistant_started", {})
 
     async def registry_changed(self, event_type: str, data: dict[str, Any]) -> None:
         """Tell those subscribed that a registry changed, as Home Assistant does."""

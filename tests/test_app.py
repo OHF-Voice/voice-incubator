@@ -548,6 +548,22 @@ async def _scenario(tmp_path: Path) -> None:
             assert app.voice_for(kitchen, app.speaking(None, None)).voice == kitchen.voice  # nobody known
             voiced = app.voice_for(kitchen, people_mod.speaking(app.store.people, [], "Anna")).voice
             assert (voiced.tts, voiced.tts_voice, voiced.tts_language) == ("tts.cloud", "JennyNeural", None)
+            # Their own conversation agent, and the voice its answers are said
+            # in; the home's (none yet) for everyone else.
+            own = {"agent": "conversation.chatty", "agent_voice": {"tts": "tts.cloud", "tts_voice": "AriaNeural"}}
+            assert (await http.put("/api/people/Anna", json={"own": own})).status == 200
+            assert app.store.people["Anna"] == own
+            assert (app.agent_for("Anna"), app.agent_for("Mike"), app.agent_for(None)) == ("conversation.chatty", None, None)
+            theirs = app.agent_voice(kitchen, people_mod.speaking(app.store.people, [], "Anna"))
+            assert (theirs.voice.tts, theirs.voice.tts_voice) == ("tts.cloud", "AriaNeural")
+            assert app.agent_voice(kitchen, people_mod.speaking(app.store.people, [], "Mike")).voice == kitchen.voice
+            # An answer voice is for their own agent's answers only.
+            voice_only = people_mod.Speaker(name="Anna", by="voice", own={"agent_voice": own["agent_voice"]})
+            assert app.agent_voice(kitchen, voice_only).voice == kitchen.voice
+            response = await http.put("/api/people/Anna", json={"own": {"agent": "conversation chatty"}})
+            assert response.status == 400 and "agent" in (await response.json())["error"]
+            response = await http.put("/api/people/Anna", json={"own": {"agent_voice": {"tts": "light.kitchen"}}})
+            assert response.status == 400 and "agent_voice" in (await response.json())["error"]
             # Renamed, their things go with them; refused things say why.
             assert (await http.put("/api/people/anna", json={"own": {}, "name": "Ann"})).status == 200
             assert set(app.store.people) == {"Mike", "Ann"} and app.store.people["Ann"] == {}
@@ -795,7 +811,7 @@ async def _scenario(tmp_path: Path) -> None:
             agents = (await (await http.get("/api/agents")).json())["agents"]
             assert [a["id"] for a in agents] == ["conversation.home_assistant", "conversation.chatty"]
             assert (await http.put("/api/settings", json={"agent": "conversation.chatty", "agent_keep_minutes": 5})).status == 200
-            assert (await (await http.get("/api/status")).json())["agent"] == {"agent": "conversation.chatty", "keep_minutes": 5.0, "voice": {}, "conversations": {}}
+            assert (await (await http.get("/api/status")).json())["agent"] == {"agent": "conversation.chatty", "keep_minutes": 5.0, "voice": {}, "conversations": []}
             # Its own voice: Piper's (one of its voices and speakers) or a TTS entity's; refused, why.
             voice = {"tts": "tts.cloud", "tts_language": "auto", "tts_voice": "GuyNeural"}
             assert (await http.put("/api/settings", json={"agent_voice": voice})).status == 200
@@ -820,7 +836,7 @@ async def _scenario(tmp_path: Path) -> None:
             assert hass.conversations[-1]["conversation_id"] == "conversation-1"
             assert next(s for s in app.calls.recent[-1].stages if s["stage"] == "agent")["continued"]
             # ... until it has been quiet for longer than it is kept.
-            app.agent.conversations[conversation_key(app.satellite(MAC))].at -= 301
+            app.agent.conversations[("conversation.chatty", conversation_key(app.satellite(MAC)))].at -= 301
             await agent_said("who wrote the iliad")
             assert "conversation_id" not in hass.conversations[-1]
             # Skills answer first; a question about now or here is the agent's.
@@ -830,6 +846,36 @@ async def _scenario(tmp_path: Path) -> None:
             asked = len(hass.conversations)
             assert (await agent_said("nonsense words"))[0] == "Sorry, I didn't understand that."
             assert len(hass.conversations) == asked + 1
+            # A typed test with nobody picked is the only person's, as a call
+            # would be: their own agent gets it.
+            app.store.people["Mike"] = {"agent": "conversation.home_assistant"}
+            assert app.agent_for("Mike") == "conversation.home_assistant"
+            text, record = await agent_said("who wrote the aeneid")
+            assert text == "conversation.home_assistant heard who wrote the aeneid"
+            assert next(s for s in record.stages if s["stage"] == "agent")["agent"] == "conversation.home_assistant"
+            del app.store.people["Mike"]
+            # Two agents in one area keep their own conversations: neither is
+            # sent the other's.
+            key = conversation_key(app.satellite(MAC))
+            await app.agent.ask(key, "hello chatty", None, "en")
+            chatty = app.agent.conversations[("conversation.chatty", key)].id
+            await app.agent.ask(key, "hello home", None, "en", agent_id="conversation.home_assistant")
+            assert hass.conversations[-1].get("conversation_id") != chatty
+            home = app.agent.conversations[("conversation.home_assistant", key)].id
+            assert home != chatty
+            await app.agent.ask(key, "and again", None, "en")
+            assert hass.conversations[-1]["conversation_id"] == chatty
+            # A person picked in Test it is the speaker: theirs gets what
+            # nothing understood, as a call from them would.
+            app.store.people["Mike"] = {"agent": "conversation.home_assistant"}
+            record = await app.try_text("who wrote the aeneid", MAC, run_actions=True, speaker="mike")
+            assert next(s for s in record.stages if s["stage"] == "typed")["speaker"] == "Mike"
+            assert next(s for s in record.stages if s["stage"] == "speech")["text"] == (
+                "conversation.home_assistant heard who wrote the aeneid"
+            )
+            response = await http.post("/api/try", json={"text": "hello", "speaker": "Nobody"})
+            assert response.status == 400 and "speaker" in (await response.json())["error"]
+            del app.store.people["Mike"]
             # Home Assistant's own agent has nothing to stream; nor has an
             # integration from before it streamed: asked at once.
             assert (await http.put("/api/settings", json={"agent": "conversation.home_assistant"})).status == 200
@@ -1319,7 +1365,10 @@ async def _follow_ups(tmp_path):
         assert first.outcome == "answered" and stage(first, "speech")["text"].endswith("Anything else?")
         assert session.follow_up is not None and session.follow_up.kind == "agent"
         assert satellite.played - played > len(listening)
-        conversation_id = app.agent.conversations[conversation_key(app.satellite(MAC))].id
+        conversation_id = app.agent.conversations[("conversation.chatty", conversation_key(app.satellite(MAC)))].id
+        # The follow-up goes back to the agent that asked, whatever else
+        # changes meanwhile.
+        assert session.follow_up.agent == "conversation.chatty"
 
         # The answer, with no wake word: to the agent as said, in the same
         # conversation -- which asks again.
@@ -1776,6 +1825,19 @@ async def _voices(tmp_path: Path) -> None:
         app.store.settings["agent_voice"] = {"tts": "tts.fake_cloud", "tts_voice": "GuyNeural"}
         assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
         assert spoken[-1]["options"] == {"voice": "GuyNeural"}
+        del app.store.people["Anna"]
+        # A person's own agent and answer voice: a call from them (the only
+        # person here) goes to theirs, and its answer is said in theirs, over
+        # the agent's own.
+        app.store.people["Anna"] = {
+            "agent": "conversation.chatty",
+            "agent_voice": {"tts": "tts.fake_cloud", "tts_voice": "AriaNeural"},
+        }
+        streams = len(hass.tts_streams)
+        assert await satellite.call(read_call(CALLS / "call-19757.wav")) == "done"
+        assert hass.conversations[-1]["agent_id"] == "conversation.chatty"
+        assert len(hass.tts_streams) == streams + 1
+        assert list(hass.tts_streams.values())[-1]["message"]["options"] == {"voice": "AriaNeural"}
         del app.store.people["Anna"]
         for key in ("agent", "agent_voice"):
             del app.store.settings[key]

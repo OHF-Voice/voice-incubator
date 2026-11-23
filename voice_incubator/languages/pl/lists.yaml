@@ -110,3 +110,7 @@ hvac_modes:
   auto: [automatyczny, auto, automat, tryb automatyczny]
   dry: [osuszanie, osuszania]
   fan_only: [wentylacja, wentylację, sam wentylator, tylko wentylator]
+everywhere:
+  # Where an announcement goes when no area or floor is said: only with one of
+  # these.
+  everywhere: [wszędzie, wszystkim, całym domu, cały dom, wszystkich pokojach]

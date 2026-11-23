@@ -1,5 +1,68 @@
 # Changelog
 
+## Unreleased
+
+- **Announcements need a place.** "Announce dinner is ready" alone no
+  longer goes to every satellite: say an area or a floor ("announce dinner
+  is ready in the kitchen"), or a whole-house word from the new
+  "everywhere" list ("tell everyone dinner is ready", "announce dinner is
+  ready to the whole house"). The same in all 9 languages, with their own
+  words.
+- **Each person's own conversation agent.** What nothing here understood
+  goes to the speaker's agent, picked on their page under People, else the
+  home's; its answers can have a voice of their own. Conversations are kept
+  by agent and area, and an agent's question is answered to the agent that
+  asked it. Test it can take a person as the speaker (#7).
+- **The chosen voice on satellites without a media player.** A satellite
+  set to one of Home Assistant's text-to-speech voices but with no media
+  player there was answered by Piper; that voice's audio is now played over
+  the call. If it fails on a sentence, Piper says the rest (#30).
+- **Satellites are found after the app restarts, even if they answer no
+  mDNS queries.** Each one's last address is kept and dialled at start; a
+  satellite on weak Wi-Fi stayed unfound until it was power-cycled (#21).
+- **Replies at 48 kHz on firmware that takes it.** Firmware with protocol 3
+  gets replies at 48 kHz, so speech keeps what's above 8 kHz; Piper is
+  resampled once, straight from its own rate. Older firmware stays at
+  16 kHz.
+- **Settings is a page of its own,** no longer a tab of Whole Home, with
+  Pronunciations as one of its tabs in Kaldi mode. The app's version is
+  shown at the top right.
+- **Sessions:** through Wyoming, Home Assistant's speech-to-text and the
+  conversation agent given its words are paired on the Sessions list and
+  link to each other. Each step also shows its time since speech ended
+  (#29).
+
+## 0.3.3
+
+- **Satellites stay connected on a weak Wi-Fi link.** Missed mDNS
+  refreshes expired a satellite's record while it was still there, which
+  ended its session; nothing reconnected until it was found again, ~50
+  minutes in one report. A session now ends only on its own connection and
+  keeps reconnecting to the last address it had, and a satellite whose
+  name got no answer is asked again (#18).
+- **Home Assistant restarting, or starting after the app, is waited for.**
+  The app read it before its integrations were loaded: the integration
+  stayed "not loaded" and the home's sentence triggers were missing until
+  the app was restarted. Now nothing is read until Home Assistant says it
+  has started (#15, #1).
+- **Voice Incubator as its own conversation agent doesn't loop.** With the
+  fallback agent set to Voice Incubator's Wyoming agent in Home Assistant,
+  a sentence it didn't know was asked of itself again and again. It's now
+  said "Sorry, I didn't understand that" once, with a warning in the log to
+  choose another agent (#9).
+- **The integration is installed from the Marketplace,** which HACS became
+  in Home Assistant 2026.11, with no restart (#12).
+- **The integration notice is shown once,** its state in plain words ("is
+  not loaded in Home Assistant", not "not_loaded").
+- **A device heard only in its area, said with that area elsewhere, says
+  so:** "the Fan in the Office can only be controlled from there", not
+  "there's no Fan here, only in the Office".
+- **Sentence triggers win over an area's own commands as good as them,** as
+  Home Assistant runs a trigger before its intents.
+- **English:** "change the lights to blue" sets the color and color
+  temperature; "what's the time" and "tell me the time" tell it, like the
+  date.
+
 ## 0.3.2
 
 - **Small boxes don't run out of memory building the home's sentences.**

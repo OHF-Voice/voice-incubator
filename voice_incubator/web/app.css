@@ -58,6 +58,7 @@ pre { background: var(--code); padding: 10px; border-radius: 6px; overflow: auto
   position: sticky; top: 0; z-index: 10;
 }
 .brand img { display: block; height: 32px; width: auto; }
+.version { color: var(--muted); font-size: 0.78rem; margin-left: -8px; }
 nav { display: flex; gap: 4px; flex-wrap: wrap; }
 nav a { padding: 6px 10px; border-radius: 6px; color: var(--text); }
 nav a.active { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
@@ -165,6 +166,16 @@ h2.row { gap: 8px; align-items: center; }
 a.session-row { color: inherit; flex-wrap: nowrap; }
 a.session-row:hover { text-decoration: none; background: var(--bg); }
 .session-row .heard { font-weight: 600; overflow-wrap: anywhere; }
+/* Home Assistant's speech-to-text and the conversation agent given its
+   words: one request, two sessions, bracketed together. */
+.session-pair { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+.session-pair:first-child { border-top: none; }
+.session-pair .pair-link { flex: none; display: flex; align-items: center; margin: 8px 0; padding: 0 2px; border: 2px solid var(--accent); border-right: none; border-radius: 6px 0 0 6px; width: 14px; }
+.session-pair .pair-link .icon { width: 16px; height: 16px; color: var(--accent); background: var(--panel); margin-left: -11px; }
+.session-pair .session-row + .session-row { border-top-style: dashed; }
+a.linked-session { display: flex; gap: 8px; align-items: center; color: inherit; margin: 10px 0; }
+a.linked-session:hover { text-decoration: none; filter: brightness(0.97); }
+a.linked-session .icon { color: var(--accent); }
 .session-side { flex: none; display: flex; align-items: center; gap: 10px; }
 .session-meta { display: flex; flex-direction: column; text-align: right; white-space: nowrap; }
 @media (max-width: 640px) {
@@ -183,6 +194,8 @@ details.step > summary { list-style: none; display: flex; align-items: center; g
 details.step > summary::-webkit-details-marker { display: none; }
 details.step > summary:hover { background: var(--bg); }
 .step-at { flex: none; width: 4.6em; text-align: right; color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.step-at > span { display: block; white-space: nowrap; }
+.step-at .step-after-speech { font-size: 0.9em; }
 .step-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--chip); }
 .step-icon .icon { width: 18px; height: 18px; }
 details.step.ok .step-icon { background: var(--ok-soft); }
@@ -198,7 +211,6 @@ details.step.warn .step-icon .icon, details.step.warn .step-status { color: var(
 .step-body { margin: 2px 0 10px calc(4.6em + 28px); padding: 4px 0 4px 16px; border-left: 2px solid var(--line); }
 .step-body details.raw { margin-top: 6px; }
 @media (max-width: 640px) {
-  .step-at { width: 3.9em; }
   .step-body { margin-left: 4px; }
 }
 /* A panel that opens: its title is the summary. */

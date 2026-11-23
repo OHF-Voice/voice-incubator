@@ -2,7 +2,9 @@
 PROTOCOL.md; the ESPHome component voice_incubator, voice_labs before it).
 
 Frames are ``uint8 type | uint16 big-endian length | payload``. Audio payloads
-are raw 16 kHz, 16-bit, mono PCM; control payloads are JSON.
+are raw 16-bit mono PCM, at 16 kHz -- but AUDIO_OUT at the rate the app chose
+(CONFIG) from the satellite's ``output_sample_rates``; control payloads are
+JSON.
 """
 
 from __future__ import annotations
@@ -17,12 +19,20 @@ HEADER = struct.Struct(">BH")
 MAX_PAYLOAD = 4096
 
 SAMPLE_RATE = 16000
+"""The microphones', and what the app's own audio is made at."""
 BYTES_PER_SAMPLE = 2
 BYTE_RATE = SAMPLE_RATE * BYTES_PER_SAMPLE
 
+OUTPUT_RATE = 48000
+"""What the app plays in on a satellite that offers it (HELLO
+``output_sample_rates``, CONFIG): the VPE speaker's own rate, so replies are
+played as Piper made them -- not cut to 16 kHz, and not resampled again on
+the device."""
 
-PROTOCOL = 2
-"""What this app speaks. Protocol 2 added HELLO's ``model``, ``firmware``,
+
+PROTOCOL = 3
+"""What this app speaks. Protocol 3 added HELLO's ``output_sample_rates`` and
+CONFIG. Protocol 2 added HELLO's ``model``, ``firmware``,
 ``aec`` and ``wake_format``, and the service name ``_voice-incubator``; a
 protocol 1 satellite (the Voice Labs firmware) is a VPE: both captures, and
 mixednet wake words."""
@@ -80,6 +90,10 @@ class Message(IntEnum):
     someone listening live, with WAKE_REPORTs; meanwhile a wake word does not
     start a call. The device shows it (the VPE's ring blinks red). Firmware
     that can says ``"monitor": true`` in HELLO."""
+    CONFIG = 0x15
+    """{"output_sample_rate": 48000}: AUDIO_OUT at this rate from now on, for
+    this connection -- one of HELLO's ``output_sample_rates`` (protocol 3).
+    Sent once, after HELLO and before any audio; without it, 16 kHz."""
     MODEL_START = 0x20
     """A model's header; its blob follows (MODEL_DATA), then MODEL_END.
     Firmware that runs "stop" only while it arms it (a reply, a ringing
@@ -118,6 +132,8 @@ class Hello:
     monitor: bool
     intercom: bool
     listen: bool
+    output_sample_rates: tuple[int, ...] = (SAMPLE_RATE,)
+    """The rates AUDIO_OUT may come in (protocol 3; before it, 16 kHz alone)."""
 
     @classmethod
     def parse(cls, info: dict[str, Any]) -> Hello:
@@ -125,6 +141,10 @@ class Hello:
         first = protocol < 2
         slots = info.get("model_slots")
         lead = info.get("aec_lead_samples")
+        rates = info.get("output_sample_rates")
+        output_rates = tuple(
+            int(r) for r in (rates if isinstance(rates, list) else []) if isinstance(r, (int, float)) and r > 0
+        )
         return cls(
             protocol=protocol,
             name=str(info.get("name") or ""),
@@ -141,6 +161,7 @@ class Hello:
             monitor=bool(info.get("monitor")),
             intercom=bool(info.get("intercom")),
             listen=bool(info.get("listen")),
+            output_sample_rates=output_rates or (SAMPLE_RATE,),
         )
 
 

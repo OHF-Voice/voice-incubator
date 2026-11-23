@@ -46,7 +46,8 @@ speaks English.
 
 - **It knows who's speaking.** Enroll voices on the People page, and "add
   call mom to my to-do list", "remind me" and "play my playlist" are the
-  speaker's own.
+  speaker's own. Their own conversation agent, and the voice its answers are
+  said in, are picked there too.
 - **By area.** A command is the whole home's or one area's, and the whole
   home's can be turned off where they don't belong ("That command isn't
   available in the Kitchen"). Do not disturb and night mode, area by area.
@@ -83,10 +84,11 @@ satellite Home Assistant has.
    Kristin (its voice) -- into its own storage, and its page shows how far it
    got. Later starts and updates keep them.
 2. **The integration.**
-   [![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=OHF-Voice&repository=integration-voice-incubator&category=integration)
-   In [HACS](https://hacs.xyz), add `https://github.com/OHF-Voice/integration-voice-incubator`
-   as a custom repository of type **Integration**, download **Voice Incubator**,
-   and restart Home Assistant. The app sets it up the next time it connects.
+   [![Open this repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=OHF-Voice&repository=integration-voice-incubator&category=integration)
+   In Home Assistant's [Marketplace](https://www.home-assistant.io/integrations/marketplace/)
+   (**Settings** > **Marketplace** > **Add from link**), add
+   `https://github.com/OHF-Voice/integration-voice-incubator` and install
+   **Voice Incubator**. The app sets it up the next time it connects.
    It gives each satellite a device and its timers, and runs Assist's intents
    for the app.
 3. **The satellites.** Flash a Home Assistant Voice Preview Edition from its

@@ -66,6 +66,12 @@ class CallRecord:
     marks: dict[str, float] = field(default_factory=dict)
     """Moments in the call audio, in seconds: detection, wake word, cut..."""
 
+    links: dict[str, str] = field(default_factory=dict)
+    """Other records this one goes with, by what they were to it: through
+    Wyoming, ``heard`` (the speech-to-text that heard what this one, the
+    conversation agent, was given) and ``handled`` (that conversation
+    agent's, on the speech-to-text's)."""
+
     kept: bool = False
     debug_session: bool = False
     dry_run: bool = False
@@ -89,6 +95,7 @@ class CallRecord:
             "kept": self.kept,
             "debug_session": self.debug_session,
             "dry_run": self.dry_run,
+            "links": self.links,
         }
         if full:
             out["stages"] = self.stages
@@ -111,6 +118,12 @@ class CallRecord:
                 }
             elif kind == "follow_up":
                 out["follow_up"] = True  # an answer: no wake word
+            elif kind == "transcribe" and self.kind == "wyoming":
+                out["step"] = "stt"  # Home Assistant's speech-to-text
+            elif kind == "typed" and self.kind == "wyoming":
+                out["step"] = "agent"  # Home Assistant's conversation agent
+                if stage.get("text"):
+                    out["heard"] = stage["text"]
             elif kind == "typed" and stage.get("text"):
                 out["heard"] = stage["text"]
             elif kind == "recognition":
@@ -132,7 +145,7 @@ class CallRecord:
     def from_json(cls, data: dict[str, Any]) -> "CallRecord":
         record = cls(data["id"], data.get("kind", "call"), data.get("satellite") or {})
         for key in (
-            "started", "stages", "outcome", "summary", "audio", "marks", "kept",
+            "started", "stages", "outcome", "summary", "audio", "marks", "links", "kept",
             "debug_session", "dry_run", "finished",
         ):
             if key in data:

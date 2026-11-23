@@ -15,16 +15,23 @@ add renew my passport to my to do list: {"command": "todo_add_mine", "slots": {"
 alarm at noon: null
 all the doors are locked: {"command": "all_locked", "slots": {"asked": "locked"}}
 announce come and get it in the kitchen: {"command": "announce", "slots": {"area": ["kitchen"], "message": "come and get it"}}
+announce dinner is ready everywhere please: {"command": "announce", "slots": {"message": "dinner is ready", "everywhere": "everywhere"}}
 announce dinner is ready in the kitchen: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
 announce dinner is ready in the kitchen please: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
-announce dinner is ready please: {"command": "announce", "slots": {"message": "dinner is ready"}}
-announce i love you: {"command": "announce", "slots": {"message": "i love you"}}
+announce dinner is ready please: null
+announce dinner is ready to the whole house: {"command": "announce", "slots": {"message": "dinner is ready", "everywhere": "everywhere"}}
+announce dinner is ready upstairs: {"command": "announce", "slots": {"floor": ["upstairs"], "message": "dinner is ready"}}
+announce everywhere that i love it please: {"command": "announce", "slots": {"everywhere": "everywhere", "message": "i love it"}}
+announce i love you: null
 announce in the kitchen dinner is ready: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
 announce in the kitchen that i love you: {"command": "announce", "slots": {"area": ["kitchen"], "message": "i love you"}}
-announce that i love it: {"command": "announce", "slots": {"message": "i love it"}}
-announce that i love it please: {"command": "announce", "slots": {"message": "i love it"}}
-announce the kitchen is clean: {"command": "announce", "slots": {"message": "the kitchen is clean"}}
+announce on the upstairs dinner is ready: {"command": "announce", "slots": {"floor": ["upstairs"], "message": "dinner is ready"}}
+announce that i love it: null
+announce that i love it please: null
+announce the kitchen is clean: null
+announce to everyone that i love it: {"command": "announce", "slots": {"everywhere": "everywhere", "message": "i love it"}}
 announce to the office that the pizza is here: {"command": "announce", "slots": {"area": ["office"], "message": "the pizza is here"}}
+announce to the whole house dinner is ready: {"command": "announce", "slots": {"everywhere": "everywhere", "message": "dinner is ready"}}
 are all the doors locked: {"command": "all_locked", "slots": {"asked": "locked"}}
 are all the fans off in the kitchen: null
 are the lights on: {"command": "any_lights_on_here"}
@@ -36,6 +43,7 @@ brighten the lights: {"command": "brighter_here", "slots": {"step": 30}}
 brighten the lights by 20: null
 brighten the lights to 80 percent: {"command": "set_brightness_here", "slots": {"percentage": 80}}
 brighten the screen: null
+broadcast in the kitchen dinner is ready: {"command": "announce", "slots": {"area": ["kitchen"], "message": "dinner is ready"}}
 can i get some light in the living room: null
 can you play something by the beatles: {"command": "play_music_here", "slots": {"query": "something by the beatles"}}
 cancel all my timers: null
@@ -243,6 +251,8 @@ take call the plumber off the to do list: {"command": "todo_remove", "slots": {"
 take fix the gate off my to do list: {"command": "todo_remove_mine", "slots": {"item": "fix the gate"}}
 take milk off the list: {"command": "shopping_list_remove", "slots": {"item": "milk"}}
 take my passport off my to do list: {"command": "todo_remove_mine", "slots": {"item": "passport"}}
+tell everybody dinner is ready: {"command": "announce", "slots": {"everywhere": "everywhere", "message": "dinner is ready"}}
+tell everyone i love you: {"command": "announce", "slots": {"everywhere": "everywhere", "message": "i love you"}}
 tell me a joke: null
 tell me about the date: {"command": "what_date"}
 tell me the date: {"command": "what_date"}

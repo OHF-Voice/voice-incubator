@@ -2,9 +2,10 @@
 # announcements between them, the intercom, a satellite's own volume, and
 # never mind.
 #
-# An announcement is said on the other satellites, after a chime: every one, or
-# those in the area or on the floor named. One in a call, ringing a timer or
-# joined by the intercom says it once that is over (within a minute).
+# An announcement is said on the other satellites, after a chime: those in the
+# area or on the floor named, or every one when that is said ("everywhere").
+# One in a call, ringing a timer or joined by the intercom says it once that is
+# over (within a minute).
 #
 # The intercom joins this satellite and the one in the area named, once this
 # call ends: what is said at each is heard at the other. Both stop answering
@@ -22,17 +23,21 @@ commands:
     title: Announce
     icon: mdi:bullhorn
     description: ogłosić coś na pozostałych satelitach
-    # "Ogłoś, że obiad gotowy", "powiedz wszystkim, że obiad gotowy", "ogłoś
-    # na piętrze, że obiad gotowy", "ogłoś w kuchni obiad gotowy".
-    require: [[ogłoś, ogłosić, rozgłoś, zakomunikuj, powiedz wszystkim, przekaż wszystkim]]
-    optional: [[że]]
+    # In the area or on the floor said, before or after the message: "ogłoś w
+    # kuchni, że obiad gotowy", "ogłoś, że obiad gotowy, w kuchni". Every one
+    # only when said: "powiedz wszystkim, że obiad gotowy", "ogłoś w całym domu,
+    # że obiad gotowy".
+    require: [[ogłoś, ogłosić, rozgłoś, zakomunikuj, powiedz, przekaż]]
+    optional: [[że], [w, we, na, do]]
     names:
       area: {count: 1}
       floor: {count: 1}
-    combinations: [[message], [area, message], [floor, message]]
+    lists:
+      everywhere: {list: everywhere}
+    combinations: [[area, message], [floor, message], [everywhere, message]]
     wildcard:
       slot: message
-      after: [ogłoś, ogłosić, rozgłoś, zakomunikuj, powiedz wszystkim, przekaż wszystkim, że]
+      after: [ogłoś, ogłosić, rozgłoś, zakomunikuj, powiedz, przekaż, że]
       to_end: true
       max_words: 15
     announce: "{{ slots.message }}"

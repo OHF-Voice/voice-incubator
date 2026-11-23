@@ -108,3 +108,7 @@ hvac_modes:
   auto: [авто, автоматичний, автоматичному]
   dry: [осушення]
   fan_only: [вентиляція, лише вентилятор, тільки вентилятор]
+everywhere:
+  # Where an announcement goes when no area or floor is said: only with one of
+  # these.
+  everywhere: [скрізь, всюди, усюди, всім, усім, всьому будинку, усьому будинку, всіх кімнатах, усіх кімнатах]

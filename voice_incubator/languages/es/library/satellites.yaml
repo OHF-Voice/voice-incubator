@@ -2,9 +2,10 @@
 # announcements between them, the intercom, a satellite's own volume, and
 # never mind.
 #
-# An announcement is said on the other satellites, after a chime: every one, or
-# those in the area or on the floor named. One in a call, ringing a timer or
-# joined by the intercom says it once that is over (within a minute).
+# An announcement is said on the other satellites, after a chime: those in the
+# area or on the floor named, or every one when that is said ("everywhere").
+# One in a call, ringing a timer or joined by the intercom says it once that is
+# over (within a minute).
 #
 # The intercom joins this satellite and the one in the area named, once this
 # call ends: what is said at each is heard at the other. Both stop answering
@@ -22,18 +23,21 @@ commands:
     title: Announce
     icon: mdi:bullhorn
     description: anunciar algo en los otros satélites
-    # "Anuncia que la cena está lista", "di a todos que la cena está lista",
-    # "anuncia en la cocina que la cena está lista", "anuncia en la planta de
-    # arriba que nos vamos".
-    require: [[anuncia, anunciar, avisa a todos, dile a todos, di a todos, diles a todos]]
-    optional: [[que]]
+    # In the area or on the floor said, before or after the message: "anuncia en
+    # la cocina que la cena está lista", "anuncia que la cena está lista en la
+    # cocina". Every one only when said: "di a todos que la cena está lista",
+    # "anuncia en toda la casa que la cena está lista".
+    require: [[anuncia, anunciar, avisa, dile, di, diles]]
+    optional: [[que], [a, en, por]]
     names:
       area: {count: 1}
       floor: {count: 1}
-    combinations: [[message], [area, message], [floor, message]]
+    lists:
+      everywhere: {list: everywhere}
+    combinations: [[area, message], [floor, message], [everywhere, message]]
     wildcard:
       slot: message
-      after: [anuncia, anunciar, avisa a todos, dile a todos, di a todos, diles a todos, que]
+      after: [anuncia, anunciar, avisa, dile, di, diles, que]
       to_end: true
       max_words: 15
     announce: "{{ slots.message }}"

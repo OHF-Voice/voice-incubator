@@ -6,7 +6,9 @@ LLM's (OpenAI, Google, Ollama ...) -- as the Voice PE sends everything it
 hears. Its answer is said instead of "Sorry, I didn't understand that."
 
 A conversation is kept in each area (``conversation_key``: every satellite
-there shares it; one in no area has its own): the agent's
+there shares it; one in no area has its own), and by the agent asked: a
+person's own agent (voice_incubator/people.py) has its own conversation there,
+so neither is ever sent the other's ``conversation_id``. The agent's
 ``conversation_id`` is sent back with the next sentence that goes to it, so
 "what's the tallest mountain?" ... "how tall is it?" follows on, and Home
 Assistant's chat log keeps the whole of it under that id. It is forgotten
@@ -176,19 +178,22 @@ class Streamed:
 
 class Agent:
     """A Home Assistant conversation agent, and each satellite's conversation
-    with it."""
+    with it -- or with a person's own, which the home's may not be."""
 
     def __init__(self, hass: HomeAssistant, agent_id: str | None = None, keep_seconds: float = KEEP_SECONDS) -> None:
         self.hass = hass
         self.agent_id = agent_id
-        """None: no agent; nothing is sent."""
+        """The home's agent; None: no agent, nothing is sent unless a person
+        has one of their own."""
         self.keep_seconds = keep_seconds
-        self.conversations: dict[str, Conversation] = {}
-        """By conversation_key."""
+        self.conversations: dict[tuple[str, str], Conversation] = {}
+        """By agent and conversation_key."""
         self._extra_fields = True
         """Whether Home Assistant takes ``device_id`` (2026.10 and later)."""
         self._streams = True
         """Whether the integration streams answers (asked again on reconnecting)."""
+        self._asking: dict[str, int] = {}
+        """What is being asked now (``key_of``), how many times."""
         if hasattr(hass, "on_connect"):
             hass.on_connect(self._reconnected)
 
@@ -201,23 +206,39 @@ class Agent:
         self.agent_id = agent_id
         self.keep_seconds = keep_seconds
 
-    def conversation(self, key: str, now: float | None = None) -> Conversation | None:
-        """The conversation ``key`` (conversation_key), while it is kept."""
+    def conversation(self, key: str, agent_id: str | None = None, now: float | None = None) -> Conversation | None:
+        """The conversation ``key`` (conversation_key) with ``agent_id`` (the
+        home's unless given), while it is kept."""
         now = time.monotonic() if now is None else now
-        conversation = self.conversations.get(key)
+        found = (agent_id or self.agent_id, key)
+        conversation = self.conversations.get(found)
         if conversation is not None and now - conversation.at > self.keep_seconds:
-            del self.conversations[key]
+            del self.conversations[found]
             return None
         return conversation
 
-    def status(self) -> dict[str, float]:
-        """Seconds each conversation (by conversation_key) is kept for yet."""
+    def status(self) -> list[dict[str, Any]]:
+        """Each conversation kept, by agent and conversation_key, and seconds
+        it is kept for yet."""
         now = time.monotonic()
-        return {
-            key: round(self.keep_seconds - (now - c.at), 1)
-            for key in list(self.conversations)
-            if (c := self.conversation(key, now)) is not None
-        }
+        out = []
+        for (agent_id, key), conversation in list(self.conversations.items()):
+            if self.conversation(key, agent_id, now) is not None:
+                out.append({
+                    "agent": agent_id,
+                    "conversation": key,
+                    "seconds": round(self.keep_seconds - (now - conversation.at), 1),
+                })
+        return out
+
+    @staticmethod
+    def key_of(text: str) -> str:
+        return " ".join(text.lower().split())
+
+    def asking(self, text: str) -> bool:
+        """``text`` is being asked of the agent now: the app hearing it from
+        Home Assistant meanwhile is the agent being the app itself."""
+        return self.key_of(text) in self._asking
 
     async def agents(self) -> list[dict[str, Any]]:
         """Home Assistant's conversation agents: ``[{id, name}]``."""
@@ -226,22 +247,25 @@ class Agent:
 
     async def ask(
         self, key: str, text: str, device_id: str | None = None, language: str | None = None,
-        on_text: Callable[[str], None] | None = None,
+        on_text: Callable[[str], None] | None = None, agent_id: str | None = None,
     ) -> Reply:
-        """``text`` said in conversation ``key`` (conversation_key), for the
-        agent. An LLM agent's answer goes to ``on_text`` a piece at a time,
-        as it is made."""
-        assert self.agent_id is not None
-        reply = Reply(self.agent_id)
-        kept = self.conversation(key)
-        message: dict[str, Any] = {"type": "conversation/process", "text": text, "agent_id": self.agent_id}
+        """``text`` said in conversation ``key`` (conversation_key), for
+        ``agent_id`` (the home's unless given). An LLM agent's answer goes to
+        ``on_text`` a piece at a time, as it is made."""
+        agent_id = agent_id or self.agent_id
+        assert agent_id is not None
+        reply = Reply(agent_id)
+        kept = self.conversation(key, agent_id)
+        message: dict[str, Any] = {"type": "conversation/process", "text": text, "agent_id": agent_id}
         if kept is not None:
             message["conversation_id"] = kept.id
             reply.continued = True
         if language:
             message["language"] = language
         started = time.perf_counter()
-        streaming = on_text is not None and self._streams and self.agent_id != HOME_ASSISTANT_AGENT
+        streaming = on_text is not None and self._streams and agent_id != HOME_ASSISTANT_AGENT
+        asked = self.key_of(text)
+        self._asking[asked] = self._asking.get(asked, 0) + 1
         try:
             if streaming:
                 assert on_text is not None
@@ -258,8 +282,13 @@ class Agent:
         except (HassError, ConnectionError, OSError, TimeoutError) as err:
             reply.error = str(err) or type(err).__name__
             reply.seconds = time.perf_counter() - started
-            _LOGGER.warning("Conversation agent %s could not be asked: %s", self.agent_id, reply.error)
+            _LOGGER.warning("Conversation agent %s could not be asked: %s", agent_id, reply.error)
             return reply
+        finally:
+            if self._asking[asked] > 1:
+                self._asking[asked] -= 1
+            else:
+                del self._asking[asked]
         reply.seconds = time.perf_counter() - started
         response = (result or {}).get("response") or {}
         reply.response_type = response.get("response_type")
@@ -270,7 +299,7 @@ class Agent:
         reply.wants_answer = bool((result or {}).get("continue_conversation")) or asks(reply.text)
         reply.conversation_id = (result or {}).get("conversation_id") or None
         if reply.conversation_id:
-            self.conversations[key] = Conversation(reply.conversation_id, time.monotonic())
+            self.conversations[(agent_id, key)] = Conversation(reply.conversation_id, time.monotonic())
         return reply
 
     async def _stream(
@@ -323,12 +352,13 @@ class Agent:
 
     async def _process(self, message: dict[str, Any], device_id: str | None) -> Any:
         """Send it with the satellite's device, which Home Assistant before
-        2026.10 refuses: then without."""
+        2026.10 refuses: then without. (Refused for anything else, such as an
+        agent that is gone, it stays refused.)"""
         if device_id and self._extra_fields:
             try:
                 return await self.hass.call({**message, "device_id": device_id}, timeout=ASK_TIMEOUT)
             except HassError as err:
-                if "extra keys" not in str(err) and "invalid_format" not in str(err):
+                if "device_id" not in str(err):
                     raise
                 self._extra_fields = False
         return await self.hass.call(message, timeout=ASK_TIMEOUT)

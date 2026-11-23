@@ -12,6 +12,13 @@ both. What can be theirs:
 ``tts``           the voice replies to them are said in: a text-to-speech
                   entity (or ``builtin``), with ``tts_language`` and
                   ``tts_voice``; else the satellite's
+``agent``         the Home Assistant conversation agent what nothing here
+                  understood goes to, when they are speaking; else the
+                  home's (``settings.json`` ``agent``)
+``agent_voice``   the voice that agent's answers are said in, as
+                  ``settings.json`` ``agent_voice`` has it: Piper's (``tts:
+                  builtin``, its ``voice`` and ``speaker``) or a
+                  text-to-speech entity's; else the home's
 ``wake_words``    wake words that are theirs (ids): "Okay Nabu (Mike)",
                   trained on their recordings
 ================  ==========================================================
@@ -43,7 +50,13 @@ THINGS: dict[str, tuple[str | None, str]] = {
 """What can be someone's own: its Home Assistant domain (None: a name), and
 the slot a command with ``mine`` gets it in."""
 VOICE_KEYS = ("tts", "tts_language", "tts_voice")
-KEYS = (*THINGS, *VOICE_KEYS, "wake_words")
+AGENT_VOICE_KEYS = ("tts", "voice", "speaker", "tts_language", "tts_voice")
+"""A person's own voice for the conversation agent's answers: what
+``settings.json`` ``agent_voice`` has."""
+KEYS = (*THINGS, *VOICE_KEYS, "agent", "agent_voice", "wake_words")
+BUILTIN = "builtin"
+"""The app's own text-to-speech: as ``voices.BUILTIN`` has it, which people
+needs not load to read them."""
 
 BY = ("voice", "wake_word", "only_person")
 """How the speaker was known: their voice, the wake word (theirs), or being
@@ -152,13 +165,44 @@ def clean(spec: Any) -> dict[str, Any]:
             if words:
                 out[key] = words
             continue
+        if key == "agent_voice":
+            voice = agent_voice(value)
+            if voice:
+                out[key] = voice
+            continue
         value = str(value or "").strip()
         if not value:
             continue
+        if key == "agent":
+            if len(value) > 255 or any(c.isspace() for c in value):
+                raise ValueError("agent: a conversation agent's id")
         domain = THINGS[key][0] if key in THINGS else None
         if domain and (not ENTITY_ID.match(value) or value.split(".")[0] != domain):
             raise ValueError(f"{key}: a {domain} entity, like {domain}.mine")
         out[key] = value
+    return out
+
+
+def agent_voice(value: Any) -> dict[str, str]:
+    """A person's own voice for the conversation agent's answers, as the
+    People page sends it: none (empty: the home's), Piper's (``tts:
+    builtin``, with a ``voice`` and ``speaker``) or a text-to-speech
+    entity's (``tts_language``, ``tts_voice``). Its catalog is checked where
+    the page checks Settings' (web._agent_voice)."""
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("agent_voice: a mapping")
+    tts = str(value.get("tts") or "").strip()
+    if not tts:
+        return {}
+    if tts != BUILTIN and (not ENTITY_ID.match(tts) or tts.split(".")[0] != "tts"):
+        raise ValueError("agent_voice: tts is builtin or a tts entity")
+    out = {"tts": tts}
+    for key in AGENT_VOICE_KEYS[1:]:
+        said = str(value.get(key) or "").strip()
+        if said:
+            out[key] = said
     return out
 
 

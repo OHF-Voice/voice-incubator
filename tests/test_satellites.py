@@ -12,6 +12,7 @@ import numpy as np
 from voice_incubator import tones
 from voice_incubator.discover import Device
 from voice_incubator.server import Options, VoiceIncubatorApp
+from voice_incubator.tts import pcm_at
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -55,7 +56,10 @@ async def _scenario(tmp_path) -> None:
     hass, hass_server = await fake_hass.serve()
     hass_port = hass_server.sockets[0].getsockname()[1]
     hum = bytes(range(256)) * 8
-    kitchen = FakeSatellite(name="kitchen", mac=_mac(KITCHEN), speed=8.0, hello_extra={"intercom": True}, room_audio=hum)
+    # The kitchen's firmware plays at 48 kHz (protocol 3); the bedroom's, 16.
+    kitchen = FakeSatellite(name="kitchen", mac=_mac(KITCHEN), speed=8.0, room_audio=hum, hello_extra={
+        "intercom": True, "protocol": 3, "output_sample_rates": [16000, 48000],
+    })
     bedroom = FakeSatellite(name="bedroom", mac=_mac(BEDROOM), speed=8.0, hello_extra={"intercom": True})
     servers = [await serve(kitchen), await serve(bedroom)]
     hass.device_areas[f"device-{KITCHEN}"] = "kitchen"
@@ -72,6 +76,9 @@ async def _scenario(tmp_path) -> None:
         app._start_session(Device(BEDROOM, "127.0.0.1", servers[1].sockets[0].getsockname()[1], "test"))
         await asyncio.wait_for(asyncio.gather(kitchen.ready.wait(), bedroom.ready.wait()), 30)
         await wait_for(lambda: app.satellite(BEDROOM).area_id == "bedroom" and app.satellite(KITCHEN).area_id == "kitchen")
+        # Told before anything else; the bedroom, never.
+        assert kitchen.configs == [{"output_sample_rate": 48000, "models_before": 0}] and not bedroom.configs
+        assert (app.sessions[KITCHEN].output_rate, app.sessions[BEDROOM].output_rate) == (48000, 16000)
 
         # "Announce dinner is ready": the chime and it, on the other one only.
         record = await app.try_text("announce dinner is ready", KITCHEN, run_actions=True)
@@ -119,7 +126,11 @@ async def _scenario(tmp_path) -> None:
         assert bytes(bedroom.heard).startswith(tones.CONNECTED)
         relayed = np.frombuffer(bytes(bedroom.heard)[len(tones.CONNECTED):], dtype="<i2")
         assert np.abs(relayed).max() > 1000  # the kitchen, heard in the bedroom (filtered: Duplex)
-        await wait_for(lambda: len(kitchen.heard) > len(tones.CONNECTED) + 4096)  # and the other way
+        # And the other way, at the kitchen's 48 kHz: the tone resampled, the
+        # bedroom's microphone streamed through one resampler.
+        connected = pcm_at(tones.CONNECTED, 16000, 48000)
+        await wait_for(lambda: len(kitchen.heard) > len(connected) + 3 * 4096)
+        assert bytes(kitchen.heard).startswith(connected)
         assert app.intercom_problem(KITCHEN, BEDROOM) == "busy"
         # Busy meanwhile: an announcement waits for it.
         assert app.sessions[KITCHEN].intercom is app.sessions[BEDROOM].intercom
@@ -130,7 +141,7 @@ async def _scenario(tmp_path) -> None:
         assert app.sessions[KITCHEN].intercom is None and app.sessions[BEDROOM].intercom is None
         ended = next(r for r in reversed(app.calls.recent) if r.kind == "intercom")
         assert ended.outcome == "intercom ended" and "the button on" in ended.summary
-        await wait_for(lambda: bytes(kitchen.heard).endswith(tones.ENDED))
+        await wait_for(lambda: bytes(kitchen.heard).endswith(pcm_at(tones.ENDED, 16000, 48000)))
 
         # One "okay nabu" heard by both: the one that heard it better answers,
         # the other ends its call ("answered_elsewhere"). The bedroom's is
@@ -443,4 +454,97 @@ async def _out_of_mdns(tmp_path, monkeypatch) -> None:
         runner.cancel()
         await app.stop()
         server.close()
+        hass_server.close()
+
+
+def test_a_satellite_is_dialled_at_its_last_address_after_a_restart(tmp_path, monkeypatch):
+    asyncio.run(_restarted(tmp_path, monkeypatch))
+
+
+async def _restarted(tmp_path, monkeypatch) -> None:
+    """After the app restarts, a satellite answering no mDNS queries is dialled
+    at the address it had (issue #21) -- unless it's disabled in Home
+    Assistant (until it's enabled), or another satellite answers there now:
+    that address is forgotten."""
+    from voice_incubator import server as server_module
+
+    class Discovery:  # nothing answers mDNS
+        def __init__(self) -> None:
+            self.events: asyncio.Queue = asyncio.Queue()
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(server_module, "Discovery", Discovery)
+    hass, hass_server = await fake_hass.serve()
+    hass_port = hass_server.sockets[0].getsockname()[1]
+    kitchen = FakeSatellite(name="kitchen", mac=_mac(KITCHEN), speed=8.0)
+    bedroom = FakeSatellite(name="bedroom", mac=_mac(BEDROOM), speed=8.0)
+    servers = [await serve(kitchen), await serve(bedroom)]
+    ports = [server.sockets[0].getsockname()[1] for server in servers]
+    stored = tmp_path / "satellites.json"
+    running: list = []
+
+    async def start() -> VoiceIncubatorApp:
+        app = VoiceIncubatorApp(Options(
+            hass_url=f"http://127.0.0.1:{hass_port}", hass_token=fake_hass.TOKEN, data_dir=tmp_path,
+            http_port=free_port(), speaker_profiles=tmp_path / "speakers.json", threads=4, reconnect_seconds=0.1,
+        ))
+        await app.start()
+        running[:] = [app, asyncio.ensure_future(app.run_forever())]
+        await wait_for(lambda: app._discovery is not None)
+        return app
+
+    async def stop() -> None:
+        app, runner = running
+        runner.cancel()
+        await app.stop()
+        running.clear()
+
+    try:
+        # Found by mDNS: its address is kept.
+        app = await start()
+        app._discovery.events.put_nowait(("added", Device(KITCHEN, "127.0.0.1", ports[0], "test")))
+        await asyncio.wait_for(kitchen.ready.wait(), 30)
+        await wait_for(lambda: json.loads(stored.read_text())[KITCHEN].get("port") == ports[0])
+        assert json.loads(stored.read_text())[KITCHEN]["host"] == "127.0.0.1"
+        await wait_for(lambda: KITCHEN in hass.satellites)  # its device, to disable below
+        await stop()
+
+        # Restarted, nothing answering mDNS: dialled there all the same.
+        kitchen.ready.clear()
+        app = await start()
+        await asyncio.wait_for(kitchen.ready.wait(), 30)
+        assert app.sessions[KITCHEN].remembered
+        await stop()
+
+        # Disabled in Home Assistant: left alone, until it's enabled.
+        hass.set_disabled(f"device-{KITCHEN}", True)
+        kitchen.ready.clear()
+        app = await start()
+        await asyncio.sleep(1.0)
+        assert KITCHEN not in app._sessions and not kitchen.ready.is_set()
+        hass.set_disabled(f"device-{KITCHEN}", False)
+        await hass.registry_changed("device_registry_updated", {"action": "update", "device_id": f"device-{KITCHEN}"})
+        await asyncio.wait_for(kitchen.ready.wait(), 30)
+        await stop()
+
+        # Another satellite at that address now (a DHCP lease moved): the
+        # session ends and the address is forgotten.
+        entries = json.loads(stored.read_text())
+        entries[KITCHEN]["port"] = ports[1]
+        stored.write_text(json.dumps(entries))
+        app = await start()
+        await wait_for(lambda: "port" not in json.loads(stored.read_text())[KITCHEN])
+        await wait_for(lambda: KITCHEN not in app._sessions)
+        assert KITCHEN not in app._found and BEDROOM not in app.sessions and KITCHEN not in app.sessions
+        await stop()
+    finally:
+        if running:
+            await stop()
+        for server in servers:
+            server.close()
         hass_server.close()
