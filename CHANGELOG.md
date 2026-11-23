@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
 
 - **Announcements need a place.** "Announce dinner is ready" alone no
   longer goes to every satellite: say an area or a floor ("announce dinner
