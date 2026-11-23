@@ -473,8 +473,13 @@ async def _pipelines(tmp_path: Path) -> None:
         handled = Handled.from_event(events[-2])
         assert handled.text == pieces == "conversation.chatty heard what is the tallest mountain. Anything else?"
         assert handled.continue_conversation
-        await reply(port, "no thanks", conversation_id="c3", **KITCHEN)
-        assert app.calls.recent[-1].stages[-2]["stage"] == "answer"  # the agent's question, answered
+        # Answered to the agent that asked, though the home's changed since.
+        app.store.settings["agent"] = "conversation.home_assistant"
+        app.configure_agent()
+        await reply(port, "the one in nepal", conversation_id="c3", **KITCHEN)
+        assert "answer" in [s["stage"] for s in app.calls.recent[-1].stages]  # the agent's question, answered
+        assert hass.conversations[-1]["text"] == "the one in nepal"
+        assert hass.conversations[-1]["agent_id"] == "conversation.chatty"
         hass.asks_back = False
 
         # The conversation agent is the app itself (its Wyoming agent in Home

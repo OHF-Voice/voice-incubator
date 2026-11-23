@@ -263,7 +263,7 @@ class Agent:
         if language:
             message["language"] = language
         started = time.perf_counter()
-        streaming = on_text is not None and self._streams and self.agent_id != HOME_ASSISTANT_AGENT
+        streaming = on_text is not None and self._streams and agent_id != HOME_ASSISTANT_AGENT
         asked = self.key_of(text)
         self._asking[asked] = self._asking.get(asked, 0) + 1
         try:
@@ -352,12 +352,13 @@ class Agent:
 
     async def _process(self, message: dict[str, Any], device_id: str | None) -> Any:
         """Send it with the satellite's device, which Home Assistant before
-        2026.10 refuses: then without."""
+        2026.10 refuses: then without. (Refused for anything else, such as an
+        agent that is gone, it stays refused.)"""
         if device_id and self._extra_fields:
             try:
                 return await self.hass.call({**message, "device_id": device_id}, timeout=ASK_TIMEOUT)
             except HassError as err:
-                if "extra keys" not in str(err) and "invalid_format" not in str(err):
+                if "device_id" not in str(err):
                     raise
                 self._extra_fields = False
         return await self.hass.call(message, timeout=ASK_TIMEOUT)

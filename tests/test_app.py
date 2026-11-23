@@ -557,6 +557,9 @@ async def _scenario(tmp_path: Path) -> None:
             theirs = app.agent_voice(kitchen, people_mod.speaking(app.store.people, [], "Anna"))
             assert (theirs.voice.tts, theirs.voice.tts_voice) == ("tts.cloud", "AriaNeural")
             assert app.agent_voice(kitchen, people_mod.speaking(app.store.people, [], "Mike")).voice == kitchen.voice
+            # An answer voice is for their own agent's answers only.
+            voice_only = people_mod.Speaker(name="Anna", by="voice", own={"agent_voice": own["agent_voice"]})
+            assert app.agent_voice(kitchen, voice_only).voice == kitchen.voice
             response = await http.put("/api/people/Anna", json={"own": {"agent": "conversation chatty"}})
             assert response.status == 400 and "agent" in (await response.json())["error"]
             response = await http.put("/api/people/Anna", json={"own": {"agent_voice": {"tts": "light.kitchen"}}})
@@ -843,13 +846,13 @@ async def _scenario(tmp_path: Path) -> None:
             asked = len(hass.conversations)
             assert (await agent_said("nonsense words"))[0] == "Sorry, I didn't understand that."
             assert len(hass.conversations) == asked + 1
-            # A typed test has no speaker: the home's agent gets it, even with
-            # one person -- whose own agent a call from them would use.
+            # A typed test with nobody picked is the only person's, as a call
+            # would be: their own agent gets it.
             app.store.people["Mike"] = {"agent": "conversation.home_assistant"}
             assert app.agent_for("Mike") == "conversation.home_assistant"
             text, record = await agent_said("who wrote the aeneid")
-            assert text == "conversation.chatty heard who wrote the aeneid"
-            assert next(s for s in record.stages if s["stage"] == "agent")["agent"] == "conversation.chatty"
+            assert text == "conversation.home_assistant heard who wrote the aeneid"
+            assert next(s for s in record.stages if s["stage"] == "agent")["agent"] == "conversation.home_assistant"
             del app.store.people["Mike"]
             # Two agents in one area keep their own conversations: neither is
             # sent the other's.
@@ -857,7 +860,7 @@ async def _scenario(tmp_path: Path) -> None:
             await app.agent.ask(key, "hello chatty", None, "en")
             chatty = app.agent.conversations[("conversation.chatty", key)].id
             await app.agent.ask(key, "hello home", None, "en", agent_id="conversation.home_assistant")
-            assert "conversation_id" not in hass.conversations[-1]
+            assert hass.conversations[-1].get("conversation_id") != chatty
             home = app.agent.conversations[("conversation.home_assistant", key)].id
             assert home != chatty
             await app.agent.ask(key, "and again", None, "en")
