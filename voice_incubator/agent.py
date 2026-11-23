@@ -146,10 +146,25 @@ class Streamed:
         """Set by its first piece."""
         self.task: asyncio.Task | None = None
         """What asks the agent, cancelled by ``cancel`` (the call ended first)."""
+        self.display_ready = asyncio.Event()
+        self._display = ""
+        self._display_full = False
 
     def put(self, text: str) -> None:
         self._chunks.put_nowait(text)
         self.started.set()
+        if text and not self._display_full:
+            room = 4096 - len(self._display)
+            self._display += text[:room]
+            # After a gap, never publish a suffix as if it were contiguous.
+            self._display_full = len(text) > room
+            self.display_ready.set()
+
+    def take_display_text(self) -> str:
+        """Take buffered raw text independently of the TTS sentence reader."""
+        text, self._display = self._display, ""
+        self.display_ready.clear()
+        return text
 
     def end(self) -> None:
         self._chunks.put_nowait(None)

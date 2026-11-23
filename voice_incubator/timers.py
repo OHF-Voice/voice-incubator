@@ -356,7 +356,8 @@ def colors(running: list[dict[str, Any]], kept: dict[str, int]) -> dict[str, int
 
 
 def progress(
-    running: list[dict[str, Any]], kept: dict[str, int] | None = None, now: datetime | None = None
+    running: list[dict[str, Any]], kept: dict[str, int] | None = None, now: datetime | None = None,
+    *, names: bool = False,
 ) -> dict[str, Any]:
     """What the satellite's LED ring shows (the ``timer_progress`` event): the
     active timer that finishes soonest -- its time left of how long it runs --
@@ -366,7 +367,8 @@ def progress(
     ``left<i>`` and ``color<i>``, its color by ``kept``: ``colors``'), on
     the scale of the longest one's length (``scale``): the ring is the time
     to come, each timer's color as far as it runs, the sooner ones on top.
-    Firmware from before draws the soonest alone."""
+    Firmware from before draws the soonest alone. With ``names``, display
+    labels follow the same indexes (no label for unnamed timers)."""
     now = now or datetime.now(UTC)
     active: list[tuple[float, float, dict[str, Any]]] = []
     for timer in running:
@@ -390,6 +392,8 @@ def progress(
     for index, (left, _, timer) in enumerate(active[:LAYERS]):
         shown[f"left{index}"] = round(left, 2)
         shown[f"color{index}"] = COLORS[(kept or {}).get(str(timer.get("timer_id")), 0)]
+        if names and timer.get("name"):
+            shown[f"name{index}"] = str(timer["name"])
     return shown
 
 

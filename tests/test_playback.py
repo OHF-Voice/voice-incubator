@@ -4,6 +4,7 @@ outside a call stay close to the device's clock."""
 from __future__ import annotations
 
 import asyncio
+import json
 import struct
 import wave
 from io import BytesIO
@@ -16,7 +17,8 @@ from aiohttp import web
 import numpy as np
 
 from voice_incubator import server
-from voice_incubator.protocol import BYTE_RATE, OUTPUT_RATE, SAMPLE_RATE, Message
+from voice_incubator.agent import Reply
+from voice_incubator.protocol import BYTE_RATE, HEADER, MAX_PAYLOAD, OUTPUT_RATE, SAMPLE_RATE, Message
 from voice_incubator.tts import pcm_at
 
 
@@ -35,6 +37,103 @@ class Recorder:
 
 def _session(output_rate: int = SAMPLE_RATE):
     return SimpleNamespace(drained=asyncio.Event(), output_rate=output_rate)
+
+
+@pytest.mark.parametrize("mode", ["legacy", "display", "congested", "cancelled"])
+def test_display_events_do_not_wait_for_the_answer_or_control_audio(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(server, "WakeVerifier", Mock())  # the call is already accepted
+
+    async def scenario():
+        app = server.VoiceIncubatorApp(server.Options(data_dir=tmp_path))
+        call = server.Call(0, "manual")
+        hello = {"protocol": 2}
+        if mode != "legacy":
+            hello.update(early_transcript=True, reply_chunks=True)
+        session = server.Session("test", "test", 0, call=call, hello=hello)
+        release_first, release_rest, asking, changed, cancelled = (asyncio.Event() for _ in range(5))
+        frames = []
+        congested = False
+
+        def write(frame):
+            kind, size = HEADER.unpack_from(frame)
+            payload = frame[HEADER.size:]
+            assert len(payload) == size <= MAX_PAYLOAD
+            frames.append((kind, json.loads(payload) if kind in (Message.EVENT, Message.HANGUP) else payload))
+            changed.set()
+
+        session.writer = SimpleNamespace(
+            transport=SimpleNamespace(get_write_buffer_size=lambda: 65536 if congested else 0,
+                                      get_write_buffer_limits=lambda: (16384, 65536)),
+            is_closing=lambda: False, write=write, drain=AsyncMock(),
+        )
+        first, rest = "The answer is ", "forty-two. " + "🌟" * 400
+
+        async def ask(*_, on_text, **_kw):
+            asking.set()
+            try:
+                await release_first.wait()
+                on_text(first)
+                await release_rest.wait()
+                on_text(rest)
+                return Reply("conversation.test", first + rest, understood=True)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        app.agent.ask = ask
+        app.agent_for = lambda _: "conversation.test"
+        app.engine = SimpleNamespace(recognize_call=lambda *_a, **_kw: (
+            server.Decision({"tdt_transcript": "what is the answer"}), None,
+        ))
+        app._transcriber = AsyncMock(return_value=None)
+        app._area_voice = AsyncMock(return_value=(None, None))
+        app.speech.synthesize = lambda *_: b"\x12\x34"
+
+        def events(kind):
+            return [data["data"] for msg, data in frames if msg == Message.EVENT and data["type"] == kind]
+
+        async def wait_for(predicate):
+            while not predicate():
+                changed.clear()
+                await changed.wait()
+
+        task = call.responding = asyncio.create_task(app._respond_unguarded(session, call))
+        await asking.wait()
+        assert events("transcript") == ([{"text": "what is the answer"}] if mode != "legacy" else [])
+        assert not events("recognized")
+        congested = mode == "congested"
+        release_first.set()
+        await wait_for(lambda: events("responding"))
+        # Let the caption task run while the agent has supplied no complete sentence.
+        if mode in ("display", "cancelled"):
+            await wait_for(lambda: events("reply_chunk"))
+            assert events("reply_chunk") == [{"text": first}]
+        else:
+            await asyncio.sleep(0)
+            assert not events("reply_chunk")
+        assert events("responding") == [{"text": ""}]
+        assert not any(msg == Message.AUDIO_OUT for msg, _ in frames)
+        if mode == "cancelled":
+            await app._handle(session, Message.CALL_END, b'{"reason":"cancelled"}')
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            await cancelled.wait()
+            assert frames[-1] == (Message.AUDIO_OUT_END, b"")
+            assert events("reply_chunk") == [{"text": first}]
+            return
+
+        congested = False
+        release_rest.set()
+        await wait_for(lambda: any(msg == Message.AUDIO_OUT_END for msg, _ in frames))
+        assert not any(msg == Message.HANGUP for msg, _ in frames)
+        await app._handle(session, Message.PLAYBACK_DRAINED, b"")
+        await task
+        assert [frame for frame in frames if frame[0] != Message.EVENT] == [
+            (Message.AUDIO_OUT, b"\x12\x34"), (Message.AUDIO_OUT_END, b""), (Message.HANGUP, {"reason": "done"}),
+        ]
+        assert "".join(chunk["text"] for chunk in events("reply_chunk")) == (first + rest if mode == "display" else "")
+
+    asyncio.run(asyncio.wait_for(scenario(), 5))
 
 
 @pytest.mark.parametrize("output_rate", [SAMPLE_RATE, OUTPUT_RATE])

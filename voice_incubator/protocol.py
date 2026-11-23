@@ -80,6 +80,21 @@ class Message(IntEnum):
     AUDIO_OUT = 0x10
     AUDIO_OUT_END = 0x11
     EVENT = 0x12
+    """{"type": ..., "data": {...}}. Optional display events, by HELLO:
+
+    ``early_transcript``: ``transcript`` with ``data.text`` as soon as the
+    first recognition result is ready. This text replaces the display only;
+    ``recognized`` / ``not_recognized`` still report the final outcome.
+
+    ``reply_chunks``: ``reply_chunk`` with ``data.text`` to append verbatim
+    to a streamed reply, after its one ``responding`` and before HANGUP.
+    Best effort, possibly a prefix only; no audio or call-state effects.
+
+    ``timer_names``: optional ``name0``, ``name1``, ... beside the matching
+    ``leftN``/``colorN`` slots in ``timer_progress``. Unnamed slots omit the
+    field. ``timer_ringing`` may also include ``names`` in ringing order
+    (empty strings for unnamed items); the existing ``name`` stays.
+    """
     HANGUP = 0x13
     """{"reason": ..., "listen": true}: end the call -- and, ``listen``, start
     the one that hears the answer to what its reply asked (wake word
@@ -134,6 +149,9 @@ class Hello:
     listen: bool
     output_sample_rates: tuple[int, ...] = (SAMPLE_RATE,)
     """The rates AUDIO_OUT may come in (protocol 3; before it, 16 kHz alone)."""
+    early_transcript: bool = False
+    reply_chunks: bool = False
+    timer_names: bool = False
 
     @classmethod
     def parse(cls, info: dict[str, Any]) -> Hello:
@@ -162,6 +180,9 @@ class Hello:
             intercom=bool(info.get("intercom")),
             listen=bool(info.get("listen")),
             output_sample_rates=output_rates or (SAMPLE_RATE,),
+            early_transcript=info.get("early_transcript") is True,
+            reply_chunks=info.get("reply_chunks") is True,
+            timer_names=info.get("timer_names") is True,
         )
 
 
@@ -178,4 +199,3 @@ def encode_json(msg_type: Message, obj: dict) -> bytes:
 def ms_to_bytes(ms: float) -> int:
     """Byte offset of a timestamp, rounded down to a whole sample."""
     return int(ms * BYTE_RATE / 1000) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE
-
