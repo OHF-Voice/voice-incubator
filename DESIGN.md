@@ -137,7 +137,11 @@ device's `HELLO`:
 Several VPEs flashed from one YAML all report the same name (the config sets
 `name_add_mac_suffix: false`), so the MAC is what actually separates them. It is
 also what sessions are keyed on, taken from the mDNS TXT record so identity is
-known before connecting.
+known before connecting. Each satellite's last address is kept with it
+(`satellites.json` `host`, `port`) and dialled when the app starts, beside
+mDNS: one on a weak link may answer no queries until it announces itself
+again, which takes a power cycle (#21). Another satellite answering there
+(its DHCP lease moved) ends that session, and the address is forgotten.
 
 The device accepts **one client at a time** and refuses the rest rather than
 replacing them, which stops two apps from kicking each other off in a reconnect

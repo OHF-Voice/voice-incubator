@@ -33,6 +33,7 @@ from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import HOME_TAKEN, VERBOSITY, command_of
 from .discover import Device, Discovery
+from .discover import Device as Found
 from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain, warm_start
 from .endpoint import parse as parse_end_of_speech
 from .fallback import (
@@ -137,6 +138,14 @@ ASKED_SECONDS = 60.0
 FROM_HOME_ASSISTANT = "home_assistant"
 """Who wrote the words recognized (Decision.text_source): Home Assistant,
 which sent them to the conversation agent."""
+REMEMBERED = "remembered"
+"""A Device's ``service`` when it is a satellite's last address
+(satellites.json), not one mDNS found."""
+
+
+class WrongSatellite(Exception):
+    """Another satellite answered at a remembered address (its DHCP lease
+    moved): the session ends there."""
 
 _AUDIO_STREAMS = frozenset(
     {Message.AUDIO_IN, Message.AUDIO_IN_AEC, Message.AUDIO_MONITOR, Message.AUDIO_MONITOR_AEC}
@@ -577,6 +586,9 @@ class Session:
     device_id: str = "unknown-device"
     satellite: str = ""
     """The satellite's key (its MAC) once it has said HELLO."""
+    remembered: bool = False
+    """Dialled at the address it had before the app restarted
+    (satellites.json): what answers there must say it is ``key``."""
     hello: dict = field(default_factory=dict)
     """Its HELLO, as sent."""
     output_rate: int = SAMPLE_RATE
@@ -1561,6 +1573,11 @@ class VoiceIncubatorApp:
         if node and entry.get("node") != node:
             entry["node"] = str(node)  # its ESPHome name, for finding its music player
             changed = True
+        # Its address, to dial after a restart before mDNS finds it: only one
+        # discovery keyed by its MAC (the HELLO's), so the two are one.
+        if session.key == session.satellite and (entry.get("host"), entry.get("port")) != (session.host, session.port):
+            entry["host"], entry["port"] = session.host, session.port
+            changed = True
         if changed:
             self.store.save_satellites()
         self.integration.want(session.satellite, entry["name"])
@@ -1787,6 +1804,13 @@ class VoiceIncubatorApp:
         # Which are disabled is Home Assistant's to say: don't take one
         # before it has (the models load first, so it seldom waits).
         await self.hass.wait_connected(HASS_FIRST_WAIT)
+        # Those served before, at their last address: one on a weak link may
+        # answer no mDNS queries until it announces itself (a power cycle).
+        # Found by mDNS meanwhile, it is served at the address found.
+        for device in self._remembered():
+            self._found[device.key] = device
+            if device.key not in self.hass.catalog.disabled_satellites:
+                self._start_session(device)
         self._discovery = Discovery()
         await self._discovery.start()
         try:
@@ -1827,12 +1851,35 @@ class VoiceIncubatorApp:
             elif key not in disabled and key not in self._sessions:
                 self._start_session(device)
 
+    def _remembered(self) -> list[Found]:
+        """The satellites served before, at the address each had
+        (satellites.json ``host``, ``port``)."""
+        found = []
+        for key, entry in self.store.satellites.items():
+            host, port = entry.get("host"), entry.get("port")
+            if isinstance(host, str) and host and isinstance(port, int) and not isinstance(port, bool):
+                found.append(Found(key, host, port, REMEMBERED))
+        return found
+
+    def _forget_address(self, key: str, host: str, port: int) -> None:
+        """Another satellite answers at ``key``'s last address now: it isn't
+        dialled there again, after a restart either."""
+        entry = self.store.satellites.get(key)
+        if entry is not None and (entry.get("host"), entry.get("port")) == (host, port):
+            entry.pop("host", None)
+            entry.pop("port", None)
+            self.store.save_satellites()
+        known = self._found.get(key)
+        if known is not None and known.service == REMEMBERED and (known.host, known.port) == (host, port):
+            del self._found[key]
+
     def _start_session(self, device: Device) -> None:
         existing = self._sessions.pop(device.key, None)
         if existing is not None:
             existing.cancel()
-        _LOGGER.info("Satellite appeared: %s", device)
-        session = Session(key=device.key, host=device.host, port=device.port)
+        remembered = device.service == REMEMBERED
+        _LOGGER.info("Satellite %s: %s", "remembered" if remembered else "appeared", device)
+        session = Session(key=device.key, host=device.host, port=device.port, remembered=remembered)
         task = asyncio.ensure_future(self._run_session(session))
         self._sessions[device.key] = task
         task.add_done_callback(
@@ -1875,8 +1922,11 @@ class VoiceIncubatorApp:
                 session.writer = writer
                 session.quiet_retries = False
                 started = time.monotonic()
+                wrong: WrongSatellite | None = None
                 try:
                     await self._read_loop(session, reader)
+                except WrongSatellite as err:
+                    wrong = err
                 except (asyncio.IncompleteReadError, ConnectionError, OSError) as err:
                     # OSError covers the keepalive firing on a rebooted device,
                     # which surfaces as ETIMEDOUT rather than a ConnectionError.
@@ -1905,6 +1955,11 @@ class VoiceIncubatorApp:
                     writer.close()
                     with contextlib.suppress(Exception):
                         await writer.wait_closed()
+                if wrong is not None:
+                    # mDNS finds it where it is now.
+                    _LOGGER.warning("Satellite %s: %s; its last address is forgotten", session.key, wrong)
+                    self._forget_address(session.key, session.host, session.port)
+                    return
 
                 # A connection that barely lived means something is wrong that
                 # retrying fast will not fix -- most often a second app holding the
@@ -2030,6 +2085,8 @@ class VoiceIncubatorApp:
         info = json.loads(payload) if payload else {}
 
         if msg_type == Message.HELLO:
+            if session.remembered and _satellite_key(info, session.key) != session.key:
+                raise WrongSatellite(f"{session.host}:{session.port} is {_satellite_key(info, session.key)} now")
             session.device_id = _device_id(info)
             session.hello = info
             # Before any audio (protocol 3): replies at the speaker's own rate.
