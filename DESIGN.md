@@ -120,6 +120,26 @@ to take. `--host` pins it to one device instead, for a different subnet or to
 test one satellite while others are on the network; that one is served even
 when disabled.
 
+**Satellites by address** (settings `satellite_addresses`, the Settings
+page; `addresses.py`) are for satellites mDNS doesn't reach -- another VLAN,
+a network that keeps mDNS out: a host name or an IP address each, with a port
+when it isn't 6055. Which satellite an address is, is kept in its entry of the
+list (`{"address": ..., "mac": ...}`; a plain string, as an entry was before,
+is an address without one). Every address is followed to its satellite
+(`_follow_address`) at start and when the list is saved, and again when a
+dial to its satellite fails (`_follow_mac`, from `_run_session`'s retry):
+it is resolved, and unless its satellite is served at that IP already (found
+by mDNS, or remembered), connected elsewhere or disabled in Home Assistant,
+one the app has at that IP and port is that satellite (a satellite takes one
+client, so it isn't asked), else the address is asked and whatever answers is
+its satellite (its HELLO's MAC, kept in the entry). It is served at the IP
+that answered as a remembered one (#21), the address mDNS would report, so
+mDNS finding it there changes nothing and a session dialling a stale address
+(a lease that moved) is replaced; its HELLO writes `satellites.json` as for
+any satellite, and its last address stays there as any other's does.
+Unreachable, or not resolving yet, it is asked again with the usual backoff
+while listed; pinned to `--host`, the list is not used.
+
 One set of models serves all of them. That is the point: the models are the
 expensive part (~450 MB resident), so a second satellite costs a socket and a
 buffer rather than another copy. Recognition is serialized by a shared lock --

@@ -118,8 +118,9 @@ actions in Home Assistant. Without the host network, publish what you want
 reached, and where (`-p 127.0.0.1:8099:8099 -p 10800:10800`). Wyoming needs
 nothing more -- add it to Home Assistant as a Wyoming Protocol integration --
 but finding the satellites does: they're found by mDNS, which a container's
-own network doesn't carry (`--host` reaches one without it). More options go
-after the image name.
+own network doesn't carry (`--host` reaches one without it, and **Satellites
+by address** on the Settings page any number). More options go after the
+image name.
 
 ### From source
 

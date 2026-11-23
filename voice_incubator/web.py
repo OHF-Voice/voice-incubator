@@ -26,6 +26,7 @@ from adapt_ctc.config import ConfigError
 from adapt_ctc.template import TemplateError, expand
 
 from . import __version__, areas, languages, music, timers
+from . import addresses as satellite_addresses
 from .capabilities import CAPABILITIES
 from .capabilities import can as capabilities_can
 from .endpoint import LIMITS
@@ -1651,6 +1652,21 @@ class Api:
             else:
                 settings.pop("wake_words", None)
             self.app.wake_words_changed()
+        if "satellite_addresses" in body:
+            # Satellites connected to at an address, not only found by mDNS:
+            # a list, or one per line.
+            try:
+                wanted = satellite_addresses.parse_all(body["satellite_addresses"] or [])
+            except ValueError as err:
+                raise ConfigError(f"satellite_addresses: {err}") from err
+            if wanted:
+                # Each keeps the MAC learnt for it (server: _follow_address).
+                settings["satellite_addresses"] = satellite_addresses.with_macs(
+                    wanted, settings.get("satellite_addresses"))
+            else:
+                settings.pop("satellite_addresses", None)
+            self.app.store.save_settings()
+            self.app.follow_addresses()
         self.app.store.save_settings()
         return web.json_response(settings)
 
