@@ -3280,12 +3280,16 @@ class VoiceIncubatorApp:
         if outcome in ("not recognized", "error"):
             await self._cue(session, "not_understood")
         answered = outcome == "answered"
+        agent_done = outcome == "done" and decision.asked is not None
         if asked is not None:
             _LOGGER.info("[%s] Answer to %r: %r (%s)", session, asked.question, decision.transcript, outcome)
             await self._event(session, "recognized", text=decision.transcript, command="answer")
         elif answered:
             _LOGGER.info("[%s] Answered %r", session, decision.transcript)
             await self._event(session, "recognized", text=decision.transcript, command="question")
+        elif agent_done:
+            _LOGGER.info("[%s] Agent handled %r", session, decision.transcript)
+            await self._event(session, "recognized", text=decision.transcript, command="agent")
         elif decision.command is None:
             _LOGGER.info("[%s] Not recognized; heard %r", session, decision.transcript)
             await self._event(session, "not_recognized", heard=decision.transcript)
@@ -3312,7 +3316,7 @@ class VoiceIncubatorApp:
             # Its turn, heard after the question: the satellite's call for the
             # answer starts once this has played out.
             await self._cue(session, "listening")
-        done = decision.command or answered or asked is not None
+        done = decision.command or answered or agent_done or asked is not None
         await self._hang_up(session, "done" if done else "not_recognized", listen=again)
 
     def _asks_back(
@@ -3378,10 +3382,10 @@ class VoiceIncubatorApp:
             return self.language.speech.SORRY, "not recognized", f"{words!r}: no agent to answer"
         if not dry_run:
             await cue("asking")
-        said = await self._ask_agent(decision, satellite, dry_run, record, agent)
-        if not said:
-            return self.language.speech.SORRY, "not recognized", f"{words!r}: {agent} understood nothing"
-        return said, "answered", f"{words!r}: {agent}'s answer"
+        result = await self._ask_agent(decision, satellite, dry_run, record, agent)
+        if result is not None:
+            return result
+        return self.language.speech.SORRY, "not recognized", f"{words!r}: {agent} understood nothing"
 
     async def _carry_out(
         self,
@@ -3420,9 +3424,9 @@ class VoiceIncubatorApp:
         ):
             if cue is not None and not dry_run:
                 await cue("asking")
-            said = await self._ask_agent(decision, satellite, dry_run, record, agent)
-            if said:
-                return said, "answered", f"{decision.transcript!r}: {agent}'s answer"
+            result = await self._ask_agent(decision, satellite, dry_run, record, agent)
+            if result is not None:
+                return result
         if decision.command is None and decision.answer is not None and decision.answer.get("text"):
             answer = decision.answer
             said = await self._skill_says(answer, satellite, speaker, record, wake_word)
@@ -3558,11 +3562,10 @@ class VoiceIncubatorApp:
 
     async def _ask_agent(
         self, decision: Decision, satellite: Satellite, dry_run: bool, record: CallRecord | None, agent: str
-    ) -> str | Streamed | None:
-        """What ``agent`` answers, in its conversation for the satellite's
-        area: an LLM's said as it comes (Streamed), from its first piece;
-        None when it understood nothing, could not be asked, or (a dry run)
-        was not: it could act in the home."""
+    ) -> tuple[str | Streamed, str, str] | None:
+        """What the agent says, how it went, and a summary, as in _carry_out.
+        An LLM's answer is said as it comes (Streamed), from its first piece.
+        None when nothing was handled or the agent wasn't asked (dry run)."""
         if dry_run:
             if record is not None:
                 record.stage("agent", agent=agent, asked=False, text=decision.transcript)
@@ -3580,11 +3583,22 @@ class VoiceIncubatorApp:
             raise
         finally:
             first.cancel()
+        summary = f"{decision.transcript!r}: {agent}"
         if streamed.started.is_set():
             streamed.task = asking
             asking.add_done_callback(lambda task: self._agent_answered(decision, record, agent, task, streamed))
-            return streamed
-        return self._agent_answered(decision, record, agent, asking)
+            return streamed, "answered", f"{summary}'s answer"
+        said = self._agent_answered(decision, record, agent, asking)
+        if said is not None:
+            return said, "answered", f"{summary}'s answer"
+        reply = decision.asked
+        if (
+            reply is not None and reply.response_type == "action_done"
+            and reply.understood and reply.error is None and not reply.wants_answer
+        ):
+            # No words to speak, but the action succeeded: acknowledge it like a local command.
+            return "", "done", f"{summary} completed the action"
+        return None
 
     async def _referring(
         self, decision: Decision, satellite: Satellite, record: CallRecord | None, referred: list[str] | None = None

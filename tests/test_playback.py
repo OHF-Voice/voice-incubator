@@ -4,6 +4,7 @@ outside a call stay close to the device's clock."""
 from __future__ import annotations
 
 import asyncio
+import json
 import struct
 import wave
 from io import BytesIO
@@ -16,7 +17,7 @@ from aiohttp import web
 import numpy as np
 
 from voice_incubator import server
-from voice_incubator.protocol import BYTE_RATE, OUTPUT_RATE, SAMPLE_RATE, Message
+from voice_incubator.protocol import BYTE_RATE, HEADER, OUTPUT_RATE, SAMPLE_RATE, Message
 from voice_incubator.tts import pcm_at
 
 
@@ -35,6 +36,75 @@ class Recorder:
 
 def _session(output_rate: int = SAMPLE_RATE):
     return SimpleNamespace(drained=asyncio.Event(), output_rate=output_rate)
+
+
+@pytest.mark.parametrize("reply_type, follow_up, night", [
+    ("action_done", False, False), ("action_done", True, False), ("action_done", False, True), ("error", False, False),
+])
+def test_agent_reply_without_speech(tmp_path, monkeypatch, reply_type, follow_up, night):
+    monkeypatch.setattr(server, "WakeVerifier", Mock())  # the call is already accepted
+
+    async def scenario():
+        app = server.VoiceIncubatorApp(server.Options(data_dir=tmp_path))
+        app.agent.configure("conversation.test", 300)
+
+        async def subscribe(_message, handler):
+            data = {"code": "failed_to_handle"} if reply_type == "error" else {}
+            handler({"type": "result", "result": {
+                "response": {"response_type": reply_type, "speech": {}, "data": data},
+                "continue_conversation": False,
+            }})
+            return 1, None
+
+        app.hass.subscribe_result = subscribe
+        app.hass.unsubscribe = AsyncMock()
+        heard = "add pears to the grocery list"
+        decision = server.Decision({"tdt_transcript": heard}, message="I don't know that list.")
+        app.engine = SimpleNamespace(
+            compiled=None, recognize_call=lambda *_a, **_kw: (decision, None), recognize_answer=lambda *_a, **_kw: decision,
+        )
+        satellite = server.Satellite("test", "Test", night=night)
+        monkeypatch.setattr(app, "satellite", lambda _: satellite)
+        record = app.calls.begin("call", satellite.as_dict())
+        call = server.Call(0, "manual", record=record)
+        if follow_up:
+            call.follow_up = server.FollowUp("agent", "What should I add?", None, app.speaking(), agent="conversation.test")
+        session = server.Session("test", "test", 0, call=call, hello={"protocol": 2, "listen": True})
+        frames = []
+        acknowledgement = b"\x12\x34"
+
+        async def sound(name, *_):
+            return {"acknowledge": acknowledgement}[name]
+
+        def write(frame):
+            kind, _ = HEADER.unpack_from(frame)
+            payload = frame[HEADER.size:]
+            frames.append((kind, json.loads(payload) if kind in (Message.EVENT, Message.HANGUP) else payload))
+            if kind == Message.AUDIO_OUT_END:
+                session.drained.set()
+
+        session.writer = SimpleNamespace(write=write, drain=AsyncMock())
+        app.speech.sound = sound
+        app._area_voice = AsyncMock(return_value=(None, None))
+        app.speech.synthesize = lambda *_: b"\x56\x78"
+        await app._respond_unguarded(session, call)
+
+        speech = next(stage for stage in record.stages if stage["stage"] == "speech")
+        events = [data for kind, data in frames if kind == Message.EVENT]
+        if reply_type == "error":
+            assert record.outcome == "not recognized" and speech["text"] == "I don't know that list."
+            assert any(event["type"] == "not_recognized" for event in events)
+            assert frames[-1] == (Message.HANGUP, {"reason": "not_recognized"})
+            return
+        assert record.outcome == "done" and speech["text"] == ""
+        assert any(event["type"] == "recognized" for event in events)
+        assert not any(event["type"] == "not_recognized" for event in events)
+        assert [data for kind, data in frames if kind == Message.AUDIO_OUT] == ([] if night else [acknowledgement])
+        if night:
+            assert {"type": "result", "data": {"ok": True}} in events
+        assert frames[-1] == (Message.HANGUP, {"reason": "done"})
+
+    asyncio.run(asyncio.wait_for(scenario(), 5))
 
 
 @pytest.mark.parametrize("output_rate", [SAMPLE_RATE, OUTPUT_RATE])
