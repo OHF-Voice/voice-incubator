@@ -13,12 +13,14 @@ import time
 import wave
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field, replace
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 import numpy as np
 import soxr
+from soundfile import SoundFileError
 
 from adapt_ctc.config import ConfigError
 from adapt_ctc.runtime import release_memory
@@ -70,7 +72,7 @@ from .speaker import PALETTE, Identification, SpeakerId
 from .store import Compiled, Device, Store
 from .piper_voices import Voice
 from .piper_voices import catalog as piper_catalog
-from .tts import Speech, pcm_at, sentences_of
+from .tts import Speech, audio_to_pcm, pcm_at, sentences_of
 from .wake import VerifyResult, WakeVerifier
 from .wake import ConfigError as WakeConfigError
 from .wake_ratio import DEFAULT_THRESHOLD as DEFAULT_RATIO, RatioVerdict, WakeRatio
@@ -3686,8 +3688,10 @@ class VoiceIncubatorApp:
         quiet: bool = False, satellite: Satellite | None = None,
     ) -> None:
         """Say ``text`` on the satellite: with Home Assistant's TTS entity
-        when it has one, else Piper, a sentence at a time. An LLM agent's
-        answer (Streamed) is said a sentence at a time as it comes, by either.
+        when it has one (on its media player; without one, its audio played
+        over the call), else Piper, a sentence at a time; Piper takes over from
+        a TTS entity that fails. An LLM agent's answer (Streamed) is said a
+        sentence at a time as it comes, by either.
         ``quiet`` (at night): by Piper, quieter (voice_incubator/night.py).
         ``satellite``: as it says this (voice_for, agent_voice); else as it is."""
         satellite = satellite or self.satellite(session.satellite)
@@ -3696,59 +3700,80 @@ class VoiceIncubatorApp:
         pieces = sentences_of(text) if streamed is None else []
         coming = streamed.sentences() if streamed is not None else None
         # What is said, without markup: a streamed answer's as it comes.
-        said = list(pieces)
+        said: list[str] = []
+        target = voice.speak_on or satellite.device_media_player
+        tts = voice.tts if not quiet else None
         try:
-            if (pieces or coming is not None) and voice.tts and not quiet:
-                target = voice.speak_on or satellite.device_media_player
-                if target is None:
-                    _LOGGER.warning("[%s] No media player of its own in Home Assistant; speaking with Piper", session)
-                else:
-                    try:
-                        await self._quiet(session, close=True)
-                        if coming is None:
-                            await self._speak(session, satellite, target, " ".join(pieces), record)
-                        else:
-                            await self._speak_stream(session, satellite, target, coming, said, record)
-                        return
-                    except (HassError, ConnectionError, OSError, TimeoutError) as err:
-                        # (A streamed answer: Piper says what is still to come.)
-                        _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, voice.tts, err)
-                        if record is not None:
-                            record.stage("speech_failed", tts=voice.tts, on=target, error=str(err))
-            # Piper, a sentence at a time, each played while the next is made
-            # (or comes); or -- with nothing to say -- the acknowledgement
+            if tts and target and (pieces or coming is not None):
+                try:
+                    await self._quiet(session, close=True)
+                    if coming is None:
+                        await self._speak(session, satellite, target, " ".join(pieces), record)
+                    else:
+                        await self._speak_stream(session, satellite, target, coming, said, record)
+                    return
+                except (HassError, ConnectionError, OSError, TimeoutError) as err:
+                    # (A streamed answer: Piper says what is still to come.)
+                    _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, tts, err)
+                    if record is not None:
+                        record.stage("speech_failed", tts=tts, on=target, error=str(err))
+                    tts = None
+            # Without a media player, the satellite plays the TTS entity's
+            # audio over the call, as Piper's; Piper says a sentence it fails
+            # on and the rest. Or -- with nothing to say -- the acknowledgement
             # sound, which stays on the satellite even when its responses are
             # spoken elsewhere.
             started = time.perf_counter()
-            timing = {"seconds": 0, "synthesis": 0.0, "first": None}
-            acknowledge = await self.speech.sound(
-                "acknowledge", satellite.settings.get("instrument"), satellite.settings.get("pitch")
-            )
-            model, synthesis = await self._area_voice(satellite) if pieces or coming is not None else (None, None)
+            timing: dict[str, Any] = {"seconds": 0, "synthesis": 0.0, "first": None}
+            piper = await self._area_voice(satellite) if not tts and (pieces or coming is not None) else None
 
             async def each() -> AsyncIterator[str]:
                 for piece in pieces:
                     yield piece
                 if coming is not None:
                     async for piece in coming:
-                        said.append(piece)
                         yield piece
 
             async def spoken():
+                nonlocal tts, piper
                 async for piece in each():
-                    begun = time.perf_counter()
                     rate = session.output_rate  # made at it: not resampled twice
-                    async with self._model_lock:
-                        audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model, rate)
-                    if quiet:
-                        audio = night_mode.quieter(audio)
-                    timing["synthesis"] += time.perf_counter() - begun
+                    audio = None
+                    if tts:
+                        try:
+                            if "language" not in timing:
+                                timing["language"] = await self.voices.tts_language(tts, voice.tts_language)
+                            encoded = await self.hass.text_to_speech(tts, piece, timing["language"], voice.tts_voice)
+                            audio = await asyncio.to_thread(audio_to_pcm, BytesIO(encoded), rate)
+                            if not audio:
+                                raise HassError("empty TTS audio")
+                            timing["tts"] = tts
+                        except (HassError, OSError, TimeoutError, SoundFileError) as err:
+                            # Piper says this sentence and the rest.
+                            _LOGGER.warning("[%s] %s could not speak (%s); speaking with Piper", session, tts, err)
+                            if record is not None:
+                                record.stage("speech_failed", tts=tts, error=str(err))
+                            tts, audio = None, None
+                    if audio is None:
+                        if piper is None:
+                            piper = await self._area_voice(satellite)
+                        model, synthesis = piper
+                        begun = time.perf_counter()
+                        async with self._model_lock:
+                            audio = await asyncio.to_thread(self.speech.synthesize, piece, synthesis, model, rate)
+                        if quiet:
+                            audio = night_mode.quieter(audio)
+                        timing["synthesis"] += time.perf_counter() - begun
                     if timing["first"] is None:
                         timing["first"] = time.perf_counter() - started
                         await self._quiet(session, close=False)  # the reply follows the sounds
                     timing["seconds"] += len(audio) * SAMPLE_RATE // rate
+                    said.append(piece)
                     yield audio, rate
                 if timing["first"] is None:
+                    acknowledge = await self.speech.sound(
+                        "acknowledge", satellite.settings.get("instrument"), satellite.settings.get("pitch")
+                    )
                     timing["first"], timing["seconds"] = 0.0, len(acknowledge)
                     await self._quiet(session, close=False)
                     await self._after_cues(session, ACKNOWLEDGE_GAP)
@@ -3758,11 +3783,13 @@ class VoiceIncubatorApp:
                 await self._play_stream(session, spoken(), paced)
             finally:
                 if record is not None:
-                    # How long it is, how long Piper took to say it, and how long
-                    # until it began.
+                    # How long it is, how long Piper took to say it (the TTS
+                    # entity's, when it said some of it), and how long until it
+                    # began.
+                    entity = {"tts": timing["tts"], "voice": voice.tts_voice} if timing.get("tts") else {}
                     record.stage(
                         "speech", text=" ".join(said), seconds=round(timing["seconds"] / BYTE_RATE, 3),
-                        synthesis=_seconds(timing["synthesis"]),
+                        synthesis=_seconds(timing["synthesis"]), **entity,
                         first=_seconds(timing["first"]) if timing["first"] is not None else None,
                         pieces=len(said), **({"streamed": True} if streamed is not None else {}),
                     )

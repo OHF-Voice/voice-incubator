@@ -4,7 +4,14 @@ outside a call stay close to the device's clock."""
 from __future__ import annotations
 
 import asyncio
+import struct
+import wave
+from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from aiohttp import web
 
 import numpy as np
 
@@ -28,6 +35,96 @@ class Recorder:
 
 def _session(output_rate: int = SAMPLE_RATE):
     return SimpleNamespace(drained=asyncio.Event(), output_rate=output_rate)
+
+
+@pytest.mark.parametrize("output_rate", [SAMPLE_RATE, OUTPUT_RATE])
+@pytest.mark.parametrize("fail_at", [None, 1, 2])
+def test_selected_tts_plays_over_the_call_without_a_media_player(fail_at, output_rate):
+    # A satellite with no media player in Home Assistant: the TTS entity's
+    # audio is played over the call, at the satellite's rate. What it fails
+    # to say (the first sentence, or the second of three), Piper says, with
+    # the rest.
+    async def scenario():
+        wav = BytesIO()
+        with wave.open(wav, "wb") as file:
+            file.setparams((2, 2, SAMPLE_RATE * 2, 0, "NONE", "not compressed"))
+            file.writeframes(struct.pack("<hh", 12000, 4000) * 640)
+        requests = []
+
+        async def tts_url(request):
+            assert request.headers["Authorization"] == "Bearer test-token"
+            requests.append(await request.json())
+            return web.json_response({"url": "https://unused.invalid/api/tts_proxy/test.wav", "path": "/api/tts_proxy/test.wav"})
+
+        async def get_audio(_request):
+            if len(requests) == fail_at:
+                return web.Response(body=b"not audio")
+            return web.Response(body=wav.getvalue(), content_type="audio/wav")
+
+        rest = web.Application()
+        rest.router.add_post("/api/tts_get_url", tts_url)
+        rest.router.add_get("/api/tts_proxy/test.wav", get_audio)
+        runner = web.AppRunner(rest)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = runner.addresses[0][1]
+            app = Recorder()
+            app.hass = server.HomeAssistant(f"http://127.0.0.1:{port}", "test-token")
+            app.voices = SimpleNamespace(tts_language=AsyncMock(return_value="de-DE"))
+            app._quiet = AsyncMock()
+            app._area_voice = AsyncMock(return_value=(None, None))
+            app._model_lock = asyncio.Lock()
+            app.speech = SimpleNamespace(synthesize=Mock(return_value=b"\x00\x80"), sound=AsyncMock(return_value=b""))
+            frames = []
+
+            async def send(session, message, payload=b""):
+                frames.append((message, payload))
+                if message == Message.AUDIO_OUT_END:
+                    session.drained.set()
+
+            app._send = send
+            satellite = server.Satellite("test", "Test satellite", voice=server.choose({"tts": "tts.default"}, {}))
+            satellite = server.VoiceIncubatorApp.voice_for(
+                app, satellite, server.people.Speaker(
+                    name="Anna", by="voice", own={"tts": "tts.wyoming", "tts_voice": "chosen", "tts_language": "de-DE"},
+                ),
+            )
+            answer = "First sentence."
+            if fail_at == 2:
+                answer = server.Streamed()
+                answer.put("First sentence. Second sentence. Third sentence.")
+                answer.end()
+            record = server.CallRecord("test", "call", satellite.as_dict())
+            await server.VoiceIncubatorApp._say(app, _session(output_rate), answer, record, satellite=satellite)
+        finally:
+            await runner.cleanup()
+
+        sentences = ["First sentence.", "Second sentence.", "Third sentence."] if fail_at == 2 else ["First sentence."]
+        assert requests == [
+            {"engine_id": "tts.wyoming", "message": text, "cache": True, "language": "de-DE",
+             "options": {"preferred_format": "wav", "voice": "chosen"}}
+            for text in sentences[: fail_at or 1]
+        ]
+        by_piper = sentences[fail_at - 1 :] if fail_at else []
+        assert [call.args[0] for call in app.speech.synthesize.call_args_list] == by_piper
+        assert all(call.args[3] == output_rate for call in app.speech.synthesize.call_args_list)
+        assert [stage["tts"] for stage in record.stages if stage["stage"] == "speech_failed"] == (
+            ["tts.wyoming"] if fail_at else []
+        )
+        speech = record.stages[-1]
+        assert speech["stage"] == "speech" and speech["text"] == " ".join(sentences)
+        assert speech.get("tts") == (None if fail_at == 1 else "tts.wyoming")
+        assert [kind for kind, _ in frames].count(Message.AUDIO_OUT_END) == 1
+        pcm = b"".join(payload for kind, payload in frames if kind == Message.AUDIO_OUT)
+        # 640 frames at 32 kHz, resampled once to the satellite's rate.
+        entity = 0 if fail_at == 1 else 640 * output_rate // (SAMPLE_RATE * 2) * 2
+        assert len(pcm) == entity + 2 * len(by_piper)
+        if entity:
+            assert struct.unpack_from("<h", pcm, entity // 2)[0] == pytest.approx(8000, abs=20)
+
+    asyncio.run(scenario())
 
 
 def test_a_stale_drained_does_not_end_the_next_playback():

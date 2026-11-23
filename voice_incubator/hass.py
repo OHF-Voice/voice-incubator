@@ -722,6 +722,35 @@ class HomeAssistant:
             raise HassError(f"{entity_id} could not transcribe the audio")
         return str(result.get("text") or "")
 
+    async def text_to_speech(
+        self, entity_id: str, text: str, language: str | None, voice: str | None,
+    ) -> bytes:
+        """Ask a TTS entity for audio without sending it to a media player."""
+        import aiohttp  # pylint: disable=import-outside-toplevel
+
+        options = {"preferred_format": "wav"}
+        if voice:
+            options["voice"] = voice
+        data = {"engine_id": entity_id, "message": text, "cache": True, "options": options}
+        if language:
+            data["language"] = language
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as http:
+                async with http.post(f"{self.url}/api/tts_get_url", json=data, headers=headers) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+                path = result.get("path") if isinstance(result, dict) else None
+                if not isinstance(path, str) or not path.startswith("/api/tts_proxy/"):
+                    raise HassError(f"{entity_id} did not return a TTS audio path")
+                # Use the same reachable HA origin (or Supervisor proxy), not
+                # the absolute URL HA advertises to media players.
+                async with http.get(f"{self.url}{path}", headers=headers) as response:
+                    response.raise_for_status()
+                    return await response.read()
+        except (aiohttp.ClientError, ValueError) as err:
+            raise HassError(f"{entity_id}: {err}") from err
+
     async def stt_engines(self, language: str | None) -> list[dict]:
         """STT entities and the languages they support that match ``language``
         (best first); every language they support when it is None."""

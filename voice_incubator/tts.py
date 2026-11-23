@@ -9,7 +9,7 @@ import re
 from collections import OrderedDict
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import numpy as np
 import onnxruntime as ort
@@ -50,6 +50,13 @@ def pcm_at(pcm: bytes, rate: int, out_rate: int) -> bytes:
     if rate == out_rate or not pcm:
         return pcm
     samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+    return _to_device_pcm(samples, rate, out_rate)
+
+
+def audio_to_pcm(source: Path | BinaryIO, out_rate: int = SAMPLE_RATE) -> bytes:
+    """An audio file (a path or a file object) as 16-bit mono PCM at
+    ``out_rate``, resampled once, straight from its own rate."""
+    samples, rate = sf.read(source, dtype="float32", always_2d=False)
     return _to_device_pcm(samples, rate, out_rate)
 
 
@@ -145,7 +152,7 @@ class Speech:
     async def start(self) -> None:
         await self.use(self.voice_path)
         if self.alarm_path is not None:
-            sound = await asyncio.to_thread(self._load_file, self.alarm_path)
+            sound = await asyncio.to_thread(audio_to_pcm, self.alarm_path)
             self.alarm = sound + bytes(int(ALARM_PAUSE * SAMPLE_RATE) * 2)
         await asyncio.to_thread(self.instruments.load)
         _LOGGER.info("Speech ready (%s)", self.voice_path.name)
@@ -179,11 +186,6 @@ class Speech:
         speakers = sorted(config.speaker_id_map or {}, key=lambda name: config.speaker_id_map[name])
         return {"length_scale": config.length_scale, "noise_scale": config.noise_scale,
                 "noise_w_scale": config.noise_w_scale, "volume": 1.0, "speakers": speakers}
-
-    @staticmethod
-    def _load_file(path: Path) -> bytes:
-        samples, rate = sf.read(path, dtype="float32", always_2d=False)
-        return _to_device_pcm(samples, rate)
 
     async def sound(self, name: str, instrument: str | None = None, pitch: str | None = None) -> bytes:
         """One of instruments.SOUNDS (``sounds``'); none without the SoundFont."""
