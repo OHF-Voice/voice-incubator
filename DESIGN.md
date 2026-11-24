@@ -722,13 +722,14 @@ what `--wake-cutoff 0.5` is for.
 
 Each satellite listens for its own wake words (Wake words page,
 `satellites.json`: `wake_words: [id, ...]`, up to `MAX_WAKE_WORDS`, five),
-else the home's preferred one (`settings.json`, one: the API refuses two),
+else the home's preferred wake words (`settings.json`, up to five),
 else `--wake-model` (default `okay_nabu`). The app pushes the wake words'
 model on `HELLO`, clearing whatever the device held first, and again when the
 pick or its cutoff changes -- never during a call, since clearing stops the
 detector's microphone. The firmware has six model slots and says so in
 `HELLO` (`model_slots`): "stop" while a timer rings, and up to five wake
-words. Older firmware has four, so three. No VAD gate is pushed (below).
+words. Older firmware has four, so it gets the first three compatible wake
+words. No VAD gate is pushed (below).
 
 The device reports the model's id as the wake word, which decides which
 verifier, second opinion and placement phrases apply (`voice_incubator/wake_words.py`).
