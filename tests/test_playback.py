@@ -39,16 +39,21 @@ def _session(output_rate: int = SAMPLE_RATE):
 
 @pytest.mark.parametrize("output_rate", [SAMPLE_RATE, OUTPUT_RATE])
 @pytest.mark.parametrize("fail_at", [None, 1, 2])
-def test_selected_tts_plays_over_the_call_without_a_media_player(fail_at, output_rate):
+@pytest.mark.parametrize("streamed", [False, True])
+def test_selected_tts_plays_over_the_call_without_a_media_player(streamed, fail_at, output_rate):
     # A satellite with no media player in Home Assistant: the TTS entity's
     # audio is played over the call, at the satellite's rate. What it fails
     # to say (the first sentence, or the second of three), Piper says, with
-    # the rest.
+    # the rest. A streaming entity's WAV (Wyoming's, Home Assistant Cloud's)
+    # comes as it was made: a header saying 0 frames, then the samples.
     async def scenario():
         wav = BytesIO()
+        pcm = struct.pack("<hh", 12000, 4000) * 640
         with wave.open(wav, "wb") as file:
             file.setparams((2, 2, SAMPLE_RATE * 2, 0, "NONE", "not compressed"))
-            file.writeframes(struct.pack("<hh", 12000, 4000) * 640)
+            if not streamed:
+                file.writeframes(pcm)
+        audio = wav.getvalue() + (pcm if streamed else b"")
         requests = []
 
         async def tts_url(request):
@@ -56,10 +61,17 @@ def test_selected_tts_plays_over_the_call_without_a_media_player(fail_at, output
             requests.append(await request.json())
             return web.json_response({"url": "https://unused.invalid/api/tts_proxy/test.wav", "path": "/api/tts_proxy/test.wav"})
 
-        async def get_audio(_request):
+        async def get_audio(request):
             if len(requests) == fail_at:
                 return web.Response(body=b"not audio")
-            return web.Response(body=wav.getvalue(), content_type="audio/wav")
+            if streamed:
+                response = web.StreamResponse(headers={"Content-Type": "audio/wav"})
+                await response.prepare(request)
+                await response.write(audio[:44])
+                await response.write(audio[44:])
+                await response.write_eof()
+                return response
+            return web.Response(body=audio, content_type="audio/wav")
 
         rest = web.Application()
         rest.router.add_post("/api/tts_get_url", tts_url)

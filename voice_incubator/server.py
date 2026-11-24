@@ -13,7 +13,6 @@ import time
 import wave
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field, replace
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -3816,7 +3815,7 @@ class VoiceIncubatorApp:
                             if "language" not in timing:
                                 timing["language"] = await self.voices.tts_language(tts, voice.tts_language)
                             encoded = await self.hass.text_to_speech(tts, piece, timing["language"], voice.tts_voice)
-                            audio = await asyncio.to_thread(audio_to_pcm, BytesIO(encoded), rate)
+                            audio = await asyncio.to_thread(audio_to_pcm, encoded, rate)
                             if not audio:
                                 raise HassError("empty TTS audio")
                             timing["tts"] = tts

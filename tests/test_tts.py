@@ -5,11 +5,20 @@ time."""
 from __future__ import annotations
 
 import asyncio
+import struct
+import wave
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 
-from voice_incubator.tts import Speech, said_as, sentences_of
+from voice_incubator.tts import (
+    Speech,
+    audio_to_pcm,
+    said_as,
+    sentences_of,
+    streamed_wav,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 VOICE = ROOT / "models/piper/en_US-ellie-medium.onnx"
@@ -63,3 +72,33 @@ def test_said_whole_or_acknowledged():
     # Piper draws noise for each synthesis: the same length, near enough.
     assert len(whole) > 16000 and abs(len(whole) - len(parts)) < 0.25 * len(parts)
     assert asyncio.run(speech.say("**")) == asyncio.run(speech.sound("acknowledge"))
+
+
+def _header(frames: int = 0, extra: bytes = b"") -> bytes:
+    """Python's wave header (Wyoming's, Home Assistant Cloud's), with any
+    chunk before the samples."""
+    wav = BytesIO()
+    with wave.open(wav, "wb") as file:
+        file.setparams((1, 2, 22050, frames, "NONE", "not compressed"))
+    head = wav.getvalue()
+    if extra:
+        head = head[:4] + struct.pack("<I", 36 + len(extra)) + head[8:36] + extra + head[36:]
+    return head
+
+
+def test_a_streamed_wav_is_read_to_its_end():
+    # Home Assistant passes a streaming TTS's WAV on as it was made: a header
+    # saying 0 frames, then the samples. Every sample is read, also with a
+    # chunk (odd-sized, padded) before them.
+    samples = struct.pack("<h", 16000) * 2205
+    for extra in (b"", b"LIST\x03\x00\x00\x00abc\x00"):
+        pcm = audio_to_pcm(_header(extra=extra) + samples, 22050)
+        assert len(pcm) == len(samples) and pcm[:2] == struct.pack("<h", 15999)
+    # A whole WAV, one with no samples yet, and anything else, as they are.
+    whole = BytesIO()
+    with wave.open(whole, "wb") as file:
+        file.setparams((1, 2, 22050, 0, "NONE", "not compressed"))
+        file.writeframes(samples)
+    for audio in (whole.getvalue(), _header(), b"ID3 not a wav"):
+        assert streamed_wav(audio) == audio
+

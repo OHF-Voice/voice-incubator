@@ -8,6 +8,7 @@ import logging
 import re
 from collections import OrderedDict
 from collections.abc import AsyncIterable, AsyncIterator, Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -53,9 +54,32 @@ def pcm_at(pcm: bytes, rate: int, out_rate: int) -> bytes:
     return _to_device_pcm(samples, rate, out_rate)
 
 
-def audio_to_pcm(source: Path | BinaryIO, out_rate: int = SAMPLE_RATE) -> bytes:
-    """An audio file (a path or a file object) as 16-bit mono PCM at
-    ``out_rate``, resampled once, straight from its own rate."""
+def streamed_wav(audio: bytes) -> bytes:
+    """A WAV written as it was made -- a header saying it has no samples,
+    then the samples, as Home Assistant passes on Wyoming's and Home
+    Assistant Cloud's TTS -- with the lengths of what came; soundfile takes
+    the header at its word and reads nothing. Anything else as it is."""
+    if audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        return audio
+    position = 12
+    while position + 8 <= len(audio):
+        chunk, size = audio[position : position + 4], int.from_bytes(audio[position + 4 : position + 8], "little")
+        if chunk == b"data":
+            start = position + 8
+            if size or len(audio) == start:
+                return audio
+            return (b"RIFF" + (len(audio) - 8).to_bytes(4, "little") + audio[8 : position + 4]
+                    + (len(audio) - start).to_bytes(4, "little") + audio[start:])
+        position += 8 + size + (size & 1)  # chunks are padded to an even size
+    return audio
+
+
+def audio_to_pcm(source: Path | BinaryIO | bytes, out_rate: int = SAMPLE_RATE) -> bytes:
+    """An audio file (a path, a file object, or what was downloaded) as
+    16-bit mono PCM at ``out_rate``, resampled once, straight from its own
+    rate."""
+    if isinstance(source, bytes):
+        source = BytesIO(streamed_wav(source))
     samples, rate = sf.read(source, dtype="float32", always_2d=False)
     return _to_device_pcm(samples, rate, out_rate)
 
