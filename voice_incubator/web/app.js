@@ -3128,6 +3128,190 @@ function withoutArea(name, area) {
   return area && said.toLowerCase().startsWith(`${area.toLowerCase()} `) ? said.slice(area.length + 1).trim() : said;
 }
 
+const followsHA = (store, kind, id) => ((store.ha_names || {}).following?.[kind] || []).includes(id);
+
+async function takeHAControl(kind, id) {
+  const change = kind === "entities"
+    ? "Its names and area stop following Home Assistant, independent of Assist exposure."
+    : "Only this name stops following Home Assistant. Devices keep their own sync settings.";
+  if (!confirm(`Take control of ${id}? ${change}`)) return;
+  try {
+    await api("POST", `ha-names/${kind}/${encodeURIComponent(id)}/take-control`, {});
+    toast("You control this name now"); pageNames(); refreshStatus();
+  } catch (err) { toast(err.message); }
+}
+
+function haNamesPanel(store) {
+  const sync = store.ha_names || {};
+  const body = h("div", {}, haNamesControls(sync));
+  const panel = h("details", { class: "panel fold", open: sync.enabled },
+    h("summary", {}, icon("mdi:chevron-right", "chevron", null), h("h2", {}, "Home Assistant names")), body);
+  panel.addEventListener("toggle", async () => {
+    if (!panel.open || sync.enabled || !state.status?.hass) return;
+    fill(body, h("p", { class: "muted", role: "status" }, "Checking Assist exposure…"));
+    try {
+      fill(body, haNamesControls(await api("POST", "ha-names/preview")));
+    } catch (err) {
+      fill(body, errorBox(err), haNamesControls({ ...sync, ready: false, preview: [] }));
+    }
+  });
+  return panel;
+}
+
+const HA_VOICE_UNLOCK_WARNING = "This can enable voice unlocking for locks. Anyone a satellite hears can use it unless the command is disabled there.";
+
+async function importHANames() {
+  const body = h("div", { class: "stack ha-import-picker" }, h("p", { role: "status" }, "Checking Assist exposure…"));
+  const close = openDialog("Import Home Assistant names once", body, "compact");
+  try {
+    const sync = await api("POST", "ha-names/preview");
+    if (sync.enabled) throw new Error("Stop following Home Assistant before importing manual names.");
+    const preview = sync.preview || [];
+    if (!preview.length) {
+      fill(body, h("p", { class: "muted" }, "No eligible devices are exposed to Assist."));
+      return;
+    }
+    const checkboxes = preview.map(() => h("input", { type: "checkbox", checked: true, onchange: update }));
+    const list = h("div", { class: "dialog-list stack", role: "region", "aria-label": "Eligible devices", tabindex: 0 },
+      preview.map((entry, i) => h("label", { class: "row" }, checkboxes[i],
+        h("span", {}, entry.name, " ", h("code", {}, entry.id)))));
+    const selectAll = h("button", { onclick: () => setAll(true) }, "Select all");
+    const deselectAll = h("button", { onclick: () => setAll(false) }, "Deselect all");
+    const errors = h("div", { role: "alert" });
+    const count = h("span", { class: "grow muted small", role: "status" });
+    const addCommands = h("input", { type: "checkbox" });
+    let saving = false;
+    const save = h("button", { class: "primary", onclick: async () => {
+      const ids = preview.filter((_, i) => checkboxes[i].checked).map((entry) => entry.id);
+      saving = true;
+      update();
+      fill(errors);
+      try {
+        await api("POST", "ha-names/import", { ids, add_library_commands: addCommands.checked });
+        close(); toast("Imported as manual names"); await pageNames(); refreshStatus();
+      } catch (err) { fill(errors, errorBox(err)); saving = false; update(); }
+    } }, "Import selected devices");
+    function setAll(checked) {
+      for (const checkbox of checkboxes) checkbox.checked = checked;
+      update();
+    }
+    function update() {
+      const selected = checkboxes.filter((checkbox) => checkbox.checked).length;
+      save.disabled = saving || !selected;
+      list.inert = selectAll.disabled = deselectAll.disabled = addCommands.disabled = saving;
+      count.textContent = `${selected} selected`;
+    }
+    update();
+    fill(body,
+      h("p", { class: "row" }, "Choose devices to save as manual names.",
+        hint("Their names and rooms won’t follow later changes in Home Assistant. Eligible areas and floors are also saved as manual names.")),
+      h("div", { class: "row" }, selectAll, deselectAll), list,
+      h("label", { class: "row" }, addCommands, "Also add library commands for the selected devices"),
+      h("p", { class: "muted small" }, HA_VOICE_UNLOCK_WARNING),
+      errors,
+      h("div", { class: "row" }, count, h("button", { onclick: close }, "Cancel"), save));
+  } catch (err) { fill(body, errorBox(err)); }
+}
+
+function haNamesControls(sync) {
+  const preview = sync.preview || [];
+  const shared = preview.filter((e) => e.clashes?.length).length;
+  const excludedDevices = sync.excluded?.entities || [];
+  const excludedPlaces = [...(sync.excluded?.areas || []), ...(sync.excluded?.floors || [])];
+  const errors = h("div");
+  const autoAdd = h("input", { type: "checkbox", checked: sync.auto_add_commands,
+    disabled: !sync.ready && !sync.auto_add_commands,
+    onchange: async (event) => {
+      if (!sync.enabled) return;
+      const input = event.currentTarget;
+      const checked = input.checked;
+      input.disabled = true;
+      fill(errors);
+      try {
+        await api("PUT", "ha-names", { auto_add_commands: checked });
+        toast(checked ? "Automatic command setup on" : "Automatic command setup off; existing commands kept");
+        refreshStatus();
+      } catch (err) { input.checked = !checked; fill(errors, errorBox(err)); }
+      finally { input.disabled = !sync.ready && !input.checked; }
+    } });
+  return h("div", {},
+    h("p", { class: "row" }, h("span", { class: "badge" }, sync.enabled ? "Following Home Assistant" : "Manual mode"),
+      hint(sync.enabled ? "Renames, room moves and removals follow automatically. Exposure changes are checked within 30 seconds. Room-specific command settings stay unchanged."
+        : "Import or follow supported devices whose Assist exposure Home Assistant has recorded. Manual entries are kept and nothing writes back to Home Assistant."),
+      !sync.ready ? h("span", { class: "muted small" }, "Assist exposure unavailable") : null),
+    h("div", { class: "notice warn row" }, "Large name lists can slow local recognition.",
+      hint("Too many names can also make recognition less reliable, especially on a Raspberry Pi 4. Home Assistant may expose devices automatically. Review the preview and limit Assist exposure, or use Exclude to skip a device only in Incubator.")),
+    h("details", {}, h("summary", {}, `Follow preview: ${preview.length} eligible devices`,
+      shared ? [" ", h("span", { class: "badge warn" }, `${shared} with shared names`)] : null),
+      shared ? h("p", { class: "row small" }, "Incubator won’t pick a device when a name is ambiguous.",
+        hint("Rename the device or alias in Home Assistant and Follow will pick up the change. To rename it only here, use Take control in the device’s Names editor while following.")) : null,
+      ...preview.map((entry) => h("div", {}, h("p", {}, entry.name, " ", h("code", {}, entry.id)),
+        entry.clashes?.length ? h("ul", { class: "small" }, ...entry.clashes.map((clash) =>
+          h("li", {}, `“${clash.name}” (${clash.area_name || "whole home"}) is also used by `,
+            h("code", {}, clash.with.join(", "))))) : null))),
+    errors,
+    h("p", { class: "row" },
+      h("label", {}, autoAdd, "Automatically add library commands for synced devices"),
+      hint("Adds shared by-name commands based on the devices and capabilities that sync. Added commands keep following the library and stay in your command list if sync stops.")),
+    h("p", { class: "muted small" }, HA_VOICE_UNLOCK_WARNING),
+    h("div", { class: "row" },
+      h("button", { class: "primary", disabled: !sync.ready && !sync.enabled, onclick: async () => {
+        try {
+          await api("PUT", "ha-names", sync.enabled ? { enabled: false } : { enabled: true, auto_add_commands: autoAdd.checked });
+          toast(sync.enabled ? "Sync off; manual names kept" : "Following Home Assistant");
+          await pageNames(); refreshStatus();
+        } catch (err) { fill(errors, errorBox(err)); }
+      } }, sync.enabled ? "Stop following Home Assistant" : "Follow Home Assistant"),
+      h("button", { disabled: !sync.ready || sync.enabled, "aria-haspopup": "dialog", onclick: importHANames }, "Import once")),
+    excludedDevices.length ? h("div", {},
+      heading("h3", "Devices excluded from automatic sync", "To resume, turn on Follow Home Assistant and expose the device to Assist."),
+      ...excludedDevices.map((id) => {
+        const manual = sync.excluded_manual_entities?.includes(id) || false;
+        const error = h("div", { role: "alert" });
+        return h("div", {}, h("div", { class: "row" },
+          h("code", {}, id), manual ? h("span", { class: "badge" }, "manual entry") : null,
+          h("button", { "aria-label": `Resume following ${id}`, disabled: !sync.enabled || !sync.ready, onclick: async (event) => {
+            if (manual && !confirm(`Resume following ${id}? This removes its manual names and room assignment and uses Home Assistant's instead.`)) return;
+            const button = event.currentTarget;
+            button.disabled = true;
+            fill(error);
+            try {
+              await api("POST", `ha-names/entities/${encodeURIComponent(id)}/resume`, { replace_manual: manual });
+              toast("Device is following Home Assistant"); await pageNames(); refreshStatus();
+            } catch (err) { fill(error, errorBox(err)); button.disabled = false; }
+          } }, "Resume following")), error);
+      })) : null,
+    excludedPlaces.length ? h("p", { class: "muted small" }, "Areas and floors excluded from automatic sync: ", excludedPlaces.join(", "), ".") : null);
+}
+
+function haDeviceControls(form, store, id) {
+  const controls = (store.ha_names.overrides || {})[id] || {};
+  const implicit = h("input", { type: "checkbox", checked: controls.implicit !== false });
+  const withArea = h("input", { type: "checkbox", checked: controls.with_area !== false });
+  const wholeHome = h("input", { type: "checkbox", checked: controls.whole_home !== false });
+  const language = state.status.language.code;
+  let aliases = controls.aliases?.[language] || [];
+  const errors = h("div");
+  fill(form, h("div", { class: "panel" },
+    heading("h3", id, "Follows Home Assistant’s name, aliases and area. These local voice controls survive HA changes."),
+    h("div", {}, h("label", {}, wholeHome, "Heard by whole-home names")),
+    h("div", {}, h("label", {}, withArea, "Heard from other rooms with its room said")),
+    h("div", {}, h("label", {}, implicit, "Included in implicit room commands")),
+    field("Additional local aliases", chipsInput(aliases, (v) => { aliases = v; }, "add an alias")), errors,
+    h("div", { class: "row" },
+      h("button", { class: "primary", onclick: async () => {
+        try {
+          await api("PUT", `ha-names/entities/${encodeURIComponent(id)}`, {
+            implicit: implicit.checked, with_area: withArea.checked, whole_home: wholeHome.checked,
+            aliases: { ...(controls.aliases || {}), [language]: aliases },
+          });
+          toast("Local controls saved"); pageNames(); refreshStatus();
+        } catch (err) { fill(errors, errorBox(err)); }
+      } }, "Save local controls"),
+      h("button", { onclick: () => takeHAControl("entities", id) }, "Take control"),
+      h("button", { onclick: () => fill(form) }, "Cancel"))));
+}
+
 // The devices voice acts on: each by its names in its area and in the whole
 // house, and as part of its area.
 // The devices voice acts on: those in one area (`only`, its id), or those in
@@ -3137,6 +3321,10 @@ function devicesPanel(store, areas, only) {
   const areaName = (id) => (id ? areas[id] || id : "No area");
   const form = h("div");
   function edit(itemId, suggestion) {
+    if (followsHA(store, "entities", itemId)) {
+      haDeviceControls(form, store, itemId);
+      return;
+    }
     // Added in another area than Home Assistant's: in this one, for voice.
     const moved = suggestion && only && suggestion.area_id !== only ? only : undefined;
     const device = devices[itemId] || { here: [], house: [], implicit: true, with_area: true, area: moved };
@@ -3151,8 +3339,9 @@ function devicesPanel(store, areas, only) {
       here = label ? [bare, ...aliases.map((a) => withoutArea(a, label)).filter((a) => a && !sameName(a, bare))] : [];
       house = label ? [`${label} ${bare}`] : [suggestion.name, ...aliases];
     }
-    const area = h("select", {},
+    const area = h("select", { value: device.area === "" ? "__none__" : device.area || "" },
       h("option", { value: "" }, `${areaName(haArea)} (Home Assistant's)`),
+      h("option", { value: "__none__", selected: device.area === "" }, "No area (set here)"),
       ...Object.entries(areas).map(([id, text]) => h("option", { value: id, selected: device.area === id }, text)));
     const wide = areaWide(itemId);
     const implicit = h("input", { type: "checkbox", checked: device.implicit !== false });
@@ -3166,7 +3355,7 @@ function devicesPanel(store, areas, only) {
       h("label", {}, withArea, withAreaText, hint("From a satellite elsewhere, one of these with the area said (“the lamp in the office”).")));
     const implicitRow = wide ? h("label", {}, implicit, implicitText) : null;
     function shown() {
-      const where = area.value || haArea;
+      const where = area.value === "__none__" ? null : area.value || haArea;
       const name = where ? areaName(where) : null;
       inside.hidden = !where;
       insideTitle.textContent = `In the ${name}`;
@@ -3185,7 +3374,7 @@ function devicesPanel(store, areas, only) {
       implicitRow,
       h("div", { class: "row" },
         h("button", { class: "primary", onclick: async () => {
-          const where = area.value || haArea;
+          const where = area.value === "__none__" ? null : area.value || haArea;
           if (!(where && here.length) && !house.length && !(wide && implicit.checked)) {
             form.append(errorBox(wide ? "Give it a name, or make it part of its area." : "Give it a name."));
             return;
@@ -3193,7 +3382,7 @@ function devicesPanel(store, areas, only) {
           try {
             await api("PUT", `names/entities/${encodeURIComponent(itemId)}`, {
               name: here[0] || "", aliases: here.slice(1), house, with_area: withArea.checked,
-              ...(wide ? { implicit: implicit.checked } : {}), area: area.value || null,
+              ...(wide ? { implicit: implicit.checked } : {}), area: area.value === "__none__" ? "" : area.value || null,
             });
             toast("Saved"); pageNames(); refreshStatus();
           } catch (err) { form.append(errorBox(err)); }
@@ -3201,7 +3390,7 @@ function devicesPanel(store, areas, only) {
         h("button", { onclick: () => fill(form) }, "Cancel"))));
   }
   // Those in the area for voice.
-  const ids = Object.keys(devices).filter((itemId) => (devices[itemId].area || devices[itemId].ha_area || "") === (only || ""));
+  const ids = Object.keys(devices).filter((itemId) => (devices[itemId].area ?? devices[itemId].ha_area ?? "") === (only || ""));
   const listed = (names) => (names.length ? names.join(", ") : h("span", { class: "muted" }, "none"));
   // A name another device has where it is heard.
   const clash = (clashes) => (clashes.length ? h("span", { class: "badge bad", style: "margin-left:6px",
@@ -3210,8 +3399,8 @@ function devicesPanel(store, areas, only) {
   const word = (device) => commandWord(device.house.filter((n) => (device.command_words || []).some((w) => sameName(w, n))), "from every area");
   const name = only ? areaName(only) : null;
   return h("div", { class: "panel" },
-    only ? heading("h2", "Device Names", `Voice acts only on the devices added: by their names in the ${name}, by their names in the whole house, or as part of the ${name} (“turn on the lights”). Home Assistant's exposure to Assist doesn't count.`)
-      : heading("h2", "In no area", "Devices heard only by their names in the whole house. Voice acts only on the devices added; Home Assistant's exposure to Assist doesn't count."),
+    only ? heading("h2", "Device Names", `Devices added manually or following Home Assistant: heard by their names in the ${name}, by whole-home names, or as part of the ${name} (“turn on the lights”).`)
+      : heading("h2", "In no area", "Devices heard only by their names in the whole house. Optional Home Assistant sync is configured above."),
     ids.length ? h("table", { class: only ? "devices" : "devices loose" },
       h("tr", {}, h("th", {}, "Id"), h("th", {}, only ? `In the ${name}` : ""), h("th", {}, "Whole house"), h("th", {}, only ? "Part of the area" : ""), h("th", {})),
       ...ids.map((itemId) => {
@@ -3219,7 +3408,8 @@ function devicesPanel(store, areas, only) {
         const clashes = device.clashes || [];
         return h("tr", {},
           h("td", {}, h("code", {}, itemId),
-            device.area ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
+            followsHA(store, "entities", itemId) ? h("span", { class: "badge accent" }, "follows HA") : null,
+            device.area != null ? h("span", { class: "badge", style: "margin-left:6px", title: `Home Assistant's area: ${areaName(device.ha_area)}` }, "area set here") : null),
           h("td", { "data-label": only ? `In the ${name}` : "" }, only ? [listed(device.here), clash(clashes.filter((c) => c.area)),
             device.here.length && !device.with_area ? h("span", { class: "badge", style: "margin-left:6px", title: "Not heard from other areas, even with its area said." }, "only there") : null]
             : null),
@@ -3229,8 +3419,9 @@ function devicesPanel(store, areas, only) {
             h("button", { class: "link", onclick: () => edit(itemId) }, "edit"),
             h("button", { class: "link", onclick: async () => {
               if (!confirm(`Remove ${itemId} from voice?`)) return;
-              try { await api("DELETE", `names/entities/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
-            } }, "remove")));
+              const route = followsHA(store, "entities", itemId) ? "ha-names" : "names";
+              try { await api("DELETE", `${route}/entities/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); }
+            } }, followsHA(store, "entities", itemId) ? "exclude" : "remove")));
       })) : h("p", { class: "muted" }, "None yet."),
     field("Add", hassPicker("entity", (item) => edit(item.id, item), { area: only || "" }),
       only ? `Pick from Home Assistant: it is added to the ${name}, with its name and aliases as a starting point.`
@@ -3245,8 +3436,7 @@ function pageNames() {
 
 // The Home page's Names: an area's -- what it is called, and its devices --
 // or the whole home's: the names heard everywhere, the devices in no area,
-// the floors and the value lists. Nothing is taken from Home Assistant
-// automatically: its names, aliases and areas are offered as suggestions.
+// the floors and the value lists. Optional HA names use the same controls.
 async function namesTab(store, area) {
   const haAreas = await areaLabels();
   // Home Assistant's areas, and those named here (when it isn't connected).
@@ -3255,7 +3445,7 @@ async function namesTab(store, area) {
   const hidden = hiddenNotice(store.hidden_names, "name", "names",
     "A name is in the language it was given in. Name a thing here for this language too; its other names come back when the app's Language option is theirs again.");
   if (area) return [hidden, areaNamesPanel(store, area), devicesPanel(store, areas, area.id)];
-  return [hidden, heardEverywherePanel(store, areas), devicesPanel(store, areas, null), nameKindPanel(store, "floors", "floor", "Floors"), listsPanel(store)];
+  return [hidden, haNamesPanel(store), heardEverywherePanel(store, areas), devicesPanel(store, areas, null), nameKindPanel(store, "floors", "floor", "Floors"), listsPanel(store)];
 }
 
 // What an area is called for voice ("the lights in the kitchen"): its name
@@ -3266,6 +3456,11 @@ function areaNamesPanel(store, area) {
   const theirs = (state.catalog.area || []).find((a) => a.id === area.id) || { name: area.name, aliases: [] };
   const help = `How it is said: “the lights in the ${area.name.toLowerCase()}”. Unnamed, it is heard by no name.`;
   const panel = h("div", { class: "panel" });
+  if (followsHA(store, "areas", area.id)) {
+    fill(panel, heading("h2", "Area Name", help), h("p", {}, "Follows Home Assistant: ", saved?.name),
+      h("button", { onclick: () => takeHAControl("areas", area.id) }, "Take control"));
+    return panel;
+  }
   function draw(editing) {
     if (!saved && !editing) {
       fill(panel, heading("h2", "Area Name", help),
@@ -3310,7 +3505,7 @@ function commandWord(names, where) {
 function heardEverywherePanel(store, areas) {
   const rows = [];
   for (const [itemId, device] of Object.entries(store.devices || {})) {
-    for (const name of device.house) rows.push({ name, itemId, where: device.area || device.ha_area || "", clashes: (device.clashes || []).filter((c) => !c.area && sameName(c.name, name)),
+    for (const name of device.house) rows.push({ name, itemId, where: device.area ?? device.ha_area ?? "", clashes: (device.clashes || []).filter((c) => !c.area && sameName(c.name, name)),
       word: (device.command_words || []).some((w) => sameName(w, name)) });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -3344,6 +3539,10 @@ function nameKindPanel(store, plural, kind, title) {
   const names = store.names[plural] || {};
   const form = h("div");
   function edit(itemId, entry, suggestion) {
+    if (followsHA(store, plural, itemId)) {
+      takeHAControl(plural, itemId);
+      return;
+    }
     const name = h("input", { type: "text", value: entry ? (typeof entry === "string" ? entry : entry.name) : (suggestion ? suggestion.name : ""), placeholder: "name" });
     let aliases = entry && typeof entry !== "string" ? asList(entry.aliases)
       : (suggestion ? asList(suggestion.aliases).filter((a) => !sameName(a, suggestion.name)) : []);
@@ -3367,8 +3566,8 @@ function nameKindPanel(store, plural, kind, title) {
         h("td", {}, typeof entry === "string" ? entry : entry.name),
         h("td", {}, typeof entry === "string" ? "" : asList(entry.aliases).join(", ")),
         h("td", { style: "text-align:right; white-space:nowrap" },
-          h("button", { class: "link", onclick: () => edit(itemId, entry) }, "edit"),
-          h("button", { class: "link", onclick: async () => { if (!confirm(`Remove the name for ${itemId}?`)) return; try { await api("DELETE", `names/${plural}/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); } } }, "remove"))))) :
+          h("button", { class: "link", onclick: () => edit(itemId, entry) }, followsHA(store, plural, itemId) ? "Take control" : "edit"),
+          h("button", { class: "link", onclick: async () => { if (!confirm(`Remove the name for ${itemId}?`)) return; const route = followsHA(store, plural, itemId) ? "ha-names" : "names"; try { await api("DELETE", `${route}/${plural}/${encodeURIComponent(itemId)}`); pageNames(); refreshStatus(); } catch (err) { toast(err.message); } } }, "remove"))))) :
       h("p", { class: "muted" }, "None yet."),
     field("Add", hassPicker(kind, (item) => edit(item.id, null, item)), "Pick from Home Assistant; its name and aliases are offered as a starting point."),
     form);

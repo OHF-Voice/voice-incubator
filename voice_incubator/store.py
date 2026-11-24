@@ -39,7 +39,7 @@ from .triggers import compile_triggers, settings_of, with_lists
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "triggers", "version"}
+STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "triggers", "version", "ha_names"}
 VERSION = 3
 """What a commands file is: 3, a device has names in its area and in the
 whole house (``house``), and says whether it is part of its area
@@ -163,6 +163,8 @@ class Compiled:
     trigger_error: str | None = None
     """Why the triggers aren't heard: adapt-ctc couldn't take them with the
     commands."""
+    unavailable: dict[str, str] = field(default_factory=dict)
+    """Saved commands temporarily not heard because pinned names are missing."""
 
 
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
@@ -199,7 +201,7 @@ class Device:
     with its names in the app's language."""
 
     area: str | None = None
-    """Its area for voice, set on the Names page; None: Home Assistant's."""
+    """Its area for voice; None: Home Assistant's, empty: explicitly none."""
     here: tuple[str, ...] = ()
     """Its names in its area: from a satellite there."""
     house: tuple[str, ...] = ()
@@ -231,7 +233,7 @@ def device_of(entry: Any, here: str, default: str) -> Device:
     inside = tuple(dict.fromkeys(str(n) for n in [said.get("name"), *(said.get("aliases") or [])] if n))
     house = tuple(dict.fromkeys(str(n) for n in said["house"] if n)) if "house" in said else inside
     return Device(
-        area=str(entry["area"]) if entry.get("area") else None, here=inside, house=house,
+        area=str(entry["area"]) if entry.get("area") is not None else None, here=inside, house=house,
         implicit=entry.get("implicit") is not False, with_area=entry.get("with_area") is not False,
     )
 
@@ -357,8 +359,8 @@ def _check_own(kind: str, item_id: str, key: str, value: Any) -> None:
     where = f"names.{kind}.{item_id}.{key}"
     if kind != "entities":
         raise ConfigError(f"{where}: only a device has one")
-    if key == "area" and not (isinstance(value, str) and value):
-        raise ConfigError(f"{where}: an area id")
+    if key == "area" and not isinstance(value, str):
+        raise ConfigError(f"{where}: an area id, or empty for no area")
     if key in ("implicit", "with_area") and not isinstance(value, bool):
         raise ConfigError(f"{where}: true or false")
 
@@ -440,7 +442,9 @@ def command_language(spec: Any, default: str) -> str:
     return str(own or default)
 
 
-def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compiled:
+def compile_store(
+    data: dict[str, Any], triggers: Iterable[Any] = (), *, edited_commands: Iterable[str] = (),
+) -> Compiled:
     """Validate a whole store, with Home Assistant's sentence ``triggers``
     (triggers.prepare) ahead of its commands. Raises ConfigError naming what
     is wrong -- but for the triggers: without them, then."""
@@ -482,6 +486,24 @@ def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compile
     shared = {name: values for name, values in {**languages.current().lists, **own_lists}.items() if name not in off}
     data = {**data, "names": said, "lists": shared, "commands": kept}
     commands = parse_commands(heard)
+    unavailable = {}
+    # A followed target may disappear while the app is running or offline.
+    # This also applies after Stop Following; new/changed commands stay strict.
+    if "enabled" in (data.get("ha_names") or {}):
+        edited = set(edited_commands)
+        names_by_slot = {"entity": said.get("entities", {}), "area": said.get("areas", {}), "floor": said.get("floors", {})}
+        for command_id, command in commands.items():
+            if command.disabled or command_id in edited:
+                continue
+            missing = {
+                str(i) for intent in command.intents.values()
+                for slot, spec in (intent.get("names") or {}).items() if isinstance(spec, dict)
+                if slot in names_by_slot and isinstance(spec.get("ids"), list)
+                for i in spec["ids"] if str(i) not in names_by_slot[slot]
+            }
+            if missing:
+                unavailable[command_id] = f"Waiting for named targets: {', '.join(sorted(missing))}"
+                commands[command_id] = replace(command, disabled=True)
     for command_id, spec in every.items():
         if str(command_id) in commands and follows(spec):
             commands[str(command_id)] = replace(commands[str(command_id)], library=str(spec[REFERENCE]))
@@ -511,7 +533,7 @@ def compile_store(data: dict[str, Any], triggers: Iterable[Any] = ()) -> Compile
     devices = {str(item_id): device_of(entry, here, language) for item_id, entry in (names.get("entities") or {}).items()}
     return Compiled(
         data, commands, config, shared_examples(commands)[1], unknown_response, language, hidden, hidden_names,
-        hidden_lists, devices, found.triggers, found.heard, trigger_error,
+        hidden_lists, devices, found.triggers, found.heard, trigger_error, unavailable,
     )
 
 
@@ -530,6 +552,8 @@ class Store:
     triggers: list[Any] = field(default_factory=list)
     """Home Assistant's sentence triggers, prepared (voice_incubator/triggers.py):
     heard with the commands, first."""
+    catalog: Any = None
+    """The last HA catalog with known Assist exposure, for optional HA names."""
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
@@ -616,20 +640,35 @@ class Store:
             _LOGGER.info("%d device(s) on the Names page as they are now: %s (as they were: %s)", len(changed), ", ".join(changed), kept.name)
         return data
 
+    def effective_document(self, document: dict | None = None) -> dict:
+        """The saved document with optional HA-derived names resolved."""
+        from .ha_names import resolve  # pylint: disable=import-outside-toplevel
+
+        return resolve(self.document() if document is None else document, self.catalog)
+
     def load(self) -> Compiled:
         """The commands, validated. Raises ConfigError."""
-        return compile_store(self.document(), self.triggers)
+        return compile_store(self.effective_document(), self.triggers)
 
     def update(self, edit) -> Compiled:
         """Apply ``edit(document)`` to a copy of the commands, validate the
         result and save it. ``edit`` changes the document in place (or
         replaces its parts)."""
+        from . import ha_names  # pylint: disable=import-outside-toplevel
+
         document = self.document()
+        before = plain(document.get("commands") or {})
         for key in ("names", "lists", "commands"):
             if document.get(key) is None:
                 document[key] = {}
         edit(document)
-        compiled = compile_store(plain(document), self.triggers)
+        commands = document.get("commands") or {}
+        edited = [i for i, spec in commands.items() if i not in before or before[i] != spec]
+        for i, spec in before.items():
+            if i not in commands or i in edited:
+                ha_names.remember_command(document, i, spec)
+        ha_names.add_commands(document, ha_names.pending_commands(document, self.catalog))
+        compiled = compile_store(self.effective_document(plain(document)), self.triggers, edited_commands=edited)
         self._write(document)
         return compiled
 
@@ -777,6 +816,12 @@ class Store:
         app's language -- and a thing named in no language any more is gone."""
         if kind not in NAME_KINDS:
             raise ConfigError(f"names: unknown kind {kind!r}")
+        from .ha_names import config, exclude, following  # pylint: disable=import-outside-toplevel
+
+        if following(self.document(), self.catalog, kind, item_id):
+            if spec is not None:
+                raise ConfigError("This name follows Home Assistant: take control before changing it")
+            return self.update(lambda document: exclude(document, kind, item_id))
         spec = dict(spec) if spec is not None else None
         own = {k: spec.pop(k) for k in THING_FIELDS if k in spec} if spec is not None else {}
         for key, value in own.items():
@@ -816,6 +861,8 @@ class Store:
                 kept = {**(spec or {}), **others}
             if not kept and (spec is None or kind != "entities"):
                 items.pop(item_id, None)  # named in no language any more
+                if spec is None and entry is not None and config(document).get("enabled"):
+                    exclude(document, kind, item_id)
                 return
             if kind == "entities":
                 kept.update(mine)
