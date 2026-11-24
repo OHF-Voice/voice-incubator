@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.6
+
+- **Home Assistant Cloud's voice is heard over the call.** On a satellite
+  without a media player, a voice that streams its audio (Home Assistant
+  Cloud, Wyoming) was read as empty, and Piper said every reply instead
+  (#34).
+- **An agent that acts without a word is done,** not "Sorry, I didn't
+  understand": the acknowledgement sound, or at night the blink for done
+  (#33).
+
 ## 0.3.5
 
 - **Announcements need a place.** "Announce dinner is ready" alone no
