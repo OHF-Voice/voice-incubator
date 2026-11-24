@@ -1340,7 +1340,7 @@ class Api:
                 entry.pop("icon", None)
         if "wake_words" in body:
             # Empty: as every satellite.
-            picked = self._wake_word_ids(body["wake_words"], MAX_WAKE_WORDS)
+            picked = self._wake_word_ids(body["wake_words"])
             if picked:
                 entry["wake_words"] = picked
             else:
@@ -1645,7 +1645,7 @@ class Api:
             # Loading takes a while; the UI follows it in the status.
             asyncio.ensure_future(self.app.change_tdt())
         if "wake_words" in body:
-            picked = self._wake_word_ids(body["wake_words"], 1)  # the home's preferred one
+            picked = self._wake_word_ids(body["wake_words"])
             if picked:
                 settings["wake_words"] = picked
             else:
@@ -1704,7 +1704,7 @@ class Api:
 
     # ----------------------------------------------------------- wake words
 
-    def _wake_word_ids(self, value: Any, most: int) -> list[str]:
+    def _wake_word_ids(self, value: Any) -> list[str]:
         if not value:
             return []
         if not isinstance(value, list):
@@ -1714,8 +1714,8 @@ class Api:
         if unknown:
             raise ConfigError(f"wake_words: unknown {unknown}")
         picked = list(dict.fromkeys(str(v) for v in value))
-        if len(picked) > most:
-            raise ConfigError("wake_words: one preferred wake word" if most == 1 else f"wake_words: at most {most}")
+        if len(picked) > MAX_WAKE_WORDS:
+            raise ConfigError(f"wake_words: at most {MAX_WAKE_WORDS}")
         return picked
 
     async def wake_words(self, request: web.Request) -> web.Response:
@@ -1768,7 +1768,8 @@ class Api:
         return web.json_response(
             {
                 "wake_words": words,
-                "preferred": preferred[0] if preferred else None,
+                "preferred": preferred[0] if preferred else None,  # single-word API compatibility
+                "preferred_words": preferred,
                 "picked": app.store.settings.get("wake_words"),
                 "custom_dir": str(catalog.custom_dir) if catalog.custom_dir else None,
                 "error": app.wake_error,
@@ -1942,8 +1943,8 @@ class Api:
             raise ConfigError("Only a custom wake word can be deleted")
         word.tflite.unlink(missing_ok=True)
         word.manifest_path.unlink(missing_ok=True)
-        # Its verifier goes with it, and satellites listening for it fall
-        # back to the preferred wake word.
+        # Its verifier goes with it, and satellites get their remaining wake
+        # words, falling back to the home's selection or the app default.
         await self.app.tune_wake_word(word.id, None)
         return web.json_response({"ok": True})
 

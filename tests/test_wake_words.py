@@ -1,5 +1,5 @@
 """Wake words: built in and verified, or custom and run at their own cutoff;
-one for every satellite (the preferred one) or one of its own; their
+the home's preferred words or a satellite's own; their
 confusables, pronunciations and thresholds changed on the Wake words page."""
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import pytest
 
 from voice_incubator.server import Options, VoiceIncubatorApp
 from voice_incubator.wake_words import RATIO_RIVALS, WakeWords, spoken, trained_from
+from voice_incubator.web import start_web
 
 from . import fake_hass
 from .fake_satellite import FakeSatellite, read_call, serve
@@ -96,11 +97,10 @@ def test_catalog(tmp_path):
     assert words.resolve("Hey Tater") == "hey_tater"
     assert words.resolve("nothing") is None
 
-    # A satellite's own (up to five), else the home's preferred one, else
+    # A satellite's own (up to five), else the home's preferred words, else
     # the default.
     assert words.chosen({}, {}, ("okay_nabu",)) == ["okay_nabu"]
     assert words.chosen({"wake_words": ["hey_jarvis", "gone"]}, {}, ("okay_nabu",)) == ["hey_jarvis"]
-    assert words.chosen({"wake_words": ["hey_jarvis", "okay_nabu"]}, {}, ()) == ["hey_jarvis"]  # one preferred
     assert words.chosen({"wake_words": ["hey_jarvis"]}, {"wake_words": ["hey_tater"]}, ()) == ["hey_tater"]
     assert words.chosen({}, {"wake_words": ["gone"]}, ("okay_nabu",)) == ["okay_nabu"]
     assert words.chosen({}, {"wake_words": ["gone", "hey_tater", "okay_nabu"]}, ()) == ["hey_tater", "okay_nabu"]
@@ -125,6 +125,50 @@ def test_catalog(tmp_path):
     tuned.forget()
     assert tuned.get("hey_tater").cutoff == 0.5
     assert tuned.model("hey_tater").probability_cutoff == 0.5
+
+
+@pytest.mark.skipif(
+    not (ROOT / "models/wake-kaldi-models/en_US-rhasspy/lexicon.db").exists(),
+    reason="needs the wake verifier's lexicon",
+)
+def test_home_wake_words(tmp_path):
+    async def check():
+        custom = tmp_path / "wake_words"
+        custom.mkdir()
+        words = [f"test_wake_{i}" for i in range(6)]
+        for word in words:
+            shutil.copy(ROOT / "tests/fixtures/pooled.tflite", custom / f"{word}.tflite")
+            (custom / f"{word}.json").write_text(json.dumps({
+                "type": "micro", "wake_word": word, "model": f"{word}.tflite", "micro": {},
+            }))
+        (tmp_path / "satellites.json").write_text(json.dumps({
+            MAC: {"name": "Kitchen"}, "001122334455": {"name": "Bedroom", "wake_words": [words[5]]},
+        }))
+        port = free_port()
+        app = VoiceIncubatorApp(Options(http_port=port, data_dir=tmp_path, wake_models=(words[0],), wake_words_dir=custom))
+        app.store.load_extras()
+        runner = await start_web(app)
+        try:
+            async with aiohttp.ClientSession(f"http://127.0.0.1:{port}") as http:
+                async with http.put("/api/settings", json={"wake_words": words[:5]}) as response:
+                    assert response.status == 200
+                async with http.put("/api/settings", json={"wake_words": words}) as response:
+                    assert response.status == 400
+                    assert "at most 5" in (await response.json())["error"]
+                async with http.get("/api/wake_words") as response:
+                    data = await response.json()
+                    assert data["preferred"] == words[0] and data["preferred_words"] == words[:5]
+                async with http.get("/api/satellites") as response:
+                    sats = {s["name"]: s["wake_words_used"] for s in (await response.json())["satellites"]}
+                    assert sats == {"Kitchen": words[:5], "Bedroom": [words[5]]}
+                async with http.put("/api/settings", json={"wake_words": []}) as response:
+                    assert response.status == 200
+                async with http.get("/api/wake_words") as response:
+                    assert (await response.json())["preferred_words"] == [words[0]]
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(check())
 
 
 @pytest.mark.skipif(
@@ -248,7 +292,7 @@ async def _per_satellite(tmp_path: Path) -> None:
                 assert response.status == 400
             assert app.store.satellites[MAC]["wake_words"] == ["hey_tater", "okay_nabu"]
 
-            # Back to the preferred one; the home has one.
+            # Back to the home's list; a device without its own list gets the changes.
             async with http.put(f"{base}/satellites/{MAC}", json={"wake_words": None}) as response:
                 assert response.status == 200
             await wait_for(lambda: satellite.models == ["hey_jarvis"])
@@ -256,7 +300,8 @@ async def _per_satellite(tmp_path: Path) -> None:
                 assert response.status == 200
             await wait_for(lambda: satellite.models == ["okay_nabu"])
             async with http.put(f"{base}/settings", json={"wake_words": ["okay_nabu", "hey_mycroft"]}) as response:
-                assert response.status == 400
+                assert response.status == 200
+            await wait_for(lambda: satellite.models == ["okay_nabu", "hey_mycroft"])
             async with http.put(f"{base}/settings", json={"wake_words": ["nope"]}) as response:
                 assert response.status == 400
 

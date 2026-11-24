@@ -3533,7 +3533,7 @@ function wakeWordNames(wake, ids) {
   return (ids || []).length ? ids.map((id) => wakeWordName(wake, id)).join(", ") : "none";
 }
 
-const MAX_WAKE_WORDS = 5;  // a satellite's own; the home has one preferred
+const MAX_WAKE_WORDS = 5;
 
 // A wake word as picked: a custom one says so, since one trained here from a
 // built-in phrase has the built-in one's name.
@@ -3825,36 +3825,39 @@ async function pageWakeWords(query) {
   const params = new URLSearchParams(query || "");
   const [wake, sats, training] = await Promise.all([api("GET", "wake_words"), loadSatellites(), api("GET", "wake_training")]);
   const runs = wake.wake_words.filter((w) => w.runs);
-  const option = (w, selected) => h("option", { value: w.id, selected: selected || null }, wakeWordLabel(w));
   const reload = (word) => {
     const target = word ? `#/wake?word=${encodeURIComponent(word)}` : location.hash;
     if (location.hash === target) pageWakeWords(location.hash.split("?")[1]);
     else location.hash = target;
   };
 
-  const preferred = h("select", { style: "max-width:320px", "aria-label": "Preferred wake word" }, runs.map((w) => option(w, w.id === wake.preferred)));
-  // A satellite's own wake words, as chips, and one more to add; none: the
-  // preferred one.
-  const satRows = sats.map((s) => {
-    const row = { s, own: [...(s.wake_words || [])], box: h("div", { class: "row" }) };
+  function picker(own, label, empty) {
+    const box = h("div", { class: "row" });
     const render = () => {
-      const add = h("select", { "aria-label": `Add a wake word to ${s.name}`, disabled: row.own.length >= MAX_WAKE_WORDS || null, onchange: (e) => {
-        if (e.target.value) { row.own.push(e.target.value); render(); }
+      const add = h("select", { "aria-label": label, disabled: own.length >= MAX_WAKE_WORDS, onchange: (e) => {
+        if (e.target.value) { own.push(e.target.value); render(); }
       } },
-        h("option", { value: "" }, row.own.length ? "Add a wake word…" : `Preferred (${wakeWordName(wake, wake.preferred)})`),
-        runs.filter((w) => !row.own.includes(w.id)).map((w) => option(w, false)));
-      fill(row.box,
-        row.own.length ? h("div", { class: "chips" }, row.own.map((id, i) => h("span", { class: "chip" }, wakeWordName(wake, id),
-          h("button", { type: "button", title: "remove", onclick: () => { row.own.splice(i, 1); render(); } }, "×")))) : null,
+        h("option", { value: "" }, own.length ? "Add a wake word…" : empty),
+        runs.filter((w) => !own.includes(w.id)).map((w) => h("option", { value: w.id }, wakeWordLabel(w))));
+      fill(box,
+        own.length ? h("div", { class: "chips" }, own.map((id, i) => h("span", { class: "chip" }, wakeWordName(wake, id),
+          h("button", { type: "button", title: "remove", "aria-label": `Remove ${wakeWordName(wake, id)}`, onclick: () => { own.splice(i, 1); render(); } }, "×")))) : null,
         add);
     };
     render();
-    return row;
+    return box;
+  }
+  const preferred = wake.preferred_words;
+  const home = [...preferred];
+  const homePicker = picker(home, "Add a home wake word", "Use app default");
+  const satRows = sats.map((s) => {
+    const own = [...(s.wake_words || [])];
+    return { s, own, box: picker(own, `Add a wake word to ${s.name}`, "Use home wake words") };
   });
 
   // Built-in words, the ones in use or changed, and custom ones that match
   // the filter: hundreds of custom words make a long page.
-  const using = (id) => sats.filter((s) => ((s.wake_words || []).length ? s.wake_words : [wake.preferred]).includes(id));
+  const using = (id) => sats.filter((s) => ((s.wake_words || []).length ? s.wake_words : preferred).includes(id));
   const opened = new Set(params.get("word") ? [params.get("word")] : []);
   const filter = wake.wake_words.length > 12 ? h("input", { type: "search", placeholder: `Filter ${wake.wake_words.length} wake words`, style: "max-width:260px" }) : null;
   const list = h("div", { class: "list" });
@@ -3873,7 +3876,7 @@ async function pageWakeWords(query) {
             word.trained && Object.keys(word.trained.recordings || {}).length ? `trained with ${recordingsText(word.trained.recordings)}` : null,
             users.length ? `on ${users.map((s) => s.name).join(", ")}` : null,
           ].filter(Boolean).join(" · "))),
-        word.id === wake.preferred ? h("span", { class: "badge accent" }, "preferred") : null,
+        preferred.includes(word.id) ? h("span", { class: "badge accent" }, "preferred") : null,
         Object.keys(word.tuning || {}).length ? h("span", { class: "badge" }, "changed") : null,
         word.runs ? null : h("span", { class: "badge bad", title: word.error || "" }, "can't run")),
       h("div", { class: "versions" }));
@@ -3889,7 +3892,7 @@ async function pageWakeWords(query) {
     const text = filter ? filter.value.trim().toLowerCase() : "";
     let room = 60;
     const shown = wake.wake_words.filter((w) => {
-      const keep = !w.custom || w.id === wake.preferred || using(w.id).length || Object.keys(w.tuning || {}).length || opened.has(w.id);
+      const keep = !w.custom || preferred.includes(w.id) || using(w.id).length || Object.keys(w.tuning || {}).length || opened.has(w.id);
       const match = !text || w.name.toLowerCase().includes(text) || w.id.includes(text);
       if (keep) return match || !text;
       return match && room-- > 0;
@@ -3901,17 +3904,17 @@ async function pageWakeWords(query) {
 
   const upload = h("input", { type: "file", multiple: true, accept: ".json,.tflite" });
   fill($main,
-    heading("h1", "Wake words", `What a satellite listens for before a command: the preferred wake word, or up to ${MAX_WAKE_WORDS} of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly.`),
+    heading("h1", "Wake words", "What a satellite listens for before a command: the home’s wake words, or a list of its own. Its own model listens on the satellite; a verified wake word is then checked again here, against confusables — phrases that sound like it — so the satellite can listen more eagerly."),
     wake.error ? h("div", { class: "notice warn" }, wake.error) : null,
     h("div", { class: "panel" },
-      heading("h2", "Preferred", "Every satellite listens for this one, unless given its own below."),
-      h("div", { class: "row" }, preferred, h("button", { class: "primary", onclick: async () => {
-        try { await api("PUT", "settings", { wake_words: [preferred.value] }); await refreshStatus(); toast("Saved"); reload(); }
+      heading("h2", "Preferred", `Pick up to ${MAX_WAKE_WORDS} for satellites without their own list. Satellites with fewer slots use the first words that fit. Clear the list to use the app default.`),
+      h("div", { class: "row" }, homePicker, h("button", { class: "primary", onclick: async () => {
+        try { await api("PUT", "settings", { wake_words: home }); await refreshStatus(); toast("Saved"); reload(); }
         catch (err) { toast(err.message); }
       } }, "Save"))),
     sats.length ? h("div", { class: "panel" },
       h("h2", {}, "Satellites"),
-      h("div", { class: "kv", style: "align-items:center" }, satRows.flatMap(({ s, box }) => [
+      h("div", { class: "kv wake-satellites" }, satRows.flatMap(({ s, box }) => [
         h("div", {}, s.name, s.connected ? null : h("span", { class: "muted small" }, " (offline)")),
         h("div", { class: "row" }, box,
           s.connected && (s.wake_words_need_firmware || []).length ? h("span", { class: "badge bad" }, `${wakeWordNames(wake, s.wake_words_need_firmware)} needs newer firmware`)

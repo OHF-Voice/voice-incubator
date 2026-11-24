@@ -154,6 +154,8 @@ h2.row { gap: 8px; align-items: center; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 0.9rem; }
 .kv > div:nth-child(odd) { color: var(--muted); }
+.wake-satellites { grid-template-columns: max-content minmax(0, 1fr); align-items: center; }
+.wake-satellites .row { min-width: 0; }
 
 .stage { border-left: 3px solid var(--line); padding: 4px 0 4px 12px; margin: 8px 0; }
 .stage.ok { border-left-color: var(--ok); }
