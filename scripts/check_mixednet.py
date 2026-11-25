@@ -10,7 +10,10 @@ reading it back. This builds both harnesses and diffs them frame by frame.
     scripts/check_mixednet.py models/wake/okay_nabu.tflite tests/*.wav \\
         --upstream <mixednet-executor> --component <firmware-voice-incubator>/components/voice_incubator
 
-Needs mixednet-executor and the ESPHome component checked out.
+Needs mixednet-executor and the ESPHome component checked out. With
+``--esp-nn <esp-nn source tree>`` the component is also built against esp-nn's
+portable kernels, which checks the ops it hands to esp-nn (the ESP32-S3
+assembly itself only runs on the device).
 """
 
 from __future__ import annotations
@@ -59,8 +62,11 @@ int main(int argc, char **argv) {
     return 1;
   }
   MixedNetExecutor executor;
+#ifdef MIXEDNET_USE_ESP_NN
+  executor.set_backend(true, true);  // depthwise too, which only the ESP32-S3 takes by default
+#endif
   if (!executor.setup(blob.model())) { std::fprintf(stderr, "setup failed\\n"); return 1; }
-  std::fprintf(stderr, "arena: %zu bytes\\n", executor.arena_size());
+  std::fprintf(stderr, "arena: %zu bytes, %u ops on esp-nn\\n", executor.arena_size(), executor.esp_nn_ops());
 
   const size_t frame = blob.feature_size();
   const size_t step = blob.input_frames();
@@ -115,6 +121,8 @@ def main() -> int:
     parser.add_argument("--upstream", type=Path, required=True, help="a mixednet-executor checkout")
     parser.add_argument("--component", type=Path, required=True,
                         help="the ESPHome component: firmware-voice-incubator/components/voice_incubator")
+    parser.add_argument("--esp-nn", type=Path,
+                        help="an esp-nn source tree: also build the component on its portable kernels")
     parser.add_argument("--random-frames", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=1234)
     args = parser.parse_args()
@@ -156,23 +164,57 @@ def main() -> int:
             check=True,
         )
 
+        harnesses = {"blob": work / "blob"}
+        if args.esp_nn:
+            # esp-nn's ANSI C kernels: not the ESP32-S3 assembly, but the same
+            # entry points, so this checks how ops are described to esp-nn.
+            sources = sorted(
+                str(path)
+                for path in (args.esp_nn / "src").rglob("*_ansi.c")
+                if "softmax" not in path.parts and "pooling" not in path.parts
+            )
+            objects = []
+            for source in sources:
+                obj = work / (Path(source).stem + ".o")
+                subprocess.run(
+                    ["gcc", "-O2", "-c", f"-I{args.esp_nn}/include", f"-I{args.esp_nn}/src/common",
+                     "-o", str(obj), source],
+                    check=True,
+                )
+                objects.append(str(obj))
+            subprocess.run(
+                common
+                + [f"-I{args.component}", f"-I{args.esp_nn}/include", "-DMIXEDNET_USE_ESP_NN",
+                   "-o", str(work / "blob_esp_nn"),
+                   str(args.component / "mixednet.cpp"), str(args.component / "mixednet_blob.cpp"),
+                   str(work / "blob_main.cpp"), *objects],
+                check=True,
+            )
+            harnesses["blob + esp-nn"] = work / "blob_esp_nn"
+
         ref = subprocess.run(
             [str(work / "ref"), str(work / "features.bin")], capture_output=True, text=True, check=True
         ).stdout
-        blob = subprocess.run(
-            [str(work / "blob"), str(work / "blob.mnb"), str(work / "features.bin")],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
+        outputs = {
+            name: subprocess.run(
+                [str(binary), str(work / "blob.mnb"), str(work / "features.bin")],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for name, binary in harnesses.items()
+        }
 
     steps = ref.count("\n")
-    if ref != blob:
-        mismatches = sum(a != b for a, b in zip(ref.splitlines(), blob.splitlines()))
-        print(f"MISMATCH: {mismatches} of {steps} steps differ", file=sys.stderr)
-        return 1
-    print(f"identical over {steps} inference steps")
-    return 0
+    failed = False
+    for name, result in outputs.items():
+        if result.stdout != ref:
+            mismatches = sum(a != b for a, b in zip(ref.splitlines(), result.stdout.splitlines()))
+            print(f"{name}: MISMATCH: {mismatches} of {steps} steps differ", file=sys.stderr)
+            failed = True
+        else:
+            print(f"{name}: identical over {steps} inference steps ({result.stderr.strip()})")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

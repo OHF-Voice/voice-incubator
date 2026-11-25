@@ -6,10 +6,14 @@ emits a flat op table plus weights. Upstream writes that table out as C to be
 compiled into the firmware; ``pack()`` writes the same table as a relocatable
 binary instead, so the model can arrive over the wire at runtime.
 
-Pointers become byte offsets into a trailing data section. Every array the
-executor reads as ``int32_t`` is 4-byte aligned, which is what lets the device
-point ``MixedNetOp`` straight at the received buffer with no fixups beyond
-adding a base address.
+Pointers become byte offsets into a trailing data section. Every array starts
+at a multiple of 16 bytes from the start of the blob (not of the data
+section): esp-nn's ESP32-S3 kernels read weights with vector loads that ignore
+the low address bits, so firmware that keeps the blob 16-byte aligned can hand
+them the received buffer as it is. Format version 1 only promised 4-byte
+alignment, and these offsets still meet it, so older firmware reads the blob
+unchanged; firmware given an older, 4-byte aligned blob runs those ops on its
+scalar kernels instead.
 """
 
 from __future__ import annotations
@@ -35,6 +39,9 @@ OP = struct.Struct("<BBBxHHHHHHHxxiiiiIIII")
 assert OP.size == 52
 
 NULL_OFFSET = 0xFFFFFFFF
+
+# int8 logit -> uint8 probability, between the tables and the data section.
+SIGMOID_SIZE = 256
 
 # The feature frame width every microWakeWord model is trained on. The device
 # refuses a model that disagrees rather than silently reading past its input.
@@ -75,6 +82,10 @@ class WakeModel:
         }
 
 
+# Where every array in the data section starts, measured from the blob start.
+ARRAY_ALIGN = 16
+
+
 def _align4(data: bytearray) -> None:
     while len(data) % 4:
         data.append(0)
@@ -90,13 +101,20 @@ def _serialize(compiler: Compiler) -> bytes:
     data = bytearray()
     offsets: dict[int, int] = {}
 
+    # The data section follows the header, the tables (padded to 4 bytes) and
+    # the sigmoid table; the device computes the same position.
+    tables = BUFFER.size * len(compiler.buffers) + OP.size * len(compiler.ops) + len(compiler.shifts)
+    data_start = HEADER.size + (tables + 3) // 4 * 4 + SIGMOID_SIZE
+    assert data_start % 4 == 0
+
     def place(name: str | None) -> int:
         if name is None:
             return NULL_OFFSET
         arr = arrays[name]
         key = id(arr)
         if key not in offsets:
-            _align4(data)
+            while (data_start + len(data)) % ARRAY_ALIGN:
+                data.append(0)
             offsets[key] = len(data)
             data.extend(arr.tobytes())
         return offsets[key]
@@ -144,7 +162,10 @@ def _serialize(compiler: Compiler) -> bytes:
     body.extend(packed_ops)
     body.extend(bytes(compiler.shifts))
     _align4(body)
-    body.extend(compiler.sigmoid_lut().tobytes())
+    sigmoid = compiler.sigmoid_lut().tobytes()
+    assert len(sigmoid) == SIGMOID_SIZE
+    body.extend(sigmoid)
+    assert HEADER.size + len(body) == data_start
     body.extend(data)
 
     header = HEADER.pack(
