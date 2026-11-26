@@ -31,6 +31,7 @@ from .agent import HOME_ASSISTANT_AGENT, KEEP_SECONDS, Agent, Answered, Streamed
 from .arbitration import Arbiter, Utterance, levels
 from .calls import CallLog, CallRecord
 from .commands import HOME_TAKEN, VERBOSITY, command_of
+from . import addresses as satellite_addresses
 from .discover import Device, Discovery
 from .discover import Device as Found
 from .endpoint import VADS, WAKE_SECONDS, EndOfSpeech, Endpointer, micro_available, vad_gain, warm_start
@@ -180,6 +181,43 @@ def _device_id(hello: dict) -> str:
     name = _UNSAFE.sub("-", str(hello.get("name") or "device")).strip("-")
     mac = _UNSAFE.sub("", str(hello.get("mac") or ""))
     return f"{name}-{mac[-6:]}" if mac else name
+
+
+async def _resolve(address: "satellite_addresses.Address") -> list[str]:
+    """The IPs a listed address reaches now, in the resolver's order: its
+    name resolved (none if it doesn't), an IP itself."""
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(address.host, address.port, type=socket.SOCK_STREAM)
+    except OSError:
+        return []
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+
+HELLO_WAIT = 10.0
+"""How long a listed address may take to say which satellite it is."""
+
+
+async def _hello_key(host: str, port: int) -> tuple[str, str]:
+    """The key (MAC) of the satellite answering at host:port, from its HELLO,
+    the first thing a satellite says, and the IP that answered (a name may
+    have several); the connection is closed after it."""
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), HELLO_WAIT)
+    ip = str((writer.get_extra_info("peername") or (host,))[0])
+    try:
+        async def hello() -> dict:
+            while True:
+                msg_type, length = HEADER.unpack(await reader.readexactly(HEADER.size))
+                payload = await reader.readexactly(length) if length else b""
+                if msg_type == Message.HELLO:
+                    return json.loads(payload) if payload else {}
+        key = _satellite_key(await asyncio.wait_for(hello(), HELLO_WAIT), "")
+    finally:
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+    if not key:
+        raise ValueError("its HELLO says no MAC")
+    return key, ip
 
 
 def _satellite_key(hello: dict, fallback: str) -> str:
@@ -797,6 +835,8 @@ class VoiceIncubatorApp:
         self._found: dict[str, Device] = {}
         """The satellites discovery found, by key: each served unless its
         device is disabled in Home Assistant."""
+        self._learning: dict[satellite_addresses.Address, asyncio.Task] = {}
+        """The Settings' satellite addresses being followed (_follow_address)."""
         self._web = None
         self.wyoming: Endpoints | None = None
         """Home Assistant's pipelines' way in (voice_incubator/wyoming_server.py)."""
@@ -899,9 +939,10 @@ class VoiceIncubatorApp:
             self.wyoming = None
         if self._web is not None:
             await self._web.cleanup()
-        for task in list(self._sessions.values()):
+        for task in [*self._sessions.values(), *self._learning.values()]:
             task.cancel()
         self._sessions.clear()
+        self._learning.clear()
         if self._discovery is not None:
             await self._discovery.stop()
             self._discovery = None
@@ -1811,6 +1852,7 @@ class VoiceIncubatorApp:
             if device.key not in self.hass.catalog.disabled_satellites:
                 self._start_session(device)
         self._discovery = Discovery()
+        self.follow_addresses()
         await self._discovery.start()
         try:
             while True:
@@ -1837,8 +1879,132 @@ class VoiceIncubatorApp:
                     _LOGGER.info("Satellite stopped answering mDNS: %s; staying with its last address", device)
         finally:
             await self._discovery.stop()
-            for task in list(self._sessions.values()):
+            for task in [*self._sessions.values(), *self._learning.values()]:
                 task.cancel()
+
+    def follow_addresses(self) -> None:
+        """The Settings' satellite addresses, for satellites mDNS doesn't
+        reach, at start and when the list is saved: each is followed to its
+        satellite (_follow_address), served as a remembered one (#21). Where
+        the satellite is already served at the IP the name resolves to, that
+        is one DNS lookup and nothing more; a remembered IP gone stale (a
+        lease that moved while the app was off) is replaced at once, not
+        after a dial to it times out. Also followed when a dial to its
+        satellite fails (_follow_mac)."""
+        if self._discovery is None or self.options.host:
+            return  # not serving yet (or any more), or pinned to --host
+        # Each stored entry alone: one a stricter version refuses (saving
+        # checks them all) costs only itself.
+        wanted: list[satellite_addresses.Address] = []
+        for entry in self.store.settings.get("satellite_addresses") or []:
+            try:
+                address = satellite_addresses.parse(satellite_addresses.text_of(entry))
+            except ValueError as err:
+                _LOGGER.warning("Satellite address not used: %s", err)
+                continue
+            if address not in wanted:
+                wanted.append(address)
+        for address in list(self._learning):
+            if address not in wanted:
+                self._learning.pop(address).cancel()
+        for address in wanted:
+            self._follow(address)
+
+    def _follow_mac(self, mac: str) -> None:
+        """A dial to ``mac`` failed: the listed address it is there by, if
+        any, is followed again -- it may live elsewhere now (a lease moved)."""
+        if self._discovery is None or self.options.host:
+            return
+        for text, known in self._address_macs().items():
+            if known == mac:
+                with contextlib.suppress(ValueError):
+                    self._follow(satellite_addresses.parse(text))
+
+    def _follow(self, address: "satellite_addresses.Address") -> None:
+        """_follow_address as a task, one per address at a time."""
+        if address in self._learning:
+            return
+        task = asyncio.ensure_future(self._follow_address(address))
+        self._learning[address] = task
+        task.add_done_callback(
+            lambda t, a=address: self._learning.pop(a, None) if self._learning.get(a) is t else None
+        )
+
+    def _address_macs(self) -> dict[str, str]:
+        """Each listed address (as listed) with the MAC of the satellite that
+        answered there, kept in its entry of the list."""
+        macs = {}
+        for entry in self.store.settings.get("satellite_addresses") or []:
+            mac = satellite_addresses.mac_of(entry)
+            if mac is not None:
+                macs[satellite_addresses.text_of(entry)] = mac
+        return macs
+
+    def _save_address_macs(self, macs: dict[str, str]) -> None:
+        """The list with these MACs in its entries (an address not in ``macs``
+        has none)."""
+        self.store.settings["satellite_addresses"] = [
+            {"address": text, **({"mac": macs[text]} if text in macs else {})}
+            for text in (satellite_addresses.text_of(e) for e in self.store.settings.get("satellite_addresses") or [])
+        ]
+        self.store.save_settings()
+
+    async def _follow_address(self, address: "satellite_addresses.Address") -> None:
+        """A listed address to its satellite, then done. Nothing to do where
+        its satellite (MAC known) is served there already (found by mDNS or
+        remembered at that IP), is connected elsewhere, or is disabled in Home
+        Assistant. Not yet known, one the app has at the IP and port it
+        points to is that satellite. Else the address is asked (its HELLO's
+        MAC, and the IP that answered), and the satellite served there: a
+        session dialling a stale address is replaced. Unreachable, or not
+        resolving yet, asked again with the usual backoff while listed."""
+        backoff = self.options.reconnect_seconds
+        while True:
+            ips = await _resolve(address)
+            mac = self._address_macs().get(str(address))
+            if mac is None:
+                mac = next((key for key, device in self._found.items()
+                            if device.port == address.port and device.host in ips), None)
+                if mac is not None:
+                    self._save_address_macs({**self._address_macs(), str(address): mac})
+            if mac is not None:
+                device = self._found.get(mac)
+                there = device is not None and device.port == address.port and device.host in ips
+                if there or self._connected(mac) or mac in self.hass.catalog.disabled_satellites:
+                    return
+            try:
+                mac, ip = await _hello_key(address.host, address.port)
+            except (OSError, asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError) as err:
+                # As a satellite's own redial: said until the delay stops
+                # growing, then only in the debug log.
+                why = err or type(err).__name__
+                if backoff < self.options.max_reconnect_seconds:
+                    _LOGGER.info("Satellite address %s: %s; asking again in %.0fs", address, why, backoff)
+                else:
+                    _LOGGER.debug("Satellite address %s: %s; asking again in %.0fs", address, why, backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, self.options.max_reconnect_seconds)
+                continue
+            if self._address_macs().get(str(address)) != mac:
+                self._save_address_macs({**self._address_macs(), str(address): mac})
+                _LOGGER.info("Satellite address %s is %s", address, mac)
+            self._serve_at(mac, ip, address.port)
+            return
+
+    def _connected(self, key: str) -> bool:
+        session = self.sessions.get(key)
+        return session is not None and session.writer is not None
+
+    def _serve_at(self, mac: str, ip: str, port: int) -> None:
+        """Served at ``ip`` as a remembered satellite (#21): the address mDNS
+        would report, so mDNS finding it there changes nothing; a session
+        dialling a stale address is replaced."""
+        device = Found(mac, ip, port, REMEMBERED)
+        self._found[mac] = device
+        if mac in self.hass.catalog.disabled_satellites:
+            _LOGGER.info("Satellite %s at %s:%d; disabled in Home Assistant, so left alone", mac, ip, port)
+            return
+        self._start_session(device)
 
     def _follow_disabled(self) -> None:
         """Let go of a satellite disabled in Home Assistant, for another app
@@ -1913,6 +2079,7 @@ class VoiceIncubatorApp:
                         _LOGGER.warning("Connect failed (%s); retrying every %.0fs", err, backoff)
                     else:
                         _LOGGER.debug("Connect failed (%s); retrying in %.0fs", err, backoff)
+                    self._follow_mac(session.key)  # a listed address may point elsewhere now
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, self.options.max_reconnect_seconds)
                     continue
