@@ -39,9 +39,11 @@ from .triggers import compile_triggers, settings_of, with_lists
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "triggers", "version"}
-VERSION = 3
-"""What a commands file is: 3, a device has names in its area and in the
+STORE_KEYS = {"language", "commands", "names", "lists", "unknown", "settings", "triggers", "version", "started"}
+VERSION = 4
+"""What a commands file is: 4, it says which languages were given
+DEFAULT_COMMANDS (``started``); before, the file's and its commands'
+languages had them (started_before). 3, a device has names in its area and in the
 whole house (``house``), and says whether it is part of its area
 (``implicit``) and heard with its area said elsewhere (``with_area``); before,
 one ``reach`` said where its names were heard (migrate_names). 2, its
@@ -51,7 +53,8 @@ NAME_KINDS = ("entities", "areas", "floors")
 
 DEFAULT_COMMANDS = ("time/what_time", "time/what_date", "satellites/never_mind")
 """The library commands a new home starts with, following it: the time, the
-date, and never mind. Deleted, they stay deleted."""
+date, and never mind -- and so does each language the app is first run in
+afterwards (add_starters). Deleted, they stay deleted."""
 
 
 def new_store(language: str) -> dict[str, Any]:
@@ -70,10 +73,53 @@ def new_store(language: str) -> dict[str, Any]:
     (``red: {en: [red], de: [rot]}``). ``commands``: what is listened for, and
     what happens. ``unknown``: what is said when nothing understood a
     sentence."""
+    data = {"version": VERSION, "language": language, "names": {}, "lists": {}, "commands": {}}
+    add_starters(data, language)
+    return data
+
+
+def add_starters(data: dict[str, Any], code: str) -> list[str]:
+    """DEFAULT_COMMANDS in ``code``, once: unless the store's ``started``
+    has it already, they are added (but one it has in ``code`` already),
+    and ``code`` goes in ``started`` -- so what is deleted afterwards stays
+    deleted. Another language's command keeps its id: the new one is
+    ``what_time_de`` beside it. The commands added."""
     from .library import REFERENCE  # pylint: disable=import-outside-toplevel
 
-    commands = {ref.partition("/")[2]: {REFERENCE: ref} for ref in DEFAULT_COMMANDS}
-    return {"version": VERSION, "language": language, "names": {}, "lists": {}, "commands": commands}
+    started = [str(c) for c in data.get("started") or []]
+    if code in started:
+        return []
+    commands = data.get("commands") or {}
+    default = file_language(data)
+    here = {
+        str(spec.get(REFERENCE))
+        for spec in commands.values()
+        if isinstance(spec, dict) and command_language(spec, default) == code
+    }
+    added = []
+    for ref in DEFAULT_COMMANDS:
+        if ref in here:
+            continue
+        base = ref.partition("/")[2]
+        if base in commands and command_language(commands[base], default) != code:
+            base = f"{base}_{code}"
+        command_id, n = base, 2
+        while command_id in commands:
+            command_id, n = f"{base}_{n}", n + 1
+        commands[command_id] = {REFERENCE: ref, **({"language": code} if code != default else {})}
+        added.append(command_id)
+    data["commands"] = commands
+    data["started"] = [*started, code]
+    return added
+
+
+def started_before(data: dict[str, Any]) -> list[str]:
+    """A commands file from before version 4: the languages that had
+    DEFAULT_COMMANDS -- its own, and every one a command is in -- since
+    what was deleted there can't be told from what never was."""
+    default = file_language(data)
+    every = (command_language(spec, default) for spec in (data.get("commands") or {}).values())
+    return list(dict.fromkeys([default, *every]))
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -583,6 +629,14 @@ class Store:
                 data = self._follow_library(data)
             if version < 3:
                 data = self._migrate_names(data)
+            if version < 4:
+                data["started"] = started_before(data)
+            added = add_starters(data, languages.current().code)
+            if version < 4 or added:
+                data["version"] = VERSION
+                _write_atomic(self.commands_path, _dumps(data))
+            if added:
+                _LOGGER.info("The commands every home starts with, in %s: %s", languages.current().name, ", ".join(added))
             self._document = data
         return plain(self._document)
 
