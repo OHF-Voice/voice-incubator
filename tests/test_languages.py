@@ -204,6 +204,50 @@ def test_devices_from_before_have_their_names_where_they_were_heard(english, tmp
     assert json.loads((tmp_path / "commands.before-names.json").read_text()) == before
 
 
+
+def test_each_language_starts_with_the_starter_commands(english, tmp_path):
+    """A home first run in English, then in German: German gets the time,
+    the date and never mind too, beside English's -- once, so what is
+    deleted stays deleted, in either language."""
+    import json  # pylint: disable=import-outside-toplevel
+
+    Store(tmp_path).document()  # a new home, in English
+    languages.use("de")
+    store = Store(tmp_path)  # the app started again, in German
+    compiled = store.load()
+    assert list(compiled.commands) == ["what_time_de", "what_date_de", "never_mind_de"]
+    assert compiled.hidden == {"what_time": "en", "what_date": "en", "never_mind": "en"}
+    saved = json.loads((tmp_path / "commands.json").read_text())
+    assert saved["started"] == ["en", "de"]
+    assert saved["commands"]["what_time_de"] == {"from": "time/what_time", "language": "de"}
+    store.delete_command("never_mind_de")
+    assert "never_mind_de" not in Store(tmp_path).load().commands  # deleted: not back
+    languages.use("en")
+    assert list(Store(tmp_path).load().commands) == ["what_time", "what_date", "never_mind"]
+
+
+def test_a_home_from_before_starts_in_a_language_it_has_no_commands_in(english, tmp_path):
+    """A commands file from before version 4: its language, and those it
+    has commands in, had the starter commands (deleted or not); another
+    gets them the first time the app runs in it."""
+    import json  # pylint: disable=import-outside-toplevel
+
+    from voice_incubator.store import VERSION  # pylint: disable=import-outside-toplevel
+
+    before = {"version": 3, "language": "en", "names": {}, "lists": {}, "commands": {
+        "what_time": {"from": "time/what_time"},
+        "vergiss_es": {"description": "nichts tun", "examples": ["vergiss es"], "language": "de"},
+    }}
+    (tmp_path / "commands.json").write_text(json.dumps(before))
+    languages.use("de")
+    assert list(Store(tmp_path).load().commands) == ["vergiss_es"]  # German had them
+    saved = json.loads((tmp_path / "commands.json").read_text())
+    assert saved["version"] == VERSION and saved["started"] == ["en", "de"]
+    languages.use("fr")
+    assert list(Store(tmp_path).load().commands) == ["what_time_fr", "what_date", "never_mind"]
+    languages.use("en")
+    assert list(Store(tmp_path).load().commands) == ["what_time"]  # deleted before: still
+
 def test_name_clashes_are_names_two_devices_have_where_they_are_heard():
     from voice_incubator.store import Device, name_clashes  # pylint: disable=import-outside-toplevel
 
