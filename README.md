@@ -100,6 +100,10 @@ things, set up satellites and look at sessions. The
 [guide](https://github.com/OHF-Voice/integration-voice-incubator/blob/main/GUIDE.md) has
 everything it does, page by page.
 
+With Home Assistant Cloud signed in, the app uses its speech-to-text and its
+voice for every satellite, until you choose another -- or the app's own
+models -- in Settings.
+
 ### Standalone
 
 Without Home Assistant's app store, it runs as a container:
@@ -139,7 +143,9 @@ your phone, or what's typed in Assist.
    integration with the app's address and port 10800.
 3. **Make a voice assistant** in **Settings > Voice assistants**, with Voice
    Labs as its speech-to-text, text-to-speech and conversation agent -- all
-   three, or any of them -- and choose it for the satellite.
+   three, or any of them -- and choose it for the satellite. Voice Labs
+   hears with the app's speech-to-text, chosen in its Settings: Home
+   Assistant Cloud's, when it is signed in (above).
 4. **Name things** on the Names page, and put the satellite's device in an
    area in Home Assistant: its commands are that area's.
 
